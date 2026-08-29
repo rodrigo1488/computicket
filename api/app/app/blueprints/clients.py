@@ -4,7 +4,13 @@ from io import TextIOWrapper
 import csv
 from .. import db
 from ..models import Client
-from ..external_pg import fetch_external_clients, fetch_external_clients_search, update_external_client, fetch_contract_types
+from ..external_pg import (
+	create_external_client,
+	fetch_external_clients,
+	fetch_external_clients_search,
+	update_external_client,
+	fetch_contract_types,
+)
 
 bp = Blueprint("clients", __name__)
 
@@ -101,16 +107,25 @@ def edit_client(client_id: int):
 @bp.route("/novo", methods=["GET", "POST"])
 @login_required
 def create_client():
-	# Mantido apenas para compatibilidade, porém ideal é desabilitar quando usando fonte externa
 	if request.method == "POST":
-		name = request.form.get("name")
-		phone = request.form.get("phone")
-		document = request.form.get("document")
-		contract_type = request.form.get("contract_type")
-		c = Client(name=name, phone=phone, document=document, contract_type=contract_type)
-		db.session.add(c)
-		db.session.commit()
-		flash("Cliente criado localmente (fonte externa ativa).")
+		name = (request.form.get("name") or "").strip()
+		if not name:
+			flash("Nome é obrigatório.")
+			return render_template("clients/new.html")
+		try:
+			create_external_client(
+				name,
+				document=(request.form.get("document") or "").strip(),
+				phone=(request.form.get("phone") or "").strip(),
+				email=(request.form.get("email") or "").strip(),
+				address=(request.form.get("address") or "").strip(),
+				address_number=(request.form.get("address_number") or "").strip(),
+				notes=(request.form.get("notes") or "").strip() or None,
+			)
+			flash("Cliente cadastrado no Unico.")
+		except Exception as e:
+			flash(f"Erro ao cadastrar: {e}")
+			return render_template("clients/new.html")
 		return redirect(url_for("clients.list_clients"))
 	return render_template("clients/new.html")
 

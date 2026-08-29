@@ -50,6 +50,9 @@ ALIASES = {
 	"ultima_localizacao": "address",
 	"senhas": "passwords_count",
 	"origem": "origin",
+	"solicitante": "solicitante",
+	"criado": "created_at",
+	"criado_em": "created_at",
 }
 
 

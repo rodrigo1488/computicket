@@ -116,6 +116,20 @@ def insert_finance_pg(id_entidade, document, title, description_service, total):
     Retorna True se sucesso, False se falha
     """
     try:
+        from ..uniplus_jobs import agent_enabled, enqueue_and_wait
+        if agent_enabled():
+            enqueue_and_wait("insert_finance_ps", {
+                "id_entidade": id_entidade,
+                "document": document,
+                "description_service": description_service,
+                "total": total,
+            })
+            return True
+    except Exception as e:
+        print(f"❌ Erro agente Uniplus insert_finance_pg: {e}")
+        return False
+
+    try:
         # Verificar se já existe duplicata
         if check_duplicate_finance_pg(document):
             print(f"⚠️ Duplicata detectada no financeiro PostgreSQL: {document}")
@@ -193,9 +207,15 @@ def insert_ps_with_transaction_control(id_entidade, data, total, ticket_number, 
         # Conectar aos bancos primeiro para poder usar o cursor na busca de OS disponível
         sql_conn = connect_sql_server()
         sql_cursor = sql_conn.cursor()
-        
-        pg_conn = connect_postgres()
-        pg_cursor = pg_conn.cursor()
+
+        from ..uniplus_jobs import agent_enabled, enqueue_and_wait
+        use_agent = agent_enabled()
+        pg_cursor = None
+        if not use_agent:
+            pg_conn = connect_postgres()
+            if not pg_conn:
+                raise Exception("Não foi possível conectar ao PostgreSQL Unico")
+            pg_cursor = pg_conn.cursor()
         
         # Verificar duplicatas antes de começar (se o mesmo ticket com o mesmo cliente já foi impresso)
         client_name = data.get("client_name")
@@ -242,23 +262,31 @@ def insert_ps_with_transaction_control(id_entidade, data, total, ticket_number, 
         new_id = int(new_id_row[0])
         document = f"PS/{new_id}"
         
-        # 2. Inserir no PostgreSQL
-        pg_cursor.execute("""
-            INSERT INTO financeiro (
-                idfilial, identidade, tipo, documento, idtipodocumentofinanceiro,
-                status, emissao, vencimento, valor, saldo,
-                historico, idcodigocontabil, observacaoboleto
-            ) VALUES (%s, %s, 'R', %s, %s, 'A', %s, %s, %s, %s, %s, 192, %s)
-        """, (
-            1, id_entidade, document, 8,
-            today.strftime('%Y-%m-%d'),
-            tomorrow.strftime('%Y-%m-%d'),
-            total, total, description_service, 'Avulso' 
-        ))
+        # 2. Inserir no PostgreSQL (agente Uniplus ou direto)
+        if use_agent:
+            enqueue_and_wait("insert_finance_ps", {
+                "id_entidade": id_entidade,
+                "document": document,
+                "description_service": description_service,
+                "total": total,
+            })
+        else:
+            pg_cursor.execute("""
+                INSERT INTO financeiro (
+                    idfilial, identidade, tipo, documento, idtipodocumentofinanceiro,
+                    status, emissao, vencimento, valor, saldo,
+                    historico, idcodigocontabil, observacaoboleto
+                ) VALUES (%s, %s, 'R', %s, %s, 'A', %s, %s, %s, %s, %s, 192, %s)
+            """, (
+                1, id_entidade, document, 8,
+                today.strftime('%Y-%m-%d'),
+                tomorrow.strftime('%Y-%m-%d'),
+                total, total, description_service, 'Avulso' 
+            ))
+            pg_conn.commit()
         
-        # 3. Commit em ambos os bancos
+        # 3. Commit SQL Server
         sql_conn.commit()
-        pg_conn.commit()
         
         print(f"✅ Transação completa: PS {document} inserida em ambos os bancos com OS {final_os}")
         return True, (document, final_os)

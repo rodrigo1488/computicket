@@ -13,7 +13,7 @@ from werkzeug.utils import secure_filename
 
 plans_bp = Blueprint('plans', __name__, url_prefix='/plans')
 
-# Verificação simples de schema (SQLite) para coluna support_included
+# Verificação simples de schema (SQLite/Postgres) para coluna support_included
 _plan_schema_checked = False
 _custom_plan_schema_checked = False
 _plan_additional_schema_checked = False
@@ -23,85 +23,39 @@ def _ensure_plan_support_included_column():
     if _plan_schema_checked:
         return
     try:
-        engine = db.session.bind
-        if engine and engine.dialect.name == 'sqlite':
-            from sqlalchemy import text
-            cols = db.session.execute(text("PRAGMA table_info('plan')")).fetchall()
-            col_names = [c[1] for c in cols]
-            if 'support_included' not in col_names:
-                db.session.execute(text("ALTER TABLE plan ADD COLUMN support_included BOOLEAN DEFAULT 0"))
-                db.session.commit()
-                print("✅ Coluna 'support_included' adicionada à tabela plan (via plans_bp)")
+        from app.schema_utils import ensure_column
+        dialect = db.session.bind.dialect.name if db.session.bind else ""
+        default = "FALSE" if dialect == "postgresql" else "0"
+        ensure_column("plan", "support_included", f"BOOLEAN DEFAULT {default}")
         _plan_schema_checked = True
     except Exception as e:
         print(f"⚠️ Erro ao garantir coluna support_included: {e}")
 
 
 def _ensure_custom_plan_tables():
-    """Cria tabelas para planos personalizados e seus itens (SQLite) se não existirem."""
+    """Cria tabelas para planos personalizados e seus itens se não existirem."""
     global _custom_plan_schema_checked
     if _custom_plan_schema_checked:
         return
     try:
-        engine = db.session.bind
-        if engine and engine.dialect.name == 'sqlite':
-            from sqlalchemy import text
-            # Tabela de planos personalizados
-            db.session.execute(text(
-                """
-                CREATE TABLE IF NOT EXISTS custom_plan (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    system_id INTEGER NOT NULL,
-                    name VARCHAR(150) NULL,
-                    base_value FLOAT DEFAULT 0,
-                    total_value FLOAT DEFAULT 0,
-                    created_at DATETIME,
-                    created_by_id INTEGER NULL,
-                    FOREIGN KEY (system_id) REFERENCES system (id)
-                )
-                """
-            ))
-            # Tabela de itens (adicionais) do plano personalizado
-            db.session.execute(text(
-                """
-                CREATE TABLE IF NOT EXISTS custom_plan_item (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    custom_plan_id INTEGER NOT NULL,
-                    description TEXT NOT NULL,
-                    value FLOAT NOT NULL DEFAULT 0,
-                    created_at DATETIME,
-                    FOREIGN KEY (custom_plan_id) REFERENCES custom_plan (id)
-                )
-                """
-            ))
-            db.session.commit()
+        from app.schema_utils import ensure_tables_from_metadata
+        # Garante modelos registrados
+        from app.models import CustomPlan, CustomPlanItem  # noqa: F401
+        ensure_tables_from_metadata(["custom_plan", "custom_plan_item"])
         _custom_plan_schema_checked = True
     except Exception as e:
         print(f"⚠️ Erro ao garantir tabelas de planos personalizados: {e}")
 
 
 def _ensure_plan_additional_table():
-    """Cria tabela de adicionais por plano (SQLite) se não existir."""
+    """Cria tabela de adicionais por plano se não existir."""
     global _plan_additional_schema_checked
     if _plan_additional_schema_checked:
         return
     try:
-        engine = db.session.bind
-        if engine and engine.dialect.name == 'sqlite':
-            from sqlalchemy import text
-            db.session.execute(text(
-                """
-                CREATE TABLE IF NOT EXISTS plan_additional (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    plan_id INTEGER NOT NULL,
-                    description TEXT NOT NULL,
-                    value FLOAT NOT NULL DEFAULT 0,
-                    created_at DATETIME,
-                    FOREIGN KEY (plan_id) REFERENCES plan (id)
-                )
-                """
-            ))
-            db.session.commit()
+        from app.schema_utils import ensure_tables_from_metadata
+        from app.models import PlanAdditional  # noqa: F401
+        ensure_tables_from_metadata(["plan_additional"])
         _plan_additional_schema_checked = True
     except Exception as e:
         print(f"⚠️ Erro ao garantir tabela plan_additional: {e}")
@@ -329,26 +283,7 @@ def create_plan(system_id):
             
             # Adicionais (opcionais) enviados como listas paralelas
             from sqlalchemy import text
-            # Garantir tabela antes de inserir
             _ensure_plan_additional_table()
-            try:
-                engine = db.session.bind
-                if engine and engine.dialect.name == 'sqlite':
-                    db.session.execute(text(
-                        """
-                        CREATE TABLE IF NOT EXISTS plan_additional (
-                            id INTEGER PRIMARY KEY AUTOINCREMENT,
-                            plan_id INTEGER NOT NULL,
-                            description TEXT NOT NULL,
-                            value FLOAT NOT NULL DEFAULT 0,
-                            created_at DATETIME,
-                            FOREIGN KEY (plan_id) REFERENCES plan (id)
-                        )
-                        """
-                    ))
-                    db.session.commit()
-            except Exception:
-                pass
             additional_descs = request.form.getlist('additional_description[]')
             additional_values = request.form.getlist('additional_value[]')
             now_iso = get_brasilia_now()
@@ -382,24 +317,8 @@ def view_plan(plan_id):
     _ensure_plan_support_included_column()
     _ensure_plan_additional_table()
     plan = Plan.query.get_or_404(plan_id)
-    # Garantir tabela e buscar adicionais com fallback seguro
     from sqlalchemy import text
     try:
-        engine = db.session.bind
-        if engine and engine.dialect.name == 'sqlite':
-            db.session.execute(text(
-                """
-                CREATE TABLE IF NOT EXISTS plan_additional (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    plan_id INTEGER NOT NULL,
-                    description TEXT NOT NULL,
-                    value FLOAT NOT NULL DEFAULT 0,
-                    created_at DATETIME,
-                    FOREIGN KEY (plan_id) REFERENCES plan (id)
-                )
-                """
-            ))
-            db.session.commit()
         additionals = db.session.execute(
             text("SELECT description, value FROM plan_additional WHERE plan_id = :pid ORDER BY id ASC"),
             { 'pid': plan_id }
@@ -759,26 +678,31 @@ def api_create_custom_plan():
 
         total_value = base_value + total_additionals
 
-        # Persistir manualmente via SQL simples (sem modelos dedicados)
+        # Persistir e obter ID (funciona em SQLite e PostgreSQL)
         from sqlalchemy import text
         now_iso = get_brasilia_now()
-        res = db.session.execute(
-            text("INSERT INTO custom_plan (system_id, name, base_value, total_value, created_at, created_by_id) VALUES (:sid, :name, :base, :total, :created_at, :uid)") ,
-            {
-                'sid': system_id,
-                'name': name,
-                'base': base_value,
-                'total': total_value,
-                'created_at': now_iso,
-                'uid': getattr(current_user, 'id', None)
-            }
+        dialect = db.session.bind.dialect.name if db.session.bind else ""
+        insert_sql = (
+            "INSERT INTO custom_plan (system_id, name, base_value, total_value, created_at, created_by_id) "
+            "VALUES (:sid, :name, :base, :total, :created_at, :uid)"
         )
-        custom_plan_id = res.lastrowid if hasattr(res, 'lastrowid') else None
-
-        if not custom_plan_id:
-            # fallback para buscar último ID
-            row = db.session.execute(text("SELECT last_insert_rowid() as lid")).first()
-            custom_plan_id = row.lid if row else None
+        params = {
+            'sid': system_id,
+            'name': name,
+            'base': base_value,
+            'total': total_value,
+            'created_at': now_iso,
+            'uid': getattr(current_user, 'id', None)
+        }
+        if dialect == "postgresql":
+            res = db.session.execute(text(insert_sql + " RETURNING id"), params)
+            custom_plan_id = res.scalar()
+        else:
+            res = db.session.execute(text(insert_sql), params)
+            custom_plan_id = res.lastrowid if hasattr(res, 'lastrowid') else None
+            if not custom_plan_id:
+                row = db.session.execute(text("SELECT last_insert_rowid() as lid")).first()
+                custom_plan_id = row.lid if row else None
 
         for it in valid_items:
             db.session.execute(

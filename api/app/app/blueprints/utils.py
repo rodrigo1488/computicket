@@ -26,29 +26,17 @@ def connect_sql_server():
     'TrustServerCertificate=yes;'
   )
 
-DATA_BASE_POSTGRES_CONFIG = {
-  'host': 'winserver',
-  'port': 5432,
-  'database': 'unico',
-  'user': 'postgres',
-  'password': 'postgres',
-  'options': '-c default_transaction_isolation=read_committed'
-}
+DATA_BASE_POSTGRES_CONFIG = None  # legado: use get_unico_pg_config / connect_postgres()
+
 
 def connect_postgres():
-  if psycopg2 is None:
-    print("psycopg2 não está instalado neste ambiente")
-    return None
+  """Conecta ao Postgres Unico — mesmo caminho das leituras de clientes (external_pg)."""
   try:
-    return psycopg2.connect(
-      host=DATA_BASE_POSTGRES_CONFIG["host"],
-      port=DATA_BASE_POSTGRES_CONFIG["port"],
-      database=DATA_BASE_POSTGRES_CONFIG["database"],
-      user=DATA_BASE_POSTGRES_CONFIG["user"],
-      password=DATA_BASE_POSTGRES_CONFIG["password"]
-    )
+    from ..external_pg import ExternalPgError, _pg_connect
+    return _pg_connect()
   except Exception as e:
-    print(f"Erro ao conectar ao banco PostgreSQL: {e}")
+    # Mantém contrato legado (None) para callers que checam `if not conn`.
+    print(f"Erro ao conectar ao banco PostgreSQL (Unico/faturamento): {e}")
     return None
 
 

@@ -3,7 +3,7 @@ from collections import defaultdict
 from flask import Blueprint, render_template, jsonify
 from flask_login import login_required
 from sqlalchemy import func, and_
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from ..models import Ticket, TimeEntry, Client, User, ServiceOrder
 from ..timezone_utils import get_brasilia_now
 
@@ -40,6 +40,9 @@ def _empty_helpdesk(error=None):
         "queues": [],
         "connections": [],
         "users": [],
+        "tickets_mes_count": 0,
+        "conversas_mes_count": 0,
+        "comparativo_por_dia": [],
     }
 
 
@@ -52,6 +55,104 @@ def _normalize_whatsapps(raw):
         if raw.get("id"):
             return [raw]
     return []
+
+
+def _parse_engine_day(value):
+    """Extrai YYYY-MM-DD de timestamps do engine (ISO / SQL)."""
+    if value is None:
+        return None
+    if hasattr(value, "date"):
+        try:
+            return value.date().isoformat()
+        except Exception:
+            pass
+    raw = str(value).strip()
+    if not raw:
+        return None
+    if "T" in raw:
+        raw = raw.split("T", 1)[0]
+    elif " " in raw:
+        raw = raw.split(" ", 1)[0]
+    return raw[:10] if len(raw) >= 10 else None
+
+
+def _tickets_closed_by_day(month_start, day_end):
+    """Tickets Computicket fechados no mês, dia a dia (mesmo critério da Operação)."""
+    closed_by_day = (
+        Ticket.query.with_entities(
+            func.date(Ticket.closed_at).label("day"),
+            func.count(Ticket.id).label("count"),
+        )
+        .filter(
+            and_(
+                Ticket.status == "fechado",
+                Ticket.closed_at >= month_start,
+                Ticket.closed_at <= day_end,
+            )
+        )
+        .group_by(func.date(Ticket.closed_at))
+        .all()
+    )
+    counts = {}
+    for day, count in closed_by_day:
+        if not day:
+            continue
+        key = day.isoformat()[:10] if hasattr(day, "isoformat") else str(day)[:10]
+        counts[key] = int(count or 0)
+    return counts
+
+
+def _engine_closed_conversations_by_day(agent_request, month_start_date, today_date):
+    """
+    Conversas WhatsApp encerradas no mês via engine.
+    Assume listagem closed ordenada por updatedAt DESC; para ao acabar o mês.
+    """
+    counts = defaultdict(int)
+    month_key = month_start_date.isoformat()
+    today_key = today_date.isoformat()
+    page = 1
+    while page <= 20:
+        data = agent_request(
+            "GET",
+            "/tickets",
+            params={"status": "closed", "showAll": "true", "pageNumber": str(page)},
+        )
+        chunk = data.get("tickets") if isinstance(data, dict) else data
+        tickets = [item for item in (chunk or []) if isinstance(item, dict)]
+        in_month = False
+        before_month = False
+        for ticket in tickets:
+            day = _parse_engine_day(ticket.get("updatedAt") or ticket.get("createdAt"))
+            if not day:
+                continue
+            if day < month_key:
+                before_month = True
+                continue
+            if day > today_key:
+                continue
+            in_month = True
+            counts[day] += 1
+        has_more = bool(isinstance(data, dict) and data.get("hasMore"))
+        # Página inteira anterior ao mês + ordenação DESC ⇒ páginas seguintes são mais antigas
+        if (before_month and not in_month) or not has_more or not tickets:
+            break
+        page += 1
+    return dict(counts)
+
+
+def _build_comparativo_por_dia(month_start, today, conversas_by_day, tickets_by_day):
+    series = []
+    cursor = month_start.date() if hasattr(month_start, "date") else month_start
+    last = today.date() if hasattr(today, "date") else today
+    while cursor <= last:
+        key = cursor.isoformat()
+        series.append({
+            "date": key,
+            "conversas": int(conversas_by_day.get(key, 0)),
+            "tickets": int(tickets_by_day.get(key, 0)),
+        })
+        cursor += timedelta(days=1)
+    return series
 
 
 def get_helpdesk_dashboard_data():
@@ -91,6 +192,29 @@ def get_helpdesk_dashboard_data():
             closed = _as_int(closed_data.get("count"))
     except EngineError:
         closed = 0
+
+    brasilia_now = get_brasilia_now()
+    current_month = brasilia_now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    fim_dia = brasilia_now.replace(hour=23, minute=59, second=59, microsecond=999999)
+    month_start_date = current_month.date() if hasattr(current_month, "date") else current_month
+    today_date = brasilia_now.date() if hasattr(brasilia_now, "date") else brasilia_now
+
+    tickets_by_day = _tickets_closed_by_day(current_month, fim_dia)
+    tickets_mes_count = sum(tickets_by_day.values())
+
+    conversas_by_day = {}
+    try:
+        conversas_by_day = _engine_closed_conversations_by_day(
+            agent_request, month_start_date, today_date
+        )
+    except EngineError:
+        conversas_by_day = {}
+    except Exception:
+        conversas_by_day = {}
+    conversas_mes_count = sum(conversas_by_day.values())
+    comparativo_por_dia = _build_comparativo_por_dia(
+        current_month, brasilia_now, conversas_by_day, tickets_by_day
+    )
 
     summary_raw = overview.get("summary") or {}
     active = _as_int(summary_raw.get("active"))
@@ -155,6 +279,9 @@ def get_helpdesk_dashboard_data():
         "queues": queues,
         "connections": connections,
         "users": users,
+        "tickets_mes_count": tickets_mes_count,
+        "conversas_mes_count": conversas_mes_count,
+        "comparativo_por_dia": comparativo_por_dia,
     }
 
 
@@ -388,6 +515,36 @@ def get_dashboard_data():
     # OS finalizadas no mês atual
     os_mes_count = ServiceOrder.query.filter(ServiceOrder.completion_date >= current_month).count()
 
+    # Atendimentos (tickets fechados) dia a dia no mês atual
+    closed_by_day = (
+        Ticket.query.with_entities(
+            func.date(Ticket.closed_at).label("day"),
+            func.count(Ticket.id).label("count"),
+        )
+        .filter(
+            and_(
+                Ticket.status == "fechado",
+                Ticket.closed_at >= current_month,
+                Ticket.closed_at <= fim_dia,
+            )
+        )
+        .group_by(func.date(Ticket.closed_at))
+        .all()
+    )
+    counts_by_day = {}
+    for day, count in closed_by_day:
+        if not day:
+            continue
+        key = day.isoformat()[:10] if hasattr(day, "isoformat") else str(day)[:10]
+        counts_by_day[key] = int(count or 0)
+    tickets_por_dia = []
+    cursor = current_month.date() if hasattr(current_month, "date") else current_month
+    last_day = brasilia_now.date() if hasattr(brasilia_now, "date") else brasilia_now
+    while cursor <= last_day:
+        key = cursor.isoformat()
+        tickets_por_dia.append({"date": key, "count": counts_by_day.get(key, 0)})
+        cursor += timedelta(days=1)
+
     return {
         'status_counts': status_counts,
         'hours_by_user': hours_by_user,
@@ -401,7 +558,8 @@ def get_dashboard_data():
         'tickets_hoje_count': tickets_hoje_count,
         'faturamento_hoje': faturamento_hoje,
         'tickets_mes_count': tickets_mes_count,
-        'os_mes_count': os_mes_count
+        'os_mes_count': os_mes_count,
+        'tickets_por_dia': tickets_por_dia,
     }
 
 

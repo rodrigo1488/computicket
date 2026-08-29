@@ -1,0 +1,13 @@
+.venv/
+__pycache__/
+*.pyc
+agent.db
+agent.db-*
+*.log
+.dist/
+# Build PyInstaller
+build/
+dist/
+# UniplusAgent.spec é versionado (usado por build.bat)
+*.spec
+!UniplusAgent.spec

@@ -185,8 +185,26 @@ export default function TicketsPage() {
         searchValue={q}
         onSearch={setQ}
         onFiltersChange={onFiltersChange}
-        columnMeta={{ Status: { filter: "select" }, Ações: { sortable: false, filter: false } }}
-        columns={["#", "Título", "Cliente", "Serviço", "Status", "Horas", "Valor", "Ações"]}
+        columnMeta={{
+          Status: { filter: "select" },
+          Técnico: { field: "technician_name" },
+          Solicitante: { field: "solicitante" },
+          Criado: { field: "created_at" },
+          Ações: { sortable: false, filter: false },
+        }}
+        columns={[
+          "#",
+          "Título",
+          "Cliente",
+          "Solicitante",
+          "Serviço",
+          "Técnico",
+          "Status",
+          "Horas",
+          "Valor",
+          "Criado",
+          "Ações",
+        ]}
         empty="Nenhum ticket neste filtro"
         rows={(data?.items || []).map((t) => {
           const mine = t.assigned_to_id === uid;
@@ -201,14 +219,14 @@ export default function TicketsPage() {
                 <p className="truncate text-xs text-muted">{t.description.slice(0, 60)}</p>
               ) : null}
             </div>,
-            <div key={`c-${t.id}`}>
-              <p>{t.client_name}</p>
-              {t.solicitante ? <p className="text-xs text-muted">Solicitante: {t.solicitante}</p> : null}
-            </div>,
+            t.client_name || "—",
+            t.solicitante || "—",
             t.category,
+            t.assigned_to_name || "—",
             <StatusBadge key={`s-${t.id}`} status={t.status as TicketStatus} />,
             t.hours_label || "0min",
             t.status === "fechado" ? formatBRL(t.total_cost) : "—",
+            t.created_at || "—",
             <RowActions key={`a-${t.id}`}>
               <ViewAction href={`/tickets/${t.id}`} />
               {!closed && mine && t.status === "aberto" ? (

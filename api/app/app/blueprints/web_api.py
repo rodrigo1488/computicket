@@ -29,6 +29,7 @@ from ..models import (
 	UserAvailability,
 )
 from ..external_pg import (
+	create_external_client,
 	fetch_contract_types,
 	fetch_external_clients,
 	get_contracts_with_services,
@@ -128,6 +129,7 @@ def dashboard():
 		"tickets_mes_count": data.get("tickets_mes_count") or 0,
 		"os_mes_count": data.get("os_mes_count") or 0,
 		"total_hours": float(data.get("total_hours") or 0),
+		"tickets_por_dia": data.get("tickets_por_dia") or [],
 	})
 
 
@@ -144,6 +146,9 @@ def dashboard_helpdesk():
 		"queues": data.get("queues") or [],
 		"connections": data.get("connections") or [],
 		"users": data.get("users") or [],
+		"tickets_mes_count": data.get("tickets_mes_count") or 0,
+		"conversas_mes_count": data.get("conversas_mes_count") or 0,
+		"comparativo_por_dia": data.get("comparativo_por_dia") or [],
 	})
 
 
@@ -181,13 +186,24 @@ def tickets_stale_count():
 @bp.route("/clients")
 @login_required
 def clients():
-	from ..external_pg import fetch_external_clients_search
+	from ..external_pg import ExternalPgError, fetch_external_clients_search
 
 	q = (request.args.get("q") or "").strip()
-	if q:
-		items = fetch_external_clients_search(q)
-	else:
-		items = fetch_external_clients()
+	try:
+		if q:
+			items = fetch_external_clients_search(q)
+		else:
+			items = fetch_external_clients()
+	except ExternalPgError as e:
+		return jsonify({"error": str(e), "items": [], "total": 0, "page": 1, "per_page": 25}), 503
+	except Exception as e:
+		return jsonify({
+			"error": f"Falha ao carregar clientes do Unico: {e}",
+			"items": [],
+			"total": 0,
+			"page": 1,
+			"per_page": 25,
+		}), 503
 	payload = _slice_page(items, default=25)
 	return jsonify(payload)
 
@@ -1277,6 +1293,30 @@ def catalog():
 		}
 		for s in systems
 	])
+
+
+@bp.route("/clients", methods=["POST"])
+@login_required
+def clients_create():
+	data = _json()
+	name = (data.get("name") or "").strip()
+	if not name:
+		return jsonify({"error": "Nome é obrigatório."}), 400
+	try:
+		client = create_external_client(
+			name,
+			document=(data.get("document") or "").strip(),
+			phone=(data.get("phone") or "").strip(),
+			email=(data.get("email") or "").strip(),
+			address=(data.get("address") or "").strip(),
+			address_number=(data.get("address_number") or "").strip(),
+			notes=(data.get("notes") or "").strip() or None,
+		)
+	except ValueError as e:
+		return jsonify({"error": str(e)}), 400
+	except Exception as e:
+		return jsonify({"error": str(e)}), 500
+	return jsonify(client), 201
 
 
 @bp.route("/clients/<int:client_id>")

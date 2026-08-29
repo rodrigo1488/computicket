@@ -17,18 +17,25 @@ RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
 
 ENV PUPPETEER_SKIP_DOWNLOAD=true \
     PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
-    NODE_ENV=production \
     HOST=0.0.0.0 \
     PORT=4000
 
-COPY package.json package-lock.json ./
-RUN npm ci --omit=optional --no-audit --no-fund --fetch-timeout=600000 \
-    || npm install --no-audit --no-fund --fetch-timeout=600000
+COPY package.json ./
+COPY package-lock.json* pnpm-lock.yaml* yarn.lock* ./
+# Instala deps de build (typescript/@types) — NODE_ENV=production pularia as devDependencies
+RUN if [ -f package-lock.json ]; then \
+      npm ci --include=dev --omit=optional --no-audit --no-fund --fetch-timeout=600000; \
+    else \
+      npm install --include=dev --no-audit --no-fund --fetch-timeout=600000; \
+    fi
 
 COPY . .
 RUN mkdir -p /app/public \
     && npm run build \
+    && npm prune --omit=dev \
     && npm cache clean --force
+
+ENV NODE_ENV=production
 
 EXPOSE 4000
 

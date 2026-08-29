@@ -1,0 +1,6 @@
+Flask==3.0.3
+python-socketio[client]==5.11.4
+websocket-client==1.8.0
+psycopg2-binary>=2.9.9,<3
+pystray>=0.19.0
+Pillow>=9.0.0

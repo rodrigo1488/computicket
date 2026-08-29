@@ -1,0 +1,144 @@
+# Computicket — stack completa em containers
+#
+# Portas no HOST (evitam colisão com Uniplus Postgres em :5432):
+#   3000  web (Next.js)
+#   4000  whatsapp-engine
+#   5000  api (Flask + Socket.IO)
+#   15432 postgres Computicket (interno do container continua 5432)
+#   16379 redis
+#
+# Uniplus/ERP: permanece no host (ou outra máquina) em :5432 — configure
+# host/credenciais em Configurações → Uniplus (SystemConfig), não neste compose.
+
+services:
+  redis:
+    image: redis:8.0.1
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "${COMPUTICKET_REDIS_PORT:-16379}:6379"
+    volumes:
+      # Nome legado (compose WhatsApp) — preserva dados existentes
+      - computicket_whatsapp_redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  postgres:
+    image: postgres:16.9
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${COMPUTICKET_DB_USER:-computicket}
+      POSTGRES_PASSWORD: ${COMPUTICKET_DB_PASS:-computicket}
+      POSTGRES_DB: ${COMPUTICKET_WHATSAPP_DB:-computicket_whatsapp}
+      COMPUTICKET_APP_DB: ${COMPUTICKET_APP_DB:-computicket}
+    # NUNCA publique 5432 no host — reservado ao Uniplus.
+    ports:
+      - "${COMPUTICKET_PG_PORT:-15432}:5432"
+    volumes:
+      # Nome legado — mesmo volume do docker-compose.whatsapp.yml
+      - computicket_whatsapp_pg:/var/lib/postgresql/data
+      - ./infra/postgres/init-computicket-db.sh:/docker-entrypoint-initdb.d/02-init-computicket-db.sh:ro
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${COMPUTICKET_DB_USER:-computicket} -d ${COMPUTICKET_WHATSAPP_DB:-computicket_whatsapp}",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  whatsapp-engine:
+    build:
+      context: ./infra/Baileys
+      dockerfile: ../whatsapp-engine/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "${COMPUTICKET_WHATSAPP_PORT:-4000}:4000"
+    volumes:
+      - computicket_whatsapp_media:/app/public
+    environment:
+      NODE_ENV: production
+      PORT: "4000"
+      HOST: 0.0.0.0
+      DEV_NETWORK: "true"
+      ENABLE_WHATSAPP: "true"
+      ENABLE_BULL_WORKERS: "true"
+      ENABLE_AUDIO_TRANSCRIPTION: "false"
+      BACKEND_URL: ${WHATSAPP_BACKEND_URL:-http://whatsapp-engine:4000}
+      FRONTEND_URL: ${COMPUTICKET_PUBLIC_URL:-http://localhost:3000}
+      DB_DIALECT: postgres
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_USER: ${COMPUTICKET_DB_USER:-computicket}
+      DB_PASS: ${COMPUTICKET_DB_PASS:-computicket}
+      DB_NAME: ${COMPUTICKET_WHATSAPP_DB:-computicket_whatsapp}
+      REDIS_URI: redis://redis:6379
+      JWT_SECRET: ${WHATSAPP_JWT_SECRET:-computicket-whatsapp-jwt-dev-secret}
+      JWT_REFRESH_SECRET: ${WHATSAPP_JWT_REFRESH_SECRET:-computicket-whatsapp-refresh-dev-secret}
+      USER_LIMIT: "9999"
+      CONNECTIONS_LIMIT: "9999"
+      CLOSED_SEND_BY_ME: "true"
+      WBOT_ENABLE_DISTRIBUTED_LOCK: "false"
+      CACHE_ENABLED: "true"
+
+  api:
+    build:
+      context: ./api
+      dockerfile: ../infra/api/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "${COMPUTICKET_API_PORT:-5000}:5000"
+    environment:
+      SECRET_KEY: ${SECRET_KEY:-computicket-dev-secret-change-me}
+      SQLALCHEMY_DATABASE_URI: postgresql+psycopg2://${COMPUTICKET_DB_USER:-computicket}:${COMPUTICKET_DB_PASS:-computicket}@postgres:5432/${COMPUTICKET_APP_DB:-computicket}
+      WHATSAPP_ENGINE_URL: http://whatsapp-engine:4000
+      WHATSAPP_ENGINE_ADMIN_EMAIL: ${WHATSAPP_ENGINE_ADMIN_EMAIL:-admin@admin.com}
+      WHATSAPP_ENGINE_ADMIN_PASSWORD: ${WHATSAPP_ENGINE_ADMIN_PASSWORD:-123456}
+      # Fallback opcional do agente (preferir Configurações → Uniplus)
+      UNIPLUS_AGENT_ENABLED: ${UNIPLUS_AGENT_ENABLED:-0}
+      UNIPLUS_AGENT_DEVICE_ID: ${UNIPLUS_AGENT_DEVICE_ID:-}
+      UNIPLUS_AGENT_TOKEN: ${UNIPLUS_AGENT_TOKEN:-}
+      # Unico PG: só SystemConfig na UI — sem host/senha aqui
+    volumes:
+      - computicket_api_instance:/app/instance
+      - computicket_api_uploads:/app/app/static/uploads
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import socket; s=socket.create_connection(('127.0.0.1',5000),3); s.close()\""]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 40s
+
+  web:
+    build:
+      context: ./web
+      dockerfile: ../infra/web/Dockerfile
+      args:
+        FLASK_URL: http://api:5000
+    restart: unless-stopped
+    depends_on:
+      - api
+    ports:
+      - "${COMPUTICKET_WEB_PORT:-3000}:3000"
+    environment:
+      FLASK_URL: http://api:5000
+      NODE_ENV: production
+
+volumes:
+  computicket_whatsapp_pg:
+  computicket_whatsapp_redis:
+  computicket_whatsapp_media:
+  computicket_api_instance:
+  computicket_api_uploads:

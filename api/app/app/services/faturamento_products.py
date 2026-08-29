@@ -84,7 +84,10 @@ def search_products(q: str = "") -> list[dict[str, Any]]:
 	"""Busca produtos ativos tipo P no PostgreSQL."""
 	conn = connect_postgres()
 	if not conn:
-		raise ConnectionError("Erro de conexão com o banco de faturamento")
+		raise ConnectionError(
+			"Erro de conexão com o banco de faturamento (Postgres Unico). "
+			"Confira Configurações → Uniplus — a mesma conexão usada para clientes."
+		)
 
 	cursor = conn.cursor()
 	try:
@@ -240,11 +243,10 @@ def create_dav(
 	Cria DAV + davitem. Retorna (dav_id, dav_codigo).
 	Levanta ValueError em validações de negócio.
 	"""
+	from ..uniplus_jobs import agent_enabled, enqueue_and_wait
+
 	if not client_id:
 		raise ValueError("Cliente não informado. Não é possível criar DAV sem cliente.")
-
-	if check_dav_duplicate(cursor, reference_label, reference_code):
-		raise ValueError(f"DAV já existe para {reference_label} {reference_code}")
 
 	if not product_details:
 		raise ValueError("É necessário pelo menos 1 produto para criar o DAV")
@@ -257,6 +259,24 @@ def create_dav(
 		if preco < 0:
 			raise ValueError(f"Preço inválido para o produto '{p.get('nome', 'N/A')}'")
 		valor_total_produtos += preco * float(p.get("quantidade", 0))
+
+	if agent_enabled():
+		if check_dav_duplicate(cursor, reference_label, reference_code):
+			raise ValueError(f"DAV já existe para {reference_label} {reference_code}")
+		external_user_id, external_rep_id = get_external_user_data(cursor, local_user)
+		result = enqueue_and_wait("create_dav", {
+			"client_id": client_id,
+			"reference_label": reference_label,
+			"reference_code": str(reference_code),
+			"product_details": product_details,
+			"external_user_id": external_user_id,
+			"external_rep_id": external_rep_id,
+			"technician_name": getattr(local_user, "name", "") or "",
+		})
+		return int(result["dav_id"]), int(result["dav_codigo"])
+
+	if check_dav_duplicate(cursor, reference_label, reference_code):
+		raise ValueError(f"DAV já existe para {reference_label} {reference_code}")
 
 	external_user_id, external_rep_id = get_external_user_data(cursor, local_user)
 
@@ -351,10 +371,22 @@ def create_out_of_stock_finance_record(
 	para evitar rejeições de duplicidade no sistema.
 	Retorna o ID gerado na tabela financeiro.
 	"""
+	from ..uniplus_jobs import agent_enabled, enqueue_and_wait
+
 	if not client_id:
 		raise ValueError("Cliente não informado para o lançamento do produto fora de estoque.")
 	if not product_name:
 		raise ValueError("Nome do produto fora de estoque não informado.")
+
+	if agent_enabled():
+		result = enqueue_and_wait("insert_finance_avulso", {
+			"client_id": int(client_id),
+			"product_name": product_name,
+			"quantity": quantity,
+			"unit_price": unit_price,
+			"idrepresentante": idrepresentante,
+		})
+		return int(result["finance_id"])
 
 	base_name = product_name.strip()
 	pattern = f"%{base_name}%" if len(base_name) <= 50 else "%venda produto%"

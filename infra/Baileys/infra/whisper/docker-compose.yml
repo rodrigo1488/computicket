@@ -1,0 +1,19 @@
+# Whisper OpenAI-compatible (faster-whisper) — imagem oficial no Docker Hub.
+# NÃO use ghcr.io/hwdsl2/docker-whisper (retorna "denied" / não publicada como esperado).
+# Documentação: docs/WHISPER_DOCKER.md
+services:
+  whisper:
+    image: hwdsl2/whisper-server:latest
+    container_name: whisper-api
+    ports:
+      - "9000:9000"
+    volumes:
+      - whisper_data:/var/lib/whisper
+    environment:
+      - WHISPER_MODEL=small
+      - WHISPER_DEVICE=cpu
+      - WHISPER_LANGUAGE=auto
+    restart: unless-stopped
+
+volumes:
+  whisper_data:

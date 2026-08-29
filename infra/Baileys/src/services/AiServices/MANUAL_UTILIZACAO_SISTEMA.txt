@@ -1,0 +1,1632 @@
+================================================================================
+                    MANUAL DE UTILIZAÇÃO - COMPUCHAT
+                    Sistema de Atendimento WhatsApp
+                    Banco de Conhecimento para Bot de Suporte
+================================================================================
+
+DATA DE CRIAÇÃO: 2025
+VERSÃO DO SISTEMA: 6.0.0
+ÚLTIMA ATUALIZAÇÃO: 2025
+
+================================================================================
+ÍNDICE
+================================================================================
+
+1. INTRODUÇÃO AO SISTEMA
+2. ATENDIMENTOS (TICKETS)
+3. DASHBOARD
+4. CONEXÕES WHATSAPP
+5. CONTATOS
+6. FILAS DE ATENDIMENTO
+7. USUÁRIOS E PERMISSÕES
+8. MENSAGENS RÁPIDAS
+9. TAGS E CLASSIFICAÇÃO
+10. CAMPANHAS
+11. FLOW BUILDER (AUTOMAÇÃO)
+12. FORMULÁRIOS
+13. INTELIGÊNCIA ARTIFICIAL
+14. TAREFAS
+15. AGENDAMENTOS
+16. KANBAN
+17. CHAT INTERNO
+18. ANÚNCIOS
+19. API DE MENSAGENS
+20. INTEGRAÇÃO DE FILAS
+21. FINANCEIRO E ASSINATURA
+22. CONFIGURAÇÕES
+23. PERGUNTAS FREQUENTES
+24. GLOSSÁRIO DE TERMOS
+25. DICAS E BOAS PRÁTICAS
+26. SUPORTE E CONTATO
+
+================================================================================
+1. INTRODUÇÃO AO SISTEMA
+================================================================================
+
+O Compuchat é uma plataforma completa de atendimento via WhatsApp que permite
+gerenciar conversas, automatizar respostas, criar campanhas e muito mais.
+
+PRINCIPAIS FUNCIONALIDADES:
+- Atendimento de conversas do WhatsApp (individuais e grupos)
+- Dashboard com métricas e estatísticas em tempo real
+- Compuchat AI: Chat inteligente no dashboard para suporte e consultas
+- Automação com Flow Builder
+- Campanhas de envio em massa
+- Integração com IA (OpenAI, Gemini) para múltiplas funcionalidades
+- Tradução automática de mensagens em tempo real
+- Formulários personalizados com análise de respostas
+- Gestão de contatos e filas
+- Sistema de tags e classificação
+- Kanban visual para organização de tickets
+- Tarefas e agendamentos
+- Chat interno entre usuários da empresa
+- Anúncios e notificações
+- API de mensagens para integrações
+- Sistema financeiro e assinaturas
+
+ACESSO AO SISTEMA:
+- URL: Acesse através do navegador web
+- Login: Use email e senha cadastrados
+- Recuperação de senha: Use o link "Esqueci minha senha"
+
+COMPUCHAT AI:
+O Compuchat AI é um assistente inteligente disponível no dashboard que pode
+responder perguntas sobre o sistema, fornecer informações sobre tickets,
+estatísticas, funcionalidades e muito mais. Use-o para tirar dúvidas e obter
+ajuda rápida.
+
+================================================================================
+2. ATENDIMENTOS (TICKETS)
+================================================================================
+
+O QUE SÃO TICKETS?
+Tickets são conversas de atendimento que chegam via WhatsApp. Cada conversa
+com um cliente gera um ticket no sistema.
+
+ABAS DE ATENDIMENTOS:
+- ABERTOS: Tickets em atendimento ativo
+  * Conversas: Conversas individuais com clientes
+  * Grupos: Conversas em grupos do WhatsApp
+- AGUARDANDO: Tickets pendentes de aceitação
+- RESOLVIDOS: Tickets finalizados
+- BUSCA: Buscar tickets por palavra-chave
+
+COMO FUNCIONA O FLUXO DE ATENDIMENTO:
+
+1. NOVO TICKET:
+   - Cliente envia mensagem no WhatsApp
+   - Ticket aparece na aba "Aguardando"
+   - Para grupos: ticket vai direto para "Abertos > Grupos"
+   - Grupos não passam por "Aguardando" para facilitar atendimento
+
+2. ACEITAR TICKET:
+   - Clique no botão "Aceitar" no ticket
+   - Ticket muda para status "Aberto"
+   - Você se torna responsável pelo atendimento
+   - Mensagem automática pode ser enviada (se configurado)
+   - NOTA: Em grupos, botões de ação (Assumir, Retornar, Resolver) não
+     aparecem, apenas o menu de opções
+
+3. ATENDER:
+   - Digite mensagens no campo inferior
+   - Envie texto, imagens, áudios, documentos
+   - Use mensagens rápidas para respostas comuns
+   - Adicione tags para classificar (não disponível em grupos)
+   - Use ferramentas de IA para melhorar mensagens
+   - Mensagens em outros idiomas são traduzidas automaticamente
+
+4. FINALIZAR:
+   - Clique em "Finalizar" quando resolver o problema
+   - Ticket vai para "Resolvidos"
+   - Pode ser reaberto se necessário
+
+AÇÕES DISPONÍVEIS EM TICKETS:
+
+- ACEITAR: Assumir responsabilidade pelo ticket (não disponível em grupos)
+- FINALIZAR: Encerrar o atendimento (não disponível em grupos)
+- REABRIR: Voltar um ticket resolvido para aberto
+- TRANSFERIR: Passar ticket para outro atendente ou fila
+- RETORNAR: Voltar ticket para "Aguardando" (não disponível em grupos)
+- ADICIONAR TAG: Classificar o ticket (não disponível em grupos)
+- CRIAR TAREFA: Criar tarefa relacionada ao contato
+- AGENDAR: Agendar retorno ou compromisso
+- MENSAGEM RÁPIDA: Enviar resposta pré-configurada
+- NOTAS DE TICKET: Adicionar anotações internas sobre o atendimento
+
+COMO CRIAR NOVO TICKET MANUALMENTE:
+1. Clique no botão "+" na tela de atendimentos
+2. Selecione ou crie um contato
+3. Escolha a fila (se aplicável)
+4. Clique em "Criar"
+5. O ticket será aberto automaticamente
+
+MENSAGENS INTERNAS:
+- Mensagens internas são anotações que NÃO são enviadas ao cliente
+- Aparecem com badge amarelo "🔒 INTERNA"
+- São assinadas com o nome do usuário responsável pelo ticket
+- Úteis para comunicação entre atendentes
+- Podem ser criadas manualmente ou geradas automaticamente pela IA
+- Para criar: digite a mensagem e marque como interna antes de enviar
+
+DIFERENCIAÇÃO DE MENSAGENS EM GRUPOS:
+- Mensagens de clientes: Fundo branco, lado esquerdo
+- Mensagens da empresa: Cores diferentes por atendente/número
+- Cada número/atendente tem uma cor única para fácil identificação
+- Borda lateral colorida ajuda a diferenciar
+- Mensagens do usuário logado aparecem à direita com cor verde padrão
+- Mensagens de outros atendentes da empresa aparecem à esquerda com cores
+  diferentes
+
+TRADUÇÃO AUTOMÁTICA DE MENSAGENS:
+- Mensagens recebidas em idioma diferente do configurado são traduzidas
+  automaticamente
+- A tradução aparece abaixo da mensagem original com badge "Traduzido"
+- Configuração do idioma da empresa em "Configurações" > "Inteligência
+  Artificial" > "Idioma da Empresa"
+- Idiomas suportados: Português, Inglês, Espanhol
+- Tradução usa IA configurada (OpenAI ou Gemini)
+- Cache de traduções para otimizar performance
+
+FERRAMENTAS DE IA DISPONÍVEIS EM TICKETS:
+
+1. ANALISAR CONVERSA:
+   - Clique no botão de IA (estrela) no ticket
+   - Escolha "Analisar Conversa"
+   - Receba análise completa com pontos-chave e sugestões
+   - Análise inclui contexto, problemas identificados e recomendações
+
+2. SUGERIR RESPOSTA:
+   - Clique em "Sugerir Resposta"
+   - IA gera sugestões de resposta baseadas no contexto
+   - Revise e envie ou edite antes de enviar
+
+3. MELHORAR MENSAGEM:
+   - Digite um rascunho de mensagem
+   - Clique no botão de melhorar (ícone de IA)
+   - IA corrige gramática, ajusta tom e melhora clareza
+   - Mantém a intenção original
+
+4. TRANSCREVER ÁUDIO:
+   - Clique no áudio recebido
+   - Escolha "Transcrever"
+   - Receba texto completo do áudio
+   - Útil para áudios longos ou quando não pode ouvir
+
+5. RESUMIR ÁUDIOS NÃO OUVIDOS:
+   - Clique no botão de IA
+   - Escolha "Resumir Áudios"
+   - Receba resumo de todos os áudios não ouvidos do ticket
+   - Economiza tempo ao revisar conversas
+
+NOTAS DE TICKET:
+- Adicione notas internas sobre o atendimento
+- Úteis para registrar informações importantes
+- Visíveis apenas para a equipe
+- Podem ser editadas ou removidas
+
+================================================================================
+3. DASHBOARD
+================================================================================
+
+O Dashboard mostra visão geral do sistema com métricas e estatísticas em tempo
+real.
+
+PRINCIPAIS MÉTRICAS:
+- Tickets abertos
+- Tickets aguardando
+- Tickets resolvidos
+- Mensagens não lidas
+- Atendentes online/offline
+- Tempo médio de resposta
+- Taxa de resolução
+- Performance individual e por fila
+
+GRÁFICOS DISPONÍVEIS:
+- Gráfico de linha: Evolução ao longo do tempo
+- Gráfico de pizza: Distribuição por status
+- Gráfico de barras: Comparação entre períodos
+- Gráficos por atendente
+- Gráficos por fila
+
+FILTROS:
+- Período: Últimos 7 dias, 30 dias, 90 dias, personalizado
+- Auto-refresh: Atualização automática dos dados
+- Botão de atualizar manual
+- Filtros por fila, atendente, status
+
+TABELA DE ATENDENTES:
+- Status de cada atendente (online/offline)
+- Tickets em atendimento
+- Performance individual
+- Métricas de produtividade
+
+RESUMO DE ATENDENTES:
+- Clique em um atendente para ver resumo detalhado
+- Estatísticas pessoais
+- Tickets recentes
+- Análise de performance
+- Gráficos individuais
+
+COMPUCHAT AI (CHAT INTELIGENTE DO DASHBOARD):
+
+O Compuchat AI é um assistente inteligente disponível no dashboard que pode
+ajudar você com:
+
+- Responder perguntas sobre o sistema
+- Fornecer informações sobre tickets e conversas
+- Explicar funcionalidades e como usar
+- Consultar estatísticas e métricas
+- Ajudar com configurações
+- Fornecer informações do manual de utilização
+
+COMO USAR O COMPUCHAT AI:
+1. No dashboard, localize o botão flutuante do Compuchat AI
+2. Clique para abrir o chat
+3. Digite sua pergunta ou solicitação
+4. O AI responderá com informações relevantes
+5. Use para tirar dúvidas sobre o sistema, tickets, estatísticas, etc.
+
+FUNCIONALIDADES DO COMPUCHAT AI:
+- Acesso ao manual de utilização completo
+- Consulta de tickets recentes e suas mensagens
+- Estatísticas em tempo real
+- Informações sobre atendentes e performance
+- Explicações sobre funcionalidades do sistema
+- Sugestões e dicas de uso
+
+RESUMO COM IA:
+- No dashboard, use o botão "Resumo com IA" para gerar resumo inteligente
+- IA analisa tickets, conversas e métricas
+- Gera resumo formatado com títulos, listas e destaques
+- Útil para relatórios rápidos e análises
+
+BOTÕES DE ACESSO RÁPIDO:
+- Configure botões de acesso rápido no dashboard
+- Acesso direto às funcionalidades mais usadas
+- Personalizável em "Configurações" > "Botões de Acesso Rápido"
+
+================================================================================
+4. CONEXÕES WHATSAPP
+================================================================================
+
+O QUE SÃO CONEXÕES?
+Conexões são números de WhatsApp conectados ao sistema para receber e enviar
+mensagens.
+
+COMO CONECTAR UM WHATSAPP:
+1. Acesse "Conexões" no menu
+2. Clique em "Nova Conexão"
+3. Escaneie o QR Code com seu WhatsApp
+4. Aguarde a conexão ser estabelecida
+5. Status mudará para "Conectado"
+
+STATUS DE CONEXÃO:
+- Desconectado: Não conectado ao sistema
+- Conectando: Processo de conexão em andamento
+- Conectado: Funcionando normalmente
+- Desconectado: Perdeu conexão (reconectar necessário)
+
+MÚLTIPLAS CONEXÕES:
+- Você pode ter vários números conectados
+- Cada conexão pode ter configurações diferentes
+- Útil para separar departamentos ou filiais
+
+CONFIGURAÇÕES DE CONEXÃO:
+- Nome da conexão
+- Integração com IA (OpenAI/Gemini)
+- Prompt personalizado
+- Fila padrão
+
+================================================================================
+5. CONTATOS
+================================================================================
+
+O QUE SÃO CONTATOS?
+Contatos são pessoas ou empresas que interagem com você via WhatsApp.
+
+FUNCIONALIDADES:
+- Visualizar todos os contatos
+- Buscar contatos por nome ou número
+- Editar informações do contato
+- Ver histórico de conversas
+- Adicionar anotações
+- Importar contatos em massa
+- Criar listas de contatos para campanhas
+
+COMO ADICIONAR CONTATO:
+1. Acesse "Contatos" no menu
+2. Clique em "Novo Contato"
+3. Preencha nome e número
+4. Adicione informações extras (opcional)
+5. Salve
+
+COMO IMPORTAR CONTATOS:
+1. Acesse "Contatos"
+2. Clique em "Importar"
+3. Baixe o modelo Excel
+4. Preencha com os dados
+5. Faça upload do arquivo
+6. Confirme a importação
+
+INFORMAÇÕES DO CONTATO:
+- Nome completo
+- Número de telefone
+- Email (opcional)
+- Foto de perfil
+- Tags associadas
+- Histórico de tickets
+- Anotações internas
+- Tarefas relacionadas
+- Agendamentos
+
+LISTAS DE CONTATOS:
+- Crie listas de contatos para organizar
+- Útil para campanhas segmentadas
+- Adicione contatos manualmente ou importe
+- Gerencie múltiplas listas
+
+================================================================================
+6. FILAS DE ATENDIMENTO
+================================================================================
+
+O QUE SÃO FILAS?
+Filas organizam o atendimento por departamento, produto ou tipo de serviço.
+
+EXEMPLOS DE FILAS:
+- Suporte Técnico
+- Vendas
+- Financeiro
+- Pós-venda
+- Reclamações
+
+COMO CRIAR FILA:
+1. Acesse "Filas" no menu
+2. Clique em "Nova Fila"
+3. Defina nome e descrição
+4. Configure horário de funcionamento
+5. Adicione atendentes à fila
+6. Configure integrações (IA, Flow Builder)
+7. Salve
+
+ATRIBUIR ATENDENTES:
+- Cada fila pode ter múltiplos atendentes
+- Atendentes podem estar em várias filas
+- Tickets são distribuídos entre atendentes da fila
+
+HORÁRIO DE FUNCIONAMENTO:
+- Defina dias e horários de atendimento
+- Fora do horário, tickets podem ir para aguardando
+- Mensagens automáticas podem ser configuradas
+
+INTEGRAÇÃO COM IA:
+- Cada fila pode ter integração própria
+- Prompt personalizado por fila
+- Respostas automáticas configuráveis
+- Escolha de provider (OpenAI ou Gemini)
+
+OPÇÕES DE FILA:
+- Mensagem de boas-vindas
+- Mensagem de conclusão
+- Opções de menu para cliente escolher
+- Integração com Flow Builder
+
+INTEGRAÇÃO DE FILAS:
+- Configure integrações externas para filas
+- Webhooks para notificações
+- Integração com sistemas externos
+
+================================================================================
+7. USUÁRIOS E PERMISSÕES
+================================================================================
+
+TIPOS DE USUÁRIO:
+- ADMIN: Acesso total ao sistema
+- USER: Acesso limitado conforme permissões
+
+COMO CRIAR USUÁRIO:
+1. Acesse "Usuários" no menu (apenas admin)
+2. Clique em "Novo Usuário"
+3. Preencha nome, email e senha
+4. Defina perfil (admin ou user)
+5. Selecione filas de acesso
+6. Salve
+
+PERMISSÕES:
+- Ver todos os tickets
+- Criar tickets
+- Editar tickets
+- Excluir tickets
+- Gerenciar usuários
+- Configurar sistema
+- Acessar relatórios
+- Gerenciar campanhas
+- Configurar IA
+
+FILAS DE ACESSO:
+- Usuários podem ter acesso a filas específicas
+- Apenas tickets dessas filas aparecerão
+- Útil para separar departamentos
+
+================================================================================
+8. MENSAGENS RÁPIDAS
+================================================================================
+
+O QUE SÃO MENSAGENS RÁPIDAS?
+Respostas pré-configuradas para agilizar o atendimento.
+
+COMO CRIAR MENSAGEM RÁPIDA:
+1. Acesse "Mensagens Rápidas" no menu
+2. Clique em "Nova Mensagem"
+3. Digite o texto da mensagem
+4. Adicione variáveis se necessário ({{name}}, {{ms}})
+5. Salve
+
+COMO USAR:
+1. Abra um ticket
+2. Clique no ícone de mensagem rápida
+3. Selecione a mensagem desejada
+4. Personalize se necessário
+5. Envie
+
+VARIÁVEIS DISPONÍVEIS:
+- {{name}}: Nome do contato
+- {{ms}}: Tratamento (Sr./Sra.)
+- {{ticket}}: Número do ticket
+- {{queue}}: Nome da fila
+
+================================================================================
+9. TAGS E CLASSIFICAÇÃO
+================================================================================
+
+O QUE SÃO TAGS?
+Tags são etiquetas para classificar e organizar tickets.
+
+COMO CRIAR TAG:
+1. Acesse "Tags" no menu
+2. Clique em "Nova Tag"
+3. Defina nome e cor
+4. Configure se aparece no Kanban
+5. Salve
+
+COMO USAR TAGS:
+1. Abra um ticket (não disponível em grupos)
+2. Clique no botão de tags
+3. Selecione as tags desejadas
+4. Tags aparecem no ticket
+
+BENEFÍCIOS:
+- Organizar tickets por categoria
+- Filtrar tickets por tag
+- Relatórios por classificação
+- Kanban visual
+
+KANBAN:
+- Visualização em colunas por tag
+- Arrastar e soltar tickets
+- Organização visual do trabalho
+- Filtros avançados
+
+================================================================================
+10. CAMPANHAS
+================================================================================
+
+O QUE SÃO CAMPANHAS?
+Envio de mensagens em massa para múltiplos contatos.
+
+COMO CRIAR CAMPANHA:
+1. Acesse "Campanhas" no menu
+2. Clique em "Nova Campanha"
+3. Defina nome e descrição
+4. Selecione lista de contatos
+5. Configure mensagem
+6. Defina agendamento
+7. Envie
+
+TIPOS DE CAMPANHA:
+- Imediata: Envio na hora
+- Agendada: Envio em data/hora específica
+- Recorrente: Envio periódico
+
+LISTAS DE CONTATOS:
+- Crie listas de contatos para campanhas
+- Importe contatos em massa
+- Gerencie listas separadamente
+
+RELATÓRIOS DE CAMPANHA:
+- Taxa de entrega
+- Taxa de leitura
+- Respostas recebidas
+- Erros de envio
+- Análise detalhada
+
+CAMPANHAS COM IA:
+- Use IA para gerar mensagens de campanha
+- Personalização automática
+- Otimização de conteúdo
+
+================================================================================
+11. FLOW BUILDER (AUTOMAÇÃO)
+================================================================================
+
+O QUE É FLOW BUILDER?
+Sistema de automação que cria fluxos de conversa automáticos usando interface
+visual drag-and-drop.
+
+COMO FUNCIONA:
+- Cliente envia mensagem
+- Sistema identifica palavras-chave ou intenção
+- Responde automaticamente conforme fluxo configurado
+- Pode transferir para atendente quando necessário
+- Suporta lógica condicional complexa
+
+TIPOS DE AÇÕES:
+- INÍCIO: Ponto de partida do fluxo
+- CONTEÚDO: Mensagem de texto
+- MENU: Opções para cliente escolher
+- RANDOMIZADOR: Escolha aleatória entre opções
+- INTERVALO: Aguardar tempo antes de próxima ação
+- TICKET: Criar ticket para atendimento humano
+- PERGUNTA: Coletar informação do cliente
+- OPENAI: Integração com ChatGPT para respostas inteligentes
+- TYPEBOT: Integração com Typebot
+- CONDIÇÃO: Lógica condicional (se/então)
+
+COMO CRIAR FLOW:
+1. Acesse "Flow Builders" no menu
+2. Clique em "Novo Flow"
+3. Arraste ações para o canvas
+4. Conecte as ações
+5. Configure cada ação
+6. Defina palavras-chave de ativação
+7. Teste o fluxo
+8. Ative quando pronto
+
+PALAVRAS-CHAVE:
+- Configure palavras que ativam o fluxo
+- Pode ser palavra exata ou similaridade
+- Múltiplas palavras-chave por fluxo
+- Suporta expressões regulares
+
+CONDIÇÕES E LÓGICA:
+- Se/Então baseado em respostas
+- Direcionar fluxo conforme escolha do cliente
+- Lógica condicional avançada
+- Múltiplas condições aninhadas
+- Operadores lógicos (E, OU, NÃO)
+
+INTEGRAÇÃO COM IA:
+- Use IA dentro do fluxo para respostas inteligentes
+- Integração com OpenAI ou Gemini
+- Contexto da conversa mantido
+- Respostas dinâmicas baseadas em contexto
+
+TESTES:
+- Teste fluxos antes de ativar
+- Simulação de conversas
+- Verificação de lógica
+- Debug de problemas
+
+ATIVAÇÃO/DESATIVAÇÃO:
+- Ative fluxos quando prontos
+- Desative para manutenção
+- Múltiplos fluxos podem estar ativos simultaneamente
+- Prioridade de fluxos
+
+================================================================================
+12. FORMULÁRIOS
+================================================================================
+
+O QUE SÃO FORMULÁRIOS?
+Formulários web para coletar informações de clientes de forma estruturada.
+
+COMO CRIAR FORMULÁRIO:
+1. Acesse "Formulários" no menu
+2. Clique em "Novo Formulário"
+3. Adicione campos (texto, número, seleção, etc.)
+4. Configure validações
+5. Defina ações (criar contato, criar ticket)
+6. Configure design e aparência
+7. Publique e compartilhe link
+
+TIPOS DE CAMPOS:
+- Texto: Resposta livre
+- Número: Apenas números
+- Email: Validação de email
+- Telefone: Formato de telefone
+- Data: Seletor de data
+- Seleção: Escolha única
+- Múltipla escolha: Várias opções
+- Arquivo: Upload de arquivo
+- Textarea: Texto longo
+
+AÇÕES AUTOMÁTICAS:
+- Criar contato automaticamente
+- Criar ticket de atendimento
+- Enviar email de confirmação
+- Webhook para sistema externo
+- Notificações
+
+FORMULÁRIOS PÚBLICOS:
+- Compartilhe link público do formulário
+- Acessível sem login
+- Personalizável com logo e cores
+- Responsivo para mobile
+
+ANÁLISE DE RESPOSTAS:
+- Visualize todas as respostas
+- Exporte dados em Excel/CSV
+- Gráficos de análise
+- Filtros e buscas avançadas
+- Estatísticas de conversão
+- Análise de tendências
+
+MÉTRICAS:
+- Taxa de preenchimento
+- Tempo médio de preenchimento
+- Taxa de abandono
+- Campos mais/menos preenchidos
+- Gráficos visuais
+
+================================================================================
+13. INTELIGÊNCIA ARTIFICIAL
+================================================================================
+
+INTEGRAÇÕES DISPONÍVEIS:
+- OpenAI (ChatGPT)
+- Google Gemini
+
+COMO CONFIGURAR:
+1. Acesse "Configurações" > "Inteligência Artificial"
+2. Cole suas chaves de API (OpenAI e/ou Gemini)
+3. Configure providers por funcionalidade
+4. Configure prompt padrão
+5. Salve
+
+CONFIGURAÇÃO DE PROVIDERS POR FUNCIONALIDADE:
+Quando ambas as chaves estão configuradas, você pode escolher qual provider
+usar para cada funcionalidade:
+
+- Resumos: Provider para resumos de atendimentos
+- Chat Inteligente: Provider para o Compuchat AI do dashboard
+- Melhoria de Mensagens: Provider para melhorar textos
+- Transcrição de Áudio: Provider para transcrever áudios
+- Geração de Campanhas: Provider para criar campanhas
+- Analisar Conversa: Provider para análise de conversas
+- Sugerir Resposta: Provider para sugestões de resposta
+- Tradução de Mensagens: Provider para tradução automática
+
+COMPUCHAT AI (CHAT DO DASHBOARD):
+- Assistente inteligente disponível no dashboard
+- Acesso ao manual de utilização completo
+- Consulta de tickets e mensagens
+- Estatísticas em tempo real
+- Explicações sobre funcionalidades
+- Use para tirar dúvidas sobre o sistema
+
+ONDE A IA É USADA:
+- Respostas automáticas em filas
+- Análise de conversas
+- Sugestões de resposta
+- Resumo de atendimentos
+- Transcrição de áudios
+- Melhoria de mensagens
+- Tradução automática
+- Geração de campanhas
+- Compuchat AI (dashboard)
+
+PROMPTS PERSONALIZADOS:
+- Configure como a IA deve responder
+- Defina tom e estilo
+- Adicione contexto da empresa
+- Diferentes prompts por fila
+- Prompts por conexão
+- Templates de prompts
+
+MENSAGENS INTERNAS:
+- IA pode gerar anotações internas
+- Marcadas com [INTERNA] no prompt
+- Não são enviadas ao cliente
+- Assinadas com nome do usuário
+- Úteis para comunicação entre atendentes
+
+ANÁLISE DE CHAT:
+- Clique no botão de IA no ticket
+- Escolha "Analisar Conversa"
+- Receba análise completa
+- Pontos-chave e sugestões
+- Contexto da conversa
+- Recomendações de ação
+
+SUGESTÃO DE RESPOSTA:
+- IA sugere respostas baseadas no contexto
+- Clique em "Sugerir Resposta"
+- Múltiplas sugestões disponíveis
+- Revise e envie ou edite
+
+MELHORAR MENSAGEM:
+- Digite um rascunho de mensagem
+- Clique no botão de melhorar (ícone de IA)
+- IA corrige gramática e ortografia
+- Ajusta tom e clareza
+- Mantém intenção original
+- Útil para mensagens importantes
+
+TRANSCRIÇÃO DE ÁUDIO:
+- Transcreve áudios recebidos
+- Clique no áudio e depois em "Transcrever"
+- Texto completo do áudio
+- Suporta múltiplos idiomas
+- Alta precisão
+
+RESUMIR ÁUDIOS NÃO OUVIDOS:
+- Clique no botão de IA
+- Escolha "Resumir Áudios"
+- Receba resumo de todos os áudios não ouvidos
+- Economiza tempo
+- Útil para revisar conversas longas
+
+TRADUÇÃO AUTOMÁTICA:
+- Traduz mensagens automaticamente
+- Configuração de idioma da empresa
+- Idiomas suportados: Português, Inglês, Espanhol
+- Badge "Traduzido" abaixo da mensagem
+- Cache de traduções
+- Provider configurável (OpenAI ou Gemini)
+
+CONFIGURAÇÃO DE IDIOMA DA EMPRESA:
+1. Acesse "Configurações" > "Inteligência Artificial"
+2. Selecione "Idioma da Empresa"
+3. Escolha: Português, Inglês ou Espanhol
+4. Salve
+- Mensagens em outros idiomas serão traduzidas automaticamente
+
+RESUMO COM IA NO DASHBOARD:
+- Gere resumos inteligentes de atendimentos
+- Análise de tickets e conversas
+- Formatação visual com títulos e listas
+- Útil para relatórios rápidos
+
+================================================================================
+14. TAREFAS
+================================================================================
+
+O QUE SÃO TAREFAS?
+Tarefas são atividades ou compromissos que precisam ser realizados, podendo
+estar relacionadas a tickets, contatos ou serem independentes.
+
+COMO CRIAR TAREFA:
+1. Acesse "Tarefas" no menu
+2. Clique em "Nova Tarefa"
+3. Ou crie a partir de um ticket (menu do ticket > Criar Tarefa)
+4. Preencha título e descrição
+5. Defina prioridade e categoria
+6. Selecione prazo (opcional)
+7. Atribua a um usuário (opcional)
+8. Associe a um ticket ou contato (opcional)
+9. Salve
+
+STATUS DE TAREFAS:
+- PENDENTE: Tarefa criada, aguardando início
+- EM PROGRESSO: Tarefa em andamento
+- CONCLUÍDA: Tarefa finalizada
+- CANCELADA: Tarefa cancelada
+
+PRIORIDADES:
+- BAIXA: Tarefa não urgente
+- MÉDIA: Prioridade normal
+- ALTA: Tarefa importante
+- URGENTE: Tarefa crítica, requer atenção imediata
+
+CATEGORIAS:
+- Organize tarefas por categoria
+- Exemplos: Suporte, Vendas, Financeiro, Marketing
+- Filtre tarefas por categoria
+
+ATRIBUIÇÃO DE TAREFAS:
+- Atribua tarefas a outros usuários
+- Notificações automáticas para usuário atribuído
+- Visualize tarefas atribuídas a você
+- Visualize tarefas que você criou
+
+VISUALIZAÇÃO:
+- Lista: Visualização em lista com filtros
+- Kanban: Visualização em colunas por status
+- Filtros por status, prioridade, categoria
+- Busca por texto
+
+RELACIONAMENTOS:
+- Associe tarefas a tickets
+- Associe tarefas a contatos
+- Veja tarefas relacionadas em tickets e contatos
+- Histórico completo
+
+FILTROS E BUSCAS:
+- Filtre por status
+- Filtre por prioridade
+- Filtre por categoria
+- Filtre por responsável
+- Busque por texto
+- Visualize apenas suas tarefas ou todas
+
+ESTATÍSTICAS:
+- Total de tarefas
+- Tarefas pendentes
+- Tarefas em progresso
+- Tarefas concluídas
+- Tarefas canceladas
+
+================================================================================
+15. AGENDAMENTOS
+================================================================================
+
+O QUE SÃO AGENDAMENTOS?
+Agendamentos são compromissos ou mensagens programadas para envio futuro.
+
+TIPOS DE AGENDAMENTOS:
+
+1. MENSAGENS AGENDADAS:
+   - Agende envio de mensagens para data/hora específica
+   - Útil para lembretes e follow-ups
+   - Crie a partir de um ticket
+   - Mensagem será enviada automaticamente no horário agendado
+
+2. COMPROMISSOS (USER APPOINTMENTS):
+   - Agende compromissos e reuniões
+   - Defina título, descrição, data/hora
+   - Atribua a usuários
+   - Receba lembretes
+
+COMO AGENDAR MENSAGEM:
+1. Abra um ticket
+2. Digite a mensagem
+3. Clique no botão de agendar (ícone de calendário)
+4. Selecione data e hora
+5. Confirme o agendamento
+6. Mensagem será enviada automaticamente
+
+COMO CRIAR COMPROMISSO:
+1. Acesse "Agendamentos" no menu
+2. Clique em "Novo Agendamento"
+3. Defina título e descrição
+4. Selecione data e hora de início e fim
+5. Atribua a usuários (opcional)
+6. Configure lembrete (opcional)
+7. Salve
+
+STATUS DE COMPROMISSOS:
+- PENDENTE: Agendamento criado
+- CONFIRMADO: Agendamento confirmado
+- CANCELADO: Agendamento cancelado
+- CONCLUÍDO: Agendamento realizado
+
+LEMBRETES:
+- Configure lembretes para compromissos
+- Receba notificações antes do agendamento
+- Lembretes configuráveis (15min, 30min, 1h, etc.)
+
+AGENDAMENTO VIA IA:
+- Use comandos de agendamento em conversas
+- IA identifica intenção de agendar
+- Cria agendamento automaticamente
+- Exemplo: "Agendar retorno para amanhã às 14h"
+
+VISUALIZAÇÃO:
+- Calendário mensal
+- Lista de agendamentos
+- Filtros por data, status, usuário
+- Visualização por semana ou mês
+
+NOTIFICAÇÕES:
+- Notificações de lembretes
+- Notificações de mensagens agendadas enviadas
+- Notificações de compromissos próximos
+
+================================================================================
+16. KANBAN
+================================================================================
+
+O QUE É KANBAN?
+Kanban é uma visualização em colunas que organiza tickets por tags, facilitando
+o gerenciamento visual do trabalho.
+
+COMO FUNCIONA:
+- Cada coluna representa uma tag
+- Tickets são exibidos como cards nas colunas
+- Arraste e solte tickets entre colunas
+- Organização visual do fluxo de trabalho
+
+VISUALIZAÇÃO EM COLUNAS:
+- Coluna "Em Aberto": Tickets sem tags
+- Colunas por tag: Uma coluna para cada tag configurada
+- Cards mostram informações do ticket
+- Cores identificam filas
+
+DRAG AND DROP:
+- Arraste tickets entre colunas
+- Ao mover para coluna de tag, tag é adicionada ao ticket
+- Ao mover para "Em Aberto", tags são removidas
+- Atualização automática
+
+FILTROS AVANÇADOS:
+- Filtre por fila
+- Filtre por usuário
+- Filtre por status
+- Busca por texto
+- Combine múltiplos filtros
+
+MÉTRICAS DO KANBAN:
+- Total de tickets
+- Tickets com usuário atribuído
+- Tickets sem usuário
+- Distribuição por coluna
+
+INTEGRAÇÃO COM TAREFAS:
+- Visualize tarefas no Kanban
+- Organize tarefas por status
+- Arraste tarefas entre colunas
+
+NAVEGAÇÃO:
+- Clique em um card para abrir o ticket
+- Visualização rápida de informações
+- Acesso rápido a ações
+
+================================================================================
+17. CHAT INTERNO
+================================================================================
+
+O QUE É CHAT INTERNO?
+Chat interno permite comunicação entre usuários da mesma empresa dentro do
+sistema, sem usar WhatsApp.
+
+COMO CRIAR CONVERSA INTERNA:
+1. Acesse "Chats" no menu
+2. Clique em "Nova Conversa"
+3. Selecione usuários para conversa individual
+4. Ou crie um grupo com múltiplos usuários
+5. Comece a conversar
+
+CHATS INDIVIDUAIS:
+- Conversas um-a-um entre usuários
+- Criadas automaticamente ao iniciar conversa
+- Histórico completo mantido
+- Notificações de mensagens não lidas
+
+CHATS EM GRUPO:
+- Crie grupos para equipes ou departamentos
+- Adicione múltiplos usuários
+- Compartilhe informações com toda a equipe
+- Útil para comunicação de equipe
+
+NOTIFICAÇÕES:
+- Notificações de mensagens não lidas
+- Badge com contador de não lidas
+- Notificações em tempo real
+- Sons de notificação (se configurado)
+
+COMPARTILHAMENTO DE ARQUIVOS:
+- Envie arquivos no chat interno
+- Imagens, documentos, etc.
+- Download de arquivos compartilhados
+- Histórico de arquivos
+
+FUNCIONALIDADES:
+- Histórico completo de conversas
+- Busca em conversas
+- Status de leitura
+- Timestamps das mensagens
+- Interface similar ao WhatsApp
+
+USOS COMUNS:
+- Comunicação entre atendentes
+- Compartilhamento de informações
+- Discussão de casos complexos
+- Coordenação de equipe
+- Suporte interno
+
+================================================================================
+18. ANÚNCIOS
+================================================================================
+
+O QUE SÃO ANÚNCIOS?
+Anúncios são notificações ou comunicados importantes exibidos para usuários da
+empresa no sistema.
+
+COMO CRIAR ANÚNCIO:
+1. Acesse "Anúncios" no menu
+2. Clique em "Novo Anúncio"
+3. Defina título e conteúdo
+4. Configure prioridade
+5. Adicione anexo de mídia (opcional)
+6. Defina status (ativo/inativo)
+7. Salve
+
+PRIORIDADES:
+- ALTA: Anúncio crítico, aparece primeiro
+- MÉDIA: Prioridade normal
+- BAIXA: Anúncio informativo
+
+STATUS:
+- ATIVO: Anúncio visível para usuários
+- INATIVO: Anúncio oculto
+
+ANEXOS DE MÍDIA:
+- Adicione imagens ou documentos
+- Útil para comunicados visuais
+- Download disponível
+
+NOTIFICAÇÕES DE ANÚNCIOS:
+- Notificações quando novo anúncio é criado
+- Badge de notificação
+- Popover com lista de anúncios
+- Marcar como lido
+
+USOS COMUNS:
+- Avisos importantes
+- Atualizações do sistema
+- Mudanças de processos
+- Comunicados gerais
+- Lembretes
+
+================================================================================
+19. API DE MENSAGENS
+================================================================================
+
+O QUE É API DE MENSAGENS?
+API de Mensagens permite integração programática com o sistema para enviar e
+receber mensagens via código.
+
+COMO GERAR TOKEN DE ACESSO:
+1. Acesse "Mensagens API" no menu
+2. Veja documentação da API
+3. Gere token de acesso
+4. Use token nas requisições
+
+ENDPOINTS DISPONÍVEIS:
+- Enviar mensagem
+- Receber mensagens
+- Consultar status
+- Gerenciar contatos
+- Gerenciar tickets
+
+DOCUMENTAÇÃO:
+- Documentação completa disponível
+- Exemplos de código
+- Autenticação
+- Formatos de requisição/resposta
+
+EXEMPLOS DE USO:
+- Integração com sistemas externos
+- Automações customizadas
+- Webhooks
+- Aplicações mobile
+- Bots externos
+
+SEGURANÇA:
+- Autenticação via token
+- Rate limiting
+- Validação de requisições
+- Logs de acesso
+
+================================================================================
+20. INTEGRAÇÃO DE FILAS
+================================================================================
+
+O QUE SÃO INTEGRAÇÕES DE FILAS?
+Integrações de filas permitem conectar filas do sistema com serviços externos
+para automação e sincronização.
+
+COMO CONFIGURAR:
+1. Acesse "Integração de Filas" no menu
+2. Clique em "Nova Integração"
+3. Selecione o tipo de integração
+4. Configure credenciais e parâmetros
+5. Associe a uma fila
+6. Teste a integração
+7. Ative
+
+TIPOS DE INTEGRAÇÃO:
+- Webhooks: Notificações para URLs externas
+- APIs: Integração com sistemas externos
+- Sincronização: Sincronização bidirecional
+- Automação: Automações customizadas
+
+WEBHOOKS:
+- Configure URLs para receber notificações
+- Eventos: novo ticket, mensagem recebida, ticket resolvido
+- Payload customizável
+- Retry automático em caso de falha
+
+USOS COMUNS:
+- Integração com CRM
+- Sincronização com sistemas externos
+- Automações avançadas
+- Notificações customizadas
+- Análise externa
+
+================================================================================
+21. FINANCEIRO E ASSINATURA
+================================================================================
+
+O QUE É O SISTEMA FINANCEIRO?
+Sistema financeiro gerencia planos, assinaturas e pagamentos da empresa.
+
+PLANOS DISPONÍVEIS:
+- Diferentes planos com recursos variados
+- Planos por número de usuários
+- Planos por número de conexões
+- Recursos incluídos em cada plano
+
+ASSINATURA RECORRENTE:
+- Assinatura mensal, trimestral, semestral ou anual
+- Renovação automática
+- Cobrança automática
+- Notificações de vencimento
+
+PAGAMENTO VIA MERCADO PAGO:
+- Pagamento com cartão de crédito
+- Assinatura recorrente
+- Processamento seguro
+- Confirmação automática
+
+PAGAMENTO VIA PIX (GERENCIANET):
+- Pagamento via PIX
+- QR Code para pagamento
+- Confirmação automática
+- Processamento rápido
+
+RENOVAÇÃO AUTOMÁTICA:
+- Renovação automática da assinatura
+- Cobrança automática
+- Notificações antes do vencimento
+- Sem interrupção do serviço
+
+FATURAS:
+- Histórico completo de faturas
+- Download de faturas
+- Status de pagamento
+- Detalhes de cobrança
+
+HISTÓRICO DE PAGAMENTOS:
+- Visualize todos os pagamentos
+- Filtros por período
+- Exportação de dados
+- Relatórios financeiros
+
+GERENCIAMENTO:
+- Acesse "Financeiro" no menu
+- Veja status da assinatura
+- Gerencie pagamentos
+- Atualize método de pagamento
+- Cancele assinatura (se necessário)
+
+================================================================================
+22. CONFIGURAÇÕES
+================================================================================
+
+PRINCIPAIS CONFIGURAÇÕES:
+
+GERAL:
+- Nome da empresa
+- Logo e cores
+- Idioma do sistema
+- Fuso horário
+- Informações de contato
+
+ATENDIMENTO:
+- Mensagem de boas-vindas
+- Mensagem ao aceitar ticket
+- Horário de funcionamento
+- Timeout de tickets
+- Comportamento de grupos
+
+NOTIFICAÇÕES:
+- Notificações por email
+- Notificações no navegador
+- Som de notificação
+- Alertas de tickets pendentes
+- Preferências de notificação
+
+INTELIGÊNCIA ARTIFICIAL:
+- Chaves de API (OpenAI, Gemini)
+- Configuração de providers por funcionalidade
+- Idioma da empresa (para tradução)
+- Prompts personalizados
+- Configurações de IA por fila
+
+TRADUÇÃO:
+- Idioma da empresa
+- Provider de tradução (OpenAI ou Gemini)
+- Configurações de cache
+- Escopo de tradução
+
+BOTÕES DE ACESSO RÁPIDO:
+- Configure botões no dashboard
+- Links para funcionalidades mais usadas
+- Personalização de ícones
+- Ordenação de botões
+
+INTEGRAÇÕES:
+- APIs externas
+- Webhooks
+- Integrações de pagamento
+- Sistemas externos
+
+SEGURANÇA:
+- Política de senhas
+- Autenticação de dois fatores
+- Logs de acesso
+- Sessões ativas
+- Permissões
+
+APARÊNCIA:
+- Tema claro/escuro
+- Cores personalizadas
+- Logo da empresa
+- Customização visual
+
+================================================================================
+23. PERGUNTAS FREQUENTES
+================================================================================
+
+PERGUNTA: Como aceitar um ticket?
+RESPOSTA: Na aba "Aguardando", clique no botão "Aceitar" no ticket desejado.
+O ticket será atribuído a você e mudará para "Abertos".
+
+PERGUNTA: Como transferir um ticket?
+RESPOSTA: Abra o ticket, clique no menu (três pontos) e escolha "Transferir".
+Selecione o usuário ou fila de destino.
+
+PERGUNTA: Como criar mensagem rápida?
+RESPOSTA: Acesse "Mensagens Rápidas" no menu, clique em "Nova Mensagem",
+digite o texto e salve. Use variáveis como {{name}} para personalizar.
+
+PERGUNTA: Como conectar WhatsApp?
+RESPOSTA: Acesse "Conexões", clique em "Nova Conexão", escaneie o QR Code
+com seu WhatsApp e aguarde a conexão.
+
+PERGUNTA: O que são mensagens internas?
+RESPOSTA: Anotações que não são enviadas ao cliente. Aparecem com badge
+amarelo "🔒 INTERNA" e são assinadas com seu nome. Úteis para comunicação
+entre atendentes.
+
+PERGUNTA: Como criar fila de atendimento?
+RESPOSTA: Acesse "Filas" no menu, clique em "Nova Fila", defina nome,
+adicione atendentes e configure horário de funcionamento.
+
+PERGUNTA: Como usar tags?
+RESPOSTA: Abra um ticket, clique no botão de tags e selecione as tags
+desejadas. Tags ajudam a classificar e organizar tickets. Não disponível
+em grupos.
+
+PERGUNTA: Como criar campanha?
+RESPOSTA: Acesse "Campanhas", clique em "Nova Campanha", selecione lista
+de contatos, configure mensagem e agende o envio.
+
+PERGUNTA: Como configurar IA?
+RESPOSTA: Acesse "Configurações" > "Inteligência Artificial", cole suas
+chaves de API (OpenAI e/ou Gemini), configure providers por funcionalidade
+e salve.
+
+PERGUNTA: Como criar formulário?
+RESPOSTA: Acesse "Formulários", clique em "Novo Formulário", adicione
+campos, configure validações e ações, depois publique e compartilhe o link.
+
+PERGUNTA: O que é Flow Builder?
+RESPOSTA: Sistema de automação que cria fluxos de conversa. Cliente envia
+mensagem, sistema responde automaticamente conforme fluxo configurado.
+
+PERGUNTA: Como ver métricas no dashboard?
+RESPOSTA: Acesse "Dashboard" no menu. Você verá cards com métricas principais,
+gráficos e tabela de atendentes. Use filtros para mudar período.
+
+PERGUNTA: Como buscar tickets?
+RESPOSTA: Na tela de atendimentos, use a busca ou acesse a aba "Busca".
+Digite palavra-chave, nome do contato ou número do ticket.
+
+PERGUNTA: Como reabrir ticket resolvido?
+RESPOSTA: Abra o ticket resolvido, clique no botão "Reabrir". O ticket
+voltará para status "Aberto".
+
+PERGUNTA: Como criar tarefa?
+RESPOSTA: Acesse "Tarefas" no menu e clique em "Nova Tarefa", ou abra um
+ticket e escolha "Criar Tarefa" no menu. Defina título, descrição,
+prioridade e prazo.
+
+PERGUNTA: Como agendar retorno?
+RESPOSTA: Abra um ticket, digite a mensagem, clique no botão de agendar
+(calendário) e selecione data/hora. Ou acesse "Agendamentos" para criar
+compromisso.
+
+PERGUNTA: Como importar contatos?
+RESPOSTA: Acesse "Contatos", clique em "Importar", baixe o modelo Excel,
+preencha com os dados e faça upload do arquivo.
+
+PERGUNTA: Como criar usuário?
+RESPOSTA: Acesse "Usuários" (apenas admin), clique em "Novo Usuário",
+preencha dados, defina perfil e selecione filas de acesso.
+
+PERGUNTA: O que são sub-abas em Abertos?
+RESPOSTA: Na aba "Abertos" há duas sub-abas: "Conversas" (atendimentos
+individuais) e "Grupos" (conversas em grupos do WhatsApp).
+
+PERGUNTA: Por que grupos vão direto para Abertos?
+RESPOSTA: Grupos são automaticamente abertos e vão direto para "Abertos >
+Grupos", sem passar por "Aguardando", para facilitar o atendimento.
+
+PERGUNTA: Como diferenciar mensagens em grupos?
+RESPOSTA: Mensagens de diferentes atendentes da empresa aparecem com cores
+diferentes. Cada número/atendente tem uma cor única para fácil identificação.
+Mensagens do usuário logado aparecem à direita, outras à esquerda.
+
+PERGUNTA: Como usar análise de IA?
+RESPOSTA: Abra um ticket, clique no botão de IA (estrela) e escolha
+"Analisar Conversa". Receba análise completa com pontos-chave e sugestões.
+
+PERGUNTA: Como melhorar uma mensagem com IA?
+RESPOSTA: Digite um rascunho de mensagem, clique no botão de melhorar (ícone
+de IA) e a IA corrigirá gramática, ajustará tom e melhorará clareza.
+
+PERGUNTA: Como traduzir mensagens automaticamente?
+RESPOSTA: Configure o idioma da empresa em "Configurações" > "Inteligência
+Artificial" > "Idioma da Empresa". Mensagens em outros idiomas serão
+traduzidas automaticamente com badge "Traduzido".
+
+PERGUNTA: O que é Compuchat AI?
+RESPOSTA: Compuchat AI é um assistente inteligente no dashboard que pode
+responder perguntas sobre o sistema, fornecer informações sobre tickets,
+estatísticas e funcionalidades. Use o botão flutuante no dashboard.
+
+PERGUNTA: Como usar o Compuchat AI?
+RESPOSTA: No dashboard, clique no botão flutuante do Compuchat AI, digite
+sua pergunta e receba respostas inteligentes sobre o sistema.
+
+PERGUNTA: Como transcrever áudio?
+RESPOSTA: Clique no áudio recebido, escolha "Transcrever" e receba o texto
+completo do áudio.
+
+PERGUNTA: Como resumir áudios não ouvidos?
+RESPOSTA: Abra um ticket, clique no botão de IA, escolha "Resumir Áudios"
+e receba resumo de todos os áudios não ouvidos do ticket.
+
+PERGUNTA: Como ver relatórios?
+RESPOSTA: Acesse "Dashboard" para métricas gerais ou "Campanhas" > "Relatórios"
+para dados específicos de campanhas. Use filtros de período.
+
+PERGUNTA: Como configurar horário de funcionamento?
+RESPOSTA: Acesse "Filas", edite a fila desejada e configure dias e horários
+de atendimento. Fora do horário, tickets podem ir para aguardando.
+
+PERGUNTA: Como usar Kanban?
+RESPOSTA: Acesse "Kanban" no menu. Visualize tickets em colunas por tag.
+Arraste e solte tickets entre colunas para organizar o trabalho.
+
+PERGUNTA: Como criar lista de contatos?
+RESPOSTA: Acesse "Listas de Contatos", clique em "Nova Lista", adicione
+contatos manualmente ou importe de arquivo Excel.
+
+PERGUNTA: Como ver histórico de mensagens?
+RESPOSTA: Abra qualquer ticket para ver todo o histórico de mensagens
+com o cliente, incluindo texto, mídias e anotações internas.
+
+PERGUNTA: Como exportar dados?
+RESPOSTA: Em várias telas há opção de exportar. Clique no botão de exportar
+(geralmente ícone de download) e escolha formato (Excel, CSV, PDF).
+
+PERGUNTA: Como configurar notificações?
+RESPOSTA: Acesse "Configurações" > "Notificações". Configure alertas por
+email, notificações no navegador, sons e preferências de notificação.
+
+PERGUNTA: O que fazer se WhatsApp desconectar?
+RESPOSTA: Acesse "Conexões", encontre a conexão desconectada e clique em
+"Reconectar". Escaneie o novo QR Code se necessário.
+
+PERGUNTA: Como usar busca avançada?
+RESPOSTA: Na aba "Busca" dos tickets, use filtros por tags, usuários,
+filas e período. Combine múltiplos filtros para busca precisa.
+
+PERGUNTA: Como criar prompt personalizado?
+RESPOSTA: Acesse "Prompts" no menu, clique em "Novo Prompt", defina nome,
+escreva o prompt e associe a filas ou conexões específicas.
+
+PERGUNTA: Como ver performance de atendentes?
+RESPOSTA: No Dashboard, clique em um atendente na tabela para ver resumo
+detalhado com estatísticas pessoais, tickets recentes e análise.
+
+PERGUNTA: Como usar API de mensagens?
+RESPOSTA: Acesse "Mensagens API" no menu. Veja documentação, gere token
+de acesso e use endpoints para enviar/receber mensagens programaticamente.
+
+PERGUNTA: Como configurar integração de pagamento?
+RESPOSTA: Acesse "Configurações" > "Financeiro" ou "Integrações". Configure
+provedor de pagamento (Mercado Pago, PIX) com credenciais necessárias.
+
+PERGUNTA: Como usar chat interno?
+RESPOSTA: Acesse "Chats" no menu. Crie conversas internas com outros
+usuários da empresa para comunicação entre equipe.
+
+PERGUNTA: Como criar anúncio?
+RESPOSTA: Acesse "Anúncios" no menu, clique em "Novo Anúncio", defina
+título, conteúdo, prioridade e período de exibição.
+
+PERGUNTA: Como ver arquivos enviados?
+RESPOSTA: Acesse "Arquivos" no menu. Veja todos os arquivos enviados e
+recebidos nas conversas, com opção de download.
+
+PERGUNTA: Como usar agendamentos?
+RESPOSTA: Acesse "Agendamentos" no menu. Crie compromissos, defina data/hora,
+associe a contatos e receba lembretes. Ou agende mensagens a partir de tickets.
+
+PERGUNTA: Como criar template de mensagem?
+RESPOSTA: Use "Mensagens Rápidas" para criar templates. Adicione variáveis
+como {{name}} e {{ms}} para personalização automática.
+
+PERGUNTA: Como ver relatório de campanha?
+RESPOSTA: Acesse "Campanhas", clique na campanha desejada e depois em
+"Relatório". Veja taxa de entrega, leitura, respostas e erros.
+
+PERGUNTA: Como configurar resposta automática?
+RESPOSTA: Configure Flow Builder ou integração com IA. Em "Filas", associe
+Flow ou IA para respostas automáticas quando tickets são criados.
+
+PERGUNTA: Como usar filtros no dashboard?
+RESPOSTA: No Dashboard, use o dropdown de período (7 dias, 30 dias, etc.)
+ou botão de filtro para personalizar período e métricas exibidas.
+
+PERGUNTA: Como ver tickets por fila?
+RESPOSTA: Na tela de atendimentos, use o menu de filtros (ícone de filtro)
+e selecione filas desejadas. Apenas tickets dessas filas aparecerão.
+
+PERGUNTA: Como marcar mensagem como lida?
+RESPOSTA: Mensagens são marcadas como lidas automaticamente ao abrir o ticket.
+Você pode ver status de leitura nos ícones de confirmação.
+
+PERGUNTA: Como usar modo escuro?
+RESPOSTA: O sistema detecta preferência do navegador automaticamente. Algumas
+configurações podem estar em "Configurações" > "Aparência".
+
+PERGUNTA: Como recuperar senha?
+RESPOSTA: Na tela de login, clique em "Esqueci minha senha", informe seu
+email e siga instruções recebidas por email.
+
+PERGUNTA: Como ver estatísticas de formulário?
+RESPOSTA: Acesse "Formulários", clique no formulário desejado e depois em
+"Análise". Veja gráficos, respostas e métricas de conversão.
+
+PERGUNTA: Como integrar com sistema externo?
+RESPOSTA: Use Webhooks em "Configurações" > "Integrações". Configure URL
+de destino e eventos que devem disparar webhooks.
+
+PERGUNTA: Como usar botões de acesso rápido?
+RESPOSTA: Configure em "Configurações" > "Botões de Acesso Rápido". Adicione
+links para funcionalidades mais usadas que aparecerão no dashboard.
+
+PERGUNTA: Como ver logs do sistema?
+RESPOSTA: Logs geralmente estão disponíveis para administradores em
+"Configurações" > "Logs" ou "Auditoria". Veja ações de usuários e eventos.
+
+PERGUNTA: Como fazer backup?
+RESPOSTA: Contate administrador do sistema. Backups geralmente são feitos
+automaticamente pelo sistema ou podem ser solicitados ao suporte.
+
+PERGUNTA: Como atualizar perfil?
+RESPOSTA: Clique no seu nome/avatar no canto superior direito, escolha
+"Perfil" ou "Configurações de Conta" e edite informações desejadas.
+
+PERGUNTA: Como sair do sistema?
+RESPOSTA: Clique no seu nome/avatar e escolha "Sair" ou "Logout". Você
+será desconectado e redirecionado para tela de login.
+
+PERGUNTA: Por que botões de ação não aparecem em grupos?
+RESPOSTA: Em grupos, botões como "Assumir", "Retornar" e "Resolver" não
+aparecem porque grupos são gerenciados de forma diferente. Apenas o menu
+de opções (três pontos) está disponível.
+
+PERGUNTA: Como configurar provider de IA por funcionalidade?
+RESPOSTA: Acesse "Configurações" > "Inteligência Artificial". Quando ambas
+as chaves (OpenAI e Gemini) estiverem configuradas, você pode escolher qual
+provider usar para cada funcionalidade (resumos, chat, tradução, etc.).
+
+PERGUNTA: Como funciona a tradução automática?
+RESPOSTA: Configure o idioma da empresa em "Configurações" > "Inteligência
+Artificial" > "Idioma da Empresa". Mensagens recebidas em outro idioma serão
+traduzidas automaticamente e exibirão badge "Traduzido" abaixo da mensagem.
+
+PERGUNTA: Como gerar resumo com IA no dashboard?
+RESPOSTA: No dashboard, use o botão "Resumo com IA" para gerar resumo
+inteligente de atendimentos. A IA analisa tickets, conversas e métricas
+e gera resumo formatado.
+
+PERGUNTA: Como criar tarefa a partir de ticket?
+RESPOSTA: Abra o ticket, clique no menu (três pontos), escolha "Criar Tarefa",
+preencha informações e salve. A tarefa ficará associada ao ticket.
+
+PERGUNTA: Como agendar mensagem a partir de ticket?
+RESPOSTA: Abra o ticket, digite a mensagem, clique no botão de agendar
+(ícone de calendário), selecione data/hora e confirme.
+
+PERGUNTA: Como usar agendamento via IA?
+RESPOSTA: Em conversas, use comandos como "Agendar retorno para amanhã às
+14h". A IA identificará a intenção e criará o agendamento automaticamente.
+
+================================================================================
+24. GLOSSÁRIO DE TERMOS
+================================================================================
+
+TICKET: Conversa de atendimento com um cliente
+FILA: Departamento ou grupo de atendimento
+TAG: Etiqueta para classificar tickets
+FLOW: Fluxo de automação de conversas
+CAMPANHA: Envio de mensagens em massa
+CONTATO: Pessoa ou empresa no sistema
+ATENDENTE: Usuário que faz atendimento
+ADMIN: Administrador com acesso total
+MENSAGEM RÁPIDA: Resposta pré-configurada
+MENSAGEM INTERNA: Anotação não enviada ao cliente
+PROMPT: Instrução para IA gerar respostas
+WEBHOOK: Notificação para sistema externo
+API: Interface para integração programática
+QR CODE: Código para conectar WhatsApp
+KANBAN: Visualização em colunas por status/tag
+COMPUCHAT AI: Assistente inteligente do dashboard
+TRADUÇÃO AUTOMÁTICA: Tradução de mensagens em tempo real
+TAREFA: Atividade ou compromisso a ser realizado
+AGENDAMENTO: Compromisso ou mensagem programada
+CHAT INTERNO: Comunicação entre usuários da empresa
+ANÚNCIO: Notificação ou comunicado importante
+PROVIDER DE IA: Provedor de serviços de IA (OpenAI, Gemini)
+ASSINATURA: Plano de pagamento recorrente
+WEBHOOK: Notificação HTTP para sistema externo
+CACHE: Armazenamento temporário para otimização
+BADGE: Indicador visual (ex: "Traduzido", "INTERNA")
+
+================================================================================
+25. DICAS E BOAS PRÁTICAS
+================================================================================
+
+1. Use tags consistentemente para facilitar busca e relatórios
+2. Responda tickets aguardando rapidamente para melhor experiência
+3. Use mensagens rápidas para respostas comuns e agilizar atendimento
+4. Configure Flow Builder para automatizar respostas frequentes
+5. Revise dashboard regularmente para acompanhar métricas
+6. Mantenha contatos atualizados com informações corretas
+7. Use mensagens internas para comunicação entre atendentes
+8. Configure horários de funcionamento para gerenciar expectativas
+9. Teste flows antes de ativar em produção
+10. Monitore campanhas para otimizar resultados
+11. Use IA para análise e sugestões, mas sempre revise
+12. Organize filas por departamento ou tipo de atendimento
+13. Treine equipe nas funcionalidades principais
+14. Use busca avançada para encontrar tickets rapidamente
+15. Exporte relatórios regularmente para análise externa
+16. Use Compuchat AI para tirar dúvidas sobre o sistema
+17. Configure tradução automática para atender clientes internacionais
+18. Use tarefas para organizar trabalho e não esquecer compromissos
+19. Agende mensagens para follow-ups e lembretes
+20. Use Kanban para visualização e organização visual do trabalho
+21. Mantenha chat interno ativo para comunicação de equipe
+22. Configure providers de IA por funcionalidade para otimizar custos
+23. Use análise de IA para entender melhor as conversas
+24. Melhore mensagens importantes com IA antes de enviar
+25. Transcreva áudios longos para revisar rapidamente
+26. Use resumo de áudios para economizar tempo
+27. Configure botões de acesso rápido para funcionalidades mais usadas
+28. Use anúncios para comunicar mudanças importantes
+29. Organize contatos em listas para campanhas segmentadas
+30. Revise estatísticas de formulários para otimizar conversão
+
+================================================================================
+26. SUPORTE E CONTATO
+================================================================================
+
+Para dúvidas adicionais ou problemas técnicos:
+- Consulte este manual
+- Use o Compuchat AI no dashboard
+- Entre em contato com administrador do sistema
+- Acesse a seção "Ajuda" no menu
+
+================================================================================
+FIM DO MANUAL
+================================================================================
+
+Este manual é atualizado regularmente. Versão atual: 2.0
+Data da última atualização: 2025

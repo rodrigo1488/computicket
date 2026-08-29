@@ -19,6 +19,7 @@ import {
   UserCog,
   Settings,
   Ticket,
+  Monitor,
 } from "lucide-react";
 
 export type NavItem = {
@@ -40,6 +41,7 @@ export const NAV_ITEMS: NavItem[] = [
   { href: "/planos", label: "Planos", icon: Layers },
   { href: "/helpdesk", label: "Help Desk", icon: Headset },
   { href: "/monitoramento", label: "Monitoramento", icon: MapPin, techOnly: true },
+  { href: "/monitoramento-remoto", label: "Monitoramento remoto", icon: Monitor, techOnly: true },
   { href: "/relatorios", label: "Relatórios", icon: PieChart },
   { href: "/ps", label: "PS", icon: FileText },
   { href: "/venda-avulsa", label: "Venda Avulsa", icon: ShoppingCart },

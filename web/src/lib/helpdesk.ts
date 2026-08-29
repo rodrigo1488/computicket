@@ -163,7 +163,7 @@ export function unwrapMessages(
 ): HelpdeskMessage[] {
   if (!data) return [];
   if (Array.isArray(data)) return data;
-  if (Array.isArray(data.messages)) return data.messages;
+  if ("messages" in data && Array.isArray(data.messages)) return data.messages;
   if ("rows" in data && Array.isArray(data.rows)) return data.rows;
   return [];
 }

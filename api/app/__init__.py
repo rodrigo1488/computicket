@@ -8,6 +8,7 @@ if hasattr(sys.stdout, 'reconfigure'):
     except Exception:
         pass
 
+import os
 from flask import Flask, redirect, url_for
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager
@@ -36,9 +37,13 @@ def create_app() -> Flask:
 	# Configurações básicas
 	if not app.config.get("SECRET_KEY"):
 		app.config["SECRET_KEY"] = "dev-secret-key"
-	db_path = Path(app.instance_path) / "tickets.sqlite3"
-	db_path.parent.mkdir(parents=True, exist_ok=True)
-	app.config.setdefault("SQLALCHEMY_DATABASE_URI", f"sqlite:///{db_path}")
+	# URI via .env (Postgres). Sem env: fallback SQLite em instance/tickets.sqlite3
+	db_uri = os.environ.get("SQLALCHEMY_DATABASE_URI", "").strip()
+	if not db_uri:
+		db_path = Path(app.instance_path) / "tickets.sqlite3"
+		db_path.parent.mkdir(parents=True, exist_ok=True)
+		db_uri = f"sqlite:///{db_path}"
+	app.config.setdefault("SQLALCHEMY_DATABASE_URI", db_uri)
 	app.config.setdefault("SQLALCHEMY_TRACK_MODIFICATIONS", False)
 	
 	# Configurações de sessão para garantir isolamento entre clientes

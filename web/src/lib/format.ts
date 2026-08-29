@@ -101,6 +101,8 @@ export type TicketDetail = TicketCard & {
     contact_number?: string | null;
     status?: string | null;
   } | null;
+  in_progress_started_at?: string | null;
+  created_at_input?: string | null;
 };
 
 export type AuthUser = {

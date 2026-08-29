@@ -23,10 +23,14 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { io, type Socket } from "socket.io-client";
+import { CloseTicketDialog } from "@/components/tickets/CloseTicketDialog";
 import { TicketCreateDialog } from "@/components/tickets/TicketCreateDialog";
+import { TimeEntryDialog } from "@/components/tickets/TimeEntryDialog";
 import { UserAvatar } from "@/components/ui/UserAvatar";
+import { flask } from "@/lib/api";
 import { cn } from "@/lib/cn";
 import { useAuth } from "@/lib/auth-context";
+import type { TicketDetail } from "@/lib/format";
 import {
   helpdesk,
   unwrapConnections,
@@ -136,6 +140,10 @@ export function HelpdeskWorkspace() {
   const [contactOpen, setContactOpen] = useState(false);
   const [quickOpen, setQuickOpen] = useState(false);
   const [isInternal, setIsInternal] = useState(false);
+  const [linkedTicket, setLinkedTicket] = useState<TicketDetail | null>(null);
+  const [closeTicketOpen, setCloseTicketOpen] = useState(false);
+  const [entryMode, setEntryMode] = useState<"stop" | "add" | null>(null);
+  const [ticketFlowLoading, setTicketFlowLoading] = useState(false);
   const [sign, setSign] = useState(() => {
     if (typeof window === "undefined") return true;
     return window.localStorage.getItem(SIGN_KEY) !== "0";
@@ -144,6 +152,8 @@ export function HelpdeskWorkspace() {
   const fileRef = useRef<HTMLInputElement>(null);
   const socketRef = useRef<Socket | null>(null);
   const activeIdRef = useRef<number | null>(null);
+  const pendingResolveChatId = useRef<number | null>(null);
+  const entryContinueRef = useRef(false);
   activeIdRef.current = activeId;
 
   useEffect(() => {
@@ -328,6 +338,62 @@ export function HelpdeskWorkspace() {
     },
     onError: (e: Error) => setError(e.message),
   });
+
+  const abortTicketCloseFlow = () => {
+    pendingResolveChatId.current = null;
+    entryContinueRef.current = false;
+    setEntryMode(null);
+    setCloseTicketOpen(false);
+    setLinkedTicket(null);
+  };
+
+  const openCloseTicketFlow = async (conversationId: number, ticketId: number) => {
+    setTicketFlowLoading(true);
+    setError(null);
+    try {
+      const ticket = await flask.get<TicketDetail>(`/tickets/api/${ticketId}`);
+      if (ticket.status === "fechado" || ticket.status === "cancelado") {
+        if (window.confirm("Resolver esta conversa? O chamado vinculado já está encerrado.")) {
+          resolve.mutate(conversationId);
+        }
+        return;
+      }
+      pendingResolveChatId.current = conversationId;
+      setLinkedTicket(ticket);
+      const entries = ticket.time_entries || [];
+      if (ticket.status === "em_andamento") {
+        setCloseTicketOpen(false);
+        setEntryMode("stop");
+      } else if (entries.length === 0) {
+        setCloseTicketOpen(false);
+        setEntryMode("add");
+      } else {
+        setEntryMode(null);
+        setCloseTicketOpen(true);
+      }
+    } catch (e) {
+      abortTicketCloseFlow();
+      setError(e instanceof Error ? e.message : "Erro ao carregar chamado vinculado");
+    } finally {
+      setTicketFlowLoading(false);
+    }
+  };
+
+  const handleResolverClick = () => {
+    if (!current || current.status !== "open") return;
+    const ticketId = current.computicket_ticket_id;
+    if (!ticketId) {
+      if (window.confirm("Resolver esta conversa?")) resolve.mutate(current.id);
+      return;
+    }
+    void openCloseTicketFlow(current.id, ticketId);
+  };
+
+  const onLinkedTicketClosed = () => {
+    const chatId = pendingResolveChatId.current;
+    pendingResolveChatId.current = null;
+    if (chatId) resolve.mutate(chatId);
+  };
   const reopen = useMutation({
     mutationFn: (id: number) => helpdesk.reopen(id),
     onSuccess: (ticket) => {
@@ -777,13 +843,12 @@ export function HelpdeskWorkspace() {
                   {current.status === "open" ? (
                     <button
                       type="button"
-                      onClick={() => {
-                        if (window.confirm("Resolver esta conversa?")) resolve.mutate(current.id);
-                      }}
-                      className="inline-flex items-center gap-1 rounded-lg bg-brand px-3 py-1.5 text-xs font-semibold text-white"
+                      disabled={ticketFlowLoading || resolve.isPending}
+                      onClick={handleResolverClick}
+                      className="inline-flex items-center gap-1 rounded-lg bg-brand px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50"
                     >
                       <Check className="h-3.5 w-3.5" />
-                      Resolver
+                      {ticketFlowLoading ? "Carregando…" : "Resolver"}
                     </button>
                   ) : null}
                   <button
@@ -1024,6 +1089,49 @@ export function HelpdeskWorkspace() {
           }
         }}
       />
+
+      {linkedTicket && entryMode ? (
+        <TimeEntryDialog
+          open
+          ticketId={linkedTicket.id}
+          mode={entryMode}
+          onSaved={() => {
+            entryContinueRef.current = true;
+            const ticketId = linkedTicket.id;
+            void flask
+              .get<TicketDetail>(`/tickets/api/${ticketId}`)
+              .then((ticket) => {
+                setLinkedTicket(ticket);
+                setCloseTicketOpen(true);
+              })
+              .catch((e) => {
+                abortTicketCloseFlow();
+                setError(e instanceof Error ? e.message : "Erro ao recarregar chamado");
+              });
+          }}
+          onClose={() => {
+            setEntryMode(null);
+            if (entryContinueRef.current) {
+              entryContinueRef.current = false;
+              return;
+            }
+            abortTicketCloseFlow();
+          }}
+        />
+      ) : null}
+
+      {linkedTicket && closeTicketOpen ? (
+        <CloseTicketDialog
+          open
+          ticket={linkedTicket}
+          onClosed={onLinkedTicketClosed}
+          onClose={() => {
+            setCloseTicketOpen(false);
+            setLinkedTicket(null);
+            pendingResolveChatId.current = null;
+          }}
+        />
+      ) : null}
     </div>
   );
 }

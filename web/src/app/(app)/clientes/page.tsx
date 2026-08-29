@@ -1,6 +1,7 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Plus } from "lucide-react";
 import { useEffect, useState } from "react";
 import { PageTitle } from "@/components/layout/AppShell";
 import { DataTable } from "@/components/ui/DataTable";
@@ -23,13 +24,24 @@ type Client = {
   notes?: string;
 };
 
+const emptyForm = {
+  name: "",
+  document: "",
+  phone: "",
+  email: "",
+  address: "",
+  address_number: "",
+  notes: "",
+};
+
 export default function ClientesPage() {
   const qc = useQueryClient();
   const [q, setQ] = useState("");
   const [page, setPage] = useState(1);
   const [view, setView] = useState<Client | null>(null);
   const [edit, setEdit] = useState<Client | null>(null);
-  const [form, setForm] = useState({ name: "", document: "", phone: "", email: "", address: "", address_number: "", notes: "" });
+  const [creating, setCreating] = useState(false);
+  const [form, setForm] = useState(emptyForm);
   const [formError, setFormError] = useState("");
   const { colQuery, colFilters, onFiltersChange } = useColFilters();
 
@@ -43,16 +55,25 @@ export default function ClientesPage() {
 
   const save = useMutation({
     mutationFn: () => {
-      if (!edit) throw new Error("Nenhum cliente selecionado");
       if (!form.name.trim()) throw new Error("Nome é obrigatório");
+      if (creating) return flask.post<Client>("/api/web/clients", form);
+      if (!edit) throw new Error("Nenhum cliente selecionado");
       return flask.patch<Client>(`/api/web/clients/${edit.id}`, form);
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["clients-page"] });
       setEdit(null);
+      setCreating(false);
     },
     onError: (e) => setFormError(e instanceof Error ? e.message : "Erro ao salvar"),
   });
+
+  const openCreate = () => {
+    setForm(emptyForm);
+    setFormError("");
+    setCreating(true);
+    setEdit(null);
+  };
 
   const openEdit = (c: Client) => {
     setForm({
@@ -65,14 +86,31 @@ export default function ClientesPage() {
       notes: c.notes || "",
     });
     setFormError("");
+    setCreating(false);
     setEdit(c);
   };
 
   return (
     <div>
-      <PageTitle>Clientes</PageTitle>
+      <div className="mb-8 flex flex-wrap items-center justify-between gap-4">
+        <PageTitle className="mb-0">Clientes</PageTitle>
+        <button
+          type="button"
+          onClick={openCreate}
+          className="inline-flex h-10 items-center gap-2 rounded-xl bg-ink px-4 text-sm font-medium text-white"
+        >
+          <Plus className="h-4 w-4" />
+          Novo cliente
+        </button>
+      </div>
       {isLoading ? <p className="mb-4 text-sm text-muted">Carregando clientes…</p> : null}
       {error ? <p className="mb-4 text-sm text-open">{(error as Error).message}</p> : null}
+      {!isLoading && !error && (data?.total || 0) === 0 ? (
+        <p className="mb-4 text-sm text-muted">
+          Nenhum cliente retornado. Se esperava dados do Unico, confira o Postgres em
+          Configurações → Uniplus — a listagem não usa o agente.
+        </p>
+      ) : null}
       <DataTable
         id="clientes"
         searchPlaceholder="Buscar por nome, documento…"
@@ -125,7 +163,15 @@ export default function ClientesPage() {
         ) : null}
       </Modal>
 
-      <Modal open={!!edit} onClose={() => setEdit(null)} title="Editar cliente" wide>
+      <Modal
+        open={!!edit || creating}
+        onClose={() => {
+          setEdit(null);
+          setCreating(false);
+        }}
+        title={creating ? "Novo cliente" : "Editar cliente"}
+        wide
+      >
         <form
           className="space-y-5"
           onSubmit={(e) => {
@@ -141,7 +187,7 @@ export default function ClientesPage() {
           <UnderlineField label="Número" value={form.address_number} onChange={(v) => setForm((f) => ({ ...f, address_number: v }))} />
           {formError ? <p className="text-sm text-open">{formError}</p> : null}
           <PrimaryButton type="submit" disabled={save.isPending}>
-            {save.isPending ? "Salvando…" : "Salvar"}
+            {save.isPending ? "Salvando…" : creating ? "Cadastrar" : "Salvar"}
           </PrimaryButton>
         </form>
       </Modal>

@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <title>Uniplus Agent — Logs</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 960px; margin: 2rem auto; padding: 0 1rem; background: #0f1419; color: #e7ecf1; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+    th, td { border-bottom: 1px solid #2a3540; padding: 0.45rem 0.35rem; text-align: left; }
+    a { color: #93c5fd; }
+    .done { color: #86efac; }
+    .error { color: #fca5a5; }
+  </style>
+</head>
+<body>
+  <h1>Logs do agente</h1>
+  <p>Status: <strong>{% if state.authenticated or state.connected %}autenticado{% elif state.socket_open %}socket aberto (sem auth){% else %}desconectado{% endif %}</strong>
+     {% if state.last_error %}— {{ state.last_error }}{% endif %}
+     — <a href="{{ url_for('config_page') }}">Config</a></p>
+  <table>
+    <thead>
+      <tr><th>Quando</th><th>Job</th><th>Tipo</th><th>Status</th><th>Mensagem</th></tr>
+    </thead>
+    <tbody>
+      {% for row in logs %}
+      <tr>
+        <td>{{ row.created_at }}</td>
+        <td>{{ row.job_id }}</td>
+        <td>{{ row.job_type }}</td>
+        <td class="{{ row.status }}">{{ row.status }}</td>
+        <td>{{ row.message }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="5">Nenhum log ainda.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</body>
+</html>

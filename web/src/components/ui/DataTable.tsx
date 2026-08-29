@@ -31,7 +31,12 @@ export type ColumnFilter = {
 };
 
 export type DataTableColumnMeta = {
-  /** Tipo do funil. `select` usa opções (ou valores únicos da página). */
+  /**
+   * Tipo do funil.
+   * - `select`: só lista de valores (op = equals); opções explícitas ou valores únicos das `rows`.
+   * - `text`: operadores Contém/Igual a + select de valores únicos (fallback para input se vazio).
+   * Valores sempre vêm das `rows` passadas à tabela (conjunto atual / página carregada), não do banco inteiro.
+   */
   filter?: "text" | "select" | false;
   options?: { value: string; label: string }[];
   /** Não ordenável / sem funil. */
@@ -39,6 +44,9 @@ export type DataTableColumnMeta = {
   /** Campo enviado à API (col_filters). */
   field?: string;
 };
+
+/** Acima deste tamanho, o funil de valor ganha campo de busca. */
+const FILTER_VALUE_SEARCH_THRESHOLD = 12;
 
 export type DataTableProps = {
   /** Chave de persistência das colunas no localStorage (`datatable:{id}:cols`). */
@@ -115,6 +123,9 @@ function fieldName(col: string, meta?: DataTableColumnMeta) {
     valor_hora: "hourly_rate",
     "valor hora": "hourly_rate",
     ultima_localizacao: "address",
+    solicitante: "solicitante",
+    criado: "created_at",
+    "criado em": "created_at",
   };
   return map[n] || n.replace(/\s+/g, "_");
 }
@@ -303,9 +314,16 @@ export function DataTable({
     const set = new Set<string>();
     for (const row of rows) {
       const t = cellText(row[col]).trim();
-      if (t && t !== "—") set.add(t);
+      // Ignora vazios e traço tipográfico usado como placeholder
+      if (!t || t === "—" || t === "-") continue;
+      set.add(t);
     }
-    return [...set].sort((a, b) => a.localeCompare(b, "pt-BR"));
+    return [...set].sort((a, b) => {
+      const ka = sortKey(a);
+      const kb = sortKey(b);
+      if (typeof ka === "number" && typeof kb === "number") return ka - kb;
+      return String(ka).localeCompare(String(kb), "pt-BR", { numeric: true });
+    });
   };
 
   const filterKind = (col: number): "text" | "select" | false => {
@@ -370,17 +388,17 @@ export function DataTable({
           align="right"
           width={260}
           onClose={() => setOpen(null)}
-          className="p-2"
+          className="max-h-[min(70vh,420px)] overflow-y-auto p-2"
         >
           <p className="px-2 py-1 text-[11px] font-medium uppercase tracking-[0.08em] text-muted">
             Colunas visíveis
           </p>
-          {columns.map((c) => {
+          {columns.map((c, i) => {
             const locked = isActionsColumn(c);
             const checked = locked || !hidden.has(c);
             return (
               <label
-                key={c || "acoes"}
+                key={`${i}-${c || "acoes"}`}
                 className={cn(
                   "flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm",
                   locked ? "cursor-default text-muted" : "cursor-pointer hover:bg-[#f5f5f5]",
@@ -576,6 +594,65 @@ export function DataTable({
   );
 }
 
+function FilterValueSelect({
+  value,
+  options,
+  onChange,
+  className,
+}: {
+  value: string;
+  options: { value: string; label: string }[];
+  onChange: (value: string) => void;
+  className?: string;
+}) {
+  const [query, setQuery] = useState("");
+  const searchable = options.length > FILTER_VALUE_SEARCH_THRESHOLD;
+  const filtered = useMemo(() => {
+    const q = query.trim().toLocaleLowerCase("pt-BR");
+    if (!q) return options;
+    return options.filter((o) => o.label.toLocaleLowerCase("pt-BR").includes(q));
+  }, [options, query]);
+
+  const known = options.some((o) => o.value === value);
+  const selectValue = known ? value : value ? `__custom__:${value}` : "";
+  const visible = useMemo(() => {
+    if (!value || !known) return filtered;
+    if (filtered.some((o) => o.value === value)) return filtered;
+    const selected = options.find((o) => o.value === value);
+    return selected ? [selected, ...filtered] : filtered;
+  }, [filtered, known, options, value]);
+
+  return (
+    <div className={className}>
+      {searchable ? (
+        <input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Buscar valor…"
+          className="mb-2 w-full rounded-lg border border-[#e5e7eb] bg-white px-2 py-2 text-sm placeholder:text-[#9ca3af]"
+        />
+      ) : null}
+      <select
+        value={selectValue}
+        onChange={(e) => {
+          const raw = e.target.value;
+          const v = raw.startsWith("__custom__:") ? raw.slice("__custom__:".length) : raw;
+          onChange(v);
+        }}
+        className="w-full rounded-lg border border-[#e5e7eb] bg-white px-2 py-2 text-sm"
+      >
+        <option value="">Todos</option>
+        {!known && value ? <option value={`__custom__:${value}`}>{value}</option> : null}
+        {visible.map((o) => (
+          <option key={o.value} value={o.value}>
+            {o.label}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
 function FilterPopover({
   col,
   name,
@@ -604,23 +681,18 @@ function FilterPopover({
   void col;
   const selectOpts = options?.length ? options : unique.map((v) => ({ value: v, label: v }));
   const isSelect = kind === "select";
+  const hasValueList = selectOpts.length > 0;
 
   return (
     <FloatingMenu anchor={anchor} width={260} onClose={onClose} className="p-3">
       <p className="mb-2 text-xs font-medium text-ink">Filtrar {name}</p>
       {isSelect ? (
-        <select
+        <FilterValueSelect
           value={draft.value}
-          onChange={(e) => setDraft({ op: "equals", value: e.target.value })}
-          className="mb-3 w-full rounded-lg border border-[#e5e7eb] bg-white px-2 py-2 text-sm"
-        >
-          <option value="">Todos</option>
-          {selectOpts.map((o) => (
-            <option key={o.value} value={o.value}>
-              {o.label}
-            </option>
-          ))}
-        </select>
+          options={selectOpts}
+          className="mb-3"
+          onChange={(value) => setDraft({ op: "equals", value })}
+        />
       ) : (
         <>
           <select
@@ -631,15 +703,24 @@ function FilterPopover({
             <option value="contains">Contém</option>
             <option value="equals">Igual a</option>
           </select>
-          <input
-            value={draft.value}
-            onChange={(e) => setDraft({ ...draft, value: e.target.value })}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") onApply();
-            }}
-            placeholder="Valor…"
-            className="mb-3 w-full rounded-lg border border-[#e5e7eb] px-2 py-2 text-sm"
-          />
+          {hasValueList ? (
+            <FilterValueSelect
+              value={draft.value}
+              options={selectOpts}
+              className="mb-3"
+              onChange={(value) => setDraft({ ...draft, value })}
+            />
+          ) : (
+            <input
+              value={draft.value}
+              onChange={(e) => setDraft({ ...draft, value: e.target.value })}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") onApply();
+              }}
+              placeholder="Valor…"
+              className="mb-3 w-full rounded-lg border border-[#e5e7eb] px-2 py-2 text-sm"
+            />
+          )}
         </>
       )}
       <div className="flex justify-end gap-2">

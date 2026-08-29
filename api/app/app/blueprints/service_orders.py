@@ -331,57 +331,82 @@ def process_finalization():
 		
 		try:
 			# Atualizar ordem de serviço com todos os campos necessários
-			# NÃO fazer commit ainda - vamos fazer tudo em uma transação
-			# para garantir que se o DAV falhar, a OS também não seja atualizada
-			cursor.execute("""
-				UPDATE ordemservico 
-				SET servicoexecutado = %s, valor = %s, status = %s, fimservico = %s,
-					geroufinanceiro = %s, impresso = 1, datahoraimpressao = %s,
-					idusuarioentrega = %s, nomeresponsavelretirada = %s,
-					descricaoultimoevento = %s, dataultimoevento = %s
-				WHERE codigo = %s
-			""", (
-				servico_executado, 
-				valor, 
-				final_status,  # status: 3 (sem cobrança) ou 5 (com cobrança)
-				datetime.now(),  # fimservico
-				1 if valor > 0 else 0,  # geroufinanceiro
-				datetime.now(),  # datahoraimpressao
-				current_user.id if hasattr(current_user, 'id') else 1,  # idusuarioentrega
-				current_user.name,  # nomeresponsavelretirada
-				f"Ordem de serviço {codigo} finalizada",  # descricaoultimoevento
-				datetime.now(),  # dataultimoevento
-				codigo
-			))
+			from ..uniplus_jobs import agent_enabled, enqueue_and_wait
+			from ..services.faturamento_products import get_external_user_data
 
-			# Se houver produtos, criar DAV e seus itens de forma transacional
-			# O DAV representa venda de produtos, não serviço, então deve ser criado
-			# independente do status de cobrança (final_status)
-			dav_id = None
-			dav_codigo = None
-			
-			# Debug: verificar condições para criar DAV
-			print(f"🔍 DEBUG DAV - final_status: {final_status}, product_details: {len(product_details) if product_details else 0}")
-			print(f"🔍 DEBUG DAV - client_id: {client_id}, codigo OS: {codigo}")
-			if product_details:
+			if agent_enabled():
+				ext_uid, ext_rid = (None, None)
 				try:
-					dav_id, dav_codigo = create_dav(
-						cursor,
-						client_id=client_id,
-						reference_label="OS",
-						reference_code=str(codigo),
-						product_details=product_details,
-						local_user=current_user,
-					)
-				except ValueError as e:
-					conn.rollback()
-					cursor.close()
-					conn.close()
-					return jsonify({"error": str(e)}), 400
-			
-			# Commit de tudo junto (OS + DAV se houver) - feito no bloco try principal
-			conn.commit()
-			print(f"✅ DEBUG - Commit realizado com sucesso! OS atualizada e DAV criado (se houver)")
+					ext_uid, ext_rid = get_external_user_data(cursor, current_user)
+				except Exception:
+					pass
+				payload = {
+					"codigo": codigo,
+					"servico_executado": servico_executado,
+					"valor": valor,
+					"status": final_status,
+					"idusuarioentrega": current_user.id if hasattr(current_user, "id") else 1,
+					"nomeresponsavelretirada": current_user.name,
+					"client_id": client_id,
+					"external_user_id": ext_uid,
+					"external_rep_id": ext_rid,
+				}
+				if product_details:
+					payload["create_dav"] = True
+					payload["product_details"] = product_details
+				result = enqueue_and_wait("finalize_ordemservico", payload, timeout=90.0)
+				dav_id = result.get("dav_id")
+				dav_codigo = result.get("dav_codigo")
+				print(f"✅ DEBUG - OS finalizada via agente Uniplus")
+			else:
+				# NÃO fazer commit ainda - vamos fazer tudo em uma transação
+				# para garantir que se o DAV falhar, a OS também não seja atualizada
+				cursor.execute("""
+					UPDATE ordemservico 
+					SET servicoexecutado = %s, valor = %s, status = %s, fimservico = %s,
+						geroufinanceiro = %s, impresso = 1, datahoraimpressao = %s,
+						idusuarioentrega = %s, nomeresponsavelretirada = %s,
+						descricaoultimoevento = %s, dataultimoevento = %s
+					WHERE codigo = %s
+				""", (
+					servico_executado, 
+					valor, 
+					final_status,  # status: 3 (sem cobrança) ou 5 (com cobrança)
+					datetime.now(),  # fimservico
+					1 if valor > 0 else 0,  # geroufinanceiro
+					datetime.now(),  # datahoraimpressao
+					current_user.id if hasattr(current_user, 'id') else 1,  # idusuarioentrega
+					current_user.name,  # nomeresponsavelretirada
+					f"Ordem de serviço {codigo} finalizada",  # descricaoultimoevento
+					datetime.now(),  # dataultimoevento
+					codigo
+				))
+
+				# Se houver produtos, criar DAV e seus itens de forma transacional
+				dav_id = None
+				dav_codigo = None
+				
+				print(f"🔍 DEBUG DAV - final_status: {final_status}, product_details: {len(product_details) if product_details else 0}")
+				print(f"🔍 DEBUG DAV - client_id: {client_id}, codigo OS: {codigo}")
+				if product_details:
+					try:
+						dav_id, dav_codigo = create_dav(
+							cursor,
+							client_id=client_id,
+							reference_label="OS",
+							reference_code=str(codigo),
+							product_details=product_details,
+							local_user=current_user,
+						)
+					except ValueError as e:
+						conn.rollback()
+						cursor.close()
+						conn.close()
+						return jsonify({"error": str(e)}), 400
+				
+				# Commit de tudo junto (OS + DAV se houver) - feito no bloco try principal
+				conn.commit()
+				print(f"✅ DEBUG - Commit realizado com sucesso! OS atualizada e DAV criado (se houver)")
 			
 		except Exception as e:
 			# Rollback em caso de erro

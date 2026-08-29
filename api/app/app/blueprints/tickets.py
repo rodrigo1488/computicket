@@ -2113,22 +2113,27 @@ def cancel_ps(ticket_id):
 		print(f"🗑️ Excluindo do PostgreSQL - PS: {ps_number}")
 		pg_conn = None
 		try:
-			pg_conn = connect_postgres()
-			pg_cursor = pg_conn.cursor()
-			
-			# Buscar o registro no PostgreSQL pelo documento
-			pg_cursor.execute("SELECT * FROM financeiro WHERE documento = %s", (ps_number,))
-			pg_record = pg_cursor.fetchone()
-			
-			if pg_record:
-				print(f"📋 Registro encontrado no PostgreSQL: {pg_record}")
-				
-				# Excluir o registro
-				pg_cursor.execute("DELETE FROM financeiro WHERE documento = %s", (ps_number,))
-				pg_conn.commit()
-				print(f"✅ Registro excluído do PostgreSQL")
+			from ..uniplus_jobs import agent_enabled, enqueue_and_wait
+			if agent_enabled():
+				enqueue_and_wait("delete_finance_ps", {"document": ps_number, "ps_number": ps_number})
+				print(f"✅ Registro excluído do PostgreSQL via agente")
 			else:
-				print(f"⚠️ Registro não encontrado no PostgreSQL para documento: {ps_number}")
+				pg_conn = connect_postgres()
+				pg_cursor = pg_conn.cursor()
+				
+				# Buscar o registro no PostgreSQL pelo documento
+				pg_cursor.execute("SELECT * FROM financeiro WHERE documento = %s", (ps_number,))
+				pg_record = pg_cursor.fetchone()
+				
+				if pg_record:
+					print(f"📋 Registro encontrado no PostgreSQL: {pg_record}")
+					
+					# Excluir o registro
+					pg_cursor.execute("DELETE FROM financeiro WHERE documento = %s", (ps_number,))
+					pg_conn.commit()
+					print(f"✅ Registro excluído do PostgreSQL")
+				else:
+					print(f"⚠️ Registro não encontrado no PostgreSQL para documento: {ps_number}")
 				
 		except Exception as e:
 			print(f"❌ Erro ao excluir do PostgreSQL: {e}")
@@ -2308,10 +2313,17 @@ def api_vendas_avulsas_cancel(sale_id):
 		return jsonify({"success": False, "error": "Erro de conexão com o banco de faturamento"}), 500
 	cursor = conn.cursor()
 	try:
-		# Update status and devolucaodescricao in Postgres
 		from datetime import date
 		today_str = date.today().isoformat()
-		
+
+		from ..uniplus_jobs import agent_enabled, enqueue_and_wait
+		if agent_enabled():
+			enqueue_and_wait("cancel_finance_avulso", {
+				"sale_id": sale_id,
+				"reason": reason,
+			})
+			return jsonify({"success": True, "message": "Venda cancelada com sucesso!"})
+
 		# Confirm the record is a Venda Avulsa first
 		cursor.execute("SELECT id FROM financeiro WHERE id = %s AND observacaoboleto = 'Avulso' AND idcodigocontabil = 71 AND documento NOT LIKE 'PS%%' AND documento NOT LIKE 'NFSe%%'", (sale_id,))
 		if not cursor.fetchone():
@@ -2508,6 +2520,17 @@ def _fmt_ticket_dt(dt):
 		return str(dt)
 
 
+def _fmt_ticket_dt_local_input(dt):
+	"""Formato para input datetime-local (Brasília): YYYY-MM-DDTHH:MM."""
+	if not dt:
+		return None
+	try:
+		local = utc_to_brasilia(dt)
+		return local.strftime("%Y-%m-%dT%H:%M")
+	except Exception:
+		return None
+
+
 def _ticket_base_price(ticket: Ticket) -> float:
 	if ticket.service and ticket.service.hourly_rate:
 		return float(ticket.service.hourly_rate or 0)
@@ -2615,6 +2638,8 @@ def _serialize_ticket_detail(ticket: Ticket) -> dict:
 		"ps_number": ticket.ps_number,
 		"ps_file": ticket.ps_file,
 		"helpdesk_conversation": _helpdesk_conversation_payload(ticket),
+		"in_progress_started_at": _fmt_ticket_dt_local_input(ticket.in_progress_started_at),
+		"created_at_input": _fmt_ticket_dt_local_input(ticket.created_at),
 	}
 
 
@@ -2646,13 +2671,17 @@ def api_list_tickets():
 	)
 	from ..query_filters import filter_query
 	query = query.outerjoin(Service, Ticket.service_id == Service.id)
+	query = query.outerjoin(User, Ticket.assigned_to_id == User.id)
 	query = filter_query(query, {
 		"id": Ticket.id,
 		"title": Ticket.title,
 		"client_name": Ticket.external_client_name,
+		"solicitante": Ticket.solicitante,
 		"category": Service.name,
+		"technician_name": User.name,
 		"status": Ticket.status,
 		"value": Ticket.total_cost,
+		"created_at": Ticket.created_at,
 	})
 	try:
 		page = max(1, int(request.args.get("page", 1)))
@@ -2787,6 +2816,30 @@ def api_start_ticket(ticket_id: int):
 	return jsonify(_serialize_ticket_detail(ticket))
 
 
+def _parse_local_datetime_payload(raw: str | None):
+	"""Interpreta datetime enviado pelo front (Brasília) e converte para UTC."""
+	text = str(raw or "").strip()
+	if not text:
+		return None
+	formats = (
+		"%Y-%m-%dT%H:%M:%S",
+		"%Y-%m-%dT%H:%M",
+		"%Y-%m-%d %H:%M:%S",
+		"%Y-%m-%d %H:%M",
+		"%d/%m/%Y %H:%M",
+		"%d/%m/%Y %H:%M:%S",
+	)
+	for fmt in formats:
+		try:
+			return brasilia_to_utc(datetime.strptime(text, fmt))
+		except ValueError:
+			continue
+	try:
+		return brasilia_to_utc(datetime.fromisoformat(text))
+	except ValueError:
+		return None
+
+
 @bp.route("/api/<int:ticket_id>/stop", methods=["POST"])
 @login_required
 def api_stop_ticket(ticket_id: int):
@@ -2795,13 +2848,18 @@ def api_stop_ticket(ticket_id: int):
 		return jsonify({"error": "Ticket não estava em andamento."}), 400
 	if ticket.assigned_to_id != current_user.id:
 		return jsonify({"error": "Apenas quem iniciou a sessão pode encerrá-la."}), 403
-	end_dt = brasilia_to_utc(get_brasilia_now())
-	start_dt = ticket.in_progress_started_at
+	data = request.get_json(silent=True) or {}
+	start_dt = _parse_local_datetime_payload(data.get("start_time")) or ticket.in_progress_started_at
+	end_dt = _parse_local_datetime_payload(data.get("end_time")) or brasilia_to_utc(get_brasilia_now())
 	if start_dt.tzinfo is None:
 		from pytz import utc
 		start_dt = utc.localize(start_dt)
+	if end_dt.tzinfo is None:
+		from pytz import utc
+		end_dt = utc.localize(end_dt)
+	if end_dt < start_dt:
+		return jsonify({"error": "Horário final deve ser após o início."}), 400
 	delta_hours = (end_dt - start_dt).total_seconds() / 3600.0
-	data = request.get_json(silent=True) or {}
 	comment = (data.get("comment") or "").strip() or "Encerrado pelo botão"
 	entry = TimeEntry(
 		ticket_id=ticket.id,

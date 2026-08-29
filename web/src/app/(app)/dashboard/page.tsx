@@ -1,16 +1,34 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
-import { Suspense, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { AlertTriangle, ArrowRight, Cpu, HardDrive, MemoryStick, Thermometer } from "lucide-react";
+import Link from "next/link";
+import { Suspense, useEffect, useState, type ReactNode } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { io } from "socket.io-client";
 import { PageTitle } from "@/components/layout/AppShell";
 import { Kpi } from "@/components/ui/DataTable";
 import { Pagination } from "@/components/ui/Pagination";
-import { flask } from "@/lib/api";
+import { flask, type PageRes } from "@/lib/api";
 import { cn } from "@/lib/cn";
 import { formatBRL, formatHours } from "@/lib/format";
+import {
+  formatDate,
+  formatMetric,
+  mergeAgentPage,
+  metricValue,
+  remoteSocketOrigin,
+  statusLabel,
+  type RemoteAgent,
+  type RemoteLiveEvent,
+  type RemoteStats,
+} from "@/lib/remote-monitor";
 
-type DashTab = "tickets" | "helpdesk";
+type DashTab = "tickets" | "helpdesk" | "monitoramento";
+
+type DailyCount = { date: string; count: number };
+
+type ComparativoDia = { date: string; conversas: number; tickets: number };
 
 type Dash = {
   status_counts: Record<string, number>;
@@ -27,6 +45,7 @@ type Dash = {
   tickets_mes_count: number;
   os_mes_count: number;
   total_hours: number;
+  tickets_por_dia?: DailyCount[];
 };
 
 type HdDash = {
@@ -44,6 +63,9 @@ type HdDash = {
   queues: { id: number | null; name: string; color: string; active: number; pending: number; unread: number; count: number }[];
   connections: { id: number; name: string; status: string; number?: string | null }[];
   users: { id: number; name: string; online: boolean; active: number; pending: number; unread: number; count: number }[];
+  tickets_mes_count?: number;
+  conversas_mes_count?: number;
+  comparativo_por_dia?: ComparativoDia[];
 };
 
 function StatusBar({
@@ -124,21 +146,148 @@ function RankRow({
   );
 }
 
-function connectionLabel(status?: string) {
-  const s = (status || "").toLowerCase();
-  if (s === "connected") return "Conectada";
-  if (s === "qrcode") return "Aguardando QR";
-  if (s === "opening") return "Abrindo…";
-  if (s === "disconnected" || s === "pending") return "Desconectada";
-  if (s === "timeout") return "Timeout";
-  return status || "—";
+function shortDate(iso: string) {
+  const raw = (iso || "").slice(0, 10);
+  const [, m, d] = raw.split("-");
+  if (!d || !m) return raw;
+  return `${d}/${m}`;
 }
 
-function connectionClass(status?: string) {
-  const s = (status || "").toLowerCase();
-  if (s === "connected") return "bg-done-bg text-done";
-  if (s === "qrcode" || s === "opening") return "bg-progress-bg text-progress";
-  return "bg-[#f3f4f6] text-muted";
+function DailyAttendancesChart({ items }: { items: DailyCount[] }) {
+  const values = items.map((i) => Number(i.count || 0));
+  const max = Math.max(...values, 0);
+  const chartH = 160;
+  const labelEvery = Math.max(1, Math.ceil(items.length / 10));
+
+  return (
+    <section className="mb-8 rounded-2xl border border-[#eee] bg-white p-5">
+      <h2 className="mb-1 text-lg font-semibold text-navy">Atendimentos dia a dia</h2>
+      <p className="mb-4 text-sm text-muted">Tickets finalizados neste mês</p>
+      {!items.length || max <= 0 ? (
+        <p className="flex h-40 items-center text-sm text-muted">Sem atendimentos finalizados neste mês</p>
+      ) : (
+        <div className="h-52">
+          <div className="flex h-44 gap-2">
+            <div className="flex h-40 w-8 shrink-0 flex-col justify-between pb-px text-right text-[10px] text-muted">
+              <span>{max}</span>
+              <span>0</span>
+            </div>
+            <div className="flex min-w-0 flex-1 flex-col">
+              <div className="flex h-40 items-stretch gap-px border-b border-[#e5e5e5] sm:gap-1">
+                {items.map((item) => {
+                  const v = Number(item.count || 0);
+                  const h = v > 0 ? Math.max(4, (v / max) * chartH) : 0;
+                  return (
+                    <div
+                      key={item.date}
+                      className="flex h-full min-w-0 flex-1 flex-col items-center justify-end"
+                      title={`${shortDate(item.date)}: ${v}`}
+                    >
+                      <div className="w-full max-w-8 rounded-t bg-brand" style={{ height: `${h}px` }} />
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="mt-2 flex gap-px text-[10px] text-muted sm:gap-1">
+                {items.map((item, idx) => (
+                  <span key={item.date} className="min-w-0 flex-1 truncate text-center">
+                    {idx % labelEvery === 0 || idx === items.length - 1 ? shortDate(item.date) : "\u00a0"}
+                  </span>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function ClosedVsTicketsChart({
+  items,
+  conversasMes,
+  ticketsMes,
+}: {
+  items: ComparativoDia[];
+  conversasMes: number;
+  ticketsMes: number;
+}) {
+  const max = Math.max(...items.flatMap((i) => [Number(i.conversas || 0), Number(i.tickets || 0)]), 0);
+  const labelEvery = Math.max(1, Math.ceil(items.length / 10));
+  const vbW = 1000;
+  const vbH = 160;
+  const n = items.length;
+  const xAt = (idx: number) => (n <= 1 ? vbW / 2 : (idx / (n - 1)) * vbW);
+  const yAt = (value: number) => vbH - (max > 0 ? (Number(value || 0) / max) * vbH : 0);
+  const xPct = (idx: number) => (n <= 1 ? 50 : (idx / (n - 1)) * 100);
+  const yPct = (value: number) => (max > 0 ? 100 - (Number(value || 0) / max) * 100 : 100);
+  const linePoints = (key: "conversas" | "tickets") =>
+    items.map((item, idx) => `${xAt(idx)},${yAt(Number(item[key] || 0))}`).join(" ");
+
+  return (
+    <section className="mt-10 rounded-2xl border border-[#eee] bg-white p-5">
+      <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h2 className="text-lg font-semibold text-navy">Conversas encerradas × tickets</h2>
+          <p className="mt-1 text-sm text-muted">Comparativo dia a dia neste mês</p>
+        </div>
+        <div className="flex flex-wrap gap-4 text-xs text-muted">
+          <span className="inline-flex items-center gap-1.5">
+            <span className="h-2 w-2 rounded-full bg-done" /> Conversas {conversasMes}
+          </span>
+          <span className="inline-flex items-center gap-1.5">
+            <span className="h-2 w-2 rounded-full bg-brand" /> Tickets {ticketsMes}
+          </span>
+        </div>
+      </div>
+      {!items.length || max <= 0 ? (
+        <p className="flex h-40 items-center text-sm text-muted">Sem encerramentos neste mês</p>
+      ) : (
+        <div className="h-52">
+          <div className="flex h-44 gap-2">
+            <div className="flex h-40 w-8 shrink-0 flex-col justify-between pb-px text-right text-[10px] text-muted">
+              <span>{max}</span>
+              <span>0</span>
+            </div>
+            <div className="flex min-w-0 flex-1 flex-col">
+              <div className="relative h-40 border-b border-[#e5e5e5]">
+                <svg viewBox={`0 0 ${vbW} ${vbH}`} className="absolute inset-0 h-full w-full" preserveAspectRatio="none" aria-hidden>
+                  <polyline fill="none" stroke="#16a34a" strokeWidth="3" strokeLinejoin="round" strokeLinecap="round" points={linePoints("conversas")} vectorEffect="non-scaling-stroke" />
+                  <polyline fill="none" stroke="#3b82f6" strokeWidth="3" strokeLinejoin="round" strokeLinecap="round" points={linePoints("tickets")} vectorEffect="non-scaling-stroke" />
+                </svg>
+                {items.map((item, idx) => {
+                  const conversas = Number(item.conversas || 0);
+                  const tickets = Number(item.tickets || 0);
+                  return (
+                    <div
+                      key={item.date}
+                      className="absolute inset-y-0 w-4 -translate-x-1/2"
+                      style={{ left: `${xPct(idx)}%` }}
+                      title={`${shortDate(item.date)}: ${conversas} conversas · ${tickets} tickets`}
+                    >
+                      <span className="absolute left-1/2 h-2 w-2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-done" style={{ top: `${yPct(conversas)}%` }} />
+                      <span className="absolute left-1/2 h-2 w-2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-brand" style={{ top: `${yPct(tickets)}%` }} />
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="mt-2 flex text-[10px] text-muted">
+                {items.map((item, idx) => (
+                  <span
+                    key={item.date}
+                    className="min-w-0 flex-1 truncate text-center"
+                    style={idx === 0 ? { textAlign: "left" } : idx === items.length - 1 ? { textAlign: "right" } : undefined}
+                  >
+                    {idx % labelEvery === 0 || idx === items.length - 1 ? shortDate(item.date) : "\u00a0"}
+                  </span>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </section>
+  );
 }
 
 function TicketsDash() {
@@ -150,16 +299,12 @@ function TicketsDash() {
   const aberto = sc.aberto ?? 0;
   const andamento = sc.em_andamento ?? 0;
   const fechado = sc.fechado ?? 0;
-  const ranking = data?.technician_ranking || [];
-  const hours = data?.hours_by_user || [];
-  const [rankPage, setRankPage] = useState(1);
-  const [hoursPage, setHoursPage] = useState(1);
-  const perPage = 20;
-  const rankSlice = ranking.slice((rankPage - 1) * perPage, rankPage * perPage);
-  const hoursSlice = hours.slice((hoursPage - 1) * perPage, hoursPage * perPage);
+  const ranking = (data?.technician_ranking || []).slice(0, 3);
+  const hours = (data?.hours_by_user || []).slice(0, 3);
   const rankMax = Math.max(...ranking.map((r) => r.tickets_count), 1);
   const hoursMax = Math.max(...hours.map((r) => r.hours), 1);
   const inProgress = data?.technicians_in_progress || [];
+  const daily = data?.tickets_por_dia || [];
 
   return (
     <div>
@@ -175,6 +320,8 @@ function TicketsDash() {
       </div>
       <StatusBar aberto={aberto} andamento={andamento} fechado={fechado} />
 
+      <DailyAttendancesChart items={daily} />
+
       <div className="grid gap-8 lg:grid-cols-2">
         <section>
           <h2 className="mb-3 text-lg font-semibold text-navy">Ranking de técnicos</h2>
@@ -182,22 +329,19 @@ function TicketsDash() {
           {ranking.length === 0 ? (
             <p className="text-sm text-muted">Sem ranking neste mês</p>
           ) : (
-            <>
-              <div className="space-y-3">
-                {rankSlice.map((r, i) => (
-                  <RankRow
-                    key={r.name}
-                    place={(rankPage - 1) * perPage + i + 1}
-                    name={r.name}
-                    value={String(r.tickets_count)}
-                    max={rankMax}
-                    numeric={r.tickets_count}
-                    barClass="bg-brand"
-                  />
-                ))}
-              </div>
-              <Pagination page={rankPage} perPage={perPage} total={ranking.length} onPage={setRankPage} />
-            </>
+            <div className="space-y-3">
+              {ranking.map((r, i) => (
+                <RankRow
+                  key={r.name}
+                  place={i + 1}
+                  name={r.name}
+                  value={String(r.tickets_count)}
+                  max={rankMax}
+                  numeric={r.tickets_count}
+                  barClass="bg-brand"
+                />
+              ))}
+            </div>
           )}
         </section>
         <section>
@@ -206,22 +350,19 @@ function TicketsDash() {
           {hours.length === 0 ? (
             <p className="text-sm text-muted">Sem horas apontadas</p>
           ) : (
-            <>
-              <div className="space-y-3">
-                {hoursSlice.map((r, i) => (
-                  <RankRow
-                    key={r.name}
-                    place={(hoursPage - 1) * perPage + i + 1}
-                    name={r.name}
-                    value={formatHours(r.hours)}
-                    max={hoursMax}
-                    numeric={r.hours}
-                    barClass="bg-progress"
-                  />
-                ))}
-              </div>
-              <Pagination page={hoursPage} perPage={perPage} total={hours.length} onPage={setHoursPage} />
-            </>
+            <div className="space-y-3">
+              {hours.map((r, i) => (
+                <RankRow
+                  key={r.name}
+                  place={i + 1}
+                  name={r.name}
+                  value={formatHours(r.hours)}
+                  max={hoursMax}
+                  numeric={r.hours}
+                  barClass="bg-progress"
+                />
+              ))}
+            </div>
           )}
         </section>
       </div>
@@ -381,37 +522,186 @@ function HelpdeskDash() {
         </section>
       </div>
 
-      <section className="mt-10">
-        <h2 className="mb-3 text-lg font-semibold text-navy">Conexões WhatsApp</h2>
-        {connections.length === 0 ? (
-          <p className="text-sm text-muted">Nenhuma conexão cadastrada</p>
+      <ClosedVsTicketsChart
+        items={data.comparativo_por_dia || []}
+        conversasMes={data.conversas_mes_count ?? 0}
+        ticketsMes={data.tickets_mes_count ?? 0}
+      />
+    </div>
+  );
+}
+
+function agentStatusTone(agent: RemoteAgent) {
+  const label = statusLabel(agent);
+  if (label === "Online") return { badge: "bg-done-bg text-done", card: "border-done/20" };
+  if (label === "Pendente") return { badge: "bg-progress-bg text-progress", card: "border-progress/20" };
+  if (label === "Revogado") return { badge: "bg-open-bg text-open", card: "border-open/20" };
+  return { badge: "bg-[#f3f4f6] text-muted", card: "border-[#eee]" };
+}
+
+function MachineCard({ agent }: { agent: RemoteAgent }) {
+  const metrics = agent.snapshot?.metrics;
+  const alerts = agent.open_alerts?.length ?? 0;
+  const label = statusLabel(agent);
+  const tone = agentStatusTone(agent);
+  const cpu = metricValue(metrics, "cpu");
+  const ram = metricValue(metrics, "ram");
+  const disk = metricValue(metrics, "disk");
+  const temp = metricValue(metrics, "temperature");
+
+  return (
+    <Link
+      href={`/monitoramento-remoto/${agent.id}`}
+      className={cn(
+        "group flex flex-col rounded-2xl border bg-white p-5 transition hover:border-brand/30 hover:shadow-sm",
+        tone.card,
+        alerts > 0 && "border-open/25",
+      )}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="truncate font-semibold text-navy group-hover:text-brand">{agent.name}</p>
+          <p className="mt-0.5 truncate text-sm text-muted">{agent.external_client_name}</p>
+          <p className="mt-1 max-w-full truncate text-xs text-muted">
+            {agent.device_id || "Aguardando ativação"}
+          </p>
+        </div>
+        <span className={cn("inline-flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium", tone.badge)}>
+          <span className="h-1.5 w-1.5 rounded-full bg-current" />
+          {label}
+        </span>
+      </div>
+
+      <div className="mt-4 grid grid-cols-2 gap-2">
+        <MetricChip icon={<Cpu className="h-3.5 w-3.5" />} label="CPU" value={formatMetric(cpu, "%", 0)} />
+        <MetricChip icon={<MemoryStick className="h-3.5 w-3.5" />} label="RAM" value={formatMetric(ram, "%", 0)} />
+        <MetricChip icon={<HardDrive className="h-3.5 w-3.5" />} label="Disco" value={formatMetric(disk, "%", 0)} />
+        <MetricChip icon={<Thermometer className="h-3.5 w-3.5" />} label="Temp." value={formatMetric(temp, "°C", 0)} />
+      </div>
+
+      <div className="mt-4 flex items-center justify-between gap-2 border-t border-[#f0f0f0] pt-3 text-xs text-muted">
+        <span>Último contato: {formatDate(agent.last_seen)}</span>
+        {alerts > 0 ? (
+          <span className="inline-flex items-center gap-1 font-medium text-open">
+            <AlertTriangle className="h-3.5 w-3.5" />
+            {alerts} alerta{alerts === 1 ? "" : "s"}
+          </span>
         ) : (
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-            {connections.map((c) => {
-              const connected = (c.status || "").toLowerCase() === "connected";
-              return (
-                <div
-                  key={c.id}
-                  className={cn(
-                    "rounded-2xl border p-5",
-                    connected ? "border-done/20 bg-done-bg" : "border-[#eee] bg-white",
-                  )}
-                >
-                  <div className="flex items-start justify-between gap-2">
-                    <div>
-                      <p className="font-semibold text-navy">{c.name}</p>
-                      <p className="text-xs text-muted">{c.number || "Sem número"}</p>
-                    </div>
-                    <span className={cn("rounded-full px-2.5 py-1 text-xs font-semibold", connectionClass(c.status))}>
-                      {connectionLabel(c.status)}
-                    </span>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+          <span className="text-done">Sem alertas</span>
         )}
-      </section>
+      </div>
+    </Link>
+  );
+}
+
+function MetricChip({ icon, label, value }: { icon: ReactNode; label: string; value: string }) {
+  return (
+    <div className="rounded-xl bg-[#f7f7f8] px-3 py-2">
+      <div className="flex items-center gap-1.5 text-[11px] text-muted">
+        <span className="text-brand">{icon}</span>
+        {label}
+      </div>
+      <p className="mt-0.5 text-sm font-semibold text-navy">{value}</p>
+    </div>
+  );
+}
+
+function MonitoramentoDash() {
+  const qc = useQueryClient();
+  const [page, setPage] = useState(1);
+  const perPage = 12;
+
+  const stats = useQuery({
+    queryKey: ["remote-monitor-stats"],
+    queryFn: () => flask.get<RemoteStats>("/api/remote-monitor/stats"),
+    refetchInterval: 15000,
+  });
+  const agents = useQuery({
+    queryKey: ["remote-agents-dash", page],
+    queryFn: () =>
+      flask.get<PageRes<RemoteAgent>>(
+        `/api/remote-monitor/agents?page=${page}&per_page=${perPage}`,
+      ),
+    refetchInterval: 15000,
+  });
+
+  useEffect(() => {
+    const socket = io(`${remoteSocketOrigin}/remote-monitor-view`, {
+      transports: ["websocket", "polling"],
+      withCredentials: true,
+    });
+    const update = (payload: RemoteAgent | RemoteLiveEvent) => {
+      qc.setQueriesData<PageRes<RemoteAgent>>(
+        { queryKey: ["remote-agents-dash"] },
+        (current) => mergeAgentPage(current, payload),
+      );
+      if ("status" in payload) qc.invalidateQueries({ queryKey: ["remote-monitor-stats"] });
+    };
+    socket.on("telemetry_update", update);
+    socket.on("live_telemetry", update);
+    return () => {
+      socket.close();
+    };
+  }, [qc]);
+
+  const items = agents.data?.items || [];
+
+  return (
+    <div>
+      <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h2 className="text-lg font-semibold text-navy">Máquinas monitoradas</h2>
+          <p className="mt-1 text-sm text-muted">Saúde e métricas dos agentes remotos</p>
+        </div>
+        <Link
+          href="/monitoramento-remoto"
+          className="inline-flex items-center gap-1.5 text-sm font-medium text-brand hover:underline"
+        >
+          Gerenciar agentes <ArrowRight className="h-4 w-4" />
+        </Link>
+      </div>
+
+      {(stats.error || agents.error) && (
+        <p className="mb-4 text-sm text-open">{((stats.error || agents.error) as Error).message}</p>
+      )}
+
+      <div className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-6">
+        <Kpi label="Agentes" value={stats.data?.total ?? "—"} />
+        <Kpi label="Online" value={stats.data?.online ?? "—"} tone="done" />
+        <Kpi label="Offline" value={stats.data?.offline ?? "—"} />
+        <Kpi label="Pendentes" value={stats.data?.pending ?? "—"} tone="progress" />
+        <Kpi label="Revogados" value={stats.data?.revoked ?? "—"} />
+        <Kpi label="Alertas abertos" value={stats.data?.open_alerts ?? "—"} tone="open" />
+      </div>
+
+      {agents.isLoading ? (
+        <p className="text-sm text-muted">Carregando máquinas…</p>
+      ) : items.length === 0 ? (
+        <div className="rounded-2xl border border-[#eee] p-8 text-center">
+          <p className="font-medium text-navy">Nenhuma máquina cadastrada</p>
+          <p className="mt-1 text-sm text-muted">Crie um agente em Monitoramento remoto para começar.</p>
+          <Link
+            href="/monitoramento-remoto"
+            className="mt-4 inline-flex items-center gap-1.5 text-sm font-medium text-brand hover:underline"
+          >
+            Ir para gerenciamento <ArrowRight className="h-4 w-4" />
+          </Link>
+        </div>
+      ) : (
+        <>
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+            {items.map((agent) => (
+              <MachineCard key={agent.id} agent={agent} />
+            ))}
+          </div>
+          <Pagination
+            page={agents.data?.page || page}
+            perPage={agents.data?.per_page || perPage}
+            total={agents.data?.total || 0}
+            onPage={setPage}
+          />
+        </>
+      )}
     </div>
   );
 }
@@ -419,7 +709,9 @@ function HelpdeskDash() {
 function DashboardInner() {
   const router = useRouter();
   const params = useSearchParams();
-  const tab: DashTab = params.get("tab") === "helpdesk" ? "helpdesk" : "tickets";
+  const raw = params.get("tab");
+  const tab: DashTab =
+    raw === "helpdesk" ? "helpdesk" : raw === "monitoramento" ? "monitoramento" : "tickets";
 
   function go(next: DashTab) {
     router.replace(`/dashboard?tab=${next}`);
@@ -433,6 +725,7 @@ function DashboardInner() {
           [
             { key: "tickets", label: "Operação" },
             { key: "helpdesk", label: "Help Desk" },
+            { key: "monitoramento", label: "Monitoramento" },
           ] as const
         ).map((item) => (
           <button
@@ -449,7 +742,7 @@ function DashboardInner() {
           </button>
         ))}
       </div>
-      {tab === "helpdesk" ? <HelpdeskDash /> : <TicketsDash />}
+      {tab === "helpdesk" ? <HelpdeskDash /> : tab === "monitoramento" ? <MonitoramentoDash /> : <TicketsDash />}
     </div>
   );
 }

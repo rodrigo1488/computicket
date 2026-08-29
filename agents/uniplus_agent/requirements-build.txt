@@ -1,0 +1,2 @@
+# Dependências só para gerar o .exe (além de requirements.txt)
+pyinstaller>=6.0.0,<7

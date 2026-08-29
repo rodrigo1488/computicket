@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Logs · Computicket Monitor Agent</title>
+  <style>
+    body{font:14px system-ui;background:#0f1720;color:#e6edf3;max-width:1000px;margin:32px auto;padding:0 16px}
+    a{color:#6ed1f1}table{width:100%;border-collapse:collapse;margin-top:20px}th,td{text-align:left;padding:8px;border-bottom:1px solid #2b3b4d}
+    .ERROR{color:#ff9b9b}.WARNING{color:#ffd479}.INFO{color:#8ee6ac}
+  </style>
+</head>
+<body>
+  <h1>Logs mascarados</h1>
+  <p>{{ 'Conectado' if state.connected else 'Desconectado' }}{% if state.last_event %} · {{ state.last_event }}{% endif %} · <a href="{{ url_for('config_page') }}">Voltar</a></p>
+  <table><thead><tr><th>Horário (epoch)</th><th>Nível</th><th>Mensagem</th></tr></thead><tbody>
+  {% for row in logs %}<tr><td>{{ '%.3f'|format(row.created_at) }}</td><td class="{{ row.level }}">{{ row.level }}</td><td>{{ row.message }}</td></tr>
+  {% else %}<tr><td colspan="3">Nenhum log.</td></tr>{% endfor %}
+  </tbody></table>
+</body>
+</html>

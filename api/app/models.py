@@ -1564,3 +1564,47 @@ class ShiftSwap(db.Model):
 
 	def __repr__(self) -> str:
 		return f"<ShiftSwap id={self.id} date={self.swap_date} status={self.status} {self.user_1_id} <-> {self.user_2_id}>"
+
+
+class PlanAdditional(db.Model):
+	"""Adicionais (extras) associados a um plano de suporte."""
+	__tablename__ = "plan_additional"
+
+	id = db.Column(db.Integer, primary_key=True)
+	plan_id = db.Column(db.Integer, db.ForeignKey("plan.id"), nullable=False, index=True)
+	description = db.Column(db.Text, nullable=False)
+	value = db.Column(db.Float, nullable=False, default=0.0)
+	created_at = db.Column(db.DateTime, default=get_brasilia_now)
+
+	plan = db.relationship("Plan", backref=db.backref("additionals", lazy=True))
+
+
+class CustomPlan(db.Model):
+	"""Plano personalizado montado sob demanda para um sistema."""
+	__tablename__ = "custom_plan"
+
+	id = db.Column(db.Integer, primary_key=True)
+	system_id = db.Column(db.Integer, db.ForeignKey("system.id"), nullable=False, index=True)
+	name = db.Column(db.String(150), nullable=True)
+	base_value = db.Column(db.Float, default=0.0)
+	total_value = db.Column(db.Float, default=0.0)
+	created_at = db.Column(db.DateTime, default=get_brasilia_now)
+	created_by_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=True)
+
+	items = db.relationship(
+		"CustomPlanItem",
+		backref="custom_plan",
+		lazy=True,
+		cascade="all, delete-orphan",
+	)
+
+
+class CustomPlanItem(db.Model):
+	"""Itens/adicionais de um plano personalizado."""
+	__tablename__ = "custom_plan_item"
+
+	id = db.Column(db.Integer, primary_key=True)
+	custom_plan_id = db.Column(db.Integer, db.ForeignKey("custom_plan.id"), nullable=False, index=True)
+	description = db.Column(db.Text, nullable=False)
+	value = db.Column(db.Float, nullable=False, default=0.0)
+	created_at = db.Column(db.DateTime, default=get_brasilia_now)

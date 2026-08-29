@@ -1635,3 +1635,255 @@ class ShiftSwap(db.Model):
 
 	def __repr__(self) -> str:
 		return f"<ShiftSwap id={self.id} date={self.swap_date} status={self.status} {self.user_1_id} <-> {self.user_2_id}>"
+
+
+class PlanAdditional(db.Model):
+	"""Adicionais (extras) associados a um plano de suporte."""
+	__tablename__ = "plan_additional"
+
+	id = db.Column(db.Integer, primary_key=True)
+	plan_id = db.Column(db.Integer, db.ForeignKey("plan.id"), nullable=False, index=True)
+	description = db.Column(db.Text, nullable=False)
+	value = db.Column(db.Float, nullable=False, default=0.0)
+	created_at = db.Column(db.DateTime, default=get_brasilia_now)
+
+	plan = db.relationship("Plan", backref=db.backref("additionals", lazy=True))
+
+
+class CustomPlan(db.Model):
+	"""Plano personalizado montado sob demanda para um sistema."""
+	__tablename__ = "custom_plan"
+
+	id = db.Column(db.Integer, primary_key=True)
+	system_id = db.Column(db.Integer, db.ForeignKey("system.id"), nullable=False, index=True)
+	name = db.Column(db.String(150), nullable=True)
+	base_value = db.Column(db.Float, default=0.0)
+	total_value = db.Column(db.Float, default=0.0)
+	created_at = db.Column(db.DateTime, default=get_brasilia_now)
+	created_by_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=True)
+
+	items = db.relationship(
+		"CustomPlanItem",
+		backref="custom_plan",
+		lazy=True,
+		cascade="all, delete-orphan",
+	)
+
+
+class CustomPlanItem(db.Model):
+	"""Itens/adicionais de um plano personalizado."""
+	__tablename__ = "custom_plan_item"
+
+	id = db.Column(db.Integer, primary_key=True)
+	custom_plan_id = db.Column(db.Integer, db.ForeignKey("custom_plan.id"), nullable=False, index=True)
+	description = db.Column(db.Text, nullable=False)
+	value = db.Column(db.Float, nullable=False, default=0.0)
+	created_at = db.Column(db.DateTime, default=get_brasilia_now)
+
+
+class UniplusJob(db.Model):
+	"""Fila de jobs de escrita no ERP Unico via agente local."""
+	__tablename__ = "uniplus_job"
+
+	id = db.Column(db.Integer, primary_key=True)
+	job_type = db.Column(db.String(80), nullable=False, index=True)
+	payload = db.Column(db.Text, nullable=False, default="{}")
+	status = db.Column(db.String(20), nullable=False, default="pending", index=True)
+	# pending | running | done | error
+	message = db.Column(db.Text, nullable=True)
+	result_json = db.Column(db.Text, nullable=True)
+	permanent = db.Column(db.Boolean, default=False)
+	created_at = db.Column(db.DateTime, default=get_brasilia_now)
+	started_at = db.Column(db.DateTime, nullable=True)
+	finished_at = db.Column(db.DateTime, nullable=True)
+	created_by_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=True)
+
+	def payload_dict(self) -> Dict[str, Any]:
+		if not self.payload:
+			return {}
+		try:
+			return json.loads(self.payload)
+		except (json.JSONDecodeError, TypeError):
+			return {}
+
+	def result_dict(self) -> Dict[str, Any]:
+		if not self.result_json:
+			return {}
+		try:
+			return json.loads(self.result_json)
+		except (json.JSONDecodeError, TypeError):
+			return {}
+
+	def to_agent_event(self) -> Dict[str, Any]:
+		return {
+			"event": "uniplus_job",
+			"job_id": self.id,
+			"job_type": self.job_type,
+			"payload": self.payload_dict(),
+		}
+
+	def to_dict(self) -> Dict[str, Any]:
+		return {
+			"id": self.id,
+			"job_type": self.job_type,
+			"status": self.status,
+			"message": self.message,
+			"result": self.result_dict(),
+			"permanent": bool(self.permanent),
+			"created_at": self.created_at.isoformat() if self.created_at else None,
+			"started_at": self.started_at.isoformat() if self.started_at else None,
+			"finished_at": self.finished_at.isoformat() if self.finished_at else None,
+		}
+
+
+def _remote_monitor_now():
+	from datetime import datetime, timezone
+	return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
+def _remote_utc_iso(dt):
+	"""ISO-8601 UTC com Z — evita o browser interpretar naive como horário local."""
+	if dt is None:
+		return None
+	from datetime import timezone
+	if getattr(dt, "tzinfo", None) is not None:
+		dt = dt.astimezone(timezone.utc).replace(tzinfo=None)
+	text = dt.isoformat(timespec="seconds")
+	return text if text.endswith("Z") else f"{text}Z"
+
+
+class RemoteAgent(db.Model):
+	"""Dispositivo gerenciado pelo módulo de monitoramento remoto."""
+	__tablename__ = "remote_agent"
+
+	id = db.Column(db.Integer, primary_key=True)
+	external_client_id = db.Column(db.Integer, nullable=False, index=True)
+	external_client_name = db.Column(db.String(200), nullable=False)
+	name = db.Column(db.String(200), nullable=False)
+	device_uuid = db.Column(db.String(36), unique=True, nullable=True, index=True)
+	token_hash = db.Column(db.String(64), nullable=True)
+	status = db.Column(db.String(20), nullable=False, default="pending", index=True)
+	is_revoked = db.Column(db.Boolean, nullable=False, default=False)
+	version = db.Column(db.String(50), nullable=True)
+	last_seen = db.Column(db.DateTime, nullable=True, index=True)
+	thresholds = db.Column(db.JSON, nullable=False, default=dict)
+	created_at = db.Column(db.DateTime, nullable=False, default=_remote_monitor_now)
+	updated_at = db.Column(db.DateTime, nullable=False, default=_remote_monitor_now, onupdate=_remote_monitor_now)
+	revoked_at = db.Column(db.DateTime, nullable=True)
+
+	enrollments = db.relationship("RemoteAgentEnrollment", backref="agent", lazy=True, cascade="all, delete-orphan")
+	snapshot = db.relationship("RemoteAgentSnapshot", backref="agent", uselist=False, cascade="all, delete-orphan")
+	samples = db.relationship("RemoteAgentSample", backref="agent", lazy="dynamic", cascade="all, delete-orphan")
+	alerts = db.relationship("RemoteAgentAlert", backref="agent", lazy="dynamic", cascade="all, delete-orphan")
+
+	def to_dict(self, include_snapshot=False):
+		data = {
+			"id": self.id,
+			"external_client_id": self.external_client_id,
+			"external_client_name": self.external_client_name,
+			"name": self.name,
+			"device_id": self.device_uuid,
+			"status": self.status,
+			"revoked": bool(self.is_revoked),
+			"version": self.version,
+			"last_seen": _remote_utc_iso(self.last_seen),
+			"thresholds": self.thresholds or {},
+			"created_at": _remote_utc_iso(self.created_at),
+			"updated_at": _remote_utc_iso(self.updated_at),
+		}
+		if include_snapshot:
+			data["snapshot"] = self.snapshot.to_dict() if self.snapshot else None
+		return data
+
+
+class RemoteAgentEnrollment(db.Model):
+	__tablename__ = "remote_agent_enrollment"
+
+	id = db.Column(db.Integer, primary_key=True)
+	agent_id = db.Column(db.Integer, db.ForeignKey("remote_agent.id"), nullable=False, index=True)
+	code_hash = db.Column(db.String(64), unique=True, nullable=False, index=True)
+	expires_at = db.Column(db.DateTime, nullable=False, index=True)
+	used_at = db.Column(db.DateTime, nullable=True)
+	created_at = db.Column(db.DateTime, nullable=False, default=_remote_monitor_now)
+
+	def to_dict(self):
+		return {
+			"id": self.id,
+			"agent_id": self.agent_id,
+			"expires_at": _remote_utc_iso(self.expires_at),
+			"used_at": _remote_utc_iso(self.used_at),
+			"created_at": _remote_utc_iso(self.created_at),
+		}
+
+
+class RemoteAgentSnapshot(db.Model):
+	__tablename__ = "remote_agent_snapshot"
+
+	id = db.Column(db.Integer, primary_key=True)
+	agent_id = db.Column(db.Integer, db.ForeignKey("remote_agent.id"), unique=True, nullable=False, index=True)
+	metrics = db.Column(db.JSON, nullable=False, default=dict)
+	inventory = db.Column(db.JSON, nullable=False, default=dict)
+	updates = db.Column(db.JSON, nullable=False, default=dict)
+	created_at = db.Column(db.DateTime, nullable=False, default=_remote_monitor_now)
+	updated_at = db.Column(db.DateTime, nullable=False, default=_remote_monitor_now, onupdate=_remote_monitor_now)
+
+	def to_dict(self):
+		return {
+			"agent_id": self.agent_id,
+			"metrics": self.metrics or {},
+			"inventory": self.inventory or {},
+			"updates": self.updates or {},
+			"updated_at": _remote_utc_iso(self.updated_at),
+		}
+
+
+class RemoteAgentSample(db.Model):
+	__tablename__ = "remote_agent_sample"
+	__table_args__ = (db.UniqueConstraint("agent_id", "minute_at", name="uq_remote_sample_agent_minute"),)
+
+	id = db.Column(db.Integer, primary_key=True)
+	agent_id = db.Column(db.Integer, db.ForeignKey("remote_agent.id"), nullable=False, index=True)
+	minute_at = db.Column(db.DateTime, nullable=False, index=True)
+	cpu_percent = db.Column(db.Float, nullable=True)
+	ram_percent = db.Column(db.Float, nullable=True)
+	disk_percent = db.Column(db.Float, nullable=True)
+	temperature_c = db.Column(db.Float, nullable=True)
+	created_at = db.Column(db.DateTime, nullable=False, default=_remote_monitor_now)
+
+	def to_dict(self):
+		return {
+			"id": self.id,
+			"agent_id": self.agent_id,
+			"timestamp": _remote_utc_iso(self.minute_at),
+			"cpu_percent": self.cpu_percent,
+			"ram_percent": self.ram_percent,
+			"disk_percent": self.disk_percent,
+			"temperature_c": self.temperature_c,
+		}
+
+
+class RemoteAgentAlert(db.Model):
+	__tablename__ = "remote_agent_alert"
+
+	id = db.Column(db.Integer, primary_key=True)
+	agent_id = db.Column(db.Integer, db.ForeignKey("remote_agent.id"), nullable=False, index=True)
+	alert_type = db.Column(db.String(30), nullable=False, index=True)
+	severity = db.Column(db.String(20), nullable=False, default="warning")
+	message = db.Column(db.String(500), nullable=False)
+	opened_at = db.Column(db.DateTime, nullable=False, default=_remote_monitor_now, index=True)
+	resolved_at = db.Column(db.DateTime, nullable=True, index=True)
+	updated_at = db.Column(db.DateTime, nullable=False, default=_remote_monitor_now, onupdate=_remote_monitor_now)
+
+	def to_dict(self):
+		return {
+			"id": self.id,
+			"agent_id": self.agent_id,
+			"agent_name": self.agent.name if self.agent else None,
+			"type": self.alert_type,
+			"severity": self.severity,
+			"message": self.message,
+			"open": self.resolved_at is None,
+			"opened_at": _remote_utc_iso(self.opened_at),
+			"resolved_at": _remote_utc_iso(self.resolved_at),
+			"updated_at": _remote_utc_iso(self.updated_at),
+		}

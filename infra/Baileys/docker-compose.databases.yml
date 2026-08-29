@@ -1,0 +1,35 @@
+services:
+  cache:
+    image: redis:8.0.1
+    restart: always
+    ports:
+      - "6379:6379"
+    command: ["redis-server", "--appendonly", "yes"]
+    networks:
+      - app_network
+
+  db_postgres:
+    image: postgres:16.9
+    restart: always
+    environment:
+      POSTGRES_PASSWORD: ${DB_PASS:-compumais}
+      POSTGRES_USER: ${DB_USER:-compumais}
+      POSTGRES_DB: ${DB_NAME:-compumais}
+    # Host DB_PORT (ex.: 1861) → Postgres interno sempre 5432
+    ports:
+      - "${DB_PORT:-1861}:5432"
+    volumes:
+      - compuchat_pgdata:/var/lib/postgresql/data
+    networks:
+      - app_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-compumais} -d ${DB_NAME:-compumais}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+networks:
+  app_network:
+
+volumes:
+  compuchat_pgdata:

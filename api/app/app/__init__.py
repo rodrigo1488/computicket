@@ -8,6 +8,7 @@ if hasattr(sys.stdout, 'reconfigure'):
     except Exception:
         pass
 
+import os
 from flask import Flask, redirect, url_for, request, jsonify
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager
@@ -36,9 +37,13 @@ def create_app() -> Flask:
 	# Configurações básicas
 	if not app.config.get("SECRET_KEY"):
 		app.config["SECRET_KEY"] = "dev-secret-key"
-	db_path = Path(app.instance_path) / "tickets.sqlite3"
-	db_path.parent.mkdir(parents=True, exist_ok=True)
-	app.config.setdefault("SQLALCHEMY_DATABASE_URI", f"sqlite:///{db_path}")
+	# URI via .env (Postgres). Sem env: fallback SQLite em instance/tickets.sqlite3
+	db_uri = os.environ.get("SQLALCHEMY_DATABASE_URI", "").strip()
+	if not db_uri:
+		db_path = Path(app.instance_path) / "tickets.sqlite3"
+		db_path.parent.mkdir(parents=True, exist_ok=True)
+		db_uri = f"sqlite:///{db_path}"
+	app.config.setdefault("SQLALCHEMY_DATABASE_URI", db_uri)
 	app.config.setdefault("SQLALCHEMY_TRACK_MODIFICATIONS", False)
 	
 	# Configurações de sessão para garantir isolamento entre clientes
@@ -516,6 +521,7 @@ def create_app() -> Flask:
 	from .blueprints.helpdesk import helpdesk_bp
 	from .blueprints import helpdesk_socketio  # Importar eventos WebSocket
 	from .blueprints import budget_socketio  # Presença Co-op de orçamentos  # noqa: F401
+	from .blueprints import uniplus_agent_ws  # Agente Uniplus namespace /uniplus  # noqa: F401
 	from .blueprints.password_vault import password_vault
 	from .blueprints.knowledge_base import knowledge_base
 	from .blueprints.budget import budget
@@ -523,9 +529,14 @@ def create_app() -> Flask:
 	from .blueprints.agenda import agenda_bp
 	from .blueprints.compuchat import bp as compuchat_bp
 	from .blueprints.web_api import bp as web_api_bp
+	from .blueprints.uniplus_api import bp as uniplus_api_bp
+	from .blueprints.remote_monitor import bp as remote_monitor_bp
+	from .blueprints import remote_monitor_agent_ws  # noqa: F401
 
 	app.register_blueprint(auth_bp)
 	app.register_blueprint(web_api_bp)
+	app.register_blueprint(uniplus_api_bp)
+	app.register_blueprint(remote_monitor_bp)
 	app.register_blueprint(utils_bp)
 	app.register_blueprint(clients_bp, url_prefix="/clientes")
 	app.register_blueprint(users_bp, url_prefix="/usuarios")
@@ -548,34 +559,32 @@ def create_app() -> Flask:
 	# Catálogo público
 	app.register_blueprint(catalog_bp, url_prefix="/catalogo")
 	
-	# Garantir coluna support_included no SQLite (fallback simples sem Alembic)
+	# Garantir coluna support_included / tabelas de planos (dialeto-agnóstico)
 	try:
-		from sqlalchemy import text
 		with app.app_context():
-			engine_name = db.session.bind.dialect.name if db and db.session and db.session.bind else ''
-			if engine_name == 'sqlite':
-				cols = db.session.execute(text("PRAGMA table_info('plan')")).fetchall()
-				col_names = [c[1] for c in cols]
-				if 'support_included' not in col_names:
-					db.session.execute(text("ALTER TABLE plan ADD COLUMN support_included BOOLEAN DEFAULT 0"))
-					db.session.commit()
-					print("✅ Coluna 'support_included' adicionada à tabela plan (SQLite)")
-				# Garantir tabela plan_additional
-				db.session.execute(text(
-					"""
-					CREATE TABLE IF NOT EXISTS plan_additional (
-						id INTEGER PRIMARY KEY AUTOINCREMENT,
-						plan_id INTEGER NOT NULL,
-						description TEXT NOT NULL,
-						value FLOAT NOT NULL DEFAULT 0,
-						created_at DATETIME,
-						FOREIGN KEY (plan_id) REFERENCES plan (id)
-					)
-					"""
-				))
-				db.session.commit()
+			from .schema_utils import ensure_column, ensure_tables_from_metadata
+			dialect = db.session.get_bind().dialect.name if db.session else ""
+			default = "FALSE" if dialect == "postgresql" else "0"
+			if ensure_column("plan", "support_included", f"BOOLEAN DEFAULT {default}"):
+				print("✅ Coluna 'support_included' adicionada à tabela plan")
+			from .models import PlanAdditional, CustomPlan, CustomPlanItem  # noqa: F401
+			ensure_tables_from_metadata(["plan_additional", "custom_plan", "custom_plan_item"])
 	except Exception as _e:
-		print(f"⚠️ Não foi possível verificar/adicionar coluna support_included: {_e}")
+		print(f"⚠️ Não foi possível verificar/adicionar schema de planos: {_e}")
+
+	# Tabelas do monitoramento remoto (SQLite e PostgreSQL).
+	try:
+		with app.app_context():
+			from .schema_utils import ensure_tables_from_metadata
+			ensure_tables_from_metadata([
+				"remote_agent",
+				"remote_agent_enrollment",
+				"remote_agent_snapshot",
+				"remote_agent_sample",
+				"remote_agent_alert",
+			])
+	except Exception as _remote_schema_error:
+		app.logger.warning("Não foi possível garantir o schema de monitoramento remoto: %s", _remote_schema_error)
 	
 	# Registrar blueprint de planos
 	from app.blueprints.plans import plans_bp
@@ -596,6 +605,10 @@ def create_app() -> Flask:
 	# Inicializar scheduler de lembretes
 	from app.scheduler import start_scheduler
 	start_scheduler()
+
+	# Manutenção do RMM usa este app já inicializado (sem create_app recursivo).
+	from app.remote_monitor_service import start_remote_monitor_maintenance
+	start_remote_monitor_maintenance(app)
 
 	@app.route("/")
 	def index():

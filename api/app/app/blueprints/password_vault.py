@@ -446,11 +446,22 @@ def test():
 @password_vault.route('/fix-database')
 @login_required
 def fix_database():
-    """Rota para forçar correção da estrutura da tabela"""
+    """Rota para forçar correção da estrutura da tabela (legado SQLite)."""
     try:
         from app import db
-        from sqlalchemy import text
-        
+        from sqlalchemy import text, inspect as sa_inspect
+
+        bind = db.session.get_bind()
+        dialect = bind.dialect.name if bind else ""
+        if dialect != "sqlite":
+            # Em Postgres o schema vem dos models + create_all; nada a recriar via PRAGMA.
+            cols = sa_inspect(bind).get_columns("password_vault") if "password_vault" in sa_inspect(bind).get_table_names() else []
+            html = "<h1>Password Vault (PostgreSQL)</h1><ul>"
+            for col in cols:
+                html += f"<li>{col['name']}: {col['type']} {'NOT NULL' if not col.get('nullable', True) else 'NULL'}</li>"
+            html += "</ul><p style='color: green; font-weight: bold;'>✅ Schema gerenciado pelo SQLAlchemy — sem correção manual.</p>"
+            return html
+
         # Verificar estrutura atual da tabela
         result = db.session.execute(text("PRAGMA table_info(password_vault)"))
         columns = result.fetchall()

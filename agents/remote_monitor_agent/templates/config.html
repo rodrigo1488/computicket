@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Computicket Monitor Agent</title>
+  <style>
+    body{font:15px system-ui;background:#0f1720;color:#e6edf3;max-width:760px;margin:32px auto;padding:0 16px}
+    .card{background:#18232f;border:1px solid #2b3b4d;border-radius:10px;padding:20px;margin:16px 0}
+    label{display:block;color:#b9c6d3;margin:12px 0 5px}input[type=text],input[type=password]{box-sizing:border-box;width:100%;padding:10px;border-radius:6px;border:1px solid #3b4d60;background:#0e1721;color:white}
+    button{background:#1688ad;color:white;border:0;border-radius:6px;padding:10px 16px;margin-top:16px;cursor:pointer}
+    a{color:#6ed1f1}.ok{color:#79df9a}.bad,.error{color:#ff9b9b}.flash{padding:10px;border-radius:6px;background:#263747;margin:8px 0}
+    code{overflow-wrap:anywhere}
+  </style>
+</head>
+<body>
+  <h1>Computicket Monitor Agent</h1>
+  <div class="card">
+    <strong class="{{ 'ok' if state.connected else 'bad' }}">{{ 'Conectado' if state.connected else 'Desconectado' }}</strong>
+    <p>Versão {{ version }} · Device ID: <code>{{ cfg.device_id }}</code>
+      · evento: <code>{{ state.last_event }}</code></p>
+    <p>Fila local: {{ state.buffered }} snapshot(s){% if state.last_error %}<br>Último erro: {{ state.last_error }}{% endif %}</p>
+    <p class="{{ 'ok' if state.authenticated else 'bad' }}">Auth Computicket: {{ 'ok (ready)' if state.authenticated else 'pendente/falhou' }}</p>
+    <a href="{{ url_for('logs_page') }}">Ver logs</a>
+  </div>
+  {% for category,message in get_flashed_messages(with_categories=true) %}<div class="flash {{ category }}">{{ message }}</div>{% endfor %}
+  <form method="post" class="card">
+    <h2>{{ 'Reconfigurar' if cfg.has_token == 'true' else 'Primeira ativação' }}</h2>
+    <label>URL do servidor (HTTP ou HTTPS)</label>
+    <input type="text" name="server_url" required value="{{ cfg.server_url }}" placeholder="http://127.0.0.1:5000" autocomplete="url" spellcheck="false">
+    {% if cfg.has_token != 'true' %}
+      <label>Código de ativação</label>
+      <input type="password" name="activation_code" required autocomplete="one-time-code">
+      <button type="submit">Ativar dispositivo</button>
+    {% else %}
+      <label><input type="checkbox" name="enabled" {{ 'checked' if cfg.enabled == 'true' }}> Agente ativo</label>
+      <button type="submit">Salvar e reiniciar</button>
+    {% endif %}
+  </form>
+</body>
+</html>

@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <title>Uniplus Agent — Config</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 720px; margin: 2rem auto; padding: 0 1rem; background: #0f1419; color: #e7ecf1; }
+    label { display: block; margin-top: 0.75rem; font-size: 0.85rem; color: #9aa7b5; }
+    input, select { width: 100%; padding: 0.5rem; margin-top: 0.25rem; border-radius: 6px; border: 1px solid #2a3540; background: #1a222c; color: #e7ecf1; box-sizing: border-box; }
+    button { margin-top: 1.25rem; padding: 0.6rem 1.2rem; background: #3b82f6; color: #fff; border: 0; border-radius: 6px; cursor: pointer; }
+    .card { background: #1a222c; padding: 1.25rem; border-radius: 10px; border: 1px solid #2a3540; }
+    .flash { background: #14532d; padding: 0.75rem; border-radius: 6px; margin-bottom: 1rem; }
+    .state { font-size: 0.9rem; margin-bottom: 1rem; }
+    a { color: #93c5fd; }
+    h1 { font-size: 1.35rem; }
+  </style>
+</head>
+<body>
+  <h1>Agente Uniplus — Configuração</h1>
+  <p class="state">
+    Status:
+    <strong>{% if state.authenticated or state.connected %}autenticado{% elif state.socket_open %}socket aberto (sem auth){% else %}desconectado{% endif %}</strong>
+    {% if state.last_error %} — erro: {{ state.last_error }}{% endif %}
+    {% if state.last_event %} — último: {{ state.last_event }}{% endif %}
+  </p>
+  <p><a href="{{ url_for('logs_page') }}">Ver logs</a></p>
+  {% with messages = get_flashed_messages() %}
+    {% if messages %}
+      {% for m in messages %}<div class="flash">{{ m }}</div>{% endfor %}
+    {% endif %}
+  {% endwith %}
+  <form method="post" class="card">
+    <label>URL do Computicket (HTTP, ex. http://192.168.x.x:5000)
+      <input name="ws_url" value="{{ cfg.ws_url }}" />
+    </label>
+    <label>Device ID
+      <input name="device_id" value="{{ cfg.device_id }}" />
+    </label>
+    <label>Token
+      <input name="token" value="{{ cfg.token }}" type="password" />
+    </label>
+    <hr style="border-color:#2a3540;margin:1.25rem 0" />
+    <label>Postgres host
+      <input name="pg_host" value="{{ cfg.pg_host }}" />
+    </label>
+    <label>Porta
+      <input name="pg_port" value="{{ cfg.pg_port }}" />
+    </label>
+    <label>Database
+      <input name="pg_db" value="{{ cfg.pg_db }}" />
+    </label>
+    <label>User
+      <input name="pg_user" value="{{ cfg.pg_user }}" />
+    </label>
+    <label>Password
+      <input name="pg_password" value="{{ cfg.pg_password }}" type="password" />
+    </label>
+    <label style="display:flex;align-items:center;gap:0.5rem;margin-top:1rem">
+      <input type="checkbox" name="agent_enabled" {% if cfg.agent_enabled in ['true','1','on','yes'] %}checked{% endif %} style="width:auto" />
+      Agente ativo
+    </label>
+    <button type="submit">Salvar e reiniciar</button>
+  </form>
+</body>
+</html>

@@ -41,6 +41,8 @@ def save_config():
             # Determinar categoria baseada na chave
             if key.startswith("mail_"):
                 category = "email"
+            elif key.startswith("uniplus_"):
+                category = "uniplus"
             elif key.startswith("system_"):
                 category = "system"
             else:
@@ -61,7 +63,10 @@ def save_config():
                 "email_notifications": "Enviar notificações por email",
                 "backup_enabled": "Habilitar backup automático",
                 "backup_frequency": "Frequência do backup (dias)",
-                "system_timezone": "Fuso horário do sistema"
+                "system_timezone": "Fuso horário do sistema",
+                "uniplus_agent_enabled": "Usar agente local para escritas no Unico (1/0)",
+                "uniplus_agent_device_id": "Device-Id do agente Uniplus",
+                "uniplus_agent_token": "Token Bearer do agente Uniplus",
             }
             
             SystemConfig.set(
