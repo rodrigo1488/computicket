@@ -1,0 +1,256 @@
+{% extends 'base.html' %}
+{% block page_title %}📋 Planos - {{ system.name }}{% endblock %}
+{% block content %}
+
+<div class="bg-secondary rounded-lg shadow-lg p-6 mb-6">
+	<div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 mb-6">
+		<div class="flex-1">
+			<h1 class="text-2xl lg:text-3xl font-bold text-primary mb-2">
+				📋 Planos de Suporte
+			</h1>
+			<p class="text-secondary">
+				Planos disponíveis para <strong>{{ system.name }}</strong>
+			</p>
+		</div>
+		<div class="flex-shrink-0">
+			<div class="flex gap-2">
+				<a href="{{ url_for('plans.view_system', system_id=system.id) }}" class="btn btn-secondary">
+					<i class="fas fa-arrow-left mr-2"></i>
+					Voltar
+				</a>
+				<a href="{{ url_for('plans.create_plan', system_id=system.id) }}" class="btn btn-primary">
+					<i class="fas fa-plus mr-2"></i>
+					Novo Plano
+				</a>
+			</div>
+		</div>
+	</div>
+</div>
+
+<!-- Lista de Planos -->
+<div class="bg-secondary rounded-lg shadow-lg p-6">
+	{% if plans %}
+	<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+		{% for plan in plans %}
+		<div class="bg-tertiary rounded-lg p-6 hover:shadow-md transition-shadow {{ 'ring-2 ring-warning' if plan.is_featured else '' }}">
+			<!-- Header do Plano -->
+			<div class="flex items-start justify-between mb-4">
+				<div class="flex-1">
+					<h3 class="text-xl font-bold text-primary mb-1">{{ plan.name }}</h3>
+					<div class="flex items-center gap-2">
+						{% if plan.is_featured %}
+					<span class="status-badge status-warning text-xs">
+						<i class="fas fa-star mr-1"></i>
+						Destaque
+					</span>
+					{% endif %}
+						{% if plan.support_included %}
+					<span class="status-badge status-success text-xs">
+						<i class="fas fa-headset mr-1"></i>
+						Suporte incluso
+					</span>
+					{% else %}
+					<span class="status-badge status-secondary text-xs">
+						Sem suporte
+					</span>
+					{% endif %}
+					</div>
+				</div>
+				<div class="flex-shrink-0">
+					<span class="status-badge status-{{ 'success' if plan.is_active else 'secondary' }}">
+						{{ 'Ativo' if plan.is_active else 'Inativo' }}
+					</span>
+				</div>
+			</div>
+			
+			<!-- Descrição -->
+			{% if plan.description %}
+			<p class="text-sm text-secondary mb-4 line-clamp-2">{{ plan.description }}</p>
+			{% endif %}
+			
+			<!-- Informações Principais -->
+			<div class="space-y-3 mb-4">
+				<div class="flex justify-between items-center">
+					<span class="text-sm text-muted">Horas mensais:</span>
+					<span class="font-semibold text-primary">{{ plan.monthly_hours }}h</span>
+				</div>
+				
+				<div class="flex justify-between items-center">
+					<span class="text-sm text-muted">Valor mensal:</span>
+					<span class="font-semibold text-success">{{ plan.get_formatted_monthly_value() }}</span>
+				</div>
+				
+				<div class="flex justify-between items-center">
+					<span class="text-sm text-muted">Hora adicional:</span>
+					<span class="font-semibold text-info">{{ plan.get_formatted_additional_hour_rate() }}</span>
+				</div>
+				
+				{% if plan.setup_fee > 0 %}
+				<div class="flex justify-between items-center">
+					<span class="text-sm text-muted">Setup:</span>
+					<span class="font-semibold text-warning">R$ {{ "%.2f"|format(plan.setup_fee) }}</span>
+				</div>
+				{% endif %}
+			</div>
+			
+			<!-- SLA -->
+			<div class="bg-primary/10 rounded-lg p-3 mb-4">
+				<div class="text-xs text-primary font-medium mb-2">SLA</div>
+				<div class="text-sm text-primary">{{ plan.get_sla_text() }}</div>
+			</div>
+			
+			<!-- Prioridade -->
+			<div class="flex justify-between items-center mb-4">
+				<span class="text-sm text-muted">Prioridade:</span>
+				<span class="status-badge status-{{ plan.get_priority_color() }} text-xs">
+					{{ plan.get_priority_text() }}
+				</span>
+			</div>
+			
+			<!-- Tipos de Suporte -->
+			<div class="mb-4">
+				<div class="text-xs text-muted mb-2">Tipos de suporte:</div>
+				<div class="flex flex-wrap gap-1">
+					{% for support_type in plan.get_support_types() %}
+					<span class="status-badge status-info text-xs">{{ support_type }}</span>
+					{% endfor %}
+				</div>
+			</div>
+			
+			<!-- Ações -->
+			<div class="flex gap-2">
+				<a href="{{ url_for('plans.view_plan', plan_id=plan.id) }}" class="btn btn-sm btn-info flex-1">
+					<i class="fas fa-eye mr-1"></i>
+					Ver
+				</a>
+				<a href="{{ url_for('plans.edit_plan', plan_id=plan.id) }}" class="btn btn-sm btn-warning flex-1">
+					<i class="fas fa-edit mr-1"></i>
+					Editar
+				</a>
+				<button onclick="confirmDelete('{{ plan.name }}', '{{ url_for('plans.delete_plan', plan_id=plan.id) }}')" 
+						class="btn btn-sm btn-danger">
+					<i class="fas fa-trash"></i>
+				</button>
+			</div>
+		</div>
+		{% endfor %}
+	</div>
+	{% else %}
+	<div class="empty-state">
+		<i class="fas fa-list text-4xl text-muted mb-4"></i>
+		<h3 class="text-lg font-semibold text-primary mb-2">Nenhum plano cadastrado</h3>
+		<p class="text-secondary mb-4">Crie o primeiro plano de suporte para este sistema.</p>
+		<a href="{{ url_for('plans.create_plan', system_id=system.id) }}" class="btn btn-primary">
+			<i class="fas fa-plus mr-2"></i>
+			Criar Primeiro Plano
+		</a>
+	</div>
+	{% endif %}
+</div>
+
+<!-- Modal de Confirmação de Exclusão -->
+<div id="delete-modal" class="modal-overlay">
+	<div class="modal w-full max-w-md mx-4 sm:mx-6 lg:mx-auto">
+		<div class="modal-header">
+			<h3 class="modal-title">
+				<i class="fas fa-exclamation-triangle mr-2"></i>
+				Confirmar Exclusão
+			</h3>
+			<button id="close-delete-modal" class="btn btn-sm btn-secondary">
+				<i class="fas fa-times"></i>
+			</button>
+		</div>
+		<div class="modal-body">
+			<div class="bg-error/10 border border-error/20 rounded-lg p-4 mb-4">
+				<div class="flex items-start">
+					<i class="fas fa-exclamation-triangle text-error mr-2 mt-0.5"></i>
+					<div>
+						<p class="text-sm text-error/90 font-medium mb-2">
+							<strong>⚠️ ATENÇÃO: Esta ação é IRREVERSÍVEL!</strong>
+						</p>
+						<p class="text-sm text-error/80">
+							Tem certeza que deseja excluir o plano <strong id="plan-name"></strong>?
+						</p>
+					</div>
+				</div>
+			</div>
+			
+			<div class="bg-warning/10 border border-warning/20 rounded-lg p-4 mb-4">
+				<div class="flex items-start">
+					<i class="fas fa-info-circle text-warning mr-2 mt-0.5"></i>
+					<div>
+						<p class="text-sm text-warning/90 font-medium mb-2">
+							Esta ação irá:
+						</p>
+						<ul class="text-sm text-warning/80 space-y-1">
+							<li>• Excluir o plano permanentemente</li>
+							<li>• Remover contratos de clientes</li>
+							<li>• Perder histórico de uso</li>
+						</ul>
+					</div>
+				</div>
+			</div>
+			
+			<div class="flex flex-col sm:flex-row items-center gap-3 justify-end">
+				<button type="button" id="cancel-delete" class="btn btn-secondary w-full sm:w-auto">Cancelar</button>
+				<form id="delete-form" method="post" class="w-full sm:w-auto">
+					<button type="submit" class="btn btn-error w-full">
+						<i class="fas fa-trash mr-2"></i>
+						Confirmar Exclusão
+					</button>
+				</form>
+			</div>
+		</div>
+	</div>
+</div>
+
+<script>
+function confirmDelete(planName, deleteUrl) {
+	const modal = document.getElementById('delete-modal');
+	const planNameElement = document.getElementById('plan-name');
+	const deleteForm = document.getElementById('delete-form');
+	
+	planNameElement.textContent = planName;
+	deleteForm.action = deleteUrl;
+	
+	modal.classList.add('active');
+}
+
+// Event listeners para o modal
+document.addEventListener('DOMContentLoaded', function() {
+	const modal = document.getElementById('delete-modal');
+	const closeBtn = document.getElementById('close-delete-modal');
+	const cancelBtn = document.getElementById('cancel-delete');
+	
+	if (closeBtn) {
+		closeBtn.addEventListener('click', () => {
+			modal.classList.remove('active');
+		});
+	}
+	
+	if (cancelBtn) {
+		cancelBtn.addEventListener('click', () => {
+			modal.classList.remove('active');
+		});
+	}
+	
+	if (modal) {
+		modal.addEventListener('click', (e) => {
+			if (e.target === modal) {
+				modal.classList.remove('active');
+			}
+		});
+	}
+});
+</script>
+
+<style>
+.line-clamp-2 {
+	display: -webkit-box;
+	-webkit-line-clamp: 2;
+	-webkit-box-orient: vertical;
+	overflow: hidden;
+}
+</style>
+
+{% endblock %}

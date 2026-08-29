@@ -1,0 +1,657 @@
+{% extends "base.html" %}
+
+{% block page_title %}Chat - {{ session.title }}{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row">
+        <div class="col-12">
+            <!-- Header do Chat -->
+            <div class="card mb-3">
+                <div class="card-header">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <h5 class="mb-0">
+                                <i class="fas fa-comments me-2"></i>{{ session.title }}
+                            </h5>
+                            <small class="text-muted">
+                                <i class="fas fa-user me-1"></i>{{ session.client_name }} ({{ session.client_email }})
+                                • <span class="badge bg-{{ session.status_color() }}">{{ session.status_text() }}</span>
+                            </small>
+                        </div>
+                        <div class="d-flex gap-2">
+                            <button class="btn btn-outline-primary btn-sm" onclick="refreshMessages()">
+                                <i class="fas fa-sync-alt me-1"></i>Atualizar
+                            </button>
+                            {% if session.status == 'active' and not session.ticket_id %}
+                            <button class="btn btn-success btn-sm" onclick="showCreateTicketModal()">
+                                <i class="fas fa-ticket-alt me-1"></i>Criar Ticket
+                            </button>
+                            {% endif %}
+                            {% if session.ticket_id %}
+                            <a href="{{ url_for('tickets.view', ticket_id=session.ticket.id) }}" 
+                               class="btn btn-info btn-sm" target="_blank">
+                                <i class="fas fa-ticket-alt me-1"></i>Ver Ticket #{{ session.ticket.id }}
+                            </a>
+                            {% endif %}
+                            <button class="btn btn-danger btn-sm" onclick="closeSession()">
+                                <i class="fas fa-times me-1"></i>Fechar
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Chat Container -->
+            <div class="row">
+                <div class="col-md-8">
+                    <div class="card">
+                        <div class="card-header">
+                            <h6 class="mb-0">
+                                <i class="fas fa-comment-alt me-2"></i>Conversa
+                            </h6>
+                        </div>
+                        <div class="card-body p-0">
+                            <div id="chatMessages" style="height: 500px; overflow-y: auto; padding: 1rem;">
+                                {% for message in messages %}
+                                    <div class="message mb-3 {{ 'text-end' if message.is_from_agent() else 'text-start' if message.is_from_client() else 'text-center' }}">
+                                        <div class="d-inline-block">
+                                            <div class="message-content p-3 rounded {{ 
+                                                'bg-primary text-white' if message.is_from_agent() else 
+                                                'bg-light border' if message.is_from_client() else 
+                                                'bg-info text-white' 
+                                            }}">
+                                                {% if not message.is_system_message() %}
+                                                    <div class="message-sender fw-bold mb-1">
+                                                        {{ message.sender_name }}
+                                                    </div>
+                                                {% endif %}
+                                                <div class="message-text">{{ message.message }}</div>
+                                                <div class="message-time small mt-1 opacity-75">
+                                                    {{ message.formatted_time() }}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                {% endfor %}
+                            </div>
+                        </div>
+                        <div class="card-footer">
+                            <form id="messageForm">
+                                <div class="input-group">
+                                    <input type="text" class="form-control" id="messageInput" 
+                                           placeholder="Digite sua mensagem..." required>
+                                    <button class="btn btn-primary" type="submit">
+                                        <i class="fas fa-paper-plane"></i>
+                                    </button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Sidebar com Informações -->
+                <div class="col-md-4">
+                    <div class="card">
+                        <div class="card-header">
+                            <h6 class="mb-0">
+                                <i class="fas fa-info-circle me-2"></i>Informações da Sessão
+                            </h6>
+                        </div>
+                        <div class="card-body">
+                            <div class="mb-3">
+                                <label class="form-label fw-bold">Cliente:</label>
+                                <p class="mb-0">{{ session.client_name }}</p>
+                                <small class="text-muted">{{ session.client_email }}</small>
+                            </div>
+                            
+                            <div class="mb-3">
+                                <label class="form-label fw-bold">Título:</label>
+                                <p class="mb-0">{{ session.title }}</p>
+                            </div>
+                            
+                            <div class="mb-3">
+                                <label class="form-label fw-bold">Descrição:</label>
+                                <p class="mb-0">{{ session.description }}</p>
+                            </div>
+                            
+                            <div class="mb-3">
+                                <label class="form-label fw-bold">Status:</label>
+                                <p class="mb-0">
+                                    <span class="badge bg-{{ session.status_color() }}">{{ session.status_text() }}</span>
+                                </p>
+                            </div>
+                            
+                            <div class="mb-3">
+                                <label class="form-label fw-bold">Criado em:</label>
+                                <p class="mb-0">{{ session.formatted_created_at() }}</p>
+                            </div>
+                            
+                            {% if session.assigned_at %}
+                                <div class="mb-3">
+                                    <label class="form-label fw-bold">Assumido em:</label>
+                                    <p class="mb-0">{{ session.formatted_assigned_at() }}</p>
+                                </div>
+                            {% endif %}
+                            
+                            {% if session.ticket %}
+                                <div class="mb-3">
+                                    <label class="form-label fw-bold">Ticket Criado:</label>
+                                    <p class="mb-0">
+                                        <a href="{{ url_for('tickets.view', ticket_id=session.ticket.id) }}" 
+                                           class="btn btn-outline-primary btn-sm" target="_blank">
+                                            <i class="fas fa-ticket-alt me-1"></i>Ticket #{{ session.ticket.id }}
+                                        </a>
+                                    </p>
+                                </div>
+                            {% elif session.status == 'active' %}
+                                <div class="mb-3">
+                                    <div class="alert alert-info">
+                                        <i class="fas fa-info-circle me-2"></i>
+                                        <strong>Dica:</strong> Você pode criar um ticket técnico a partir desta conversa clicando no botão "Criar Ticket" acima.
+                                    </div>
+                                </div>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal para Criação de Ticket -->
+<div class="modal fade" id="createTicketModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="fas fa-ticket-alt me-2"></i>Criar Ticket
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="createTicketForm">
+                    <div class="mb-3">
+                        <label for="serviceSelect" class="form-label">Serviço</label>
+                        <select class="form-select" id="serviceSelect" name="service_id" required>
+                            <option value="">Selecione um serviço</option>
+                            {% for service in services %}
+                                <option value="{{ service.id }}">{{ service.name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    
+                    <div class="alert alert-info">
+                        <i class="fas fa-info-circle me-2"></i>
+                        <strong>Informações do Ticket:</strong><br>
+                        <strong>Título:</strong> {{ session.title }}<br>
+                        <strong>Descrição:</strong> {{ session.description }}<br>
+                        <strong>Solicitante:</strong> {{ session.client_name }}<br>
+                        <strong>Cliente:</strong> {{ session.client_name }}<br>
+                        <strong>Responsável:</strong> {{ current_user.name }}
+                    </div>
+                    
+                    <div class="alert alert-warning">
+                        <i class="fas fa-exclamation-triangle me-2"></i>
+                        <strong>Atenção:</strong> O ticket será criado automaticamente e iniciado imediatamente. Certifique-se de que a conversa com o cliente foi suficiente para entender o problema.
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button type="button" class="btn btn-primary" onclick="createTicket()">
+                    <i class="fas fa-ticket-alt me-1"></i>Criar e Iniciar Ticket
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.js"></script>
+<script>
+// Conectar ao WebSocket
+const socket = io();
+const sessionId = '{{ session.session_id }}';
+let lastMessageId = 0;
+let refreshInterval = null;
+
+// Eventos WebSocket
+socket.on('connect', function() {
+    // Entrar na sala do chat
+    socket.emit('join_chat', {
+        session_id: sessionId,
+        user_type: 'agent'
+    });
+});
+
+socket.on('connected', function(data) {
+    // Confirmação de conexão
+});
+
+socket.on('joined_chat', function(data) {
+    // Entrou na sala
+});
+
+socket.on('error', function(data) {
+    console.error('Erro WebSocket:', data);
+});
+
+socket.on('disconnect', function() {
+    // Tentar reconectar após 2 segundos
+    setTimeout(() => {
+        if (!socket.connected) {
+            socket.connect();
+        }
+    }, 2000);
+});
+
+socket.on('reconnect', function() {
+    // Reentrar na sala após reconexão
+    socket.emit('join_chat', {
+        session_id: sessionId,
+        user_type: 'agent'
+    });
+});
+
+socket.on('message_sent', function(data) {
+    // Marcar última mensagem como confirmada
+    const messages = document.querySelectorAll('.message');
+    const lastMessage = messages[messages.length - 1];
+    if (lastMessage) {
+        lastMessage.setAttribute('data-confirmed', 'true');
+    }
+});
+
+socket.on('new_message', function(data) {
+    addMessage(data);
+});
+
+socket.on('user_typing', function(data) {
+    // Usuário está digitando
+});
+
+socket.on('session_closed', function(data) {
+    addMessage({
+        message: data.message,
+        sender_name: 'Sistema',
+        is_from_client: false,
+        is_from_agent: false,
+        is_system_message: true,
+        time: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+    });
+});
+
+socket.on('ticket_created', function(data) {
+    addMessage({
+        message: data.message,
+        sender_name: 'Sistema',
+        is_from_client: false,
+        is_from_agent: false,
+        is_system_message: true,
+        time: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+    });
+});
+
+// Enviar mensagem
+document.getElementById('messageForm').addEventListener('submit', function(e) {
+    e.preventDefault();
+    
+    const messageInput = document.getElementById('messageInput');
+    const message = messageInput.value.trim();
+    
+    if (!message) return;
+    
+    // Adicionar mensagem imediatamente (otimista) com ID temporário
+    const tempId = 'temp-' + Date.now() + '-' + Math.random();
+    const messageData = {
+        id: tempId,
+        message: message,
+        is_from_agent: true,
+        is_from_client: false,
+        is_system_message: false,
+        sender_name: '{{ current_user.name }}',
+        time: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+    };
+    
+    addMessage(messageData);
+    
+    // Limpar input
+    messageInput.value = '';
+    
+    // Tentar enviar via WebSocket primeiro
+    if (socket && socket.connected) {
+        socket.emit('send_message', {
+            session_id: sessionId,
+            message: message,
+            user_type: 'agent'
+        });
+        
+        // Fallback para API REST após 3 segundos se não confirmar
+        setTimeout(() => {
+            if (!messageData.confirmed) {
+                sendMessageViaAPI(message);
+            }
+        }, 3000);
+    } else {
+        sendMessageViaAPI(message);
+    }
+});
+
+// Função para enviar mensagem via API REST
+function sendMessageViaAPI(message) {
+    fetch(`/helpdesk/api/chat/{{ session.id }}/send`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            message: message
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            // Marcar como confirmada
+            const messages = document.querySelectorAll('.message');
+            const lastMessage = messages[messages.length - 1];
+            if (lastMessage) {
+                lastMessage.setAttribute('data-confirmed', 'true');
+            }
+        } else {
+            showMessageError('Erro ao enviar mensagem. Tente novamente.');
+        }
+    })
+    .catch(error => {
+        showMessageError('Erro de conexão. Verifique sua internet.');
+    });
+}
+
+// Função para mostrar erro de mensagem
+function showMessageError(message) {
+    const errorDiv = document.createElement('div');
+    errorDiv.className = 'alert alert-danger alert-dismissible fade show';
+    errorDiv.innerHTML = `
+        <i class="fas fa-exclamation-triangle me-2"></i>${message}
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    `;
+    
+    const chatContainer = document.querySelector('.chat-container');
+    chatContainer.insertBefore(errorDiv, chatContainer.firstChild);
+    
+    // Remover automaticamente após 5 segundos
+    setTimeout(() => {
+        if (errorDiv.parentNode) {
+            errorDiv.remove();
+        }
+    }, 5000);
+}
+
+// Funções de refresh automático
+function startAutoRefresh() {
+    if (refreshInterval) {
+        clearInterval(refreshInterval);
+    }
+    
+    refreshInterval = setInterval(() => {
+        checkNewMessages();
+    }, 500); // Verificar a cada 0.5 segundos
+    
+    // Mostrar indicador de status
+    showStatusIndicator('Sistema de mensagens ativo');
+}
+
+function stopAutoRefresh() {
+    if (refreshInterval) {
+        clearInterval(refreshInterval);
+        refreshInterval = null;
+    }
+}
+
+function showStatusIndicator(message) {
+    // Remover indicador anterior se existir
+    const existingIndicator = document.getElementById('statusIndicator');
+    if (existingIndicator) {
+        existingIndicator.remove();
+    }
+    
+    // Criar novo indicador
+    const indicator = document.createElement('div');
+    indicator.id = 'statusIndicator';
+    indicator.className = 'alert alert-info alert-dismissible fade show';
+    indicator.style.cssText = 'position: fixed; top: 10px; right: 10px; z-index: 9999; max-width: 300px;';
+    indicator.innerHTML = `
+        <i class="fas fa-sync-alt fa-spin me-2"></i>${message}
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    `;
+    
+    document.body.appendChild(indicator);
+    
+    // Remover automaticamente após 3 segundos
+    setTimeout(() => {
+        if (indicator.parentNode) {
+            indicator.remove();
+        }
+    }, 3000);
+}
+
+function checkNewMessages() {
+    fetch(`/helpdesk/api/chat/{{ session.id }}/messages/since?since=${lastMessageId}`)
+        .then(response => {
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+            return response.json();
+        })
+        .then(data => {
+            if (data.success && data.messages) {
+                data.messages.forEach(message => {
+                    if (message.id > lastMessageId) {
+                        addMessage(message);
+                        lastMessageId = message.id;
+                    }
+                });
+            }
+        })
+        .catch(error => {
+            console.error('Erro ao verificar mensagens:', error);
+        });
+}
+
+// Adicionar mensagem ao chat
+function addMessage(message) {
+    const chatMessages = document.getElementById('chatMessages');
+    
+    // Verificar se a mensagem já existe (evitar duplicação por ID)
+    if (message.id) {
+        const existingMessage = chatMessages.querySelector(`[data-message-id="${message.id}"]`);
+        if (existingMessage) {
+            return; // Não adicionar se já existe
+        }
+        
+        // Se é uma mensagem real (não temporária), verificar se há mensagem temporária para substituir
+        if (!message.id.toString().startsWith('temp-')) {
+            // Procurar mensagem temporária com mesmo texto e remetente
+            const tempMessages = chatMessages.querySelectorAll('[data-message-id^="temp-"]');
+            for (let tempMsg of tempMessages) {
+                const tempText = tempMsg.querySelector('.message-text').textContent;
+                const tempSender = tempMsg.querySelector('.message-sender')?.textContent;
+                if (tempText === message.message && tempSender === message.sender_name) {
+                    tempMsg.remove(); // Remove a mensagem temporária
+                    break;
+                }
+            }
+        }
+    }
+    
+    const messageDiv = document.createElement('div');
+    
+    const alignment = message.is_from_agent ? 'text-end' : message.is_from_client ? 'text-start' : 'text-center';
+    const bgClass = message.is_from_agent ? 'bg-primary text-white' : 
+                   message.is_from_client ? 'bg-light border' : 'bg-info text-white';
+    
+    console.log('Alinhamento:', alignment);
+    console.log('Classe de fundo:', bgClass);
+    
+    let senderHtml = '';
+    if (!message.is_system_message) {
+        senderHtml = `<div class="message-sender fw-bold mb-1">${message.sender_name}</div>`;
+    }
+    
+    messageDiv.className = `message mb-3 ${alignment}`;
+    messageDiv.setAttribute('data-message-id', message.id || 'temp-' + Date.now());
+    messageDiv.innerHTML = `
+        <div class="d-inline-block">
+            <div class="message-content p-3 rounded ${bgClass}">
+                ${senderHtml}
+                <div class="message-text">${message.message}</div>
+                <div class="message-time small mt-1 opacity-75">${message.time}</div>
+            </div>
+        </div>
+    `;
+    
+    chatMessages.appendChild(messageDiv);
+    scrollToBottom();
+}
+
+// Atualizar mensagens
+async function refreshMessages() {
+    try {
+        const response = await fetch(`/helpdesk/api/chat/{{ session.id }}/messages`);
+        const messages = await response.json();
+        
+        // Implementar lógica para atualizar apenas mensagens novas
+        // Por simplicidade, vamos recarregar a página
+        window.location.reload();
+    } catch (error) {
+        console.error('Erro ao atualizar mensagens:', error);
+    }
+}
+
+// Mostrar modal de criação de ticket
+function showCreateTicketModal() {
+    const modal = new bootstrap.Modal(document.getElementById('createTicketModal'));
+    modal.show();
+}
+
+// Criar ticket
+async function createTicket() {
+    const serviceSelect = document.getElementById('serviceSelect');
+    const serviceId = serviceSelect.value;
+    
+    if (!serviceId) {
+        alert('Selecione um serviço');
+        return;
+    }
+    
+    try {
+        const response = await fetch(`/helpdesk/api/chat/{{ session.id }}/create-ticket`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ service_id: parseInt(serviceId) })
+        });
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            // Notificar via WebSocket
+            socket.emit('ticket_created', {
+                session_id: sessionId,
+                ticket_id: result.ticket_id
+            });
+            
+            // Mostrar mensagem de sucesso com link para o ticket
+            const message = `${result.message}\n\nDeseja abrir o ticket agora?`;
+            if (confirm(message)) {
+                window.open(result.ticket_url, '_blank');
+            }
+            
+            // Fechar modal
+            const modal = bootstrap.Modal.getInstance(document.getElementById('createTicketModal'));
+            modal.hide();
+            // Recarregar página para mostrar o ticket criado
+            window.location.reload();
+        } else {
+            alert('Erro ao criar ticket: ' + result.error);
+        }
+    } catch (error) {
+        console.error('Erro:', error);
+        alert('Erro ao criar ticket. Tente novamente.');
+    }
+}
+
+// Fechar sessão
+async function closeSession() {
+    if (confirm('Deseja fechar esta sessão de atendimento?')) {
+        try {
+            const response = await fetch(`/helpdesk/api/chat/{{ session.id }}/close`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                }
+            });
+            
+            const result = await response.json();
+            
+            if (result.success) {
+                // Notificar via WebSocket
+                socket.emit('session_closed', {
+                    session_id: sessionId
+                });
+                
+                alert(result.message);
+                window.location.href = '/helpdesk/';
+            } else {
+                alert('Erro ao fechar sessão: ' + result.error);
+            }
+        } catch (error) {
+            console.error('Erro:', error);
+            alert('Erro ao fechar sessão. Tente novamente.');
+        }
+    }
+}
+
+// Auto scroll para a última mensagem
+function scrollToBottom() {
+    const chatMessages = document.getElementById('chatMessages');
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    scrollToBottom();
+    
+    // Carregar mensagens iniciais
+    loadInitialMessages();
+    
+    // Iniciar refresh automático
+    startAutoRefresh();
+    
+    // Parar refresh quando sair da página
+    window.addEventListener('beforeunload', function() {
+        stopAutoRefresh();
+    });
+});
+
+// Carregar mensagens iniciais
+function loadInitialMessages() {
+    fetch(`/helpdesk/api/chat/{{ session.id }}/messages`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.success && data.messages) {
+                data.messages.forEach(message => {
+                    addMessage(message);
+                    if (message.id > lastMessageId) {
+                        lastMessageId = message.id;
+                    }
+                });
+                scrollToBottom();
+            }
+        })
+        .catch(error => {
+            console.error('Erro ao carregar mensagens iniciais:', error);
+        });
+}
+</script>
+{% endblock %}

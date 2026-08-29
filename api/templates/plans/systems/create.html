@@ -1,0 +1,124 @@
+{% extends 'base.html' %}
+{% block page_title %}➕ Novo Sistema{% endblock %}
+{% block content %}
+
+<div class="bg-secondary rounded-lg shadow-lg p-6 mb-6">
+	<div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 mb-6">
+		<div class="flex-1">
+			<h1 class="text-2xl lg:text-3xl font-bold text-primary mb-2">
+				➕ Novo Sistema
+			</h1>
+			<p class="text-secondary">
+				Cadastre um novo sistema ou software para criar planos de suporte
+			</p>
+		</div>
+		<div class="flex-shrink-0">
+			<a href="{{ url_for('plans.list_systems') }}" class="btn btn-secondary">
+				<i class="fas fa-arrow-left mr-2"></i>
+				Voltar
+			</a>
+		</div>
+	</div>
+</div>
+
+<!-- Formulário -->
+<div class="bg-secondary rounded-lg shadow-lg p-6">
+	<form method="post" class="space-y-6">
+		<!-- Informações Básicas -->
+		<div class="bg-tertiary rounded-lg p-4">
+			<h3 class="text-lg font-semibold text-primary mb-4">
+				<i class="fas fa-info-circle mr-2"></i>
+				Informações Básicas
+			</h3>
+			
+			<div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+				<div class="form-group">
+					<label class="form-label">Nome do Sistema *</label>
+					<input type="text" name="name" class="form-input" required 
+						   placeholder="Ex: Sistema ERP, Software de Gestão" 
+						   value="{{ request.form.get('name', '') }}">
+					<div class="form-help">
+						Nome único que identifica o sistema
+					</div>
+				</div>
+				
+				<div class="form-group">
+					<label class="form-label">Versão</label>
+					<input type="text" name="version" class="form-input" 
+						   placeholder="Ex: 2.1.0, 2024.1" 
+						   value="{{ request.form.get('version', '') }}">
+					<div class="form-help">
+						Versão atual do sistema (opcional)
+					</div>
+				</div>
+			</div>
+			
+			<div class="form-group">
+				<label class="form-label">Empresa Desenvolvedora</label>
+				<input type="text" name="company" class="form-input" 
+					   placeholder="Ex: Microsoft, Oracle, Empresa Local" 
+					   value="{{ request.form.get('company', '') }}">
+				<div class="form-help">
+					Nome da empresa que desenvolveu o sistema
+				</div>
+			</div>
+			
+			<div class="form-group">
+				<label class="form-label">Descrição</label>
+				<textarea name="description" class="form-textarea" rows="3" 
+						  placeholder="Descreva o sistema, suas funcionalidades principais, etc.">{{ request.form.get('description', '') }}</textarea>
+				<div class="form-help">
+					Descrição detalhada do sistema e suas funcionalidades
+				</div>
+			</div>
+		</div>
+		
+		<!-- Configurações -->
+		<div class="bg-tertiary rounded-lg p-4">
+			<h3 class="text-lg font-semibold text-primary mb-4">
+				<i class="fas fa-cogs mr-2"></i>
+				Configurações
+			</h3>
+			
+			<div class="form-group">
+				<label class="flex items-center">
+					<input type="checkbox" name="is_active" class="form-checkbox mr-2" checked>
+					<span class="form-label">Sistema Ativo</span>
+				</label>
+				<div class="form-help">
+					Sistemas inativos não aparecem na lista de opções para novos planos
+				</div>
+			</div>
+		</div>
+		
+		<!-- Botões -->
+		<div class="flex flex-col sm:flex-row items-center gap-3 justify-end">
+			<a href="{{ url_for('plans.list_systems') }}" class="btn btn-secondary w-full sm:w-auto">
+				<i class="fas fa-times mr-2"></i>
+				Cancelar
+			</a>
+			<button type="submit" class="btn btn-primary w-full sm:w-auto">
+				<i class="fas fa-save mr-2"></i>
+				Criar Sistema
+			</button>
+		</div>
+	</form>
+</div>
+
+<!-- Dicas -->
+<div class="bg-info/10 border border-info/20 rounded-lg p-4 mt-6">
+	<div class="flex items-start">
+		<i class="fas fa-lightbulb text-info mr-2 mt-0.5"></i>
+		<div>
+			<h4 class="text-sm font-medium text-info mb-2">💡 Dicas para criar um bom sistema:</h4>
+			<ul class="text-sm text-info/80 space-y-1">
+				<li>• Use nomes descritivos e únicos para cada sistema</li>
+				<li>• Inclua a versão para facilitar o controle de atualizações</li>
+				<li>• Descreva as funcionalidades principais do sistema</li>
+				<li>• Mantenha apenas sistemas ativos para evitar confusão</li>
+			</ul>
+		</div>
+	</div>
+</div>
+
+{% endblock %}

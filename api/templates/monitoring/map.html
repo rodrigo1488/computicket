@@ -1,0 +1,488 @@
+{% extends 'base.html' %}
+{% block page_title %}🗺️ Mapa de Monitoramento{% endblock %}
+{% block content %}
+
+<div class="container mx-auto px-4 py-6">
+	<!-- Cabeçalho -->
+	<div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
+		<div>
+			<h1 class="text-2xl font-bold text-primary mb-2">
+				<i class="fas fa-map mr-2"></i>
+				Mapa de Monitoramento
+			</h1>
+			<p class="text-secondary">Visualize a localização dos técnicos em tempo real</p>
+		</div>
+		
+		<div class="flex gap-2">
+			<a href="{{ url_for('monitoring.index') }}" class="btn btn-secondary">
+				<i class="fas fa-list mr-2"></i>
+				Lista de Técnicos
+			</a>
+			<button id="refresh-map-btn" class="btn btn-info">
+				<i class="fas fa-sync-alt mr-2"></i>
+				Atualizar
+			</button>
+		</div>
+	</div>
+	
+	<!-- Controles do Mapa -->
+	<div class="bg-tertiary rounded-lg p-4 mb-6">
+		<div class="flex flex-col sm:flex-row gap-4 items-start sm:items-center">
+			<div class="flex items-center gap-4">
+				<div class="flex items-center gap-2">
+					<div class="w-3 h-3 rounded-full bg-success"></div>
+					<span class="text-sm">Online</span>
+				</div>
+				<div class="flex items-center gap-2">
+					<div class="w-3 h-3 rounded-full bg-gray-400"></div>
+					<span class="text-sm">Offline</span>
+				</div>
+			</div>
+			
+			<div class="flex items-center gap-4 ml-auto">
+				<div class="text-sm text-muted">
+					Última atualização: <span id="last-update-time">--:--</span>
+				</div>
+				<div class="text-sm text-muted">
+					Técnicos online: <span id="online-count">0</span>
+				</div>
+			</div>
+		</div>
+	</div>
+	
+	<!-- Mapa -->
+	<div class="bg-tertiary rounded-lg p-4">
+		<div id="monitoring-map" style="height: 600px; width: 100%; border-radius: 8px; overflow: hidden;">
+			<!-- Mapa será carregado via JavaScript -->
+		</div>
+	</div>
+	
+	<!-- Lista de Técnicos no Mapa -->
+	<div class="mt-6">
+		<h2 class="text-lg font-semibold text-primary mb-4">
+			<i class="fas fa-users mr-2"></i>
+			Técnicos no Mapa
+		</h2>
+		
+		<div id="technicians-list" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+			<!-- Lista será preenchida via JavaScript -->
+		</div>
+	</div>
+</div>
+
+<!-- Modal de Detalhes do Técnico -->
+<div id="technician-modal" class="modal-overlay" style="display: none;">
+	<div class="modal w-full max-w-md mx-4 sm:mx-6 lg:mx-auto">
+		<div class="modal-header">
+			<h3 class="modal-title">
+				<i class="fas fa-user mr-2"></i>
+				Detalhes do Técnico
+			</h3>
+			<button id="close-technician-modal" class="btn btn-sm btn-secondary">
+				<i class="fas fa-times"></i>
+			</button>
+		</div>
+		<div class="modal-body">
+			<div id="technician-details">
+				<!-- Detalhes serão preenchidos via JavaScript -->
+			</div>
+		</div>
+		<div class="modal-footer">
+			<button type="button" id="close-technician-modal-btn" class="btn btn-primary w-full">
+				<i class="fas fa-times mr-2"></i>
+				Fechar
+			</button>
+		</div>
+	</div>
+</div>
+
+<style>
+.technician-marker {
+	width: 40px;
+	height: 40px;
+	border-radius: 50%;
+	border: 3px solid white;
+	box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	color: white;
+	font-weight: bold;
+	cursor: pointer;
+	transition: transform 0.2s ease;
+}
+
+.technician-marker:hover {
+	transform: scale(1.1);
+}
+
+.technician-marker.online {
+	background: linear-gradient(135deg, #10b981, #059669);
+}
+
+.technician-marker.offline {
+	background: linear-gradient(135deg, #6b7280, #4b5563);
+}
+
+.technician-card {
+	transition: all 0.2s ease;
+}
+
+.technician-card:hover {
+	transform: translateY(-2px);
+	box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+</style>
+
+<script>
+class MapMonitoringManager {
+	constructor() {
+		this.map = null;
+		this.markers = {};
+		this.technicians = [];
+		this.socket = null;
+		this.updateInterval = null;
+		this.init();
+	}
+	
+	init() {
+		this.connectWebSocket();
+		this.setupEventListeners();
+		this.loadMap();
+		this.loadInitialData();
+		this.startPeriodicUpdates();
+		
+		console.log('🗺️ MapMonitoringManager inicializado');
+	}
+	
+	connectWebSocket() {
+		try {
+			if (window.socket) {
+				this.socket = window.socket;
+				this.setupSocketEvents();
+			} else {
+				console.warn('⚠️ WebSocket não disponível para monitoramento');
+			}
+		} catch (error) {
+			console.error('❌ Erro ao conectar WebSocket:', error);
+		}
+	}
+	
+	setupSocketEvents() {
+		if (!this.socket) return;
+		
+		// Entrar na sala de monitoramento
+		this.socket.emit('join_monitoring_room');
+		
+		// Eventos do sistema de monitoramento
+		this.socket.on('active_technicians', (data) => {
+			console.log('👥 Técnicos ativos recebidos:', data);
+			this.updateTechnicians(data.technicians);
+		});
+		
+		this.socket.on('technician_location_update', (data) => {
+			console.log('📍 Atualização de localização:', data);
+			this.updateTechnicianLocation(data);
+		});
+	}
+	
+	setupEventListeners() {
+		// Botão de atualizar
+		document.getElementById('refresh-map-btn').addEventListener('click', () => {
+			this.loadInitialData();
+		});
+		
+		// Modal de técnico
+		document.getElementById('close-technician-modal').addEventListener('click', () => {
+			this.closeTechnicianModal();
+		});
+		
+		document.getElementById('close-technician-modal-btn').addEventListener('click', () => {
+			this.closeTechnicianModal();
+		});
+		
+		document.getElementById('technician-modal').addEventListener('click', (e) => {
+			if (e.target === document.getElementById('technician-modal')) {
+				this.closeTechnicianModal();
+			}
+		});
+	}
+	
+	loadMap() {
+		// Usar OpenStreetMap com Leaflet
+		this.map = L.map('monitoring-map').setView([-23.5505, -46.6333], 10); // São Paulo como centro
+		
+		// Adicionar camada do mapa
+		L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+			attribution: '© OpenStreetMap contributors',
+			maxZoom: 18
+		}).addTo(this.map);
+		
+		console.log('🗺️ Mapa carregado');
+	}
+	
+	async loadInitialData() {
+		try {
+			const response = await fetch('/monitoring/api/technicians');
+			const data = await response.json();
+			
+			if (data.technicians) {
+				this.updateTechnicians(data.technicians);
+			}
+			
+		} catch (error) {
+			console.error('❌ Erro ao carregar dados iniciais:', error);
+		}
+	}
+	
+	startPeriodicUpdates() {
+		// Atualizar a cada 30 segundos
+		this.updateInterval = setInterval(() => {
+			this.loadInitialData();
+		}, 30000);
+	}
+	
+	updateTechnicians(technicians) {
+		this.technicians = technicians;
+		
+		// Atualizar contadores
+		const online = technicians.filter(t => t.is_online);
+		document.getElementById('online-count').textContent = online.length;
+		document.getElementById('last-update-time').textContent = new Date().toLocaleTimeString();
+		
+		// Atualizar marcadores no mapa
+		this.updateMapMarkers(technicians);
+		
+		// Atualizar lista de técnicos
+		this.updateTechniciansList(technicians);
+	}
+	
+	updateMapMarkers(technicians) {
+		// Remover marcadores existentes
+		Object.values(this.markers).forEach(marker => {
+			this.map.removeLayer(marker);
+		});
+		this.markers = {};
+		
+		// Adicionar novos marcadores
+		technicians.forEach(technician => {
+			if (technician.latitude && technician.longitude) {
+				const marker = this.createTechnicianMarker(technician);
+				this.markers[technician.user_id] = marker;
+			}
+		});
+		
+		// Ajustar zoom para mostrar todos os marcadores
+		if (technicians.length > 0) {
+			const group = new L.featureGroup(Object.values(this.markers));
+			this.map.fitBounds(group.getBounds().pad(0.1));
+		}
+	}
+	
+	createTechnicianMarker(technician) {
+		// Criar ícone personalizado
+		const icon = L.divIcon({
+			className: 'technician-marker ' + (technician.is_online ? 'online' : 'offline'),
+			html: `<i class="fas fa-user"></i>`,
+			iconSize: [40, 40],
+			iconAnchor: [20, 20]
+		});
+		
+		// Criar marcador
+		const marker = L.marker([technician.latitude, technician.longitude], { icon })
+			.addTo(this.map);
+		
+		// Adicionar popup
+		const popupContent = `
+			<div class="p-2">
+				<div class="font-semibold text-primary">${technician.user_name}</div>
+				<div class="text-sm text-muted">${technician.user_role}</div>
+				<div class="text-sm mt-1">
+					<i class="fas fa-circle ${technician.is_online ? 'text-success' : 'text-gray-400'}"></i>
+					${technician.is_online ? 'Online' : 'Offline'}
+				</div>
+				${technician.address ? `
+				<div class="text-xs text-muted mt-1">${technician.address}</div>
+				` : ''}
+				<button onclick="mapManager.showTechnicianDetails(${technician.user_id})" class="btn btn-sm btn-primary mt-2 w-full">
+					Ver Detalhes
+				</button>
+			</div>
+		`;
+		
+		marker.bindPopup(popupContent);
+		
+		// Adicionar evento de clique
+		marker.on('click', () => {
+			this.showTechnicianDetails(technician.user_id);
+		});
+		
+		return marker;
+	}
+	
+	updateTechnicianLocation(technician) {
+		// Atualizar marcador existente
+		if (this.markers[technician.user_id]) {
+			const marker = this.markers[technician.user_id];
+			marker.setLatLng([technician.latitude, technician.longitude]);
+			
+			// Atualizar popup
+			const popupContent = `
+				<div class="p-2">
+					<div class="font-semibold text-primary">${technician.user_name}</div>
+					<div class="text-sm text-muted">${technician.user_role}</div>
+					<div class="text-sm mt-1">
+						<i class="fas fa-circle ${technician.is_online ? 'text-success' : 'text-gray-400'}"></i>
+						${technician.is_online ? 'Online' : 'Offline'}
+					</div>
+					${technician.address ? `
+					<div class="text-xs text-muted mt-1">${technician.address}</div>
+					` : ''}
+					<button onclick="mapManager.showTechnicianDetails(${technician.user_id})" class="btn btn-sm btn-primary mt-2 w-full">
+						Ver Detalhes
+					</button>
+				</div>
+			`;
+			
+			marker.bindPopup(popupContent);
+		}
+		
+		// Atualizar na lista de técnicos
+		const index = this.technicians.findIndex(t => t.user_id === technician.user_id);
+		if (index !== -1) {
+			this.technicians[index] = technician;
+			this.updateTechniciansList(this.technicians);
+		}
+	}
+	
+	updateTechniciansList(technicians) {
+		const container = document.getElementById('technicians-list');
+		
+		container.innerHTML = technicians.map(technician => `
+			<div class="technician-card bg-secondary rounded-lg p-4 cursor-pointer" onclick="mapManager.showTechnicianDetails(${technician.user_id})">
+				<div class="flex items-center gap-3 mb-2">
+					<div class="w-10 h-10 rounded-full ${technician.is_online ? 'bg-success' : 'bg-gray-400'} flex items-center justify-center">
+						<i class="fas fa-user text-white"></i>
+					</div>
+					<div>
+						<div class="font-semibold text-primary">${technician.user_name}</div>
+						<div class="text-sm text-muted">${technician.user_role}</div>
+					</div>
+				</div>
+				
+				<div class="text-sm">
+					<div class="flex items-center gap-1 mb-1">
+						<i class="fas fa-circle ${technician.is_online ? 'text-success' : 'text-gray-400'}"></i>
+						<span class="text-muted">${technician.is_online ? 'Online' : 'Offline'}</span>
+					</div>
+					${technician.address ? `
+					<div class="text-muted">
+						<i class="fas fa-map-marker-alt mr-1"></i>
+						${technician.address}
+					</div>
+					` : ''}
+				</div>
+			</div>
+		`).join('');
+	}
+	
+	showTechnicianDetails(userId) {
+		const technician = this.technicians.find(t => t.user_id === userId);
+		if (!technician) return;
+		
+		const modal = document.getElementById('technician-modal');
+		const details = document.getElementById('technician-details');
+		
+		details.innerHTML = `
+			<div class="space-y-4">
+				<div class="flex items-center gap-3">
+					<div class="w-12 h-12 rounded-full ${technician.is_online ? 'bg-success' : 'bg-gray-400'} flex items-center justify-center">
+						<i class="fas fa-user text-white text-lg"></i>
+					</div>
+					<div>
+						<div class="text-lg font-semibold text-primary">${technician.user_name}</div>
+						<div class="text-sm text-muted">${technician.user_role}</div>
+					</div>
+				</div>
+				
+				<div class="bg-tertiary rounded-lg p-4">
+					<div class="flex items-center gap-2 mb-3">
+						<i class="fas fa-map-marker-alt text-info"></i>
+						<span class="font-semibold text-info">Localização</span>
+					</div>
+					
+					<div class="space-y-2 text-sm">
+						<div class="flex justify-between">
+							<span class="text-muted">Status:</span>
+							<span class="font-medium ${technician.is_online ? 'text-success' : 'text-gray-400'}">
+								${technician.is_online ? 'Online' : 'Offline'}
+							</span>
+						</div>
+						<div class="flex justify-between">
+							<span class="text-muted">Endereço:</span>
+							<span class="font-medium">${technician.address || 'Não disponível'}</span>
+						</div>
+						<div class="flex justify-between">
+							<span class="text-muted">Coordenadas:</span>
+							<span class="font-mono text-xs">${technician.latitude.toFixed(6)}, ${technician.longitude.toFixed(6)}</span>
+						</div>
+						${technician.accuracy ? `
+						<div class="flex justify-between">
+							<span class="text-muted">Precisão:</span>
+							<span class="font-medium">${technician.accuracy.toFixed(0)}m</span>
+						</div>
+						` : ''}
+						<div class="flex justify-between">
+							<span class="text-muted">Última atualização:</span>
+							<span class="font-medium">${new Date(technician.last_seen).toLocaleString()}</span>
+						</div>
+					</div>
+				</div>
+				
+				<div class="flex gap-2">
+					<a href="https://www.google.com/maps?q=${technician.latitude},${technician.longitude}" target="_blank" class="btn btn-info flex-1">
+						<i class="fas fa-external-link-alt mr-2"></i>
+						Abrir no Google Maps
+					</a>
+					<button type="button" onclick="mapManager.copyLocation(${technician.latitude}, ${technician.longitude})" class="btn btn-outline flex-1">
+						<i class="fas fa-copy mr-2"></i>
+						Copiar Coordenadas
+					</button>
+				</div>
+			</div>
+		`;
+		
+		modal.style.display = 'flex';
+	}
+	
+	closeTechnicianModal() {
+		document.getElementById('technician-modal').style.display = 'none';
+	}
+	
+	copyLocation(latitude, longitude) {
+		const text = `${latitude}, ${longitude}`;
+		navigator.clipboard.writeText(text).then(() => {
+			this.showNotification('Coordenadas copiadas!', 'success');
+		}).catch(err => {
+			console.error('Erro ao copiar:', err);
+			this.showNotification('Erro ao copiar coordenadas', 'error');
+		});
+	}
+	
+	showNotification(message, type = 'info') {
+		// Implementar sistema de notificações
+		console.log(`📢 ${type.toUpperCase()}: ${message}`);
+	}
+}
+
+// Inicializar quando a página carregar
+document.addEventListener('DOMContentLoaded', function() {
+	window.mapManager = new MapMonitoringManager();
+});
+</script>
+
+<!-- Leaflet CSS e JS -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+{% endblock %}

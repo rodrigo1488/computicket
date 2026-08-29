@@ -1,0 +1,187 @@
+{% extends 'base.html' %}
+{% block page_title %}✏️ Editar Ticket #{{ ticket.id }}{% endblock %}
+{% block content %}
+
+<div class="bg-secondary rounded-lg shadow-lg p-6 mb-6">
+	<div class="flex items-start justify-between mb-4">
+		<div>
+			<h1 class="text-2xl font-bold text-primary mb-2">Editar Ticket #{{ ticket.id }}</h1>
+			<p class="text-muted">{{ ticket.title }}</p>
+		</div>
+		<a href="{{ url_for('tickets.view_ticket', ticket_id=ticket.id) }}" class="btn btn-secondary">
+			<i class="fas fa-arrow-left"></i>
+			Voltar
+		</a>
+	</div>
+</div>
+
+<div class="bg-secondary rounded-lg shadow-lg p-6">
+	<form method="POST" class="space-y-6">
+		<!-- Título e Descrição -->
+		<div class="form-group">
+			<label for="title" class="form-label">
+				<i class="fas fa-heading mr-2"></i>
+				Título *
+			</label>
+			<input type="text" id="title" name="title" value="{{ ticket.title }}" 
+				   class="form-input" required placeholder="Digite o título do ticket">
+		</div>
+		
+		<div class="form-group">
+			<label for="description" class="form-label">
+				<i class="fas fa-align-left mr-2"></i>
+				Descrição
+			</label>
+			<textarea id="description" name="description" rows="4" 
+					  class="form-textarea" placeholder="Descreva o problema ou solicitação">{{ ticket.description }}</textarea>
+		</div>
+
+		<!-- Técnico e Serviço -->
+		<div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+			<div class="form-group">
+				<label for="assigned_to_id" class="form-label">
+					<i class="fas fa-user mr-2"></i>
+					Técnico Responsável *
+				</label>
+				<select id="assigned_to_id" name="assigned_to_id" class="form-select" required>
+					<option value="">Selecione um técnico</option>
+					{% for user in users %}
+					<option value="{{ user.id }}" {% if ticket.assigned_to_id == user.id %}selected{% endif %}>
+						{{ user.name }} ({{ user.role }})
+					</option>
+					{% endfor %}
+				</select>
+			</div>
+
+			<div class="form-group">
+				<label for="service_id" class="form-label">
+					<i class="fas fa-cogs mr-2"></i>
+					Tipo de Serviço *
+				</label>
+				<select id="service_id" name="service_id" class="form-select" required>
+					<option value="">Selecione um serviço</option>
+					{% for service in services %}
+					<option value="{{ service.id }}" {% if ticket.service_id == service.id %}selected{% endif %}>
+						{{ service.name }} - R$ {{ "%.2f"|format(service.hourly_rate) }}/h
+					</option>
+					{% endfor %}
+				</select>
+			</div>
+		</div>
+
+		<!-- Cliente -->
+		<div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+			<div class="form-group">
+				<label for="client_id" class="form-label">
+					<i class="fas fa-building mr-2"></i>
+					Cliente Interno
+				</label>
+				<select id="client_id" name="client_id" class="form-select">
+					<option value="">Selecione um cliente interno</option>
+					{% for client in clients %}
+					<option value="{{ client.id }}" {% if ticket.client_id == client.id %}selected{% endif %}>
+						{{ client.name }}
+					</option>
+					{% endfor %}
+				</select>
+			</div>
+
+			<div class="form-group">
+				<label for="external_client_id" class="form-label">
+					<i class="fas fa-external-link-alt mr-2"></i>
+					Cliente Externo
+				</label>
+				<select id="external_client_id" name="external_client_id" class="form-select">
+					<option value="">Selecione um cliente externo</option>
+					{% for client in ext_clients %}
+					<option value="{{ client.id }}" {% if ticket.external_client_id == client.id %}selected{% endif %}>
+						{{ client.name }}
+					</option>
+					{% endfor %}
+				</select>
+			</div>
+		</div>
+
+		<!-- Contrato -->
+		<div class="form-group">
+			<label for="contract_id" class="form-label">
+				<i class="fas fa-file-contract mr-2"></i>
+				Contrato
+			</label>
+			<select id="contract_id" name="contract_id" class="form-select">
+				<option value="">Selecione um contrato</option>
+				{% for contract in contracts %}
+				<option value="{{ contract.id }}" {% if ticket.contract_id == contract.id %}selected{% endif %}>
+					{{ contract.name }} - {{ contract.client.name }}
+				</option>
+				{% endfor %}
+			</select>
+		</div>
+
+		<!-- Informações do Ticket -->
+		<div class="bg-tertiary rounded-lg p-4">
+			<h3 class="text-lg font-semibold text-primary mb-3">
+				<i class="fas fa-info-circle mr-2"></i>
+				Informações do Ticket
+			</h3>
+			<div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+				<div>
+					<span class="font-medium text-secondary">Status:</span>
+					<span class="ml-2 status-badge status-{{ ticket.status }}">{{ ticket.status|title }}</span>
+				</div>
+				<div>
+					<span class="font-medium text-secondary">Criado em:</span>
+					<span class="ml-2">{{ ticket.created_at.strftime('%d/%m/%Y %H:%M') }}</span>
+				</div>
+				<div>
+					<span class="font-medium text-secondary">Criado por:</span>
+					<span class="ml-2">{{ ticket.opened_by_user.name }}</span>
+				</div>
+			</div>
+		</div>
+
+		<!-- Botões -->
+		<div class="flex items-center gap-3 justify-end">
+			<a href="{{ url_for('tickets.view_ticket', ticket_id=ticket.id) }}" class="btn btn-secondary">
+				<i class="fas fa-times"></i>
+				Cancelar
+			</a>
+			<button type="submit" class="btn btn-primary">
+				<i class="fas fa-save"></i>
+				Salvar Alterações
+			</button>
+		</div>
+	</form>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+	// Lógica para alternar entre cliente interno e externo
+	const clientSelect = document.getElementById('client_id');
+	const externalClientSelect = document.getElementById('external_client_id');
+	
+	function toggleClientFields() {
+		if (clientSelect.value) {
+			externalClientSelect.value = '';
+			externalClientSelect.disabled = true;
+		} else {
+			externalClientSelect.disabled = false;
+		}
+		
+		if (externalClientSelect.value) {
+			clientSelect.value = '';
+			clientSelect.disabled = true;
+		} else {
+			clientSelect.disabled = false;
+		}
+	}
+	
+	clientSelect.addEventListener('change', toggleClientFields);
+	externalClientSelect.addEventListener('change', toggleClientFields);
+	
+	// Inicializar estado
+	toggleClientFields();
+});
+</script>
+{% endblock %}
+

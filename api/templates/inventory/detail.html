@@ -1,0 +1,299 @@
+{% extends 'base.html' %}
+{% block page_title %}Inventário — item{% endblock %}
+{% block content %}
+
+<div class="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4 mb-6">
+	<div>
+		<h1 class="text-2xl font-bold text-primary flex items-center flex-wrap gap-2">
+			<i class="fas fa-box mr-3"></i>
+			{{ item.title or 'Item' }}
+			<span class="badge {% if item.status == 'disponivel' %}badge-success{% elif item.status == 'emprestado' %}badge-warning{% elif item.status == 'vendido' %}badge-info{% else %}badge-secondary{% endif %}">
+				{{ item.status_label() }}
+			</span>
+		</h1>
+		<p class="text-muted mt-1 font-mono text-sm">{{ item.public_uuid }}</p>
+	</div>
+	<div class="flex flex-wrap gap-2">
+		<a href="{{ url_for('inventory.index') }}" class="btn btn-secondary"><i class="fas fa-arrow-left mr-2"></i>Lista</a>
+		<a href="{{ url_for('inventory.label', item_id=item.id) }}" class="btn btn-secondary" target="_blank">
+			<i class="fas fa-print mr-2"></i>Etiqueta / QR
+		</a>
+		<a href="{{ url_for('inventory.edit_item', item_id=item.id) }}" class="btn btn-primary"><i class="fas fa-edit mr-2"></i>Editar</a>
+		<button type="button" class="btn btn-danger" onclick="document.getElementById('deleteModal').classList.add('active')">
+			<i class="fas fa-trash mr-2"></i>Excluir
+		</button>
+	</div>
+</div>
+
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+	<div class="lg:col-span-2 space-y-6">
+		<div class="bg-secondary rounded-lg shadow-lg p-6">
+			<h2 class="text-lg font-semibold text-primary mb-3"><i class="fas fa-align-left mr-2"></i>Descrição</h2>
+			<p class="whitespace-pre-wrap text-muted">{{ item.description }}</p>
+			{% if item.serial_number %}
+			<p class="mt-4 text-sm"><strong class="text-primary">Nº de série:</strong> {{ item.serial_number }}</p>
+			{% endif %}
+			<p class="mt-2 text-sm text-muted">Cadastrado em {{ item.created_at|brasilia_datetime }} — por {{ item.created_by.name if item.created_by else '—' }}</p>
+		</div>
+
+		{% if item.photos %}
+		<div class="bg-secondary rounded-lg shadow-lg p-6">
+			<h2 class="text-lg font-semibold text-primary mb-4"><i class="fas fa-images mr-2"></i>Fotos</h2>
+			<div class="grid grid-cols-2 sm:grid-cols-3 gap-4">
+				{% for p in item.photos %}
+				<div class="relative group border border-border-color rounded-lg overflow-hidden">
+					<a href="{{ url_for('inventory.serve_photo', photo_id=p.id) }}" target="_blank">
+						<img src="{{ url_for('inventory.serve_photo', photo_id=p.id) }}" alt="" class="w-full h-40 object-cover">
+					</a>
+					<form method="POST" action="{{ url_for('inventory.delete_photo', item_id=item.id, photo_id=p.id) }}"
+						class="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity"
+						onsubmit="return confirm('Remover esta foto?');">
+						<button type="submit" class="btn btn-sm btn-danger" title="Remover"><i class="fas fa-times"></i></button>
+					</form>
+				</div>
+				{% endfor %}
+			</div>
+		</div>
+		{% endif %}
+
+		<div class="bg-secondary rounded-lg shadow-lg p-6">
+			<h2 class="text-lg font-semibold text-primary mb-4"><i class="fas fa-history mr-2"></i>Histórico</h2>
+			{% if events %}
+			<ul class="space-y-4">
+				{% for ev in events %}
+				<li class="border-l-2 border-primary pl-4 py-1">
+					<div class="flex flex-wrap items-baseline gap-2">
+						<strong>{{ ev.action_label() }}</strong>
+						<span class="text-sm text-muted">{{ ev.created_at|brasilia_datetime }}</span>
+						<span class="text-sm text-muted">— {{ ev.created_by.name if ev.created_by else '—' }}</span>
+					</div>
+					{% set meta = ev.get_meta_dict() %}
+					{% if meta %}
+					<ul class="mt-2 text-sm text-muted list-disc list-inside">
+						{% for k, v in meta.items() %}
+						<li><strong class="text-primary">
+							{% if k == 'cliente_nome' %}Cliente
+							{% elif k == 'data_emprestimo' %}Data do empréstimo
+							{% elif k == 'data_prevista_devolucao' %}Devolução prevista
+							{% elif k == 'comprador' %}Comprador
+							{% elif k == 'valor' %}Valor (R$)
+							{% elif k == 'data_venda' %}Data da venda
+							{% elif k == 'motivo' %}Motivo
+							{% elif k == 'data_descarte' %}Data descarte
+							{% else %}{{ k }}{% endif %}:</strong> {{ v }}</li>
+						{% endfor %}
+					</ul>
+					{% endif %}
+					{% if ev.note %}
+					<p class="mt-2 text-sm"><em>Obs.: {{ ev.note }}</em></p>
+					{% endif %}
+				</li>
+				{% endfor %}
+			</ul>
+			{% else %}
+			<p class="text-muted">Nenhuma ação registrada ainda.</p>
+			{% endif %}
+		</div>
+	</div>
+
+	<div class="space-y-6">
+		{% if item.status not in ['vendido', 'descartado'] %}
+		<div class="bg-secondary rounded-lg shadow-lg p-6">
+			<h2 class="text-lg font-semibold text-primary mb-4"><i class="fas fa-bolt mr-2"></i>Ações</h2>
+			<p class="text-sm text-muted mb-4">Escolha uma ação para abrir o formulário.</p>
+			<div class="flex flex-col gap-2">
+				{% if item.status == 'disponivel' %}
+				<button type="button" class="btn btn-primary w-full justify-center" onclick="document.getElementById('modalInvEmprestimo').classList.add('active')">
+					<i class="fas fa-handshake mr-2"></i>Empréstimo
+				</button>
+				<button type="button" class="btn btn-primary w-full justify-center" onclick="document.getElementById('modalInvVenda').classList.add('active')">
+					<i class="fas fa-shopping-cart mr-2"></i>Venda
+				</button>
+				<button type="button" class="btn btn-danger w-full justify-center" onclick="document.getElementById('modalInvDescarte').classList.add('active')">
+					<i class="fas fa-trash-alt mr-2"></i>Descarte
+				</button>
+				{% elif item.status == 'emprestado' %}
+				<button type="button" class="btn btn-primary w-full justify-center" onclick="document.getElementById('modalInvDevolucao').classList.add('active')">
+					<i class="fas fa-undo mr-2"></i>Devolução
+				</button>
+				<button type="button" class="btn btn-primary w-full justify-center" onclick="document.getElementById('modalInvVenda').classList.add('active')">
+					<i class="fas fa-shopping-cart mr-2"></i>Venda
+				</button>
+				<button type="button" class="btn btn-danger w-full justify-center" onclick="document.getElementById('modalInvDescarte').classList.add('active')">
+					<i class="fas fa-trash-alt mr-2"></i>Descarte
+				</button>
+				{% endif %}
+			</div>
+		</div>
+		{% else %}
+		<div class="bg-secondary rounded-lg shadow-lg p-6">
+			<p class="text-muted text-sm">Este item está finalizado (vendido ou descartado). Não é possível registrar novas ações.</p>
+		</div>
+		{% endif %}
+
+		<div class="bg-muted/10 rounded-lg p-4 text-sm text-muted">
+			<p class="font-medium text-primary mb-2">Link interno (QR na etiqueta)</p>
+			<code class="break-all text-xs">{{ url_for('inventory.by_code', code=item.public_uuid, _external=true) }}</code>
+		</div>
+	</div>
+</div>
+
+{% if item.status not in ['vendido', 'descartado'] %}
+	{% if item.status == 'disponivel' %}
+	<div id="modalInvEmprestimo" class="modal-overlay inventory-action-modal" onclick="if(event.target===this)this.classList.remove('active')">
+		<div class="modal-container">
+			<div class="modal-content">
+				<div class="modal-header">
+					<h3 class="modal-title"><i class="fas fa-handshake mr-2"></i>Registrar empréstimo</h3>
+					<button type="button" class="modal-close" onclick="document.getElementById('modalInvEmprestimo').classList.remove('active')"><i class="fas fa-times"></i></button>
+				</div>
+				<form method="POST" action="{{ url_for('inventory.post_action', item_id=item.id) }}">
+					<div class="modal-body space-y-4">
+						<input type="hidden" name="action_type" value="emprestimo">
+						<div class="form-group">
+							<label class="form-label">Cliente *</label>
+							<input type="text" name="cliente_nome" class="form-input" required placeholder="Nome do cliente">
+						</div>
+						<div class="form-group">
+							<label class="form-label">Data do empréstimo</label>
+							<input type="date" name="data_emprestimo" class="form-input">
+						</div>
+						<div class="form-group">
+							<label class="form-label">Devolução prevista</label>
+							<input type="date" name="data_prevista_devolucao" class="form-input">
+						</div>
+						<div class="form-group">
+							<label class="form-label">Observações</label>
+							<textarea name="note" class="form-input" rows="2"></textarea>
+						</div>
+					</div>
+					<div class="modal-footer">
+						<button type="button" class="btn btn-secondary" onclick="document.getElementById('modalInvEmprestimo').classList.remove('active')">Cancelar</button>
+						<button type="submit" class="btn btn-primary">Confirmar</button>
+					</div>
+				</form>
+			</div>
+		</div>
+	</div>
+	{% endif %}
+
+	{% if item.status == 'emprestado' %}
+	<div id="modalInvDevolucao" class="modal-overlay inventory-action-modal" onclick="if(event.target===this)this.classList.remove('active')">
+		<div class="modal-container">
+			<div class="modal-content">
+				<div class="modal-header">
+					<h3 class="modal-title"><i class="fas fa-undo mr-2"></i>Registrar devolução</h3>
+					<button type="button" class="modal-close" onclick="document.getElementById('modalInvDevolucao').classList.remove('active')"><i class="fas fa-times"></i></button>
+				</div>
+				<form method="POST" action="{{ url_for('inventory.post_action', item_id=item.id) }}">
+					<div class="modal-body space-y-4">
+						<input type="hidden" name="action_type" value="devolucao">
+						<div class="form-group">
+							<label class="form-label">Observações</label>
+							<textarea name="note" class="form-input" rows="2" placeholder="Opcional"></textarea>
+						</div>
+					</div>
+					<div class="modal-footer">
+						<button type="button" class="btn btn-secondary" onclick="document.getElementById('modalInvDevolucao').classList.remove('active')">Cancelar</button>
+						<button type="submit" class="btn btn-primary">Confirmar devolução</button>
+					</div>
+				</form>
+			</div>
+		</div>
+	</div>
+	{% endif %}
+
+	{% if item.status in ['disponivel', 'emprestado'] %}
+	<div id="modalInvVenda" class="modal-overlay inventory-action-modal" onclick="if(event.target===this)this.classList.remove('active')">
+		<div class="modal-container">
+			<div class="modal-content">
+				<div class="modal-header">
+					<h3 class="modal-title"><i class="fas fa-shopping-cart mr-2"></i>Registrar venda</h3>
+					<button type="button" class="modal-close" onclick="document.getElementById('modalInvVenda').classList.remove('active')"><i class="fas fa-times"></i></button>
+				</div>
+				<form method="POST" action="{{ url_for('inventory.post_action', item_id=item.id) }}">
+					<div class="modal-body space-y-4">
+						<input type="hidden" name="action_type" value="venda">
+						<div class="form-group">
+							<label class="form-label">Comprador *</label>
+							<input type="text" name="comprador" class="form-input" required>
+						</div>
+						<div class="form-group">
+							<label class="form-label">Valor (R$)</label>
+							<input type="text" name="valor" class="form-input" placeholder="0,00">
+						</div>
+						<div class="form-group">
+							<label class="form-label">Data da venda</label>
+							<input type="date" name="data_venda" class="form-input">
+						</div>
+						<div class="form-group">
+							<label class="form-label">Observações</label>
+							<textarea name="note" class="form-input" rows="2"></textarea>
+						</div>
+					</div>
+					<div class="modal-footer">
+						<button type="button" class="btn btn-secondary" onclick="document.getElementById('modalInvVenda').classList.remove('active')">Cancelar</button>
+						<button type="submit" class="btn btn-primary">Confirmar venda</button>
+					</div>
+				</form>
+			</div>
+		</div>
+	</div>
+
+	<div id="modalInvDescarte" class="modal-overlay inventory-action-modal" onclick="if(event.target===this)this.classList.remove('active')">
+		<div class="modal-container">
+			<div class="modal-content">
+				<div class="modal-header">
+					<h3 class="modal-title"><i class="fas fa-trash-alt mr-2"></i>Registrar descarte</h3>
+					<button type="button" class="modal-close" onclick="document.getElementById('modalInvDescarte').classList.remove('active')"><i class="fas fa-times"></i></button>
+				</div>
+				<form method="POST" action="{{ url_for('inventory.post_action', item_id=item.id) }}">
+					<div class="modal-body space-y-4">
+						<input type="hidden" name="action_type" value="descarte">
+						<div class="form-group">
+							<label class="form-label">Motivo *</label>
+							<input type="text" name="motivo" class="form-input" required>
+						</div>
+						<div class="form-group">
+							<label class="form-label">Data</label>
+							<input type="date" name="data_descarte" class="form-input">
+						</div>
+						<div class="form-group">
+							<label class="form-label">Observações</label>
+							<textarea name="note" class="form-input" rows="2"></textarea>
+						</div>
+					</div>
+					<div class="modal-footer">
+						<button type="button" class="btn btn-secondary" onclick="document.getElementById('modalInvDescarte').classList.remove('active')">Cancelar</button>
+						<button type="submit" class="btn btn-danger">Confirmar descarte</button>
+					</div>
+				</form>
+			</div>
+		</div>
+	</div>
+	{% endif %}
+{% endif %}
+
+<div id="deleteModal" class="modal-overlay">
+	<div class="modal-container">
+		<div class="modal-content">
+			<div class="modal-header">
+				<h3 class="modal-title">Excluir item</h3>
+				<button type="button" class="modal-close" onclick="document.getElementById('deleteModal').classList.remove('active')">
+					<i class="fas fa-times"></i>
+				</button>
+			</div>
+			<div class="modal-body">
+				<p>Tem certeza que deseja excluir este item e todo o histórico? As fotos serão removidas do servidor.</p>
+			</div>
+			<div class="modal-footer">
+				<button type="button" class="btn btn-secondary" onclick="document.getElementById('deleteModal').classList.remove('active')">Cancelar</button>
+				<form method="POST" action="{{ url_for('inventory.delete_item', item_id=item.id) }}" style="display:inline;">
+					<button type="submit" class="btn btn-danger">Excluir</button>
+				</form>
+			</div>
+		</div>
+	</div>
+</div>
+
+{% endblock %}

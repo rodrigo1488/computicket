@@ -1,0 +1,306 @@
+<!-- Tabela Desktop -->
+<div class="table-container desktop-only">
+	<table class="table">
+		<thead>
+			<tr>
+				<th>#</th>
+				<th>Título</th>
+				<th>Cliente</th>
+				<th>Serviço</th>
+				<th>Status</th>
+				<th>Horas</th>
+				<th>Valor</th>
+				<th>Ações</th>
+			</tr>
+		</thead>
+		<tbody>
+			{% for t in tickets %}
+			<tr>
+				<td>{{ t.id }}</td>
+				<td>
+					<div class="ticket-title">
+						<a href="{{ url_for('tickets.view_ticket', ticket_id=t.id) }}" class="text-primary hover:underline">
+							{{ t.title }}
+						</a>
+					</div>
+				</td>
+				<td>
+					<div class="client-info">
+						<div class="font-medium">{{ t.external_client_name or 'Cliente não informado' }}</div>
+						{% if t.solicitante %}
+						<div class="text-sm text-primary font-medium">Solicitante: {{ t.solicitante }}</div>
+						{% endif %}
+						{% if t.external_client_phone %}
+						<div class="text-sm text-muted">{{ t.external_client_phone }}</div>
+						{% endif %}
+					</div>
+				</td>
+				<td>
+					<div class="service-info">
+						{% if t.service %}
+						<div class="font-medium">{{ t.service.name }}</div>
+						<div class="text-sm text-muted">R$ {{ '%.2f'|format(t.service.hourly_rate or 0) }}/h</div>
+						{% else %}
+						<span class="text-muted">—</span>
+						{% endif %}
+					</div>
+				</td>
+				<td>
+					<span class="status-badge status-{{ t.status }}">
+						{% if t.status == 'aberto' %}
+						<i class="fas fa-clock"></i> Aberto
+						{% elif t.status == 'em_andamento' %}
+						<i class="fas fa-play"></i> Em andamento
+						{% elif t.status == 'fechado' %}
+						<i class="fas fa-check"></i> Fechado
+						{% elif t.status == 'cancelado' %}
+						<i class="fas fa-ban"></i> Cancelado
+						{% endif %}
+					</span>
+				</td>
+				<td>
+					<div class="hours-info">
+						<div class="font-medium">{{ t.formatted_total_hours() }}</div>
+						{% if t.time_entries %}
+						<div class="text-sm text-muted">{{ t.time_entries|length }} apontamento(s)</div>
+						{% endif %}
+					</div>
+				</td>
+				<td>
+					<div class="value-info">
+						{% if t.service and t.service.hourly_rate %}
+						<div class="font-medium">R$ {{ '%.2f'|format(t.total_hours * t.service.hourly_rate) }}</div>
+						<div class="text-sm text-muted">{{ t.formatted_total_hours() }} × R$ {{ '%.2f'|format(t.service.hourly_rate) }}</div>
+						{% else %}
+						<span class="text-muted">—</span>
+						{% endif %}
+					</div>
+				</td>
+				<td>
+					<div class="ticket-actions">
+						<a href="{{ url_for('tickets.view_ticket', ticket_id=t.id) }}" class="btn btn-sm btn-primary" title="Ver detalhes">
+							<i class="fas fa-eye"></i>
+						</a>
+						
+						{% if t.status != 'fechado' and t.status != 'cancelado' %}
+							{% if t.assigned_to_id == current_user.id %}
+								{# Usuário atribuído - pode iniciar, encerrar e fechar #}
+								{% if t.status == 'aberto' %}
+								<button class="btn btn-sm btn-success" data-open-start="{{ t.id }}" title="Iniciar sessão">
+									<i class="fas fa-play"></i>
+								</button>
+								{% elif t.status == 'em_andamento' %}
+								<button class="btn btn-sm btn-warning" data-open-stop="{{ t.id }}" title="Encerrar sessão">
+									<i class="fas fa-stop"></i>
+								</button>
+								{% endif %}
+								
+								<button class="btn btn-sm btn-info" data-open-close="{{ t.id }}" title="Fechar ticket">
+									<i class="fas fa-check"></i>
+								</button>
+							{% else %}
+								{# Outro usuário - pode assumir o ticket #}
+								<form class="inline" method="post" action="{{ url_for('tickets.assume_ticket', ticket_id=t.id) }}">
+									<button class="btn btn-sm btn-accent" title="Assumir ticket" onclick="return confirm('Deseja assumir este ticket?')">
+										<i class="fas fa-hand-paper"></i>
+									</button>
+								</form>
+							{% endif %}
+						{% endif %}
+						
+						<button class="btn btn-sm btn-secondary" data-ticket-id="{{ t.id }}" title="Imprimir PS">
+							<i class="fas fa-print"></i>
+						</button>
+					</div>
+				</td>
+			</tr>
+			{% endfor %}
+		</tbody>
+	</table>
+</div>
+
+<!-- Cards Mobile -->
+<div class="lg:hidden space-y-4">
+	{% for t in tickets %}
+	<div class="ticket-card">
+		<div class="ticket-header">
+			<div class="ticket-id">#{{ t.id }}</div>
+			<span class="status-badge status-{{ t.status }}">
+				{% if t.status == 'aberto' %}
+				<i class="fas fa-clock"></i> Aberto
+				{% elif t.status == 'em_andamento' %}
+				<i class="fas fa-play"></i> Em andamento
+				{% elif t.status == 'fechado' %}
+				<i class="fas fa-check"></i> Fechado
+				{% elif t.status == 'cancelado' %}
+				<i class="fas fa-ban"></i> Cancelado
+				{% endif %}
+			</span>
+		</div>
+		
+		<div class="ticket-content">
+			<h3 class="ticket-title">
+				<a href="{{ url_for('tickets.view_ticket', ticket_id=t.id) }}" class="text-primary hover:underline">
+					{{ t.title }}
+				</a>
+			</h3>
+			
+			<div class="ticket-details">
+				<div class="detail-row">
+					<span class="detail-label">Cliente:</span>
+					<span class="detail-value">{{ t.external_client_name or 'Cliente não informado' }}</span>
+				</div>
+				
+				{% if t.solicitante %}
+				<div class="detail-row">
+					<span class="detail-label">Solicitante:</span>
+					<span class="detail-value">{{ t.solicitante }}</span>
+				</div>
+				{% endif %}
+				
+				{% if t.external_client_phone %}
+				<div class="detail-row">
+					<span class="detail-label">Telefone:</span>
+					<span class="detail-value">{{ t.external_client_phone }}</span>
+				</div>
+				{% endif %}
+				
+				<div class="detail-row">
+					<span class="detail-label">Serviço:</span>
+					<span class="detail-value">
+						{% if t.service %}
+						{{ t.service.name }} - R$ {{ '%.2f'|format(t.service.hourly_rate or 0) }}/h
+						{% else %}
+						—
+						{% endif %}
+					</span>
+				</div>
+				
+				<div class="detail-row">
+					<span class="detail-label">Horas:</span>
+					<span class="detail-value">
+						{{ t.formatted_total_hours() }}
+						{% if t.time_entries %}
+						({{ t.time_entries|length }} apontamento(s))
+						{% endif %}
+					</span>
+				</div>
+				
+				{% if t.service and t.service.hourly_rate %}
+				<div class="detail-row">
+					<span class="detail-label">Valor:</span>
+					<span class="detail-value">R$ {{ '%.2f'|format(t.total_hours * t.service.hourly_rate) }}</span>
+				</div>
+				{% endif %}
+			</div>
+		</div>
+		
+		<div class="ticket-actions">
+			<a href="{{ url_for('tickets.view_ticket', ticket_id=t.id) }}" class="btn btn-sm btn-primary">
+				<i class="fas fa-eye"></i>
+				Ver
+			</a>
+			
+			{% if t.status != 'fechado' and t.status != 'cancelado' %}
+			{% if t.status == 'aberto' %}
+			<button class="btn btn-sm btn-success" data-open-start-mobile="{{ t.id }}">
+				<i class="fas fa-play"></i>
+				Iniciar
+			</button>
+			{% elif t.status == 'em_andamento' and t.assigned_to_id == current_user.id %}
+			<button class="btn btn-sm btn-warning" data-open-stop-mobile="{{ t.id }}">
+				<i class="fas fa-stop"></i>
+				Encerrar
+			</button>
+			{% endif %}
+			
+			<button class="btn btn-sm btn-info" data-open-close-mobile="{{ t.id }}">
+				<i class="fas fa-check"></i>
+				Fechar
+			</button>
+			{% endif %}
+			
+			<button class="btn btn-sm btn-secondary" data-ticket-id="{{ t.id }}">
+				<i class="fas fa-print"></i>
+				PS
+			</button>
+		</div>
+	</div>
+	{% endfor %}
+</div>
+
+<!-- Controles de Paginação para AJAX -->
+{% if has_pagination and total_pages > 1 %}
+<div class="pagination-container">
+	<div class="pagination-info">
+		<span class="text-sm text-muted">
+			Página {{ current_page }} de {{ total_pages }}
+			{% if pagination %}
+			({{ pagination.total }} tickets no total)
+			{% endif %}
+		</span>
+	</div>
+	
+	<div class="pagination-controls">
+		{% if current_page > 1 %}
+		<button class="btn btn-sm btn-secondary pagination-btn" onclick="navigateToPage(1)" title="Primeira página">
+			<i class="fas fa-angle-double-left"></i>
+		</button>
+		<button class="btn btn-sm btn-secondary pagination-btn" onclick="navigateToPage({{ current_page - 1 }})" title="Página anterior">
+			<i class="fas fa-angle-left"></i>
+		</button>
+		{% else %}
+		<span class="btn btn-sm btn-secondary pagination-btn disabled">
+			<i class="fas fa-angle-double-left"></i>
+		</span>
+		<span class="btn btn-sm btn-secondary pagination-btn disabled">
+			<i class="fas fa-angle-left"></i>
+		</span>
+		{% endif %}
+		
+		<!-- Números das páginas -->
+		<div class="pagination-numbers">
+			{% set start_page = [1, current_page - 2]|max %}
+			{% set end_page = [total_pages, current_page + 2]|min %}
+			
+			{% if start_page > 1 %}
+			<button class="btn btn-sm btn-secondary pagination-number" onclick="navigateToPage(1)">1</button>
+			{% if start_page > 2 %}
+			<span class="pagination-ellipsis">...</span>
+			{% endif %}
+			{% endif %}
+			
+			{% for page_num in range(start_page, end_page + 1) %}
+			{% if page_num == current_page %}
+			<span class="btn btn-sm btn-primary pagination-number active">{{ page_num }}</span>
+			{% else %}
+			<button class="btn btn-sm btn-secondary pagination-number" onclick="navigateToPage({{ page_num }})">{{ page_num }}</button>
+			{% endif %}
+			{% endfor %}
+			
+			{% if end_page < total_pages %}
+			{% if end_page < total_pages - 1 %}
+			<span class="pagination-ellipsis">...</span>
+			{% endif %}
+			<button class="btn btn-sm btn-secondary pagination-number" onclick="navigateToPage({{ total_pages }})">{{ total_pages }}</button>
+			{% endif %}
+		</div>
+		
+		{% if current_page < total_pages %}
+		<button class="btn btn-sm btn-secondary pagination-btn" onclick="navigateToPage({{ current_page + 1 }})" title="Próxima página">
+			<i class="fas fa-angle-right"></i>
+		</button>
+		<button class="btn btn-sm btn-secondary pagination-btn" onclick="navigateToPage({{ total_pages }})" title="Última página">
+			<i class="fas fa-angle-double-right"></i>
+		</button>
+		{% else %}
+		<span class="btn btn-sm btn-secondary pagination-btn disabled">
+			<i class="fas fa-angle-right"></i>
+		</span>
+		<span class="btn btn-sm btn-secondary pagination-btn disabled">
+			<i class="fas fa-angle-double-right"></i>
+		</span>
+		{% endif %}
+	</div>
+</div>
+{% endif %}

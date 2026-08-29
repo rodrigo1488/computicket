@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>Etiqueta — {{ item.public_uuid }}</title>
+	<style>
+		body { font-family: system-ui, sans-serif; margin: 0; padding: 24px; background: #fff; color: #111; }
+		.wrap { max-width: 320px; margin: 0 auto; text-align: center; }
+		h1 { font-size: 14px; font-weight: 600; margin: 0 0 8px; }
+		.uuid { font-size: 11px; word-break: break-all; font-family: ui-monospace, monospace; color: #333; margin-bottom: 16px; }
+		#qrcode { display: inline-block; margin-bottom: 16px; }
+		.meta { font-size: 12px; color: #555; margin-top: 8px; }
+		.actions { margin-top: 24px; }
+		button { padding: 8px 16px; cursor: pointer; font-size: 14px; }
+		@media print {
+			.actions { display: none; }
+			body { padding: 12px; }
+		}
+	</style>
+</head>
+<body>
+	<div class="wrap">
+		<h1>{{ item.title or 'Inventário' }}</h1>
+		{% if item.serial_number %}
+		<p class="meta">S/N: {{ item.serial_number }}</p>
+		{% endif %}
+		<div class="uuid">{{ item.public_uuid }}</div>
+		<div id="qrcode"></div>
+		<p class="meta">Escaneie para abrir o cadastro (usuário logado)</p>
+		<div class="actions">
+			<button type="button" onclick="window.print()">Imprimir</button>
+		</div>
+	</div>
+	<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js" crossorigin="anonymous"></script>
+	<script>
+		new QRCode(document.getElementById("qrcode"), {
+			text: {{ lookup_url | tojson }},
+			width: 180,
+			height: 180,
+			colorDark: "#000000",
+			colorLight: "#ffffff",
+			correctLevel: QRCode.CorrectLevel.M
+		});
+	</script>
+</body>
+</html>

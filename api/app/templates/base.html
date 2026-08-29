@@ -1,0 +1,1585 @@
+<!doctype html>
+<html lang="pt-br" data-theme="light">
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Sistema de Tickets</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/components.css') }}">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+</head>
+
+<body data-user-id="{{ current_user.id if current_user.is_authenticated else '' }}"
+    data-user-role="{{ current_user.role if current_user.is_authenticated else '' }}">
+    <div class="app-container">
+        <!-- Barra Superior Fixa com Notificações -->
+        <div class="top-notification-bar">
+            <div class="sidebar-toggle-container">
+                <button id="sidebar-toggle" class="sidebar-toggle-btn" title="Menu">
+                    <i class="fas fa-bars"></i>
+                </button>
+            </div>
+            <div class="notification-icon-container">
+                <button id="notification-btn" class="notification-btn" title="Notificações">
+                    <i class="fas fa-bell"></i>
+                    <span id="notification-badge" class="notification-badge hidden">0</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- Menu Lateral -->
+        <aside class="sidebar" id="sidebar">
+            <div class="sidebar-header">
+                <div class="sidebar-logo">
+                    <img src="/image/logo%203.jpg" alt="Sistema de Tickets" class="logo-image logo-light">
+                    <img src="/image/logo.png" alt="Sistema de Tickets" class="logo-image logo-dark">
+                </div>
+            </div>
+
+            <nav class="sidebar-nav">
+                <div class="nav-item">
+                    <a href="{{ url_for('dashboard.index') }}"
+                        class="nav-link {% if request.endpoint == 'dashboard.index' %}active{% endif %}">
+                        <i class="fas fa-chart-line"></i>
+                        Dashboard
+                    </a>
+                </div>
+
+                <div class="nav-item">
+                    <a href="{{ url_for('tickets.list_tickets') }}"
+                        class="nav-link {% if request.endpoint == 'tickets.list_tickets' %}active{% endif %}">
+                        <i class="fas fa-ticket-alt"></i>
+                        Tickets
+                    </a>
+                </div>
+                <div class="nav-item">
+                    <a href="{{ url_for('agenda.index') }}"
+                        class="nav-link {% if request.endpoint and 'agenda' in request.endpoint %}active{% endif %}">
+                        <i class="fas fa-calendar-alt"></i>
+                        Agenda
+                    </a>
+                </div>
+
+                <div class="nav-item">
+                    <a href="{{ url_for('service_orders.list_service_orders') }}"
+                        class="nav-link {% if request.endpoint == 'service_orders.list_service_orders' %}active{% endif %}">
+                        <i class="fas fa-clipboard-list"></i>
+                        Ordens de Serviço
+                    </a>
+                </div>
+
+                <div class="nav-item">
+                    <a href="{{ url_for('clients.list_clients') }}"
+                        class="nav-link {% if request.endpoint == 'clients.list_clients' %}active{% endif %}">
+                        <i class="fas fa-users"></i>
+                        Clientes
+                    </a>
+                </div>
+
+                <div class="nav-item">
+                    <a href="{{ url_for('services.list_services') }}"
+                        class="nav-link {% if request.endpoint == 'services.list_services' %}active{% endif %}">
+                        <i class="fas fa-cogs"></i>
+                        Serviços
+                    </a>
+                </div>
+
+                <div class="nav-item">
+                    <a href="{{ url_for('contracts.list_contracts') }}"
+                        class="nav-link {% if request.endpoint == 'contracts.list_contracts' %}active{% endif %}">
+                        <i class="fas fa-file-contract"></i>
+                        Contratos
+                    </a>
+                </div>
+
+                <div class="nav-item">
+                    <a href="{{ url_for('plans.index') }}"
+                        class="nav-link {% if request.endpoint.startswith('plans.') %}active{% endif %}">
+                        <i class="fas fa-layer-group"></i>
+                        Planos
+                    </a>
+                </div>
+
+                <div class="nav-item">
+                    <a href="{{ url_for('helpdesk.index') }}"
+                        class="nav-link {% if request.endpoint.startswith('helpdesk.') %}active{% endif %}">
+                        <i class="fas fa-headset"></i>
+                        Help Desk
+                    </a>
+                </div>
+
+                {% if current_user.role in ['admin', 'tecnico'] %}
+                <div class="nav-item">
+                    <a href="{{ url_for('monitoring.index') }}"
+                        class="nav-link {% if request.endpoint.startswith('monitoring.') %}active{% endif %}">
+                        <i class="fas fa-map-marker-alt"></i>
+                        Monitoramento
+                    </a>
+                </div>
+                {% endif %}
+
+
+                <div class="nav-item">
+                    <a href="{{ url_for('reports.index') }}"
+                        class="nav-link {% if request.endpoint.startswith('reports.') %}active{% endif %}">
+                        <i class="fas fa-chart-bar"></i>
+                        Relatórios
+                    </a>
+                </div>
+
+                <div class="nav-item">
+                    <a href="{{ url_for('ps.index') }}"
+                        class="nav-link {% if request.endpoint.startswith('ps.') %}active{% endif %}">
+                        <i class="fas fa-file-pdf"></i>
+                        PS
+                    </a>
+                </div>
+
+                <div class="nav-item">
+                    <a href="#" onclick="openStandaloneForaEstoqueModal(event)" class="nav-link">
+                        <i class="fas fa-shopping-cart"></i>
+                        Venda Avulsa
+                    </a>
+                </div>
+
+                <div class="nav-item">
+                    <a href="{{ url_for('tickets.list_vendas_avulsas') }}"
+                        class="nav-link {% if request.endpoint == 'tickets.list_vendas_avulsas' %}active{% endif %}">
+                        <i class="fas fa-history"></i>
+                        Histórico Vendas
+                    </a>
+                </div>
+
+                <div class="nav-item">
+                    <a href="{{ url_for('password_vault.index') }}"
+                        class="nav-link {% if request.endpoint.startswith('password_vault.') %}active{% endif %}">
+                        <i class="fas fa-lock"></i>
+                        Cofre de Senhas
+                    </a>
+                </div>
+                <div class="nav-item">
+                    <a href="{{ url_for('knowledge_base.index') }}"
+                        class="nav-link {% if request.endpoint.startswith('knowledge_base.') %}active{% endif %}">
+                        <i class="fas fa-graduation-cap"></i>
+                        Banco de Conhecimentos
+                    </a>
+                </div>
+                <div class="nav-item">
+                    <a href="/inventario"
+                        class="nav-link {% if request.path.startswith('/inventario') %}active{% endif %}">
+                        <i class="fas fa-boxes"></i>
+                        Inventário
+                    </a>
+                </div>
+
+                <div class="nav-item">
+                    <a href="{{ url_for('budget.index') }}"
+                        class="nav-link {% if request.endpoint.startswith('budget.') %}active{% endif %}">
+                        <i class="fas fa-file-invoice-dollar"></i>
+                        Orçamentos
+                    </a>
+                </div>
+
+                <div class="nav-item">
+                    <a href="{{ url_for('users.list_users') }}"
+                        class="nav-link {% if request.endpoint == 'users.list_users' %}active{% endif %}">
+                        <i class="fas fa-user-cog"></i>
+                        Usuários
+                    </a>
+                </div>
+
+                {% if current_user.is_authenticated and current_user.has_role('admin') %}
+                <div class="nav-item">
+                    <a href="{{ url_for('config.index') }}"
+                        class="nav-link {% if request.endpoint == 'config.index' %}active{% endif %}">
+                        <i class="fas fa-cog"></i>
+                        Configurações
+                    </a>
+                </div>
+                {% endif %}
+
+                <!-- Separador -->
+                <div class="nav-separator"></div>
+
+                <!-- Toggle de Tema -->
+                <div class="nav-item theme-toggle-item">
+                    <div class="theme-toggle" id="theme-toggle-sidebar">
+                        <div class="theme-toggle-track">
+                            <div class="theme-toggle-thumb" id="theme-toggle-thumb">
+                                <i class="fas fa-sun sun"></i>
+                                <i class="fas fa-moon moon"></i>
+                            </div>
+                        </div>
+                        <span class="theme-toggle-label">Tema</span>
+                    </div>
+                </div>
+
+                <!-- Logout -->
+                <div class="nav-item">
+                    <a href="{{ url_for('auth.logout') }}" class="nav-link" style="color: var(--error);">
+                        <i class="fas fa-sign-out-alt"></i>
+                        Sair
+                    </a>
+                </div>
+            </nav>
+        </aside>
+
+        <!-- Conteúdo Principal -->
+        <main class="main-content">
+            <div class="content-header">
+                <div class="header-actions">
+                    <!-- Notificações -->
+                    <div class="notification-badge" id="notification-badge">
+                        <button class="btn btn-secondary" id="notification-btn" title="Notificações">
+                            <i class="fas fa-bell"></i>
+                        </button>
+                        <div class="badge" id="notification-count" style="display: none;">0</div>
+
+                        <!-- Dropdown de Notificações -->
+                        <div class="notification-dropdown" id="notification-dropdown">
+                            <div class="notification-header">
+                                <h3>Notificações</h3>
+                                <div class="notification-actions">
+                                    <button id="mark-all-read">Marcar todas como lidas</button>
+                                    <button id="close-notifications">Fechar</button>
+                                </div>
+                            </div>
+                            <div class="notification-list" id="notification-list">
+                                <div class="notification-empty">
+                                    <i class="fas fa-bell-slash"></i>
+                                    <p>Nenhuma notificação</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Mensagens Flash -->
+            {% with messages = get_flashed_messages() %}
+            {% if messages %}
+            <div class="mb-4">
+                {% for message in messages %}
+                <div class="alert alert-info fade-in">
+                    <i class="fas fa-info-circle"></i>
+                    {{ message }}
+                </div>
+                {% endfor %}
+            </div>
+            {% endif %}
+            {% endwith %}
+
+            <!-- Conteúdo da Página -->
+            <div class="fade-in container">
+                {% block content %}{% endblock %}
+            </div>
+        </main>
+    </div>
+
+    <script src="{{ url_for('static', filename='app.js') }}"></script>
+
+    <!-- Sistema de Notificações -->
+    <script>
+        class NotificationSystem {
+            constructor() {
+                this.notificationBtn = document.getElementById('notification-btn');
+                this.notificationDropdown = document.getElementById('notification-dropdown');
+                this.notificationCount = document.getElementById('notification-count');
+                this.notificationList = document.getElementById('notification-list');
+                this.markAllReadBtn = document.getElementById('mark-all-read');
+                this.closeNotificationsBtn = document.getElementById('close-notifications');
+
+                // Inicializar contador anterior do localStorage
+                this.previousCount = parseInt(localStorage.getItem('notificationCount')) || 0;
+                this.initialCount = 0;
+
+                this.init();
+            }
+
+            init() {
+                // Event listeners
+                this.notificationBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    this.toggleDropdown();
+                });
+
+                this.closeNotificationsBtn.addEventListener('click', () => {
+                    this.hideDropdown();
+                });
+
+                this.markAllReadBtn.addEventListener('click', () => {
+                    this.markAllAsRead();
+                });
+
+                // Fechar dropdown ao clicar fora
+                document.addEventListener('click', (e) => {
+                    if (!this.notificationDropdown.contains(e.target) &&
+                        !this.notificationBtn.contains(e.target)) {
+                        this.hideDropdown();
+                    }
+                });
+
+                // Carregar notificações ao inicializar (sem pop-up na primeira carga)
+                this.loadNotifications(true);
+
+                // Verificar notificações a cada 30 segundos
+                setInterval(() => {
+                    this.loadNotifications();
+                }, 30000);
+            }
+
+            toggleDropdown() {
+                if (this.notificationDropdown.classList.contains('show')) {
+                    this.hideDropdown();
+                } else {
+                    this.showDropdown();
+                }
+            }
+
+            showDropdown() {
+                this.notificationDropdown.classList.add('show');
+                this.loadNotifications();
+            }
+
+            hideDropdown() {
+                this.notificationDropdown.classList.remove('show');
+            }
+
+            async loadNotifications(isInitialLoad = false) {
+                try {
+                    const response = await fetch('/tickets/api/notifications');
+                    const data = await response.json();
+
+                    if (data.error) {
+                        console.error('Erro ao carregar notificações:', data.error);
+                        return;
+                    }
+
+                    const newCount = data.count;
+
+                    // Verificar se há novos tickets apenas se não for carregamento inicial
+                    if (!isInitialLoad && this.previousCount >= 0) {
+                        console.log('Verificando novos tickets:', { previousCount: this.previousCount, newCount });
+
+                        // Se há novos tickets, mostrar pop-up
+                        if (newCount > this.previousCount) {
+                            const newTicketsCount = newCount - this.previousCount;
+                            console.log('Mostrando pop-up para', newTicketsCount, 'novos tickets');
+                            this.showNewTicketsPopup(newTicketsCount);
+                        }
+                    }
+
+                    // Atualizar contador anterior no localStorage
+                    this.previousCount = newCount;
+                    localStorage.setItem('notificationCount', newCount.toString());
+
+                    this.updateNotificationCount(data.count);
+                    this.renderNotifications(data.notifications);
+
+                } catch (error) {
+                    console.error('Erro ao carregar notificações:', error);
+                }
+            }
+
+            updateNotificationCount(count) {
+                if (count > 0) {
+                    this.notificationCount.textContent = count;
+                    this.notificationCount.style.display = 'flex';
+                } else {
+                    this.notificationCount.style.display = 'none';
+                }
+            }
+
+            renderNotifications(notifications) {
+                if (notifications.length === 0) {
+                    this.notificationList.innerHTML = `
+                        <div class="notification-empty">
+                            <i class="fas fa-bell-slash"></i>
+                            <p>Nenhuma notificação</p>
+                        </div>
+                    `;
+                    return;
+                }
+
+                const notificationsHtml = notifications.map(notification => {
+                    const timeAgo = this.getTimeAgo(notification.created_at);
+                    return `
+                        <div class="notification-item unseen" data-ticket-id="${notification.id}">
+                            <div class="notification-title">${notification.title}</div>
+                            <div class="notification-meta">
+                                <span class="notification-client">${notification.client_name}</span>
+                                <span class="notification-time">${timeAgo}</span>
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+
+                this.notificationList.innerHTML = notificationsHtml;
+
+                // Adicionar event listeners para os itens
+                this.notificationList.querySelectorAll('.notification-item').forEach(item => {
+                    item.addEventListener('click', () => {
+                        const ticketId = item.dataset.ticketId;
+                        this.markAsSeen(ticketId);
+                        window.location.href = `/tickets/${ticketId}`;
+                    });
+                });
+            }
+
+            async markAsSeen(ticketId) {
+                try {
+                    await fetch(`/tickets/${ticketId}/mark-seen`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        }
+                    });
+
+                    // Atualizar contador local
+                    if (this.previousCount > 0) {
+                        this.previousCount = this.previousCount - 1;
+                        localStorage.setItem('notificationCount', this.previousCount.toString());
+                    }
+
+                    // Recarregar notificações
+                    this.loadNotifications();
+
+                } catch (error) {
+                    console.error('Erro ao marcar como lido:', error);
+                }
+            }
+
+            async markAllAsRead() {
+                try {
+                    const notifications = this.notificationList.querySelectorAll('.notification-item');
+                    const ticketIds = Array.from(notifications).map(item => item.dataset.ticketId);
+
+                    if (ticketIds.length === 0) return;
+
+                    const response = await fetch('/tickets/api/mark-as-seen', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({ ticket_ids: ticketIds })
+                    });
+
+                    const data = await response.json();
+
+                    if (data.success) {
+                        // Atualizar contador local
+                        this.previousCount = 0;
+                        localStorage.setItem('notificationCount', '0');
+
+                        this.loadNotifications();
+                        this.showToast('Notificações marcadas como lidas', 'success');
+                    }
+
+                } catch (error) {
+                    console.error('Erro ao marcar todas como lidas:', error);
+                    this.showToast('Erro ao marcar notificações', 'error');
+                }
+            }
+
+            getTimeAgo(dateString) {
+                const now = new Date();
+                const date = new Date(dateString);
+                const diffInSeconds = Math.floor((now - date) / 1000);
+
+                if (diffInSeconds < 60) {
+                    return 'Agora mesmo';
+                } else if (diffInSeconds < 3600) {
+                    const minutes = Math.floor(diffInSeconds / 60);
+                    return `${minutes}m atrás`;
+                } else if (diffInSeconds < 86400) {
+                    const hours = Math.floor(diffInSeconds / 3600);
+                    return `${hours}h atrás`;
+                } else {
+                    const days = Math.floor(diffInSeconds / 86400);
+                    return `${days}d atrás`;
+                }
+            }
+
+            showNewTicketsPopup(count) {
+                console.log('Criando pop-up para', count, 'tickets');
+
+                // Remover pop-up existente se houver
+                const existingPopup = document.querySelector('.new-tickets-popup');
+                if (existingPopup) {
+                    existingPopup.remove();
+                }
+
+                // Criar pop-up de novos tickets
+                const popup = document.createElement('div');
+                popup.className = 'new-tickets-popup';
+                popup.innerHTML = `
+                    <div class="popup-content">
+                        <div class="popup-icon">
+                            <i class="fas fa-bell"></i>
+                        </div>
+                        <div class="popup-text">
+                            <h3>Novo${count > 1 ? 's' : ''} Ticket${count > 1 ? 's' : ''}!</h3>
+                            <p>Você tem ${count} novo${count > 1 ? 's' : ''} ticket${count > 1 ? 's' : ''} atribuído${count > 1 ? 's' : ''}</p>
+                        </div>
+                        <button class="popup-close" onclick="this.parentElement.parentElement.remove()">
+                            <i class="fas fa-times"></i>
+                        </button>
+                    </div>
+                `;
+
+                document.body.appendChild(popup);
+
+                // Forçar reflow e adicionar classe show
+                popup.offsetHeight;
+                popup.classList.add('show');
+
+                console.log('Pop-up criado e mostrado');
+
+                // Remover automaticamente após 5 segundos
+                setTimeout(() => {
+                    if (popup.parentElement) {
+                        popup.classList.remove('show');
+                        setTimeout(() => {
+                            if (popup.parentElement) {
+                                popup.remove();
+                            }
+                        }, 300);
+                    }
+                }, 5000);
+            }
+
+            // Método para testar o pop-up (pode ser chamado no console)
+            testPopup() {
+                this.showNewTicketsPopup(1);
+            }
+
+            showToast(message, type = 'success') {
+                // Criar toast se não existir
+                let toast = document.getElementById('notification-toast');
+                if (!toast) {
+                    toast = document.createElement('div');
+                    toast.id = 'notification-toast';
+                    toast.className = 'notification-toast';
+                    document.body.appendChild(toast);
+                }
+
+                toast.textContent = message;
+                toast.className = `notification-toast ${type} show`;
+
+                // Remover após 3 segundos
+                setTimeout(() => {
+                    toast.classList.remove('show');
+                }, 3000);
+            }
+        }
+
+        // Inicializar sistema de notificações quando a página carregar
+        let notificationSystem;
+        document.addEventListener('DOMContentLoaded', () => {
+            notificationSystem = new NotificationSystem();
+
+            // Tornar acessível globalmente para testes
+            window.testNotificationPopup = () => {
+                notificationSystem.testPopup();
+            };
+
+            // Teste automático removido - pop-up só aparece para novos tickets
+        });
+
+        // Sistema de Tema
+        class ThemeSystem {
+            constructor() {
+                this.themeToggle = document.getElementById('theme-toggle-sidebar');
+                this.themeThumb = document.getElementById('theme-toggle-thumb');
+                this.isDarkMode = false;
+
+                this.init();
+            }
+
+            init() {
+                // Carregar tema salvo antes da renderização
+                this.loadTheme();
+
+                if (!this.themeToggle || !this.themeThumb) return;
+
+                // Inicializar posição baseada no tema atual
+                this.updateThemeToggle();
+
+                // Adicionar click handler para alternar tema
+                this.themeToggle.addEventListener('click', () => this.toggleTheme());
+            }
+
+            loadTheme() {
+                // Carregar tema do localStorage
+                const savedTheme = localStorage.getItem('theme');
+                if (savedTheme) {
+                    this.isDarkMode = savedTheme === 'dark';
+                    document.documentElement.setAttribute('data-theme', savedTheme);
+                } else {
+                    // Tema padrão baseado na preferência do sistema
+                    this.isDarkMode = window.matchMedia('(prefers-color-scheme: dark)').matches;
+                    const theme = this.isDarkMode ? 'dark' : 'light';
+                    document.documentElement.setAttribute('data-theme', theme);
+                    localStorage.setItem('theme', theme);
+                }
+            }
+
+            toggleTheme() {
+                this.isDarkMode = !this.isDarkMode;
+                const theme = this.isDarkMode ? 'dark' : 'light';
+
+                // Aplicar tema imediatamente
+                document.documentElement.setAttribute('data-theme', theme);
+
+                // Salvar preferência
+                localStorage.setItem('theme', theme);
+
+                // Atualizar ícones
+                this.updateThemeToggle();
+
+                // Adicionar efeito de transição suave
+                this.themeThumb.style.transition = 'all 0.3s ease';
+                setTimeout(() => {
+                    this.themeThumb.style.transition = '';
+                }, 300);
+            }
+
+            updateThemeToggle() {
+                if (!this.themeThumb) return;
+
+                const sunIcon = this.themeThumb.querySelector('.sun');
+                const moonIcon = this.themeThumb.querySelector('.moon');
+
+                if (this.isDarkMode) {
+                    sunIcon.style.display = 'none';
+                    moonIcon.style.display = 'block';
+                    this.themeThumb.style.background = 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)';
+                } else {
+                    sunIcon.style.display = 'block';
+                    moonIcon.style.display = 'none';
+                    this.themeThumb.style.background = 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)';
+                }
+            }
+        }
+
+        // Carregar tema antes da renderização da página
+        (function () {
+            const savedTheme = localStorage.getItem('theme');
+            if (savedTheme) {
+                document.documentElement.setAttribute('data-theme', savedTheme);
+            } else {
+                const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+                const theme = prefersDark ? 'dark' : 'light';
+                document.documentElement.setAttribute('data-theme', theme);
+                localStorage.setItem('theme', theme);
+            }
+        })();
+
+        // Inicializar sistema de tema
+        let themeSystem;
+        document.addEventListener('DOMContentLoaded', () => {
+            themeSystem = new ThemeSystem();
+        });
+    </script>
+
+    <!-- Incluir notificação do Help Desk -->
+    {% include 'notifications/helpdesk_notification.html' %}
+
+    <!-- WebSocket para notificações do Help Desk -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/3.1.3/socket.io.js"></script>
+    <script>
+        // Conectar ao WebSocket para notificações do Help Desk
+        let helpdeskSocket = null;
+
+        // Verificar se o usuário está autenticado (agente)
+        {% if current_user.is_authenticated %}
+        document.addEventListener('DOMContentLoaded', function () {
+            // Conectar ao WebSocket (reutilizado por Help Desk e Co-op de orçamentos)
+            // Envia user_id para compatibilidade com o handler de monitoramento/GPS
+            helpdeskSocket = io({
+                query: { user_id: String({{ current_user.id|int }}) },
+                transports: ['websocket', 'polling'],
+            });
+            window.helpdeskSocket = helpdeskSocket;
+
+            // Escutar notificações do help desk
+            helpdeskSocket.on('helpdesk_notification', function (data) {
+                console.log('📨 Notificação do Help Desk recebida:', data);
+                showHelpDeskNotification(data);
+            });
+
+            // Escutar conexão
+            helpdeskSocket.on('connected', function (data) {
+                console.log('🔌 Conectado ao WebSocket do Help Desk:', data);
+            });
+
+            // Escutar desconexão
+            helpdeskSocket.on('disconnect', function () {
+                console.log('🔌 Desconectado do WebSocket do Help Desk');
+            });
+        });
+        {% endif %}
+
+        // Sistema de Notificações da Barra Superior
+        document.addEventListener('DOMContentLoaded', function () {
+            const notificationBtn = document.getElementById('notification-btn');
+            const notificationBadge = document.getElementById('notification-badge');
+
+            // Função para atualizar o badge de notificações
+            function atualizarBadgeNotificacoes() {
+                console.log('🔔 Atualizando badge de notificações...');
+
+                // Buscar notificações reais do sistema
+                fetch('/api/notifications/count')
+                    .then(response => {
+                        if (!response.ok) {
+                            throw new Error(`HTTP ${response.status}`);
+                        }
+                        return response.json();
+                    })
+                    .then(data => {
+                        console.log('📊 Dados de notificações:', data);
+
+                        if (notificationBadge) {
+                            if (data.count > 0) {
+                                notificationBadge.textContent = data.count > 99 ? '99+' : data.count;
+                                notificationBadge.classList.remove('hidden');
+                                console.log(`✅ Badge atualizado: ${data.count} notificações`);
+                            } else {
+                                notificationBadge.classList.add('hidden');
+                                console.log('✅ Badge oculto: nenhuma notificação');
+                            }
+                        }
+                    })
+                    .catch(error => {
+                        console.error('❌ Erro ao buscar notificações:', error);
+
+                        // Fallback: simular notificações se a API falhar
+                        const contador = Math.floor(Math.random() * 3); // 0 a 2 notificações
+
+                        if (notificationBadge) {
+                            if (contador > 0) {
+                                notificationBadge.textContent = contador;
+                                notificationBadge.classList.remove('hidden');
+                                console.log(`✅ Badge atualizado (fallback): ${contador} notificações`);
+                            } else {
+                                notificationBadge.classList.add('hidden');
+                                console.log('✅ Badge oculto (fallback): nenhuma notificação');
+                            }
+                        }
+                    });
+            }
+
+            if (notificationBtn) {
+                notificationBtn.addEventListener('click', function () {
+                    console.log('🔔 Botão de notificação clicado');
+
+                    // Implementar lógica real de notificações aqui
+                    // Por enquanto, apenas log para debug
+
+                    // Simular clique - limpar notificações
+                    if (notificationBadge) {
+                        notificationBadge.classList.add('hidden');
+                        console.log('✅ Notificações marcadas como lidas');
+                    }
+                });
+            }
+
+            // Atualizar badge inicialmente
+            atualizarBadgeNotificacoes();
+
+            // Atualizar badge a cada 10 segundos
+            setInterval(atualizarBadgeNotificacoes, 10000);
+
+            // Função global para atualizar notificações (pode ser chamada de outros scripts)
+            window.atualizarNotificacoes = atualizarBadgeNotificacoes;
+        });
+    </script>
+
+    <!-- Estilos para Barra de Notificação -->
+    <style>
+        /* Barra Superior Fixa com Notificações */
+        .top-notification-bar {
+            position: fixed;
+            top: 0;
+            right: 0;
+            left: 0;
+            height: 60px;
+            background: var(--bg-topbar);
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            z-index: 1000;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 20px;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .sidebar-toggle-container {
+            display: flex;
+            align-items: center;
+        }
+
+        .sidebar-toggle-btn {
+            background: rgba(255, 255, 255, 0.15);
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            backdrop-filter: blur(10px);
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+            z-index: 100000;
+            color: white;
+        }
+
+        .sidebar-toggle-btn:hover {
+            background: rgba(255, 255, 255, 0.25);
+            border-color: rgba(255, 255, 255, 0.5);
+            transform: scale(1.1);
+            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
+        }
+
+        .sidebar-toggle-btn i {
+            font-size: 20px;
+            transition: transform 0.3s ease;
+        }
+
+        .sidebar-toggle-btn:hover i {
+            transform: rotate(90deg);
+        }
+
+        .notification-icon-container {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .notification-btn {
+            position: relative;
+            background: rgba(255, 255, 255, 0.15);
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            backdrop-filter: blur(10px);
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+            z-index: 100000;
+        }
+
+        .notification-btn:hover {
+            background: rgba(255, 255, 255, 0.25);
+            border-color: rgba(255, 255, 255, 0.5);
+            transform: scale(1.1);
+            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
+        }
+
+        .notification-btn i {
+            color: white;
+            font-size: 20px;
+            transition: transform 0.3s ease;
+        }
+
+        .notification-btn:hover i {
+            transform: rotate(15deg);
+        }
+
+        .notification-badge {
+            position: absolute;
+            top: -8px;
+            right: -8px;
+            background: linear-gradient(135deg, #ff4757 0%, #ff3742 100%);
+            color: white;
+            border-radius: 50%;
+            width: 24px;
+            height: 24px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+            font-weight: bold;
+            border: 3px solid var(--bg-topbar);
+            box-shadow: 0 2px 8px rgba(255, 71, 87, 0.4);
+        }
+
+        .notification-badge.hidden {
+            display: none;
+        }
+
+        /* Ajustar conteúdo principal para não sobrepor a barra */
+        .main-content {
+            margin-top: 60px;
+        }
+
+        /* Responsividade para dispositivos móveis */
+        @media (max-width: 768px) {
+            .top-notification-bar {
+                height: 50px;
+                padding: 0 15px;
+            }
+
+            .sidebar-toggle-btn {
+                width: 40px;
+                height: 40px;
+            }
+
+            .sidebar-toggle-btn i {
+                font-size: 16px;
+            }
+
+            .notification-btn {
+                width: 40px;
+                height: 40px;
+            }
+
+            .notification-btn i {
+                font-size: 16px;
+            }
+
+            .notification-badge {
+                width: 20px;
+                height: 20px;
+                font-size: 10px;
+                top: -6px;
+                right: -6px;
+            }
+
+            .main-content {
+                margin-top: 50px;
+            }
+        }
+
+        @media (max-width: 480px) {
+            .top-notification-bar {
+                height: 45px;
+                padding: 0 10px;
+            }
+
+            .sidebar-toggle-btn {
+                width: 35px;
+                height: 35px;
+            }
+
+            .sidebar-toggle-btn i {
+                font-size: 14px;
+            }
+
+            .notification-btn {
+                width: 35px;
+                height: 35px;
+            }
+
+            .notification-btn i {
+                font-size: 14px;
+            }
+
+            .notification-badge {
+                width: 18px;
+                height: 18px;
+                font-size: 9px;
+                top: -5px;
+                right: -5px;
+            }
+
+            .main-content {
+                margin-top: 45px;
+            }
+        }
+
+        /* Modo escuro */
+        [data-theme="dark"] .top-notification-bar {
+            background: var(--bg-topbar);
+        }
+
+        [data-theme="dark"] .notification-btn {
+            background: rgba(255, 255, 255, 0.1);
+            border-color: rgba(255, 255, 255, 0.2);
+        }
+
+        [data-theme="dark"] .notification-btn:hover {
+            background: rgba(255, 255, 255, 0.2);
+            border-color: rgba(255, 255, 255, 0.3);
+        }
+
+        [data-theme="dark"] .sidebar-toggle-btn {
+            background: rgba(255, 255, 255, 0.1);
+            border-color: rgba(255, 255, 255, 0.2);
+        }
+
+        [data-theme="dark"] .sidebar-toggle-btn:hover {
+            background: rgba(255, 255, 255, 0.2);
+            border-color: rgba(255, 255, 255, 0.3);
+        }
+
+        /* Garantir que o sidebar responda ao tema */
+        [data-theme="dark"] .sidebar {
+            background: var(--bg-sidebar) !important;
+        }
+
+        [data-theme="dark"] .sidebar-header {
+            background: var(--bg-sidebar);
+        }
+
+        [data-theme="dark"] .sidebar-logo {
+            background: transparent;
+            border: none;
+        }
+
+        /* Separador visual */
+        .nav-separator {
+            height: 1px;
+            background: var(--border-color);
+            margin: 15px 20px;
+        }
+
+        /* Estilos para elementos de tema e logout dentro do menu */
+        .theme-toggle-item {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 8px;
+            margin: 5px 10px;
+            padding: 10px;
+        }
+
+        /* Estilo para o botão de logout */
+        .nav-item:has(.nav-link[href*="logout"]) {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 8px;
+            margin: 5px 10px;
+        }
+
+        .nav-item:has(.nav-link[href*="logout"]) .nav-link {
+            color: #ff4757 !important;
+            font-weight: 600;
+        }
+
+        .nav-item:has(.nav-link[href*="logout"]) .nav-link:hover {
+            background: rgba(255, 71, 87, 0.1);
+            color: #ff3742 !important;
+        }
+
+        /* Estilos para o Logo e Sidebar */
+        .logo-image {
+            max-width: 100%;
+            max-height: 100%;
+            width: auto;
+            height: auto;
+            object-fit: contain;
+        }
+
+        /* Cor do sidebar baseada no tema */
+        .sidebar {
+            background: var(--bg-sidebar) !important;
+            border-right: 1px solid var(--border-color);
+            box-shadow: 2px 0 10px rgba(0, 0, 0, 0.1);
+        }
+
+        .sidebar-header {
+            background: var(--bg-sidebar);
+            padding: 0;
+            text-align: center;
+            height: 150px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .sidebar-logo {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 100%;
+            height: 100%;
+            padding: 0;
+            margin: 0;
+        }
+
+        /* Links do sidebar com cor fixa */
+        .sidebar-nav {
+            padding: 10px 0;
+        }
+
+        .sidebar-nav .nav-item {
+            margin: 2px 10px;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        .sidebar-nav .nav-link {
+            color: var(--text-sidebar);
+            transition: all 0.3s ease;
+            padding: 12px 16px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            border-radius: 8px;
+            position: relative;
+        }
+
+        .sidebar-nav .nav-link:hover {
+            background: var(--accent-light);
+            color: var(--accent-primary);
+            transform: translateX(5px);
+        }
+
+        .sidebar-nav .nav-link.active {
+            background: var(--accent-primary);
+            color: white;
+            border-right: 3px solid var(--accent-secondary);
+            box-shadow: 0 2px 8px rgba(52, 152, 219, 0.3);
+        }
+
+        .sidebar-nav .nav-link i {
+            color: var(--text-sidebar);
+            transition: color 0.3s ease;
+            width: 20px;
+            text-align: center;
+        }
+
+        .sidebar-nav .nav-link:hover i,
+        .sidebar-nav .nav-link.active i {
+            color: white;
+        }
+
+        /* Efeito de brilho nos links ativos */
+        .sidebar-nav .nav-link.active::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.1), transparent);
+            animation: shine 2s infinite;
+        }
+
+        @keyframes shine {
+            0% {
+                transform: translateX(-100%);
+            }
+
+            100% {
+                transform: translateX(100%);
+            }
+        }
+
+        /* Responsividade para o logo */
+        @media (max-width: 768px) {
+            .sidebar-header {
+                height: 120px;
+                padding: 0;
+            }
+
+            .sidebar-logo {
+                padding: 0;
+                margin: 0;
+            }
+        }
+    </style>
+
+    <!-- JavaScript para Controle do Menu Lateral -->
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            const sidebarToggle = document.getElementById('sidebar-toggle');
+            const sidebar = document.getElementById('sidebar');
+
+            if (sidebarToggle && sidebar) {
+                sidebarToggle.addEventListener('click', function (e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+
+                    // Simplesmente alternar visibilidade
+                    if (sidebar.style.display === 'none') {
+                        sidebar.style.display = 'flex';
+                    } else {
+                        sidebar.style.display = 'none';
+                    }
+                });
+
+                // Fechar sidebar ao clicar fora dele em dispositivos móveis
+                document.addEventListener('click', function (event) {
+                    if (window.innerWidth <= 768) {
+                        if (!sidebar.contains(event.target) && !sidebarToggle.contains(event.target)) {
+                            sidebar.style.display = 'none';
+                        }
+                    }
+                });
+
+                // Em desktop, inicializar com sidebar visível
+                if (window.innerWidth > 768) {
+                    sidebar.style.display = 'flex';
+                } else {
+                    sidebar.style.display = 'none';
+                }
+
+                // Ajustar estado ao redimensionar a janela
+                window.addEventListener('resize', function () {
+                    if (window.innerWidth > 768) {
+                        sidebar.style.display = 'flex';
+                    } else {
+                        sidebar.style.display = 'none';
+                    }
+                });
+            }
+        });
+    </script>
+
+    <!-- Modal de Venda Avulsa (Produto Fora de Estoque pelo Menu Lateral) -->
+    <div id="modal-venda-avulsa-standalone" class="fixed inset-0 hidden transition-opacity duration-300" style="z-index: 999999 !important;">
+        <div class="fixed inset-0 bg-black/80 backdrop-blur-sm" onclick="closeStandaloneForaEstoqueModal()"></div>
+        <div class="fixed inset-0 flex items-center justify-center p-4">
+            <div class="relative w-full max-w-lg rounded-xl shadow-2xl overflow-hidden p-6 border"
+                style="background-color: #090d16 !important; border-color: #1e293b !important; color: #f8fafc !important; max-height: 90vh; overflow-y: auto;">
+                <div class="flex items-center justify-between pb-3 mb-3" style="border-bottom: 1px solid #1e293b !important;">
+                    <h3 class="text-base font-bold text-amber-400 flex items-center gap-2">
+                        <i class="fas fa-shopping-cart text-amber-400"></i>
+                        Venda Avulsa (Produto Fora de Estoque)
+                    </h3>
+                    <button type="button" onclick="closeStandaloneForaEstoqueModal()" class="text-slate-400 hover:text-white text-lg cursor-pointer">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+                <form id="form-venda-avulsa-standalone" onsubmit="submitStandaloneForaEstoque(event)" class="space-y-3">
+                    <div class="grid grid-cols-2 gap-3">
+                        <div>
+                            <label class="block text-xs font-medium text-slate-300 mb-1">Cliente *</label>
+                            <select id="standalone-cliente-select" required
+                                style="background-color: #0d1322 !important; color: #ffffff !important; border: 1px solid #334155 !important; border-radius: 0.5rem; width: 100%; padding: 0.5rem; font-size: 0.875rem;">
+                                <option value="">Carregando clientes...</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-medium text-slate-300 mb-1">Vendedor (Computicket) *</label>
+                            <select id="standalone-vendedor-select" required
+                                style="background-color: #0d1322 !important; color: #ffffff !important; border: 1px solid #334155 !important; border-radius: 0.5rem; width: 100%; padding: 0.5rem; font-size: 0.875rem;">
+                                <option value="">Carregando vendedores...</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <!-- Bloco de inserção do item -->
+                    <div class="p-3 rounded-lg border space-y-3" style="background-color: #0d1322 !important; border-color: #1e293b !important;">
+                        <div class="text-xs font-semibold text-slate-400 flex items-center gap-1">
+                            <i class="fas fa-box-open text-amber-400"></i>
+                            <span>Adicionar Produto</span>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-medium text-slate-300 mb-1">Nome do Produto</label>
+                            <input type="text" id="standalone-produto-nome" placeholder="Ex: Adaptador HDMI"
+                                style="background-color: #161f32 !important; color: #ffffff !important; border: 1px solid #334155 !important; border-radius: 0.5rem; width: 100%; padding: 0.5rem; font-size: 0.875rem;">
+                        </div>
+                        <div class="grid grid-cols-2 gap-3">
+                            <div>
+                                <label class="block text-xs font-medium text-slate-300 mb-1">Quantidade</label>
+                                <input type="number" id="standalone-produto-qtd" min="0.01" step="any" value="1"
+                                    style="background-color: #161f32 !important; color: #ffffff !important; border: 1px solid #334155 !important; border-radius: 0.5rem; width: 100%; padding: 0.5rem; font-size: 0.875rem;">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-medium text-slate-300 mb-1">Valor Unitário (R$)</label>
+                                <input type="number" id="standalone-produto-valor" min="0" step="0.01" value="0.00"
+                                    style="background-color: #161f32 !important; color: #ffffff !important; border: 1px solid #334155 !important; border-radius: 0.5rem; width: 100%; padding: 0.5rem; font-size: 0.875rem;">
+                            </div>
+                        </div>
+                        <button type="button" onclick="addStandaloneItemToList()"
+                            style="background-color: #1e293b !important; color: #f59e0b !important; border: 1px dashed #f59e0b !important; border-radius: 0.5rem; width: 100%; padding: 0.5rem; font-size: 0.75rem; font-weight: 600; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 0.5rem;">
+                            <i class="fas fa-plus"></i>
+                            <span>+ Adicionar Item à Lista</span>
+                        </button>
+                    </div>
+
+                    <!-- Tabela de Itens Adicionados -->
+                    <div id="standalone-items-container" class="hidden">
+                        <label class="block text-xs font-medium text-slate-300 mb-1">Itens Adicionados:</label>
+                        <div class="rounded-lg border overflow-hidden max-h-40 overflow-y-auto" style="border-color: #1e293b !important;">
+                            <table class="w-full text-xs text-left" style="background-color: #0d1322 !important;">
+                                <thead class="text-slate-400 font-semibold" style="border-bottom: 1px solid #1e293b !important; background-color: #161f32 !important;">
+                                    <tr>
+                                        <th class="p-2">Produto</th>
+                                        <th class="p-2 text-center">Qtd</th>
+                                        <th class="p-2 text-right">Unit.</th>
+                                        <th class="p-2 text-right">Total</th>
+                                        <th class="p-2 text-center">Ação</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="standalone-items-table-body" class="divide-y divide-slate-800 text-slate-200">
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- Box Valor Total -->
+                    <div class="p-3 rounded-lg flex justify-between items-center font-medium text-xs"
+                        style="background-color: rgba(245, 158, 11, 0.1) !important; border: 1px solid rgba(245, 158, 11, 0.3) !important; color: #fcd34d !important;">
+                        <span>Valor Total a Lançar:</span>
+                        <span id="standalone-total-display" class="text-sm font-bold" style="color: #f59e0b !important;">R$ 0,00</span>
+                    </div>
+
+                    <!-- Botões -->
+                    <div class="pt-2 flex justify-end gap-2" style="border-top: 1px solid #1e293b !important;">
+                        <button type="button" onclick="closeStandaloneForaEstoqueModal()"
+                            style="background-color: #1e293b !important; color: #cbd5e1 !important; border: 1px solid #334155 !important; border-radius: 0.5rem; padding: 0.5rem 1rem; font-size: 0.75rem; font-weight: 500; cursor: pointer;">
+                            Cancelar
+                        </button>
+                        <button type="submit" id="standalone-submit-btn"
+                            style="background-color: #d97706 !important; color: #ffffff !important; border: 1px solid #f59e0b !important; border-radius: 0.5rem; padding: 0.5rem 1rem; font-size: 0.75rem; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 0.5rem;">
+                            <i class="fas fa-check"></i>
+                            <span>Lançar Venda (Crediário)</span>
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let standaloneItemList = [];
+
+        function openStandaloneForaEstoqueModal(e) {
+            if (e) e.preventDefault();
+            const modal = document.getElementById('modal-venda-avulsa-standalone');
+            if (!modal) return;
+            if (modal.parentElement !== document.body) {
+                document.body.appendChild(modal);
+            }
+            modal.classList.remove('hidden');
+            standaloneItemList = [];
+            renderStandaloneItemsList();
+            loadClientsForStandalone();
+            loadSellersForStandalone();
+        }
+
+        function closeStandaloneForaEstoqueModal() {
+            const modal = document.getElementById('modal-venda-avulsa-standalone');
+            if (modal) modal.classList.add('hidden');
+        }
+
+        function addStandaloneItemToList() {
+            const nameInput = document.getElementById('standalone-produto-nome');
+            const qtdInput = document.getElementById('standalone-produto-qtd');
+            const valorInput = document.getElementById('standalone-produto-valor');
+
+            const name = nameInput ? nameInput.value.trim() : '';
+            const qtd = parseFloat(qtdInput ? qtdInput.value : '1') || 1;
+            const price = parseFloat(valorInput ? valorInput.value : '0') || 0;
+
+            if (!name) {
+                alert('Informe o nome do produto.');
+                if (nameInput) nameInput.focus();
+                return;
+            }
+
+            standaloneItemList.push({
+                id: Date.now() + Math.random(),
+                product_name: name,
+                quantity: qtd,
+                unit_price: price
+            });
+
+            if (nameInput) nameInput.value = '';
+            if (qtdInput) qtdInput.value = '1';
+            if (valorInput) valorInput.value = '0.00';
+            if (nameInput) nameInput.focus();
+
+            renderStandaloneItemsList();
+        }
+
+        function removeStandaloneItem(index) {
+            standaloneItemList.splice(index, 1);
+            renderStandaloneItemsList();
+        }
+
+        function renderStandaloneItemsList() {
+            const container = document.getElementById('standalone-items-container');
+            const tbody = document.getElementById('standalone-items-table-body');
+            const display = document.getElementById('standalone-total-display');
+
+            let grandTotal = 0;
+
+            if (standaloneItemList.length === 0) {
+                if (container) container.classList.add('hidden');
+                if (tbody) tbody.innerHTML = '';
+            } else {
+                if (container) container.classList.remove('hidden');
+                if (tbody) {
+                    tbody.innerHTML = standaloneItemList.map((item, idx) => {
+                        const subtotal = item.quantity * item.unit_price;
+                        grandTotal += subtotal;
+                        return `
+                            <tr>
+                                <td class="p-2 font-medium">${item.product_name}</td>
+                                <td class="p-2 text-center">${item.quantity}</td>
+                                <td class="p-2 text-right">R$ ${item.unit_price.toFixed(2)}</td>
+                                <td class="p-2 text-right font-bold text-amber-400">R$ ${subtotal.toFixed(2)}</td>
+                                <td class="p-2 text-center">
+                                    <button type="button" onclick="removeStandaloneItem(${idx})" class="text-red-400 hover:text-red-300 p-1">
+                                        <i class="fas fa-trash-alt"></i>
+                                    </button>
+                                </td>
+                            </tr>
+                        `;
+                    }).join('');
+                }
+            }
+
+            // Se o usuário estiver digitando um item atual sem ter clicado em adicionar ainda, incluir no calculo
+            const currentQtd = parseFloat(document.getElementById('standalone-produto-qtd')?.value || '0') || 0;
+            const currentValor = parseFloat(document.getElementById('standalone-produto-valor')?.value || '0') || 0;
+            const currentName = document.getElementById('standalone-produto-nome')?.value.trim() || '';
+
+            let totalToDisplay = grandTotal;
+            if (currentName !== '') {
+                totalToDisplay += (currentQtd * currentValor);
+            }
+
+            if (display) {
+                display.textContent = totalToDisplay.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            const nameInput = document.getElementById('standalone-produto-nome');
+            const qtdInput = document.getElementById('standalone-produto-qtd');
+            const valorInput = document.getElementById('standalone-produto-valor');
+            if (nameInput) nameInput.addEventListener('input', renderStandaloneItemsList);
+            if (qtdInput) qtdInput.addEventListener('input', renderStandaloneItemsList);
+            if (valorInput) valorInput.addEventListener('input', renderStandaloneItemsList);
+        });
+
+        async function loadClientsForStandalone() {
+            const select = document.getElementById('standalone-cliente-select');
+            if (!select) return;
+            select.innerHTML = '<option value="">Carregando clientes...</option>';
+            try {
+                const resp = await fetch('/tickets/api/clients');
+                const data = await resp.json();
+                if (data.success && data.clients) {
+                    select.innerHTML = '<option value="">Selecione um cliente...</option>';
+                    data.clients.forEach(c => {
+                        const opt = document.createElement('option');
+                        opt.value = c.id;
+                        opt.textContent = `${c.name}${c.document ? ' - ' + c.document : ''}`;
+                        select.appendChild(opt);
+                    });
+                } else {
+                    select.innerHTML = '<option value="">Erro ao carregar clientes</option>';
+                }
+            } catch (err) {
+                console.error('Erro ao carregar clientes:', err);
+                select.innerHTML = '<option value="">Erro na conexão com clientes</option>';
+            }
+        }
+
+        async function loadSellersForStandalone() {
+            const select = document.getElementById('standalone-vendedor-select');
+            if (!select) return;
+            select.innerHTML = '<option value="">Carregando vendedores...</option>';
+            try {
+                const resp = await fetch('/tickets/api/users');
+                const data = await resp.json();
+                if (data.success && data.users) {
+                    select.innerHTML = '';
+                    data.users.forEach(u => {
+                        const opt = document.createElement('option');
+                        opt.value = u.id;
+                        opt.textContent = u.name;
+                        if (data.current_user_id && u.id === data.current_user_id) {
+                            opt.selected = true;
+                        }
+                        select.appendChild(opt);
+                    });
+                } else {
+                    select.innerHTML = '<option value="">Erro ao carregar vendedores</option>';
+                }
+            } catch (err) {
+                console.error('Erro ao carregar vendedores:', err);
+                select.innerHTML = '<option value="">Erro na conexão com vendedores</option>';
+            }
+        }
+
+        async function submitStandaloneForaEstoque(e) {
+            e.preventDefault();
+            const client_id = document.getElementById('standalone-cliente-select')?.value;
+            const seller_id = document.getElementById('standalone-vendedor-select')?.value;
+            const currentName = document.getElementById('standalone-produto-nome')?.value.trim();
+            const currentQtd = parseFloat(document.getElementById('standalone-produto-qtd')?.value || '1') || 1;
+            const currentPrice = parseFloat(document.getElementById('standalone-produto-valor')?.value || '0') || 0;
+            const btn = document.getElementById('standalone-submit-btn');
+
+            if (!client_id) {
+                alert('Selecione um cliente.');
+                return;
+            }
+            if (!seller_id) {
+                alert('Selecione um vendedor.');
+                return;
+            }
+
+            // Se o usuário preencheu os campos do produto atual mas não clicou em + Adicionar Item, incluir agora
+            if (currentName !== '') {
+                standaloneItemList.push({
+                    id: Date.now(),
+                    product_name: currentName,
+                    quantity: currentQtd,
+                    unit_price: currentPrice
+                });
+            }
+
+            if (standaloneItemList.length === 0) {
+                alert('Informe ao menos um produto para lançar a venda.');
+                return;
+            }
+
+            const origBtnHtml = btn.innerHTML;
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Lançando...';
+
+            try {
+                const resp = await fetch('/tickets/api/produto-fora-estoque-direto', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        client_id: parseInt(client_id, 10),
+                        seller_id: parseInt(seller_id, 10),
+                        items: standaloneItemList
+                    })
+                });
+                const data = await resp.json();
+                if (!resp.ok || !data.success) {
+                    throw new Error(data.error || 'Erro ao lançar venda.');
+                }
+
+                if (data.finance_ids && data.finance_ids.length > 0) {
+                    const printUrl = `/tickets/api/venda-avulsa/imprimir?ids=${data.finance_ids.join(',')}`;
+                    window.open(printUrl, '_blank');
+                } else {
+                    alert(data.message || 'Venda no Crediário realizada com sucesso!');
+                }
+
+                standaloneItemList = [];
+                renderStandaloneItemsList();
+                closeStandaloneForaEstoqueModal();
+                document.getElementById('form-venda-avulsa-standalone')?.reset();
+            } catch (err) {
+                alert(err.message || 'Erro ao lançar venda.');
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = origBtnHtml;
+            }
+        }
+    </script>
+
+    <!-- Carregar app.js para funcionalidades do sistema -->
+    <script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+
+</html>

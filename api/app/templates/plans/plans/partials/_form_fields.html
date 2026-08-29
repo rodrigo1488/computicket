@@ -1,0 +1,96 @@
+<!-- Campos comuns de formulário para criar/editar plano -->
+<div class="bg-tertiary rounded-lg p-4">
+	<h3 class="text-lg font-semibold text-primary mb-4">
+		<i class="fas fa-info-circle mr-2"></i>
+		Informações Básicas
+	</h3>
+	<div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+		<div class="form-group">
+			<label class="form-label">Nome do Plano *</label>
+			<input type="text" name="name" class="form-input" required value="{{ request.form.get('name', plan.name if plan else '') }}">
+		</div>
+		<div class="form-group">
+			<label class="form-label">Descrição</label>
+			<textarea name="description" class="form-textarea" rows="3">{{ request.form.get('description', plan.description if plan else '') }}</textarea>
+		</div>
+	</div>
+</div>
+
+<div class="bg-tertiary rounded-lg p-4">
+	<h3 class="text-lg font-semibold text-primary mb-4">
+		<i class="fas fa-clock mr-2"></i>
+		Horas e Valores
+	</h3>
+	<div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+		<div class="form-group">
+			<label class="form-label">Horas Mensais</label>
+			<input type="number" name="monthly_hours" class="form-input" min="0" value="{{ request.form.get('monthly_hours', plan.monthly_hours if plan else 0) }}">
+		</div>
+		<div class="form-group">
+			<label class="form-label">Valor Mensal (R$)</label>
+			<input type="number" step="0.01" min="0" name="monthly_value" class="form-input" value="{{ request.form.get('monthly_value', plan.monthly_value if plan else 0) }}">
+		</div>
+		<div class="form-group">
+			<label class="form-label">Hora Adicional (R$)</label>
+			<input type="number" step="0.01" min="0" name="additional_hour_rate" class="form-input" value="{{ request.form.get('additional_hour_rate', plan.additional_hour_rate if plan else 0) }}">
+		</div>
+		<div class="form-group">
+			<label class="form-label">Taxa de Setup (R$)</label>
+			<input type="number" step="0.01" min="0" name="setup_fee" class="form-input" value="{{ request.form.get('setup_fee', plan.setup_fee if plan else 0) }}">
+		</div>
+	</div>
+</div>
+
+<div class="bg-tertiary rounded-lg p-4">
+	<h3 class="text-lg font-semibold text-primary mb-4">
+		<i class="fas fa-stopwatch mr-2"></i>
+		SLA e Prioridade
+	</h3>
+	<div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+		<div class="form-group">
+			<label class="form-label">Tempo de Resposta (h)</label>
+			<input type="number" min="1" name="response_time_hours" class="form-input" value="{{ request.form.get('response_time_hours', plan.response_time_hours if plan else 24) }}">
+		</div>
+		<div class="form-group">
+			<label class="form-label">Tempo de Resolução (h)</label>
+			<input type="number" min="1" name="resolution_time_hours" class="form-input" value="{{ request.form.get('resolution_time_hours', plan.resolution_time_hours if plan else 72) }}">
+		</div>
+		<div class="form-group">
+			<label class="form-label">Prioridade</label>
+			<select name="priority_level" class="form-select">
+				{% set current_priority = (request.form.get('priority_level') or (plan.priority_level if plan else 3))|int %}
+				<option value="1" {{ 'selected' if current_priority == 1 else '' }}>1 - Crítica</option>
+				<option value="2" {{ 'selected' if current_priority == 2 else '' }}>2 - Alta</option>
+				<option value="3" {{ 'selected' if current_priority == 3 else '' }}>3 - Média</option>
+				<option value="4" {{ 'selected' if current_priority == 4 else '' }}>4 - Baixa</option>
+			</select>
+		</div>
+	</div>
+</div>
+
+<div class="bg-tertiary rounded-lg p-4">
+	<h3 class="text-lg font-semibold text-primary mb-4">
+		<i class="fas fa-headset mr-2"></i>
+		Tipos de Suporte e Inclusão
+	</h3>
+	<div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+		<label class="flex items-center"><input type="checkbox" name="support_included" class="form-checkbox mr-2" {{ 'checked' if (request.form.get('support_included') == 'on') or (plan and plan.support_included) else '' }}>Suporte incluso neste plano</label>
+		<label class="flex items-center"><input type="checkbox" name="includes_remote_support" class="form-checkbox mr-2" {{ 'checked' if (request.form.get('includes_remote_support') == 'on') or (plan and plan.includes_remote_support) else '' }}>Suporte Remoto</label>
+		<label class="flex items-center"><input type="checkbox" name="includes_on_site_support" class="form-checkbox mr-2" {{ 'checked' if (request.form.get('includes_on_site_support') == 'on') or (plan and plan.includes_on_site_support) else '' }}>Suporte Presencial</label>
+		<label class="flex items-center"><input type="checkbox" name="includes_phone_support" class="form-checkbox mr-2" {{ 'checked' if (request.form.get('includes_phone_support') == 'on') or (plan and plan.includes_phone_support) else '' }}>Suporte por Telefone</label>
+		<label class="flex items-center"><input type="checkbox" name="includes_email_support" class="form-checkbox mr-2" {{ 'checked' if (request.form.get('includes_email_support') == 'on') or (plan and plan.includes_email_support) else '' }}>Suporte por Email</label>
+	</div>
+</div>
+
+<div class="bg-tertiary rounded-lg p-4">
+	<h3 class="text-lg font-semibold text-primary mb-4">
+		<i class="fas fa-toggle-on mr-2"></i>
+		Status
+	</h3>
+	<div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+		<label class="flex items-center"><input type="checkbox" name="is_active" class="form-checkbox mr-2" {{ 'checked' if (request.form.get('is_active') == 'on') or (plan and plan.is_active) else '' }}>Plano Ativo</label>
+		<label class="flex items-center"><input type="checkbox" name="is_featured" class="form-checkbox mr-2" {{ 'checked' if (request.form.get('is_featured') == 'on') or (plan and plan.is_featured) else '' }}>Plano em Destaque</label>
+	</div>
+</div>
+
+

@@ -1,0 +1,2264 @@
+{% extends 'base.html' %}
+{% from 'macros/ui.html' import kpi_card, empty_state %}
+{% block page_title %}📊 Dashboard{% endblock %}
+{% block content %}
+
+<style>
+	/* Estilos para o botão flutuante de tickets - Simples */
+	.floating-tickets-btn {
+		position: fixed;
+		bottom: 30px;
+		right: 30px;
+		z-index: 1000;
+		background: #001545;
+		color: white;
+		border: none;
+		border-radius: 50px;
+		padding: 16px 24px;
+		font-size: 16px;
+		font-weight: 600;
+		cursor: pointer;
+		box-shadow: 0 4px 15px rgba(0, 21, 69, 0.3);
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		min-width: 120px;
+		justify-content: center;
+	}
+
+	.floating-tickets-btn:hover {
+		background: #1a237e;
+	}
+
+	.floating-tickets-btn i {
+		font-size: 18px;
+	}
+
+	.floating-btn-text {
+		font-size: 14px;
+		font-weight: 600;
+	}
+
+	/* Responsividade para dispositivos móveis */
+	@media (max-width: 768px) {
+		.floating-tickets-btn {
+			bottom: 20px;
+			right: 20px;
+			padding: 14px 20px;
+			font-size: 14px;
+			min-width: 100px;
+		}
+
+		.floating-tickets-btn i {
+			font-size: 16px;
+		}
+
+		.floating-btn-text {
+			font-size: 12px;
+		}
+	}
+</style>
+
+<!-- Conteúdo Principal -->
+
+<!-- Cards de Resumo -->
+<div class="dc-kpi-grid">
+	{{ kpi_card('fas fa-calendar-alt', 'Tickets do Mês · finalizados no mês', tickets_mes_count, variant='warning', id='tickets-mes-card', clickable=True) }}
+	{{ kpi_card('fas fa-check-circle', 'Fechados · concluídos', status_counts.get('fechado', 0), variant='success', id='tickets-fechados-card', clickable=True) }}
+	{{ kpi_card('fas fa-exclamation-circle', 'Abertos · pendentes', status_counts.get('aberto', 0), variant='error', id='tickets-pendentes-card', clickable=True) }}
+	{{ kpi_card('fas fa-hourglass-half', 'Horas · apontadas', '%.1f'|format(hours_by_user|sum(attribute=1) or 0), variant='primary', id='total-horas-card', clickable=True) }}
+	{{ kpi_card('fas fa-file-invoice', 'OS do Mês · no mês', os_mes_count, variant='info', id='os-mes-card', clickable=True) }}
+	{{ kpi_card('fas fa-dollar-sign', 'Faturamento do Dia · faturado hoje', 'R$ ' + '%.2f'|format(faturamento_hoje), variant='success', id='faturamento-dia-card', value_id='faturamento-dia-count', clickable=True) }}
+</div>
+
+<!-- Ranking de Técnicos - Cards -->
+<section class="mb-6 technician-ranking-section">
+	<div class="bg-secondary rounded-lg shadow-lg p-6">
+		<div class="flex items-center justify-between mb-4">
+			<h3 class="text-lg font-semibold text-primary flex items-center">
+				<i class="fas fa-trophy mr-2"></i>
+				Ranking de Técnicos (Este Mês)
+			</h3>
+			<div class="flex items-center gap-2">
+				<span class="text-sm text-muted">Tickets e ordens de serviço finalizados</span>
+				<div class="loading-indicator hidden">
+					<i class="fas fa-spinner fa-spin text-primary"></i>
+				</div>
+			</div>
+		</div>
+
+		{% if technician_ranking %}
+		<div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+			{% for technician in technician_ranking[:3] %}
+			<div class="bg-tertiary rounded-lg p-4 transform hover:scale-105 transition-all duration-300">
+				<div class="flex items-center justify-between mb-3">
+					<div class="flex items-center">
+						{% if loop.index == 1 %}
+						<div class="ranking-medal gold mr-3">
+							<i class="fas fa-crown"></i>
+						</div>
+						{% elif loop.index == 2 %}
+						<div class="ranking-medal silver mr-3">
+							<i class="fas fa-medal"></i>
+						</div>
+						{% elif loop.index == 3 %}
+						<div class="ranking-medal bronze mr-3">
+							<i class="fas fa-award"></i>
+						</div>
+						{% endif %}
+						<div>
+							<div class="text-lg font-bold text-primary">{{ loop.index }}° Lugar</div>
+							<div class="text-sm text-muted">Posição</div>
+						</div>
+					</div>
+				</div>
+
+				<div class="text-center">
+					<div class="text-2xl font-bold text-primary mb-1 technician-name">{{ technician.name }}</div>
+					<div class="text-sm text-muted mb-3">Técnico</div>
+
+					<div class="bg-secondary rounded-lg p-3">
+						<div class="text-3xl font-bold text-success mb-1">{{ technician.tickets_count }}</div>
+						<div class="text-sm text-muted">total no mês</div>
+					</div>
+				</div>
+			</div>
+			{% endfor %}
+		</div>
+
+		{% if technician_ranking|length > 3 %}
+		<div class="mt-4">
+			<details class="bg-tertiary rounded-lg p-4">
+				<summary class="cursor-pointer text-primary font-medium flex items-center">
+					<i class="fas fa-chevron-down mr-2"></i>
+					Ver ranking completo ({{ technician_ranking|length }} técnicos)
+				</summary>
+				<div class="mt-3 space-y-2">
+					{% for technician in technician_ranking[3:] %}
+					<div class="flex items-center justify-between p-2 bg-secondary rounded">
+						<div class="flex items-center">
+							<div class="w-8 h-8 bg-muted rounded-full flex items-center justify-center mr-3">
+								<span class="text-sm font-bold text-primary">{{ loop.index + 3 }}</span>
+							</div>
+							<div class="font-medium text-primary technician-name">{{ technician.name }}</div>
+						</div>
+						<div class="text-sm text-muted">{{ technician.tickets_count }} no mês</div>
+					</div>
+					{% endfor %}
+				</div>
+			</details>
+		</div>
+		{% endif %}
+
+		{% else %}
+		<div class="text-center text-muted p-8">
+			<i class="fas fa-trophy text-4xl mb-4"></i>
+			<p class="text-lg font-medium">Nenhum ranking disponível</p>
+			<p class="text-sm">Não há tickets fechados nem ordens de serviço finalizadas este mês</p>
+		</div>
+		{% endif %}
+	</div>
+</section>
+
+
+
+<!-- Tickets em Andamento por Técnico -->
+<section class="bg-secondary rounded-lg shadow-lg p-6 mb-6 technicians-in-progress-section">
+	<div class="flex items-center justify-between mb-6">
+		<h3 class="text-lg font-semibold text-primary flex items-center">
+			<i class="fas fa-tasks mr-2"></i>
+			Tickets em Andamento por Técnico
+		</h3>
+		<div class="flex items-center gap-2">
+			<div class="text-sm text-muted">
+				Total: {{ technicians_in_progress|length }} técnico{{ 's' if technicians_in_progress|length != 1 else ''
+				}}
+			</div>
+			<div class="loading-indicator hidden">
+				<i class="fas fa-spinner fa-spin text-primary"></i>
+			</div>
+		</div>
+	</div>
+
+	{% if technicians_in_progress %}
+	<!-- Carrossel de Tickets em Andamento -->
+	<div class="relative">
+		<!-- Indicadores de Progresso -->
+		<div class="flex justify-center mb-4">
+			<div class="flex space-x-2">
+				{% for technician in technicians_in_progress %}
+				<button class="carousel-indicator w-3 h-3 rounded-full bg-muted transition-all duration-300"
+					data-technician="{{ loop.index0 }}" aria-label="Técnico {{ technician.name }}">
+				</button>
+				{% endfor %}
+			</div>
+		</div>
+
+		<!-- Container do Carrossel -->
+		<div class="carousel-container relative overflow-hidden rounded-lg">
+			<div class="carousel-track flex transition-transform duration-500 ease-in-out">
+				{% for technician in technicians_in_progress %}
+				<div class="carousel-slide w-full flex-shrink-0" data-technician="{{ loop.index0 }}">
+					<div class="bg-tertiary rounded-lg p-5 flex flex-col h-full">
+						<!-- Cabeçalho do Técnico -->
+						<div class="flex items-center justify-between mb-4 flex-shrink-0">
+							<div class="flex items-center">
+								<div class="w-12 h-12 bg-warning/10 rounded-lg flex items-center justify-center mr-4">
+									<i class="fas fa-user text-warning text-lg"></i>
+								</div>
+								<div>
+									<div class="text-lg font-bold text-primary">{{ technician.name }}</div>
+									<div class="text-sm text-muted">
+										{{ technician.tickets_count }} ticket{{ 's' if technician.tickets_count != 1
+										else '' }}
+										• {{ technician.total_hours|int }}h {{ ((technician.total_hours -
+										technician.total_hours|int) * 60)|int }}m apontadas
+									</div>
+
+
+								</div>
+							</div>
+							<div class="text-right">
+								<div class="text-sm font-medium text-warning">
+									{{ technician.tickets_count }} ativo{{ 's' if technician.tickets_count != 1 else ''
+									}}
+								</div>
+							</div>
+						</div>
+
+						<!-- Lista de Tickets -->
+						<div class="grid flex-1">
+							{% for ticket in technician.tickets %}
+							<div class="bg-secondary rounded-lg border-l-4 
+								{% if ticket.card_color == 'red' %}border-red-500 ticket-card-red
+								{% elif ticket.card_color == 'orange' %}border-orange-500 ticket-card-orange
+								{% else %}border-blue-500 ticket-card-blue{% endif %}">
+								<div class="flex items-start justify-between mb-1">
+									<div class="flex-1">
+										<div class="flex items-center gap-1 mb-1">
+											<span class="text-xs font-bold text-primary">#{{ ticket.id }}</span>
+											<span class="px-1 py-0.5 text-xs font-medium rounded-full 
+												{% if ticket.card_color == 'red' %}bg-red-100 text-red-700
+												{% elif ticket.card_color == 'orange' %}bg-orange-100 text-orange-700
+												{% else %}bg-blue-100 text-blue-700{% endif %}">
+												Em Andamento
+											</span>
+										</div>
+										<div class="text-xs font-medium text-primary mb-1">
+											{{ ticket.title[:40] }}{% if ticket.title|length > 40 %}...{% endif %}
+										</div>
+										<div class="text-xs text-muted mb-1">
+											<i class="fas fa-building mr-1"></i>{{ ticket.client_name[:25] }}{% if
+											ticket.client_name|length > 25 %}...{% endif %}
+										</div>
+									</div>
+								</div>
+
+								<div class="flex items-center justify-between text-xs text-muted">
+									<div class="flex items-center gap-2">
+										<span>
+											<i class="fas fa-hourglass-half mr-1"></i>
+											{{ ticket.hours|int }}h {{ ((ticket.hours - ticket.hours|int) * 60)|int }}m
+										</span>
+									</div>
+								</div>
+								<div class="text-xs text-muted mt-1">
+									<i class="fas fa-play mr-1"></i>
+									Iniciado: {{ ticket.created_at | brasilia_datetime('%d/%m %H:%M') if
+									ticket.created_at else '—' }}
+								</div>
+							</div>
+							{% endfor %}
+							<!-- Slots vazios para completar 3 colunas -->
+							{% for i in range(3 - technician.tickets|length) %}
+							<div
+								class="bg-transparent rounded-lg border-2 border-dashed border-muted/30 min-h-[130px] flex items-center justify-center">
+								<div class="text-center text-muted/50">
+									<i class="fas fa-plus-circle text-2xl mb-2"></i>
+									<div class="text-xs">Slot vazio</div>
+								</div>
+							</div>
+							{% endfor %}
+						</div>
+					</div>
+				</div>
+				{% endfor %}
+			</div>
+		</div>
+
+		<!-- Controles do Carrossel -->
+		<div class="flex justify-between items-center mt-4">
+			<button class="carousel-prev btn btn-secondary btn-sm" disabled>
+				<i class="fas fa-chevron-left mr-1"></i>Anterior
+			</button>
+			<div class="text-sm text-muted">
+				<span class="carousel-counter">1</span> de {{ technicians_in_progress|length }}
+			</div>
+			<button class="carousel-next btn btn-secondary btn-sm">
+				Próximo<i class="fas fa-chevron-right ml-1"></i>
+			</button>
+		</div>
+	</div>
+
+	{% else %}
+	<div class="text-center text-muted p-12">
+		<i class="fas fa-tasks text-6xl mb-6 opacity-50"></i>
+		<p class="text-xl font-medium mb-2">Nenhum ticket em andamento</p>
+		<p class="text-sm">Não há tickets sendo trabalhados no momento</p>
+	</div>
+	{% endif %}
+</section>
+
+<!-- Modal Tickets do Dia -->
+<div id="tickets-dia-modal" class="modal-overlay">
+	<div class="modal w-full max-w-4xl mx-4 sm:mx-6 lg:mx-auto">
+		<div class="modal-header">
+			<h3 class="modal-title">
+				<i class="fas fa-calendar-day mr-2"></i>
+				Tickets Fechados Hoje
+			</h3>
+			<button id="close-tickets-dia-modal" class="btn btn-sm btn-secondary">
+				<i class="fas fa-times"></i>
+			</button>
+		</div>
+
+		<div class="modal-body">
+			<div id="tickets-dia-content">
+				<!-- Conteúdo será carregado via AJAX -->
+				<div class="text-center p-8">
+					<i class="fas fa-spinner fa-spin text-4xl text-primary mb-4"></i>
+					<p class="text-muted">Carregando tickets do dia...</p>
+				</div>
+			</div>
+		</div>
+	</div>
+</div>
+
+<!-- Modal Faturamento do Dia -->
+<div id="faturamento-dia-modal" class="modal-overlay">
+	<div class="modal w-full max-w-5xl mx-4 sm:mx-6 lg:mx-auto">
+		<div class="modal-header">
+			<h3 class="modal-title">
+				<i class="fas fa-dollar-sign mr-2"></i>
+				Faturamento do Dia
+			</h3>
+			<button id="close-faturamento-dia-modal" class="btn btn-sm btn-secondary">
+				<i class="fas fa-times"></i>
+			</button>
+		</div>
+
+		<div class="modal-body">
+			<div id="faturamento-dia-content">
+				<!-- Conteúdo será carregado via AJAX -->
+				<div class="text-center p-8">
+					<i class="fas fa-spinner fa-spin text-4xl text-primary mb-4"></i>
+					<p class="text-muted">Carregando faturamento do dia...</p>
+				</div>
+			</div>
+		</div>
+	</div>
+</div>
+
+<!-- Modal OS do Mês -->
+<div id="os-mes-modal" class="modal-overlay">
+	<div class="modal w-full max-w-5xl mx-4 sm:mx-6 lg:mx-auto">
+		<div class="modal-header">
+			<h3 class="modal-title">
+				<i class="fas fa-file-invoice mr-2"></i>
+				Ordens de Serviço do Mês
+			</h3>
+			<button id="close-os-mes-modal" class="btn btn-sm btn-secondary">
+				<i class="fas fa-times"></i>
+			</button>
+		</div>
+
+		<div class="modal-body">
+			<div id="os-mes-content">
+				<!-- Conteúdo será carregado via AJAX -->
+				<div class="text-center p-8">
+					<i class="fas fa-spinner fa-spin text-4xl text-primary mb-4"></i>
+					<p class="text-muted">Carregando ordens de serviço...</p>
+				</div>
+			</div>
+		</div>
+	</div>
+</div>
+
+<!-- Modal Tickets Pendentes -->
+<div id="tickets-pendentes-modal" class="modal-overlay">
+	<div class="modal w-full max-w-5xl mx-4 sm:mx-6 lg:mx-auto">
+		<div class="modal-header">
+			<h3 class="modal-title">
+				<i class="fas fa-clock mr-2"></i>
+				Tickets Pendentes
+			</h3>
+			<button id="close-tickets-pendentes-modal" class="btn btn-sm btn-secondary">
+				<i class="fas fa-times"></i>
+			</button>
+		</div>
+
+		<div class="modal-body">
+			<div id="tickets-pendentes-content">
+				<!-- Conteúdo será carregado via AJAX -->
+				<div class="text-center p-8">
+					<i class="fas fa-spinner fa-spin text-4xl text-primary mb-4"></i>
+					<p class="text-muted">Carregando tickets pendentes...</p>
+				</div>
+			</div>
+		</div>
+	</div>
+</div>
+
+<!-- Modal Tickets do Mês -->
+<div id="tickets-mes-modal" class="modal-overlay">
+	<div class="modal w-full max-w-5xl mx-4 sm:mx-6 lg:mx-auto">
+		<div class="modal-header">
+			<h3 class="modal-title">
+				<i class="fas fa-calendar-alt mr-2"></i>
+				Tickets do Mês
+			</h3>
+			<button id="close-tickets-mes-modal" class="btn btn-sm btn-secondary">
+				<i class="fas fa-times"></i>
+			</button>
+		</div>
+
+		<div class="modal-body">
+			<div id="tickets-mes-content">
+				<!-- Conteúdo será carregado via AJAX -->
+				<div class="text-center p-8">
+					<i class="fas fa-spinner fa-spin text-4xl text-primary mb-4"></i>
+					<p class="text-muted">Carregando tickets do mês...</p>
+				</div>
+			</div>
+		</div>
+	</div>
+</div>
+
+<!-- Modal Tickets Fechados -->
+<div id="tickets-fechados-modal" class="modal-overlay">
+	<div class="modal w-full max-w-5xl mx-4 sm:mx-6 lg:mx-auto">
+		<div class="modal-header">
+			<h3 class="modal-title">
+				<i class="fas fa-check-circle mr-2"></i>
+				Tickets Fechados
+			</h3>
+			<button id="close-tickets-fechados-modal" class="btn btn-sm btn-secondary">
+				<i class="fas fa-times"></i>
+			</button>
+		</div>
+
+		<div class="modal-body">
+			<div id="tickets-fechados-content">
+				<!-- Conteúdo será carregado via AJAX -->
+				<div class="text-center p-8">
+					<i class="fas fa-spinner fa-spin text-4xl text-primary mb-4"></i>
+					<p class="text-muted">Carregando tickets fechados...</p>
+				</div>
+			</div>
+		</div>
+	</div>
+</div>
+
+<!-- Modal Total de Horas -->
+<div id="total-horas-modal" class="modal-overlay">
+	<div class="modal w-full max-w-5xl mx-4 sm:mx-6 lg:mx-auto">
+		<div class="modal-header">
+			<h3 class="modal-title">
+				<i class="fas fa-hourglass-half mr-2"></i>
+				Total de Horas Trabalhadas
+			</h3>
+			<button id="close-total-horas-modal" class="btn btn-sm btn-secondary">
+				<i class="fas fa-times"></i>
+			</button>
+		</div>
+
+		<div class="modal-body">
+			<div id="total-horas-content">
+				<!-- Conteúdo será carregado via AJAX -->
+				<div class="text-center p-8">
+					<i class="fas fa-spinner fa-spin text-4xl text-primary mb-4"></i>
+					<p class="text-muted">Carregando horas trabalhadas...</p>
+				</div>
+			</div>
+		</div>
+	</div>
+</div>
+
+<!-- Modal Total de Tickets -->
+<div id="total-tickets-modal" class="modal-overlay">
+	<div class="modal w-full max-w-5xl mx-4 sm:mx-6 lg:mx-auto">
+		<div class="modal-header">
+			<h3 class="modal-title">
+				<i class="fas fa-ticket-alt mr-2"></i>
+				Total de Tickets
+			</h3>
+			<button id="close-total-tickets-modal" class="btn btn-sm btn-secondary">
+				<i class="fas fa-times"></i>
+			</button>
+		</div>
+
+		<div class="modal-body">
+			<div id="total-tickets-content">
+				<!-- Conteúdo será carregado via AJAX -->
+				<div class="text-center p-8">
+					<i class="fas fa-spinner fa-spin text-4xl text-primary mb-4"></i>
+					<p class="text-muted">Carregando total de tickets...</p>
+				</div>
+			</div>
+		</div>
+	</div>
+</div>
+
+<!-- Botão Flutuante para Tickets -->
+<button id="tickets-btn" class="floating-tickets-btn" title="Criar Novo Ticket">
+	<i class="fas fa-ticket-alt"></i>
+	<span class="floating-btn-text">Novo Ticket</span>
+</button>
+
+<script>
+
+	// Sistema de Botão Flutuante para Tickets
+	document.addEventListener('DOMContentLoaded', function () {
+		const ticketsBtn = document.getElementById('tickets-btn');
+
+		if (ticketsBtn) {
+			ticketsBtn.addEventListener('click', function () {
+				// Redirecionar para a página de criação de novo ticket
+				window.location.href = '/tickets/novo';
+			});
+		}
+	});
+
+	// Script do Carrossel
+	document.addEventListener('DOMContentLoaded', function () {
+		const carouselTrack = document.querySelector('.carousel-track');
+		const carouselSlides = document.querySelectorAll('.carousel-slide');
+		const indicators = document.querySelectorAll('.carousel-indicator');
+		const prevBtn = document.querySelector('.carousel-prev');
+		const nextBtn = document.querySelector('.carousel-next');
+		const counter = document.querySelector('.carousel-counter');
+
+		if (!carouselTrack || carouselSlides.length === 0) return;
+
+		let currentSlide = 0;
+		const totalSlides = carouselSlides.length;
+		let autoPlayInterval;
+
+		// Definir largura do track baseada no número de slides
+		carouselTrack.style.width = `${totalSlides * 100}%`;
+
+		// Função para atualizar o carrossel
+		function updateCarousel() {
+			const translateX = -currentSlide * 100;
+
+			// Usar requestAnimationFrame para transição suave
+			requestAnimationFrame(() => {
+				carouselTrack.style.transform = `translate3d(${translateX}%, 0, 0)`;
+			});
+
+			// Atualizar indicadores
+			indicators.forEach((indicator, index) => {
+				if (index === currentSlide) {
+					indicator.classList.add('bg-warning');
+					indicator.classList.remove('bg-muted');
+				} else {
+					indicator.classList.remove('bg-warning');
+					indicator.classList.add('bg-muted');
+				}
+			});
+
+			// Atualizar contador
+			counter.textContent = currentSlide + 1;
+
+			// Atualizar botões
+			prevBtn.disabled = currentSlide === 0;
+			nextBtn.disabled = currentSlide === totalSlides - 1;
+		}
+
+		// Função para ir para o próximo slide
+		function nextSlide() {
+			if (currentSlide < totalSlides - 1) {
+				currentSlide++;
+			} else {
+				currentSlide = 0; // Volta para o primeiro
+			}
+			updateCarousel();
+		}
+
+		// Função para ir para o slide anterior
+		function prevSlide() {
+			if (currentSlide > 0) {
+				currentSlide--;
+			} else {
+				currentSlide = totalSlides - 1; // Vai para o último
+			}
+			updateCarousel();
+		}
+
+		// Função para ir para um slide específico
+		function goToSlide(slideIndex) {
+			currentSlide = slideIndex;
+			updateCarousel();
+		}
+
+		// Função para iniciar o auto-play
+		function startAutoPlay() {
+			autoPlayInterval = setInterval(nextSlide, 8000); // 8 segundos
+		}
+
+		// Função para parar o auto-play
+		function stopAutoPlay() {
+			if (autoPlayInterval) {
+				clearInterval(autoPlayInterval);
+			}
+		}
+
+		// Event listeners
+		nextBtn.addEventListener('click', () => {
+			stopAutoPlay();
+			nextSlide();
+			startAutoPlay();
+		});
+
+		prevBtn.addEventListener('click', () => {
+			stopAutoPlay();
+			prevSlide();
+			startAutoPlay();
+		});
+
+		// Event listeners para os indicadores
+		indicators.forEach((indicator, index) => {
+			indicator.addEventListener('click', () => {
+				stopAutoPlay();
+				goToSlide(index);
+				startAutoPlay();
+			});
+		});
+
+		// Pausar auto-play quando o mouse estiver sobre o carrossel
+		const carouselContainer = document.querySelector('.carousel-container');
+		if (carouselContainer) {
+			carouselContainer.addEventListener('mouseenter', stopAutoPlay);
+			carouselContainer.addEventListener('mouseleave', startAutoPlay);
+		}
+
+		// Inicializar carrossel
+		updateCarousel();
+
+		// Iniciar auto-play apenas se houver mais de um slide
+		if (totalSlides > 1) {
+			startAutoPlay();
+		}
+
+	});
+</script>
+
+<!-- Sistema de Atualização em Tempo Real -->
+<script>
+	// Configurações de atualização
+	const REFRESH_INTERVAL = 30000; // 30 segundos
+	const API_ENDPOINT = '/api/dashboard/data';
+	let refreshInterval;
+	let isUpdating = false;
+
+	// Elementos do DOM para atualização
+	// (seletores por id + .dc-kpi-card__value, estáveis e independentes de cor/estilo)
+	const elements = {
+		// Cards de resumo
+		emAndamento: document.querySelector('#tickets-mes-card .dc-kpi-card__value'),
+		fechados: document.querySelector('#tickets-fechados-card .dc-kpi-card__value'),
+		abertos: document.querySelector('#tickets-pendentes-card .dc-kpi-card__value'),
+		totalHoras: document.querySelector('#total-horas-card .dc-kpi-card__value'),
+		osMes: document.querySelector('#os-mes-card .dc-kpi-card__value'),
+		faturamentoDia: document.querySelector('#faturamento-dia-card .dc-kpi-card__value'),
+
+		// Seções principais
+		technicianRanking: document.querySelector('.technician-ranking-section'),
+		techniciansInProgress: document.querySelector('.technicians-in-progress-section'),
+
+		// Indicadores de carregamento
+		loadingIndicators: document.querySelectorAll('.loading-indicator')
+	};
+
+	// Função para mostrar indicador de carregamento
+	function showLoading() {
+		if (isUpdating) return;
+		isUpdating = true;
+
+		// Adicionar classe de carregamento aos cards
+		document.querySelectorAll('.dc-kpi-card').forEach(card => {
+			card.classList.add('opacity-75', 'animate-pulse');
+		});
+
+		// Mostrar indicadores de carregamento
+		elements.loadingIndicators.forEach(indicator => {
+			indicator.style.display = 'block';
+		});
+	}
+
+	// Função para esconder indicador de carregamento
+	function hideLoading() {
+		isUpdating = false;
+
+		// Remover classe de carregamento dos cards
+		document.querySelectorAll('.dc-kpi-card').forEach(card => {
+			card.classList.remove('opacity-75', 'animate-pulse');
+		});
+
+		// Esconder indicadores de carregamento
+		elements.loadingIndicators.forEach(indicator => {
+			indicator.style.display = 'none';
+		});
+	}
+
+	// Função para atualizar os cards de resumo
+	function updateSummaryCards(data) {
+		const statusCounts = data.status_counts;
+
+		// Atualizar valores com animação
+		animateValue(elements.emAndamento, data.tickets_mes_count || 0);
+		animateValue(elements.fechados, statusCounts.fechado || 0);
+		animateValue(elements.abertos, statusCounts.aberto || 0);
+		animateValue(elements.totalHoras, data.total_hours.toFixed(1));
+		animateValue(elements.osMes, data.os_mes_count || 0);
+		animateValue(elements.faturamentoDia, 'R$ ' + data.faturamento_hoje.toFixed(2));
+	}
+
+	// Função para animar mudanças de valores
+	function animateValue(element, newValue) {
+		if (!element) return;
+
+		const currentValue = parseFloat(element.textContent) || 0;
+		const targetValue = parseFloat(newValue) || 0;
+
+		if (currentValue === targetValue) return;
+
+		// Adicionar classe de destaque temporariamente
+		element.classList.add('text-yellow-300', 'scale-110');
+
+		// Atualizar valor
+		element.textContent = newValue;
+
+		// Remover destaque após animação
+		setTimeout(() => {
+			element.classList.remove('text-yellow-300', 'scale-110');
+		}, 1000);
+	}
+
+	// Função para atualizar ranking de técnicos
+	function updateTechnicianRanking(data) {
+		const rankingSection = elements.technicianRanking;
+		if (!rankingSection || !data.technician_ranking) return;
+
+		// Atualizar apenas se houver mudanças significativas
+		const currentRanking = Array.from(rankingSection.querySelectorAll('.technician-name')).map(el => el.textContent);
+		const newRanking = data.technician_ranking.slice(0, 3).map(t => t.name);
+
+		if (JSON.stringify(currentRanking) !== JSON.stringify(newRanking)) {
+			// Recarregar seção inteira se ranking mudou
+			location.reload();
+		}
+	}
+
+	// Função para atualizar tickets em andamento
+	function updateTechniciansInProgress(data) {
+		const progressSection = elements.techniciansInProgress;
+		if (!progressSection || !data.technicians_in_progress) return;
+
+		// Verificar se há mudanças significativas
+		const currentCount = progressSection.querySelectorAll('.carousel-slide').length;
+		const newCount = data.technicians_in_progress.length;
+
+		if (currentCount !== newCount) {
+			// Recarregar seção se número de técnicos mudou
+			location.reload();
+		}
+	}
+
+	// Função para atualizar contagem de OS do mês
+	async function updateOsMesCount() {
+		try {
+			console.log('Iniciando atualização de OS do mês...');
+			const response = await fetch('/api/dashboard/os-mes', {
+				method: 'GET',
+				headers: {
+					'Content-Type': 'application/json',
+					'X-Requested-With': 'XMLHttpRequest'
+				}
+			});
+
+			if (!response.ok) {
+				throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+			}
+
+			const result = await response.json();
+
+			if (result.success) {
+				const count = result.data.total_os;
+				if (elements.osMes) {
+					animateValue(elements.osMes, count);
+				}
+			}
+		} catch (error) {
+			console.error('Erro ao atualizar contagem de OS do mês:', error);
+			if (elements.osMes) {
+				animateValue(elements.osMes, 0);
+			}
+		}
+	}
+
+	// Função principal de atualização
+	async function updateDashboard() {
+		try {
+			showLoading();
+
+			const response = await fetch(API_ENDPOINT, {
+				method: 'GET',
+				headers: {
+					'Content-Type': 'application/json',
+					'X-Requested-With': 'XMLHttpRequest'
+				}
+			});
+
+			if (!response.ok) {
+				throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+			}
+
+			const result = await response.json();
+
+			if (result.success) {
+				const data = result.data;
+				console.log('Dados do dashboard recebidos:', data);
+
+				// Atualizar componentes
+				updateSummaryCards(data);
+				updateTechnicianRanking(data);
+				updateTechniciansInProgress(data);
+				console.log('Chamando updateOsMesCount...');
+				updateOsMesCount();
+
+				// Mostrar timestamp da última atualização
+				updateLastRefreshTime(result.timestamp);
+
+			} else {
+				console.error('Erro na API:', result.error);
+			}
+
+		} catch (error) {
+			console.error('Erro ao atualizar dashboard:', error);
+			showErrorNotification('Erro ao atualizar dados do dashboard');
+		} finally {
+			hideLoading();
+		}
+	}
+
+	// Função para mostrar timestamp da última atualização
+	function updateLastRefreshTime(timestamp) {
+		let lastUpdateElement = document.getElementById('last-update');
+		if (!lastUpdateElement) {
+			// Criar elemento se não existir
+			lastUpdateElement = document.createElement('div');
+			lastUpdateElement.id = 'last-update';
+			lastUpdateElement.className = 'fixed bottom-4 right-4 bg-primary/90 text-white text-xs px-3 py-1 rounded-lg shadow-lg z-40';
+			document.body.appendChild(lastUpdateElement);
+		}
+
+		const updateTime = new Date(timestamp);
+		const timeString = updateTime.toLocaleTimeString('pt-BR');
+		lastUpdateElement.textContent = `Última atualização: ${timeString}`;
+
+		// Esconder após 5 segundos
+		setTimeout(() => {
+			if (lastUpdateElement) {
+				lastUpdateElement.style.opacity = '0';
+				setTimeout(() => {
+					if (lastUpdateElement && lastUpdateElement.parentNode) {
+						lastUpdateElement.parentNode.removeChild(lastUpdateElement);
+					}
+				}, 500);
+			}
+		}, 5000);
+	}
+
+	// Função para mostrar notificação de erro
+	function showErrorNotification(message) {
+		const notification = document.createElement('div');
+		notification.className = 'fixed top-4 left-1/2 transform -translate-x-1/2 bg-red-500 text-white px-4 py-2 rounded-lg shadow-lg z-50';
+		notification.textContent = message;
+		document.body.appendChild(notification);
+
+		setTimeout(() => {
+			notification.remove();
+		}, 5000);
+	}
+
+	// Função para iniciar atualizações automáticas
+	function startAutoRefresh() {
+		if (refreshInterval) {
+			clearInterval(refreshInterval);
+		}
+
+		refreshInterval = setInterval(updateDashboard, REFRESH_INTERVAL);
+		console.log(`Atualização automática iniciada (intervalo: ${REFRESH_INTERVAL / 1000}s)`);
+	}
+
+	// Função para parar atualizações automáticas
+	function stopAutoRefresh() {
+		if (refreshInterval) {
+			clearInterval(refreshInterval);
+			refreshInterval = null;
+			console.log('Atualização automática pausada');
+		}
+	}
+
+	// Função para alternar atualizações automáticas
+	function toggleAutoRefresh() {
+		if (refreshInterval) {
+			stopAutoRefresh();
+		} else {
+			startAutoRefresh();
+		}
+	}
+
+	// Inicialização quando a página carregar
+	document.addEventListener('DOMContentLoaded', function () {
+
+		// Inicializar atualizações automáticas
+		startAutoRefresh();
+
+		// Botão de controle removido conforme solicitado
+
+		// Modal Tickets do Dia
+		const ticketsDiaCard = document.getElementById('tickets-dia-card');
+		const ticketsDiaModal = document.getElementById('tickets-dia-modal');
+		const closeTicketsDiaModal = document.getElementById('close-tickets-dia-modal');
+
+		if (ticketsDiaCard) {
+			ticketsDiaCard.addEventListener('click', function () {
+				openTicketsDiaModal();
+			});
+		}
+
+		if (closeTicketsDiaModal) {
+			closeTicketsDiaModal.addEventListener('click', function () {
+				closeModal('tickets-dia-modal');
+			});
+		}
+
+		if (ticketsDiaModal) {
+			ticketsDiaModal.addEventListener('click', function (e) {
+				if (e.target === ticketsDiaModal) {
+					closeModal('tickets-dia-modal');
+				}
+			});
+		}
+
+		// Modal Faturamento do Dia
+		const faturamentoDiaCard = document.getElementById('faturamento-dia-card');
+		const faturamentoDiaModal = document.getElementById('faturamento-dia-modal');
+		const closeFaturamentoDiaModal = document.getElementById('close-faturamento-dia-modal');
+
+		if (faturamentoDiaCard) {
+			faturamentoDiaCard.addEventListener('click', function () {
+				openFaturamentoDiaModal();
+			});
+		}
+
+		if (closeFaturamentoDiaModal) {
+			closeFaturamentoDiaModal.addEventListener('click', function () {
+				closeModal('faturamento-dia-modal');
+			});
+		}
+
+		if (faturamentoDiaModal) {
+			faturamentoDiaModal.addEventListener('click', function (e) {
+				if (e.target === faturamentoDiaModal) {
+					closeModal('faturamento-dia-modal');
+				}
+			});
+		}
+
+		// Modal Total de Tickets
+		const totalTicketsCard = document.getElementById('total-tickets-card');
+		const totalTicketsModal = document.getElementById('total-tickets-modal');
+		const closeTotalTicketsModal = document.getElementById('close-total-tickets-modal');
+
+		if (totalTicketsCard) {
+			totalTicketsCard.addEventListener('click', function () {
+				openTotalTicketsModal();
+			});
+		}
+
+		if (closeTotalTicketsModal) {
+			closeTotalTicketsModal.addEventListener('click', function () {
+				closeModal('total-tickets-modal');
+			});
+		}
+
+		if (totalTicketsModal) {
+			totalTicketsModal.addEventListener('click', function (e) {
+				if (e.target === totalTicketsModal) {
+					closeModal('total-tickets-modal');
+				}
+			});
+		}
+
+		// Modal OS do Mês
+		const osMesCard = document.getElementById('os-mes-card');
+		const osMesModal = document.getElementById('os-mes-modal');
+		const closeOsMesModal = document.getElementById('close-os-mes-modal');
+
+		if (osMesCard) {
+			osMesCard.addEventListener('click', function () {
+				openOsMesModal();
+			});
+		}
+
+		if (closeOsMesModal) {
+			closeOsMesModal.addEventListener('click', function () {
+				closeModal('os-mes-modal');
+			});
+		}
+
+		if (osMesModal) {
+			osMesModal.addEventListener('click', function (e) {
+				if (e.target === osMesModal) {
+					closeModal('os-mes-modal');
+				}
+			});
+		}
+
+		// Modal Tickets Pendentes
+		const ticketsPendentesCard = document.getElementById('tickets-pendentes-card');
+		const ticketsPendentesModal = document.getElementById('tickets-pendentes-modal');
+		const closeTicketsPendentesModal = document.getElementById('close-tickets-pendentes-modal');
+
+		if (ticketsPendentesCard) {
+			ticketsPendentesCard.addEventListener('click', function () {
+				openTicketsPendentesModal();
+			});
+		}
+
+		if (closeTicketsPendentesModal) {
+			closeTicketsPendentesModal.addEventListener('click', function () {
+				closeModal('tickets-pendentes-modal');
+			});
+		}
+
+		if (ticketsPendentesModal) {
+			ticketsPendentesModal.addEventListener('click', function (e) {
+				if (e.target === ticketsPendentesModal) {
+					closeModal('tickets-pendentes-modal');
+				}
+			});
+		}
+
+		// Modal Tickets do Mês
+		const ticketsMesCard = document.getElementById('tickets-mes-card');
+		const ticketsMesModal = document.getElementById('tickets-mes-modal');
+		const closeTicketsMesModal = document.getElementById('close-tickets-mes-modal');
+
+		if (ticketsMesCard) {
+			ticketsMesCard.addEventListener('click', function () {
+				openTicketsMesModal();
+			});
+		}
+
+		if (closeTicketsMesModal) {
+			closeTicketsMesModal.addEventListener('click', function () {
+				closeModal('tickets-mes-modal');
+			});
+		}
+
+		if (ticketsMesModal) {
+			ticketsMesModal.addEventListener('click', function (e) {
+				if (e.target === ticketsMesModal) {
+					closeModal('tickets-mes-modal');
+				}
+			});
+		}
+
+		// Modal Tickets Fechados
+		const ticketsFechadosCard = document.getElementById('tickets-fechados-card');
+		const ticketsFechadosModal = document.getElementById('tickets-fechados-modal');
+		const closeTicketsFechadosModal = document.getElementById('close-tickets-fechados-modal');
+
+		if (ticketsFechadosCard) {
+			ticketsFechadosCard.addEventListener('click', function () {
+				openTicketsFechadosModal();
+			});
+		}
+
+		if (closeTicketsFechadosModal) {
+			closeTicketsFechadosModal.addEventListener('click', function () {
+				closeModal('tickets-fechados-modal');
+			});
+		}
+
+		if (ticketsFechadosModal) {
+			ticketsFechadosModal.addEventListener('click', function (e) {
+				if (e.target === ticketsFechadosModal) {
+					closeModal('tickets-fechados-modal');
+				}
+			});
+		}
+
+		// Modal Total de Horas
+		const totalHorasCard = document.getElementById('total-horas-card');
+		const totalHorasModal = document.getElementById('total-horas-modal');
+		const closeTotalHorasModal = document.getElementById('close-total-horas-modal');
+
+		if (totalHorasCard) {
+			totalHorasCard.addEventListener('click', function () {
+				openTotalHorasModal();
+			});
+		}
+
+		if (closeTotalHorasModal) {
+			closeTotalHorasModal.addEventListener('click', function () {
+				closeModal('total-horas-modal');
+			});
+		}
+
+		if (totalHorasModal) {
+			totalHorasModal.addEventListener('click', function (e) {
+				if (e.target === totalHorasModal) {
+					closeModal('total-horas-modal');
+				}
+			});
+		}
+
+		// Função para abrir modal de tickets do dia
+		function openTicketsDiaModal() {
+			openModal('tickets-dia-modal');
+			loadTicketsDia();
+		}
+
+		// Função para abrir modal de faturamento do dia
+		function openFaturamentoDiaModal() {
+			openModal('faturamento-dia-modal');
+			loadFaturamentoDia();
+		}
+
+		// Função para abrir modal de total de tickets
+		function openTotalTicketsModal() {
+			openModal('total-tickets-modal');
+			loadTotalTickets();
+		}
+
+		// Função para abrir modal de OS do mês
+		function openOsMesModal() {
+			openModal('os-mes-modal');
+			loadOsMes();
+		}
+
+		// Função para abrir modal de tickets pendentes
+		function openTicketsPendentesModal() {
+			openModal('tickets-pendentes-modal');
+			loadTicketsPendentes();
+		}
+
+		// Função para abrir modal de tickets do mês
+		function openTicketsMesModal() {
+			openModal('tickets-mes-modal');
+			loadTicketsMes();
+		}
+
+		// Função para abrir modal de tickets fechados
+		function openTicketsFechadosModal() {
+			openModal('tickets-fechados-modal');
+			loadTicketsFechados();
+		}
+
+		// Função para abrir modal de total de horas
+		function openTotalHorasModal() {
+			openModal('total-horas-modal');
+			loadTotalHoras();
+		}
+
+		// Função para carregar tickets do dia via AJAX
+		async function loadTicketsDia() {
+			try {
+				const response = await fetch('/api/dashboard/tickets-dia', {
+					method: 'GET',
+					headers: {
+						'Content-Type': 'application/json',
+						'X-Requested-With': 'XMLHttpRequest'
+					}
+				});
+
+				if (!response.ok) {
+					throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+				}
+
+				const result = await response.json();
+
+				if (result.success) {
+					renderTicketsDia(result.data);
+				} else {
+					throw new Error(result.error || 'Erro ao carregar tickets do dia');
+				}
+
+			} catch (error) {
+				console.error('Erro ao carregar tickets do dia:', error);
+				document.getElementById('tickets-dia-content').innerHTML = `
+				<div class="text-center p-8">
+					<i class="fas fa-exclamation-triangle text-4xl text-error mb-4"></i>
+					<p class="text-error">Erro ao carregar tickets do dia</p>
+					<p class="text-sm text-muted">${error.message}</p>
+				</div>
+			`;
+			}
+		}
+
+		// Função para renderizar tickets do dia
+		function renderTicketsDia(data) {
+			const content = document.getElementById('tickets-dia-content');
+
+			if (!data.tickets_por_usuario || data.tickets_por_usuario.length === 0) {
+				content.innerHTML = `
+				<div class="text-center p-8">
+					<i class="fas fa-calendar-day text-4xl text-muted mb-4"></i>
+					<p class="text-lg font-medium text-primary mb-2">Nenhum ticket fechado hoje</p>
+					<p class="text-sm text-muted">Não há tickets fechados no dia de hoje</p>
+				</div>
+			`;
+				return;
+			}
+
+			let html = `
+			<div class="mb-4 p-4 bg-tertiary rounded-lg">
+				<div class="flex items-center justify-between">
+					<div>
+						<h4 class="text-lg font-semibold text-primary">Resumo do Dia</h4>
+						<p class="text-sm text-muted">${new Date().toLocaleDateString('pt-BR', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</p>
+					</div>
+					<div class="text-right">
+						<div class="text-2xl font-bold text-success">${data.total_tickets}</div>
+						<div class="text-sm text-muted">tickets fechados</div>
+					</div>
+				</div>
+			</div>
+		`;
+
+			// Agrupar por usuário
+			data.tickets_por_usuario.forEach(usuario => {
+				html += `
+				<div class="mb-6">
+					<div class="flex items-center mb-3">
+						<div class="w-10 h-10 bg-primary/10 rounded-full flex items-center justify-center mr-3">
+							<i class="fas fa-user text-primary"></i>
+						</div>
+						<div>
+							<h5 class="font-semibold text-primary">${usuario.nome}</h5>
+							<p class="text-sm text-muted">${usuario.tickets_count} ticket${usuario.tickets_count !== 1 ? 's' : ''} fechado${usuario.tickets_count !== 1 ? 's' : ''}</p>
+						</div>
+					</div>
+					
+					<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+			`;
+
+				usuario.tickets.forEach(ticket => {
+					html += `
+					<div class="bg-secondary rounded-lg p-4 border-l-4 border-success">
+						<div class="flex items-start justify-between mb-2">
+							<div class="flex-1">
+								<div class="flex items-center gap-2 mb-1">
+									<span class="text-sm font-bold text-primary">#${ticket.id}</span>
+									<span class="px-2 py-1 text-xs font-medium rounded-full bg-success/10 text-success">
+										Fechado
+									</span>
+								</div>
+								<div class="text-sm font-medium text-primary mb-1">
+									${ticket.title.length > 40 ? ticket.title.substring(0, 40) + '...' : ticket.title}
+								</div>
+								<div class="text-xs text-muted mb-2">
+									<i class="fas fa-building mr-1"></i>${ticket.client_name}
+								</div>
+							</div>
+						</div>
+						
+						<div class="flex items-center justify-between text-xs text-muted">
+							<div class="flex items-center gap-3">
+								<span>
+									<i class="fas fa-clock mr-1"></i>
+									${ticket.hours ? ticket.hours.toFixed(1) + 'h' : '0h'}
+								</span>
+								<span>
+									<i class="fas fa-dollar-sign mr-1"></i>
+									R$ ${ticket.total_cost ? ticket.total_cost.toFixed(2) : '0,00'}
+								</span>
+							</div>
+							<div>
+								${ticket.closed_at ? new Date(ticket.closed_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : '—'}
+							</div>
+						</div>
+					</div>
+				`;
+				});
+
+				html += `
+					</div>
+				</div>
+			`;
+			});
+
+			content.innerHTML = html;
+		}
+
+		// Função para carregar faturamento do dia via AJAX
+		async function loadFaturamentoDia() {
+			try {
+				const response = await fetch('/api/dashboard/faturamento-dia', {
+					method: 'GET',
+					headers: {
+						'Content-Type': 'application/json',
+						'X-Requested-With': 'XMLHttpRequest'
+					}
+				});
+
+				if (!response.ok) {
+					throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+				}
+
+				const result = await response.json();
+
+				if (result.success) {
+					renderFaturamentoDia(result.data);
+				} else {
+					throw new Error(result.error || 'Erro ao carregar faturamento do dia');
+				}
+
+			} catch (error) {
+				console.error('Erro ao carregar faturamento do dia:', error);
+				document.getElementById('faturamento-dia-content').innerHTML = `
+				<div class="text-center p-8">
+					<i class="fas fa-exclamation-triangle text-4xl text-error mb-4"></i>
+					<p class="text-error">Erro ao carregar faturamento do dia</p>
+					<p class="text-sm text-muted">${error.message}</p>
+				</div>
+			`;
+			}
+		}
+
+		// Função para renderizar faturamento do dia
+		function renderFaturamentoDia(data) {
+			const content = document.getElementById('faturamento-dia-content');
+
+			if (!data.faturamento_por_usuario || data.faturamento_por_usuario.length === 0) {
+				content.innerHTML = `
+				<div class="text-center p-8">
+					<i class="fas fa-dollar-sign text-4xl text-muted mb-4"></i>
+					<p class="text-lg font-medium text-primary mb-2">Nenhum faturamento hoje</p>
+					<p class="text-sm text-muted">Não há tickets ou OS com faturamento no dia de hoje</p>
+				</div>
+			`;
+				return;
+			}
+
+			let html = `
+			<div class="mb-4 p-4 bg-tertiary rounded-lg">
+				<div class="flex items-center justify-between">
+					<div>
+						<h4 class="text-lg font-semibold text-primary">Resumo do Faturamento</h4>
+						<p class="text-sm text-muted">${new Date().toLocaleDateString('pt-BR', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</p>
+					</div>
+					<div class="text-right">
+						<div class="text-2xl font-bold text-success">R$ ${data.total_faturamento.toFixed(2)}</div>
+						<div class="text-sm text-muted">faturado hoje</div>
+					</div>
+				</div>
+			</div>
+		`;
+
+			// Agrupar por usuário
+			data.faturamento_por_usuario.forEach(usuario => {
+				html += `
+				<div class="mb-6">
+					<div class="flex items-center justify-between mb-3 p-3 bg-secondary rounded-lg">
+						<div class="flex items-center">
+							<div class="w-10 h-10 bg-success/10 rounded-full flex items-center justify-center mr-3">
+								<i class="fas fa-user text-success"></i>
+							</div>
+							<div>
+								<h5 class="font-semibold text-primary">${usuario.nome}</h5>
+								<p class="text-sm text-muted">
+									${usuario.tickets_count} ticket${usuario.tickets_count !== 1 ? 's' : ''} faturado${usuario.tickets_count !== 1 ? 's' : ''}
+									${usuario.os_count > 0 ? ` • ${usuario.os_count} OS finalizada${usuario.os_count !== 1 ? 's' : ''}` : ''}
+								</p>
+							</div>
+						</div>
+						<div class="text-right">
+							<div class="text-lg font-bold text-success">R$ ${usuario.faturamento_total.toFixed(2)}</div>
+							<div class="text-xs text-muted">total</div>
+						</div>
+					</div>
+					
+					<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+			`;
+
+				// Renderizar tickets
+				usuario.tickets.forEach(ticket => {
+					html += `
+					<div class="bg-secondary rounded-lg p-4 border-l-4 border-success">
+						<div class="flex items-start justify-between mb-2">
+							<div class="flex-1">
+								<div class="flex items-center gap-2 mb-1">
+									<span class="text-sm font-bold text-primary">#${ticket.id}</span>
+									<span class="px-2 py-1 text-xs font-medium rounded-full bg-success/10 text-success">
+										Ticket
+									</span>
+								</div>
+								<div class="text-sm font-medium text-primary mb-1">
+									${ticket.title.length > 40 ? ticket.title.substring(0, 40) + '...' : ticket.title}
+								</div>
+								<div class="text-xs text-muted mb-2">
+									<i class="fas fa-building mr-1"></i>${ticket.client_name}
+								</div>
+							</div>
+						</div>
+						
+						<div class="flex items-center justify-between text-xs text-muted">
+							<div class="flex items-center gap-3">
+								<span>
+									<i class="fas fa-clock mr-1"></i>
+									${ticket.hours ? ticket.hours.toFixed(1) + 'h' : '0h'}
+								</span>
+								<span class="font-semibold text-success">
+									<i class="fas fa-dollar-sign mr-1"></i>
+									R$ ${ticket.value.toFixed(2)}
+								</span>
+							</div>
+							<div>
+								${ticket.closed_at ? new Date(ticket.closed_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : '—'}
+							</div>
+						</div>
+					</div>
+				`;
+				});
+
+				// Renderizar OS
+				usuario.os.forEach(os => {
+					html += `
+					<div class="bg-secondary rounded-lg p-4 border-l-4 border-blue-500">
+						<div class="flex items-start justify-between mb-2">
+							<div class="flex-1">
+								<div class="flex items-center gap-2 mb-1">
+									<span class="text-sm font-bold text-primary">${os.codigo}</span>
+									<span class="px-2 py-1 text-xs font-medium rounded-full bg-blue-100 text-blue-600">
+										OS
+									</span>
+								</div>
+								<div class="text-sm font-medium text-primary mb-1">
+									Ordem de Serviço
+								</div>
+								<div class="text-xs text-muted mb-2">
+									<i class="fas fa-building mr-1"></i>${os.client_name}
+								</div>
+							</div>
+						</div>
+						
+						<div class="flex items-center justify-between text-xs text-muted">
+							<div class="flex items-center gap-3">
+								<span class="font-semibold text-blue-600">
+									<i class="fas fa-dollar-sign mr-1"></i>
+									R$ ${os.value.toFixed(2)}
+								</span>
+							</div>
+							<div>
+								${os.completion_date ? new Date(os.completion_date).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : '—'}
+							</div>
+						</div>
+					</div>
+				`;
+				});
+
+				html += `
+					</div>
+				</div>
+			`;
+			});
+
+			content.innerHTML = html;
+		}
+
+		// Função para carregar total de tickets via AJAX
+		async function loadTotalTickets() {
+			try {
+				const response = await fetch('/api/dashboard/data', {
+					method: 'GET',
+					headers: {
+						'Content-Type': 'application/json',
+						'X-Requested-With': 'XMLHttpRequest'
+					}
+				});
+
+				if (!response.ok) {
+					throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+				}
+
+				const result = await response.json();
+
+				if (result.success) {
+					renderTotalTickets(result.data);
+				} else {
+					throw new Error(result.error || 'Erro ao carregar total de tickets');
+				}
+
+			} catch (error) {
+				console.error('Erro ao carregar total de tickets:', error);
+				document.getElementById('total-tickets-content').innerHTML = `
+				<div class="text-center p-8">
+					<i class="fas fa-exclamation-triangle text-4xl text-error mb-4"></i>
+					<p class="text-error">Erro ao carregar total de tickets</p>
+					<p class="text-sm text-muted">${error.message}</p>
+				</div>
+			`;
+			}
+		}
+
+		// Função para renderizar total de tickets
+		function renderTotalTickets(data) {
+			const content = document.getElementById('total-tickets-content');
+
+			const totalTickets = (data.status_counts.aberto || 0) + (data.status_counts.em_andamento || 0) + (data.status_counts.fechado || 0);
+
+			let html = `
+			<div class="mb-4 p-4 bg-tertiary rounded-lg">
+				<div class="flex items-center justify-between">
+					<div>
+						<h4 class="text-lg font-semibold text-primary">Resumo Geral</h4>
+						<p class="text-sm text-muted">Todos os tickets do sistema</p>
+					</div>
+					<div class="text-right">
+						<div class="text-2xl font-bold text-primary">${totalTickets}</div>
+						<div class="text-sm text-muted">tickets totais</div>
+					</div>
+				</div>
+			</div>
+			
+			<div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+				<div class="bg-secondary rounded-lg p-4 border-l-4 border-red-500">
+					<div class="flex items-center justify-between">
+						<div>
+							<p class="text-sm font-medium text-muted">Abertos</p>
+							<p class="text-2xl font-bold text-red-500">${data.status_counts.aberto || 0}</p>
+						</div>
+						<i class="fas fa-exclamation-circle text-red-500 text-2xl"></i>
+					</div>
+				</div>
+				
+				<div class="bg-secondary rounded-lg p-4 border-l-4 border-orange-500">
+					<div class="flex items-center justify-between">
+						<div>
+							<p class="text-sm font-medium text-muted">Em Andamento</p>
+							<p class="text-2xl font-bold text-orange-500">${data.status_counts.em_andamento || 0}</p>
+						</div>
+						<i class="fas fa-clock text-orange-500 text-2xl"></i>
+					</div>
+				</div>
+				
+				<div class="bg-secondary rounded-lg p-4 border-l-4 border-green-500">
+					<div class="flex items-center justify-between">
+						<div>
+							<p class="text-sm font-medium text-muted">Fechados</p>
+							<p class="text-2xl font-bold text-green-500">${data.status_counts.fechado || 0}</p>
+						</div>
+						<i class="fas fa-check-circle text-green-500 text-2xl"></i>
+					</div>
+				</div>
+			</div>
+		`;
+
+			content.innerHTML = html;
+		}
+
+		// Função para carregar tickets pendentes via AJAX
+		async function loadTicketsPendentes() {
+			try {
+				const response = await fetch('/api/dashboard/tickets-pendentes', {
+					method: 'GET',
+					headers: {
+						'Content-Type': 'application/json',
+						'X-Requested-With': 'XMLHttpRequest'
+					}
+				});
+
+				if (!response.ok) {
+					throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+				}
+
+				const result = await response.json();
+
+				if (result.success) {
+					renderTicketsPendentes(result.data);
+				} else {
+					throw new Error(result.error || 'Erro ao carregar tickets pendentes');
+				}
+
+			} catch (error) {
+				console.error('Erro ao carregar tickets pendentes:', error);
+				document.getElementById('tickets-pendentes-content').innerHTML = `
+				<div class="text-center p-8">
+					<i class="fas fa-exclamation-triangle text-4xl text-error mb-4"></i>
+					<p class="text-error">Erro ao carregar tickets pendentes</p>
+					<p class="text-sm text-muted">${error.message}</p>
+				</div>
+			`;
+			}
+		}
+
+		// Função para renderizar tickets pendentes
+		function renderTicketsPendentes(data) {
+			const content = document.getElementById('tickets-pendentes-content');
+
+			if (!data.tickets_por_usuario || data.tickets_por_usuario.length === 0) {
+				content.innerHTML = `
+				<div class="text-center p-8">
+					<i class="fas fa-check-circle text-4xl text-success mb-4"></i>
+					<p class="text-lg font-medium text-primary mb-2">Nenhum ticket pendente</p>
+					<p class="text-sm text-muted">Todos os tickets estão sendo trabalhados ou foram concluídos</p>
+				</div>
+			`;
+				return;
+			}
+
+			let html = `
+			<div class="mb-4 p-4 bg-tertiary rounded-lg">
+				<div class="flex items-center justify-between">
+					<div>
+						<h4 class="text-lg font-semibold text-primary">Tickets Pendentes</h4>
+						<p class="text-sm text-muted">Aguardando início de trabalho</p>
+					</div>
+					<div class="text-right">
+						<div class="text-2xl font-bold text-red-500">${data.total_tickets}</div>
+						<div class="text-sm text-muted">tickets pendentes</div>
+					</div>
+				</div>
+			</div>
+		`;
+
+			// Agrupar por usuário
+			data.tickets_por_usuario.forEach(usuario => {
+				html += `
+				<div class="mb-6">
+					<div class="flex items-center justify-between mb-3 p-3 bg-secondary rounded-lg">
+						<div class="flex items-center">
+							<div class="w-10 h-10 bg-red-500/10 rounded-full flex items-center justify-center mr-3">
+								<i class="fas fa-user text-red-500"></i>
+							</div>
+							<div>
+								<h5 class="font-semibold text-primary">${usuario.nome}</h5>
+								<p class="text-sm text-muted">${usuario.tickets_count} ticket${usuario.tickets_count !== 1 ? 's' : ''} pendente${usuario.tickets_count !== 1 ? 's' : ''}</p>
+							</div>
+						</div>
+					</div>
+					
+					<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+			`;
+
+				usuario.tickets.forEach(ticket => {
+					html += `
+					<div class="bg-secondary rounded-lg p-4 border-l-4 border-red-500">
+						<div class="flex items-start justify-between mb-2">
+							<div class="flex-1">
+								<div class="flex items-center gap-2 mb-1">
+									<span class="text-sm font-bold text-primary">#${ticket.id}</span>
+									<span class="px-2 py-1 text-xs font-medium rounded-full bg-red-500/10 text-red-500">
+										Pendente
+									</span>
+								</div>
+								<div class="text-sm font-medium text-primary mb-1">
+									${ticket.title.length > 40 ? ticket.title.substring(0, 40) + '...' : ticket.title}
+								</div>
+								<div class="text-xs text-muted mb-2">
+									<i class="fas fa-building mr-1"></i>${ticket.client_name}
+								</div>
+							</div>
+						</div>
+						
+						<div class="flex items-center justify-between text-xs text-muted">
+							<div>
+								${ticket.created_at ? new Date(ticket.created_at).toLocaleDateString('pt-BR') : '—'}
+							</div>
+							<div class="capitalize">
+								${ticket.priority}
+							</div>
+						</div>
+					</div>
+				`;
+				});
+
+				html += `
+					</div>
+				</div>
+			`;
+			});
+
+			content.innerHTML = html;
+		}
+
+		// Função para carregar tickets do mês via AJAX
+		async function loadTicketsMes() {
+			try {
+				const response = await fetch('/api/dashboard/tickets-mes', {
+					method: 'GET',
+					headers: {
+						'Content-Type': 'application/json',
+						'X-Requested-With': 'XMLHttpRequest'
+					}
+				});
+
+				if (!response.ok) {
+					throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+				}
+
+				const result = await response.json();
+
+				if (result.success) {
+					renderTicketsMes(result.data);
+				} else {
+					throw new Error(result.error || 'Erro ao carregar tickets do mês');
+				}
+
+			} catch (error) {
+				console.error('Erro ao carregar tickets do mês:', error);
+				document.getElementById('tickets-mes-content').innerHTML = `
+				<div class="text-center p-8">
+					<i class="fas fa-exclamation-triangle text-4xl text-error mb-4"></i>
+					<p class="text-error">Erro ao carregar tickets do mês</p>
+					<p class="text-sm text-muted">${error.message}</p>
+				</div>
+			`;
+			}
+		}
+
+		// Função para renderizar tickets do mês
+		function renderTicketsMes(data) {
+			const content = document.getElementById('tickets-mes-content');
+
+			if (!data.tickets_por_usuario || data.tickets_por_usuario.length === 0) {
+				content.innerHTML = `
+				<div class="text-center p-8">
+					<i class="fas fa-calendar-alt text-4xl text-muted mb-4"></i>
+					<p class="text-lg font-medium text-primary mb-2">Nenhum ticket finalizado este mês</p>
+					<p class="text-sm text-muted">Não há registros de tickets finalizados no período atual</p>
+				</div>
+			`;
+				return;
+			}
+
+			let html = `
+			<div class="mb-4 p-4 bg-tertiary rounded-lg">
+				<div class="flex items-center justify-between">
+					<div>
+						<h4 class="text-lg font-semibold text-primary">Tickets do Mês (Finalizados)</h4>
+						<p class="text-sm text-muted">Finalizados no mês atual</p>
+					</div>
+					<div class="text-right">
+						<div class="text-2xl font-bold text-orange-500">${data.total_tickets}</div>
+						<div class="text-sm text-muted">tickets finalizados</div>
+					</div>
+				</div>
+			</div>
+		`;
+
+			// Agrupar por usuário
+			data.tickets_por_usuario.forEach(usuario => {
+				html += `
+				<div class="mb-6">
+					<div class="flex items-center justify-between mb-3 p-3 bg-secondary rounded-lg">
+						<div class="flex items-center">
+							<div class="w-10 h-10 bg-orange-500/10 rounded-full flex items-center justify-center mr-3">
+								<i class="fas fa-user text-orange-500"></i>
+							</div>
+							<div>
+								<h5 class="font-semibold text-primary">${usuario.nome}</h5>
+								<p class="text-sm text-muted">${usuario.tickets_count} ticket${usuario.tickets_count !== 1 ? 's' : ''} finalizado${usuario.tickets_count !== 1 ? 's' : ''} no mês</p>
+							</div>
+						</div>
+					</div>
+					
+					<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+			`;
+
+				usuario.tickets.forEach(ticket => {
+					// Determinar classes CSS baseadas no status
+					let borderClass, badgeClass, cardClass, statusLabel;
+					if (ticket.status === 'fechado') {
+						borderClass = 'border-success';
+						badgeClass = 'bg-success/10 text-success';
+						cardClass = 'ticket-card-green';
+						statusLabel = 'Fechado';
+					} else if (ticket.status === 'em_andamento') {
+						borderClass = 'border-orange-500';
+						badgeClass = 'bg-orange-100 text-orange-700';
+						cardClass = 'ticket-card-orange';
+						statusLabel = 'Em Andamento';
+					} else {
+						borderClass = 'border-blue-500';
+						badgeClass = 'bg-blue-100 text-blue-700';
+						cardClass = 'ticket-card-blue';
+						statusLabel = 'Aberto';
+					}
+
+					html += `
+					<div class="bg-secondary rounded-lg p-4 border-l-4 ${borderClass} ${cardClass}">
+						<div class="flex items-start justify-between mb-2">
+							<div class="flex-1">
+								<div class="flex items-center gap-2 mb-1">
+									<span class="text-sm font-bold text-primary">#${ticket.id}</span>
+									<span class="px-2 py-1 text-xs font-medium rounded-full ${badgeClass}">
+										${statusLabel}
+									</span>
+								</div>
+								<div class="text-sm font-medium text-primary mb-1">
+									${ticket.title.length > 40 ? ticket.title.substring(0, 40) + '...' : ticket.title}
+								</div>
+								<div class="text-xs text-muted mb-2">
+									<i class="fas fa-building mr-1"></i>${ticket.client_name}
+								</div>
+							</div>
+						</div>
+						
+						<div class="flex items-center justify-between text-xs text-muted">
+							<div class="flex items-center gap-3">
+								<span>
+									<i class="fas fa-hourglass-half mr-1"></i>
+									${ticket.hours ? ticket.hours.toFixed(1) + 'h' : '0h'}
+								</span>
+							</div>
+						</div>
+						<div class="text-xs text-muted mt-1 flex flex-col gap-1">
+							<div>
+								<i class="fas fa-calendar-plus mr-1"></i>
+								Criado em: ${ticket.created_at ? new Date(ticket.created_at).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—'}
+							</div>
+							<div>
+								<i class="fas fa-calendar-check mr-1"></i>
+								Fechado em: ${ticket.closed_at ? new Date(ticket.closed_at).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—'}
+							</div>
+						</div>
+					</div>
+				`;
+				});
+
+				html += `
+					</div>
+				</div>
+			`;
+			});
+
+			content.innerHTML = html;
+		}
+
+		// Função para carregar tickets fechados via AJAX
+		async function loadTicketsFechados() {
+			try {
+				const response = await fetch('/api/dashboard/tickets-fechados', {
+					method: 'GET',
+					headers: {
+						'Content-Type': 'application/json',
+						'X-Requested-With': 'XMLHttpRequest'
+					}
+				});
+
+				if (!response.ok) {
+					throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+				}
+
+				const result = await response.json();
+
+				if (result.success) {
+					renderTicketsFechados(result.data);
+				} else {
+					throw new Error(result.error || 'Erro ao carregar tickets fechados');
+				}
+
+			} catch (error) {
+				console.error('Erro ao carregar tickets fechados:', error);
+				document.getElementById('tickets-fechados-content').innerHTML = `
+				<div class="text-center p-8">
+					<i class="fas fa-exclamation-triangle text-4xl text-error mb-4"></i>
+					<p class="text-error">Erro ao carregar tickets fechados</p>
+					<p class="text-sm text-muted">${error.message}</p>
+				</div>
+			`;
+			}
+		}
+
+		// Função para renderizar tickets fechados
+		function renderTicketsFechados(data) {
+			const content = document.getElementById('tickets-fechados-content');
+
+			if (!data.tickets_por_usuario || data.tickets_por_usuario.length === 0) {
+				content.innerHTML = `
+				<div class="text-center p-8">
+					<i class="fas fa-check-circle text-4xl text-muted mb-4"></i>
+					<p class="text-lg font-medium text-primary mb-2">Nenhum ticket fechado</p>
+					<p class="text-sm text-muted">Não há tickets concluídos ainda</p>
+				</div>
+			`;
+				return;
+			}
+
+			let html = `
+			<div class="mb-4 p-4 bg-tertiary rounded-lg">
+				<div class="flex items-center justify-between">
+					<div>
+						<h4 class="text-lg font-semibold text-primary">Tickets Fechados</h4>
+						<p class="text-sm text-muted">Concluídos e finalizados</p>
+					</div>
+					<div class="text-right">
+						<div class="text-2xl font-bold text-green-500">${data.total_tickets}</div>
+						<div class="text-sm text-muted">tickets fechados</div>
+					</div>
+				</div>
+			</div>
+		`;
+
+			// Agrupar por usuário
+			data.tickets_por_usuario.forEach((usuario, index) => {
+				// Calcular total de valor do técnico
+				const isOpen = index === 0 ? 'open' : ''; // Primeiro item aberto por padrão
+
+				html += `
+				<details class="mb-4 bg-secondary rounded-lg overflow-hidden group border border-muted/20" ${isOpen}>
+					<summary class="flex items-center justify-between p-4 cursor-pointer hover:bg-tertiary/50 transition-colors list-none select-none">
+						<div class="flex items-center">
+							<div class="w-6 h-6 flex items-center justify-center mr-2 transition-transform duration-300 group-open:rotate-90">
+								<i class="fas fa-chevron-right text-muted"></i>
+							</div>
+							<div class="w-10 h-10 bg-green-500/10 rounded-full flex items-center justify-center mr-3">
+								<i class="fas fa-user text-green-500"></i>
+							</div>
+							<div>
+								<h5 class="font-semibold text-primary">${usuario.nome}</h5>
+								<div class="flex items-center gap-2 text-sm text-muted">
+									<span>${usuario.tickets_count} ticket${usuario.tickets_count !== 1 ? 's' : ''}</span>
+								</div>
+							</div>
+						</div>
+						
+
+					</summary>
+					
+					<div class="p-4 bg-tertiary/20 border-t border-muted/10 animation-fade-in">
+						<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+			`;
+
+				usuario.tickets.forEach(ticket => {
+					html += `
+					<div class="bg-secondary rounded-lg p-4 border-l-4 border-green-500 hover:shadow-md transition-shadow">
+						<div class="flex items-start justify-between mb-2">
+							<div class="flex-1">
+								<div class="flex items-center gap-2 mb-1">
+									<span class="text-sm font-bold text-primary">#${ticket.id}</span>
+									<span class="px-2 py-1 text-xs font-medium rounded-full bg-green-500/10 text-green-500">
+										Fechado
+									</span>
+								</div>
+								<div class="text-sm font-medium text-primary mb-1">
+									${ticket.title.length > 40 ? ticket.title.substring(0, 40) + '...' : ticket.title}
+								</div>
+								<div class="text-xs text-muted mb-2">
+									<i class="fas fa-building mr-1"></i>${ticket.client_name}
+								</div>
+							</div>
+						</div>
+						
+						<div class="flex items-center justify-between text-xs text-muted">
+							<div class="flex items-center gap-3">
+								<span>
+									<i class="fas fa-clock mr-1"></i>
+									${ticket.hours ? ticket.hours.toFixed(1) + 'h' : '0h'}
+								</span>
+								<span class="font-semibold text-success">
+									<i class="fas fa-dollar-sign mr-1"></i>
+									R$ ${ticket.value.toFixed(2)}
+								</span>
+							</div>
+							<div>
+								${ticket.closed_at ? new Date(ticket.closed_at).toLocaleDateString('pt-BR') : '—'}
+							</div>
+						</div>
+					</div>
+				`;
+				});
+
+				html += `
+						</div>
+					</div>
+				</details>
+			`;
+			});
+
+			content.innerHTML = html;
+		}
+
+		// Função para carregar OS do mês via AJAX
+		async function loadOsMes() {
+			try {
+				const response = await fetch('/api/dashboard/os-mes', {
+					method: 'GET',
+					headers: {
+						'Content-Type': 'application/json',
+						'X-Requested-With': 'XMLHttpRequest'
+					}
+				});
+
+				if (!response.ok) {
+					throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+				}
+
+				const result = await response.json();
+
+				if (result.success) {
+					renderOsMes(result.data);
+				} else {
+					throw new Error(result.error || 'Erro ao carregar ordens de serviço');
+				}
+
+			} catch (error) {
+				console.error('Erro ao carregar ordens de serviço do mês:', error);
+				document.getElementById('os-mes-content').innerHTML = `
+				<div class="text-center p-8">
+					<i class="fas fa-exclamation-triangle text-4xl text-error mb-4"></i>
+					<p class="text-error">Erro ao carregar ordens de serviço</p>
+					<p class="text-sm text-muted">${error.message}</p>
+				</div>
+			`;
+			}
+		}
+
+		// Função para renderizar OS do mês
+		function renderOsMes(data) {
+			const content = document.getElementById('os-mes-content');
+
+			if (!data.os_por_usuario || data.os_por_usuario.length === 0) {
+				content.innerHTML = `
+				<div class="text-center p-8">
+					<i class="fas fa-file-invoice text-4xl text-muted mb-4"></i>
+					<p class="text-lg font-medium text-primary mb-2">Nenhuma ordem de serviço este mês</p>
+					<p class="text-sm text-muted">Não há registros de ordens de serviço finalizadas no período atual</p>
+				</div>
+			`;
+				return;
+			}
+
+			let html = `
+			<div class="mb-4 p-4 bg-tertiary rounded-lg">
+				<div class="flex items-center justify-between">
+					<div>
+						<h4 class="text-lg font-semibold text-primary">Ordens de Serviço do Mês</h4>
+						<p class="text-sm text-muted">Finalizadas no período atual</p>
+					</div>
+					<div class="text-right">
+						<div class="text-2xl font-bold text-success">${data.total_os}</div>
+						<div class="text-sm text-muted">finalizadas</div>
+					</div>
+				</div>
+			</div>
+		`;
+
+			// Agrupar por usuário
+			data.os_por_usuario.forEach(usuario => {
+				html += `
+				<div class="mb-6">
+					<div class="flex items-center justify-between mb-3 p-3 bg-secondary rounded-lg">
+						<div class="flex items-center">
+							<div class="w-10 h-10 bg-success/10 rounded-full flex items-center justify-center mr-3">
+								<i class="fas fa-user text-success"></i>
+							</div>
+							<div>
+								<h5 class="font-semibold text-primary">${usuario.nome}</h5>
+								<p class="text-sm text-muted">${usuario.os_count} OS finalizada${usuario.os_count !== 1 ? 's' : ''} no mês</p>
+							</div>
+						</div>
+					</div>
+					
+					<div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+			`;
+
+				usuario.os_list.forEach(os => {
+					// Determinar classes CSS baseadas no status
+					let borderClass, badgeClass, cardClass, statusLabel;
+					if (os.no_charge || os.status === 3) {
+						borderClass = 'border-blue-500';
+						badgeClass = 'bg-blue-100 text-blue-700';
+						cardClass = 'ticket-card-blue';
+						statusLabel = 'Sem Cobrança';
+					} else {
+						borderClass = 'border-success';
+						badgeClass = 'bg-success/10 text-success';
+						cardClass = 'ticket-card-green';
+						statusLabel = 'Faturada';
+					}
+
+					html += `
+					<div class="bg-secondary rounded-lg p-4 border-l-4 ${borderClass} ${cardClass}">
+						<div class="flex items-start justify-between mb-2">
+							<div class="flex-1">
+								<div class="flex items-center gap-2 mb-1">
+									<span class="text-sm font-bold text-primary">${os.codigo}</span>
+									<span class="px-2 py-1 text-xs font-medium rounded-full ${badgeClass}">
+										${statusLabel}
+									</span>
+								</div>
+								<div class="text-sm font-medium text-primary mb-1 truncate" title="${os.equipment}">
+									<i class="fas fa-desktop mr-1 text-muted text-xs"></i>${os.equipment || 'Equipamento não especificado'}
+								</div>
+								<div class="text-xs text-muted mb-2 truncate" title="${os.client_name}">
+									<i class="fas fa-building mr-1"></i>${os.client_name}
+								</div>
+							</div>
+						</div>
+						
+						<div class="text-xs text-muted mb-2 line-clamp-2" title="${os.service_executed}">
+							<strong>Serviço:</strong> ${os.service_executed || 'Não especificado'}
+						</div>
+						
+						<div class="flex items-center justify-between text-xs text-muted">
+							<div class="flex items-center gap-3">
+								<span class="font-semibold text-success">
+									R$ ${os.value.toFixed(2)}
+								</span>
+							</div>
+						</div>
+						<div class="text-xs text-muted mt-1">
+							<i class="fas fa-calendar-check mr-1"></i>
+							Finalizada: ${os.completion_date ? new Date(os.completion_date).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—'}
+						</div>
+					</div>
+				`;
+				});
+
+				html += `
+					</div>
+				</div>
+			`;
+			});
+
+			content.innerHTML = html;
+		}
+
+		// Função para carregar total de horas via AJAX
+		async function loadTotalHoras() {
+			try {
+				const response = await fetch('/api/dashboard/total-horas', {
+					method: 'GET',
+					headers: {
+						'Content-Type': 'application/json',
+						'X-Requested-With': 'XMLHttpRequest'
+					}
+				});
+
+				if (!response.ok) {
+					throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+				}
+
+				const result = await response.json();
+
+				if (result.success) {
+					renderTotalHoras(result.data);
+				} else {
+					throw new Error(result.error || 'Erro ao carregar total de horas');
+				}
+
+			} catch (error) {
+				console.error('Erro ao carregar total de horas:', error);
+				document.getElementById('total-horas-content').innerHTML = `
+				<div class="text-center p-8">
+					<i class="fas fa-exclamation-triangle text-4xl text-error mb-4"></i>
+					<p class="text-error">Erro ao carregar total de horas</p>
+					<p class="text-sm text-muted">${error.message}</p>
+				</div>
+			`;
+			}
+		}
+
+		// Função para renderizar total de horas
+		function renderTotalHoras(data) {
+			const content = document.getElementById('total-horas-content');
+
+			if (!data.hours_by_user || data.hours_by_user.length === 0) {
+				content.innerHTML = `
+				<div class="text-center p-8">
+					<i class="fas fa-hourglass-half text-4xl text-muted mb-4"></i>
+					<p class="text-lg font-medium text-primary mb-2">Nenhuma hora trabalhada</p>
+					<p class="text-sm text-muted">Não há horas apontadas no sistema</p>
+				</div>
+			`;
+				return;
+			}
+
+			let html = `
+			<div class="mb-4 p-4 bg-tertiary rounded-lg">
+				<div class="flex items-center justify-between">
+					<div>
+						<h4 class="text-lg font-semibold text-primary">Total de Horas Trabalhadas</h4>
+						<p class="text-sm text-muted">Por técnico</p>
+					</div>
+					<div class="text-right">
+						<div class="text-2xl font-bold text-purple-500">${data.total_hours.toFixed(1)}h</div>
+						<div class="text-sm text-muted">total de horas</div>
+					</div>
+				</div>
+			</div>
+		`;
+
+			// Listar por usuário
+			data.hours_by_user.forEach(usuario => {
+				const percentage = data.total_hours > 0 ? (usuario.total_hours / data.total_hours * 100) : 0;
+
+				html += `
+				<div class="mb-4 p-4 bg-secondary rounded-lg">
+					<div class="flex items-center justify-between mb-3">
+						<div class="flex items-center">
+							<div class="w-10 h-10 bg-purple-500/10 rounded-full flex items-center justify-center mr-3">
+								<i class="fas fa-user text-purple-500"></i>
+							</div>
+							<div>
+								<h5 class="font-semibold text-primary">${usuario.nome}</h5>
+								<p class="text-sm text-muted">${usuario.entries_count} apontamento${usuario.entries_count !== 1 ? 's' : ''}</p>
+							</div>
+						</div>
+						<div class="text-right">
+							<div class="text-lg font-bold text-purple-500">${usuario.total_hours.toFixed(1)}h</div>
+							<div class="text-xs text-muted">${percentage.toFixed(1)}% do total</div>
+						</div>
+					</div>
+					
+					<div class="w-full bg-gray-200 rounded-full h-2">
+						<div class="bg-purple-500 h-2 rounded-full" style="width: ${percentage}%"></div>
+					</div>
+				</div>
+			`;
+			});
+
+			content.innerHTML = html;
+		}
+
+		// Pausar atualizações quando a aba não estiver visível
+		document.addEventListener('visibilitychange', function () {
+			if (document.hidden) {
+				stopAutoRefresh();
+			} else {
+				startAutoRefresh();
+				// Atualizar imediatamente quando voltar à aba
+				updateDashboard();
+			}
+		});
+
+		// Atualização manual com F5 ou Ctrl+R
+		document.addEventListener('keydown', function (e) {
+			if (e.key === 'F5' || (e.ctrlKey && e.key === 'r')) {
+				e.preventDefault();
+				updateDashboard();
+			}
+		});
+
+		console.log('Dashboard com atualização em tempo real inicializado');
+	});
+</script>
+{% endblock %}

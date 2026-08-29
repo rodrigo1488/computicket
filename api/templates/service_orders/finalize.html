@@ -1,0 +1,539 @@
+{% extends "base.html" %}
+
+{% block page_title %}✅ Finalizar Ordem de Serviço{% endblock %}
+
+{% block content %}
+<div class="bg-secondary rounded-lg shadow-lg p-6">
+	<div class="flex items-center justify-between mb-6">
+		<div>
+			<h1 class="text-2xl font-bold text-primary mb-2">Finalizar Ordem de Serviço</h1>
+			<p class="text-muted">Busque e finalize ordens de serviço do sistema externo</p>
+		</div>
+		<a href="{{ url_for('service_orders.list_service_orders') }}" class="btn btn-secondary">
+			<i class="fas fa-arrow-left"></i>
+			Voltar
+		</a>
+	</div>
+
+	<!-- Campo de busca -->
+	<div class="search-container">
+		<div class="search-input">
+			<i class="fas fa-search"></i>
+			<input type="text" id="codigo-os" placeholder="Digite o código da OS ou nome do cliente">
+		</div>
+		<div class="mt-4">
+			<button id="buscar-os" class="btn btn-primary btn-full">
+				<i class="fas fa-search"></i>
+				<span class="search-text">Buscar OS</span>
+			</button>
+		</div>
+	</div>
+
+	<!-- Loading -->
+	<div id="loading" class="hidden">
+		<div class="loading">
+			<i class="fas fa-spinner"></i>
+			Buscando ordem de serviço...
+		</div>
+	</div>
+
+	<!-- Erro -->
+	<div id="error" class="hidden bg-error/10 border border-error/20 rounded-lg p-4 mb-6">
+		<div class="flex items-start">
+			<div class="flex-shrink-0">
+				<i class="fas fa-exclamation-triangle text-error"></i>
+			</div>
+			<div class="ml-3">
+				<h3 class="text-sm font-medium text-error">Erro</h3>
+				<div class="mt-2 text-sm text-error/80" id="error-message"></div>
+			</div>
+		</div>
+	</div>
+
+	<!-- Dados da OS -->
+	<div id="os-data" class="hidden">
+		<div class="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6 mb-6">
+			<!-- Dados da Ordem -->
+			<div class="bg-tertiary rounded-lg p-6">
+				<h3 class="text-lg font-semibold text-primary mb-4 flex items-center">
+					<i class="fas fa-clipboard-list mr-2"></i>
+					Dados da Ordem de Serviço
+				</h3>
+				<div class="space-y-4">
+					<div>
+						<label class="form-label">Código</label>
+						<p class="text-primary font-medium" id="os-codigo"></p>
+					</div>
+					<div>
+						<label class="form-label">Data de Abertura</label>
+						<p class="text-secondary" id="os-data-abertura"></p>
+					</div>
+					<div>
+						<label class="form-label">Equipamento</label>
+						<p class="text-secondary" id="os-equipamento"></p>
+					</div>
+					<div>
+						<label class="form-label">Problema Descrito</label>
+						<p class="text-secondary" id="os-problema"></p>
+					</div>
+					<div>
+						<label class="form-label">Técnico</label>
+						<p class="text-secondary" id="os-tecnico"></p>
+					</div>
+				</div>
+			</div>
+
+			<!-- Dados do Cliente -->
+			<div class="bg-tertiary rounded-lg p-6">
+				<h3 class="text-lg font-semibold text-primary mb-4 flex items-center">
+					<i class="fas fa-user mr-2"></i>
+					Dados do Cliente
+				</h3>
+				<div class="space-y-4">
+					<div>
+						<label class="form-label">Nome</label>
+						<p class="text-primary font-medium" id="cliente-nome"></p>
+					</div>
+					<div>
+						<label class="form-label">CPF/CNPJ</label>
+						<p class="text-secondary" id="cliente-documento"></p>
+					</div>
+					<div>
+						<label class="form-label">Telefone</label>
+						<p class="text-secondary" id="cliente-telefone"></p>
+					</div>
+					<div>
+						<label class="form-label">Endereço</label>
+						<p class="text-secondary" id="cliente-endereco"></p>
+					</div>
+					<div>
+						<label class="form-label">Tipo de Contrato</label>
+						<p class="text-secondary" id="cliente-contrato"></p>
+					</div>
+				</div>
+			</div>
+		</div>
+
+		<!-- Formulário de Finalização -->
+		<div class="bg-secondary rounded-lg shadow-lg p-6">
+			<h3 class="text-lg font-semibold text-primary mb-6 flex items-center">
+				<i class="fas fa-check-circle mr-2"></i>
+				Finalização do Serviço
+			</h3>
+			<form id="finalizar-form" class="space-y-6">
+				<div class="form-group">
+					<label for="servico-executado" class="form-label">
+						Serviço Executado *
+					</label>
+					<textarea id="servico-executado" name="servico_executado" rows="4" required class="form-textarea"
+						placeholder="Descreva detalhadamente o serviço executado..."></textarea>
+				</div>
+
+				<div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+					<div class="form-group">
+						<label class="form-label">Produtos (opcional)</label>
+						<div class="space-y-3">
+							<button type="button" id="abrir-modal-produtos" class="btn btn-secondary w-full">
+								<i class="fas fa-plus"></i>
+								Incluir produtos
+							</button>
+							<div id="resumo-produtos" class="hidden bg-tertiary rounded-lg p-3 text-sm"></div>
+						</div>
+					</div>
+					<div class="form-group">
+						<label for="valor" class="form-label">
+							Valor (R$)
+						</label>
+						<input type="number" id="valor" name="valor" step="0.01" min="0" class="form-input"
+							placeholder="0,00">
+						<div id="no-charge-warning"
+							class="hidden mt-3 p-3 bg-warning/10 border border-warning/20 rounded-lg">
+							<div class="flex items-start">
+								<div class="flex-shrink-0">
+									<i class="fas fa-exclamation-triangle text-warning"></i>
+								</div>
+								<div class="ml-3 flex-1">
+									<p class="text-sm text-warning/90">
+										<strong>Cliente com contrato "não cobra atendimento"</strong><br>
+										O valor será automaticamente definido como R$ 0,00
+									</p>
+									<button type="button" id="btn-force-charge-os"
+										class="mt-2 text-xs font-bold text-primary hover:underline flex items-center">
+										<i class="fas fa-money-bill-wave mr-1"></i>
+										Cobrar mesmo assim (Manual)
+									</button>
+								</div>
+							</div>
+						</div>
+						<div id="force-charge-os-info"
+							class="hidden mt-3 p-3 bg-info/10 border border-info/20 rounded-lg">
+							<div class="flex items-start">
+								<div class="flex-shrink-0">
+									<i class="fas fa-info-circle text-info"></i>
+								</div>
+								<div class="ml-3 flex-1">
+									<p class="text-sm text-info/90">
+										<strong>Cobrança Manual Ativada</strong><br>
+										A isenção automática foi ignorada para esta OS.
+									</p>
+									<button type="button" id="btn-reset-charge-os"
+										class="mt-2 text-xs font-bold text-error hover:underline flex items-center">
+										<i class="fas fa-undo mr-1"></i>
+										Restaurar Isenção Automática
+									</button>
+								</div>
+							</div>
+						</div>
+					</div>
+				</div>
+				<div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+					<div class="flex items-end">
+						<button type="submit" id="finalizar-btn" class="btn btn-success w-full">
+							<i class="fas fa-check-circle"></i>
+							Finalizar Ordem de Serviço
+						</button>
+					</div>
+				</div>
+			</form>
+		</div>
+	</div>
+
+	<!-- Sucesso -->
+	<div id="success" class="hidden bg-success/10 border border-success/20 rounded-lg p-4 mb-6">
+		<div class="flex items-start">
+			<div class="flex-shrink-0">
+				<i class="fas fa-check-circle text-success"></i>
+			</div>
+			<div class="ml-3">
+				<h3 class="text-sm font-medium text-success">Sucesso</h3>
+				<div class="mt-2 text-sm text-success/80" id="success-message"></div>
+			</div>
+		</div>
+	</div>
+</div>
+
+<!-- Modal de seleção de OS -->
+<div id="modal-os" class="hidden fixed inset-0 z-1050 flex items-center justify-center p-4 sm:p-6"
+	style="background-color: rgba(0, 0, 0, 0.75); backdrop-filter: blur(4px);">
+	<div class="relative w-full max-w-4xl rounded-xl shadow-2xl flex flex-col overflow-hidden border border-slate-700 bg-slate-950"
+		style="max-height: 85vh;">
+		<div class="px-5 py-3 border-b border-slate-700 flex items-center justify-between bg-slate-900 rounded-t-xl">
+			<div>
+				<h3 class="text-lg font-bold text-slate-100 flex items-center gap-2">
+					<i class="fas fa-clipboard-list text-blue-400"></i>
+					Selecionar Ordem de Serviço
+				</h3>
+			</div>
+			<button id="fechar-modal-os" class="text-slate-400 hover:text-slate-100 transition-colors p-1 hover:bg-slate-700 rounded-lg">
+				<i class="fas fa-times"></i>
+			</button>
+		</div>
+		<div class="p-4 overflow-y-auto bg-slate-950 custom-scrollbar" style="max-height: calc(85vh - 72px);">
+			<div id="lista-os-resultados" class="space-y-2"></div>
+		</div>
+	</div>
+</div>
+
+{% include 'partials/_products_modal.html' %}
+
+<script>
+	document.addEventListener('DOMContentLoaded', function () {
+		const codigoInput = document.getElementById('codigo-os');
+		const buscarBtn = document.getElementById('buscar-os');
+		const loading = document.getElementById('loading');
+		const error = document.getElementById('error');
+		const errorMessage = document.getElementById('error-message');
+		const osData = document.getElementById('os-data');
+		const success = document.getElementById('success');
+		const successMessage = document.getElementById('success-message');
+		const finalizarForm = document.getElementById('finalizar-form');
+		const finalizarBtn = document.getElementById('finalizar-btn');
+		const resumoProdutos = document.getElementById('resumo-produtos');
+		const modalOs = document.getElementById('modal-os');
+		const fecharModalOsBtn = document.getElementById('fechar-modal-os');
+		const listaOsResultados = document.getElementById('lista-os-resultados');
+
+		let currentOsData = null;
+
+		if (window.ProductsPicker) {
+			window.ProductsPicker.init({
+				productsApiUrl: '/ordens-servico/produtos',
+				resumoElement: resumoProdutos,
+				openButton: document.getElementById('abrir-modal-produtos'),
+			});
+		}
+
+		// Buscar OS
+		buscarBtn.addEventListener('click', buscarOS);
+		codigoInput.addEventListener('keypress', function (e) {
+			if (e.key === 'Enter') {
+				buscarOS();
+			}
+		});
+
+		async function buscarOS() {
+			const termo = codigoInput.value.trim();
+			if (!termo) {
+				showError('Digite o código da OS ou nome do cliente');
+				return;
+			}
+
+			showLoading();
+			hideError();
+			hideSuccess();
+			hideOsData();
+
+			try {
+				const response = await fetch(`/ordens-servico/search?q=${encodeURIComponent(termo)}`);
+				const data = await response.json();
+
+				if (response.ok) {
+					const results = data.results || [];
+					if (results.length === 0) {
+						showError('Nenhuma ordem de serviço encontrada para esse cliente/código');
+						return;
+					}
+					renderOsResultsModal(results);
+					openOsModal();
+				} else {
+					showError(data.error || 'Erro ao buscar ordem de serviço');
+				}
+			} catch (e) {
+				showError('Erro de conexão');
+			} finally {
+				hideLoading();
+			}
+		}
+
+		function openOsModal() { modalOs.classList.remove('hidden'); }
+		function closeOsModal() { modalOs.classList.add('hidden'); }
+
+		fecharModalOsBtn.addEventListener('click', closeOsModal);
+
+		function renderOsResultsModal(results) {
+			listaOsResultados.innerHTML = '';
+			results.forEach(os => {
+				const clienteNome = (os.cliente && os.cliente.nome) ? os.cliente.nome : 'Cliente não informado';
+				const item = document.createElement('button');
+				item.type = 'button';
+				item.className = 'w-full text-left p-3 rounded-lg border border-slate-700 bg-slate-900 hover:border-blue-500 hover:bg-slate-800 transition-colors';
+				item.innerHTML = `
+					<div class="flex items-center justify-between gap-3">
+						<div>
+							<div class="text-sm text-slate-100 font-semibold">OS #${os.codigo} - ${clienteNome}</div>
+							<div class="text-xs text-slate-400 mt-1">Abertura: ${os.data_abertura || 'Não informada'}</div>
+						</div>
+						<div class="text-blue-400 text-sm font-medium">Selecionar</div>
+					</div>
+				`;
+				item.addEventListener('click', () => {
+					currentOsData = os;
+					populateOsData(os);
+					showOsData();
+					hideError();
+					closeOsModal();
+				});
+				listaOsResultados.appendChild(item);
+			});
+		}
+
+		function populateOsData(data) {
+			document.getElementById('os-codigo').textContent = data.codigo;
+			document.getElementById('os-data-abertura').textContent = data.data_abertura;
+			document.getElementById('os-equipamento').textContent = data.equipamento || 'Não informado';
+			document.getElementById('os-problema').textContent = data.problema_descrito || 'Não informado';
+			document.getElementById('os-tecnico').textContent = data.tecnico || 'Não informado';
+
+			if (data.cliente) {
+				document.getElementById('cliente-nome').textContent = data.cliente.nome || 'Não informado';
+				document.getElementById('cliente-documento').textContent = data.cliente.cnpjcpf || 'Não informado';
+				document.getElementById('cliente-telefone').textContent = data.cliente.celular || 'Não informado';
+				document.getElementById('cliente-endereco').textContent =
+					`${data.cliente.endereco || ''}, ${data.cliente.numeroendereco || ''}`.trim() || 'Não informado';
+				document.getElementById('cliente-contrato').textContent = data.cliente.extra9 || 'Não informado';
+			}
+
+			// Controlar campo de valor baseado na flag "não cobra atendimento"
+			const valorInput = document.getElementById('valor');
+			const noChargeWarning = document.getElementById('no-charge-warning');
+
+			if (data.no_charge) {
+				// Cliente com flag "não cobra atendimento"
+				if (!forceChargeOS) {
+					valorInput.disabled = true;
+					valorInput.value = '0.00';
+					valorInput.classList.add('bg-gray-100', 'cursor-not-allowed');
+					noChargeWarning.classList.remove('hidden');
+					forceChargeInfo.classList.add('hidden');
+				} else {
+					valorInput.disabled = false;
+					valorInput.classList.remove('bg-gray-100', 'cursor-not-allowed');
+					noChargeWarning.classList.add('hidden');
+					forceChargeInfo.classList.remove('hidden');
+				}
+			} else {
+				// Cliente normal
+				valorInput.disabled = false;
+				valorInput.value = '';
+				valorInput.classList.remove('bg-gray-100', 'cursor-not-allowed');
+				noChargeWarning.classList.add('hidden');
+				forceChargeInfo.classList.add('hidden');
+			}
+		}
+
+		// Variável para controle de override manual na OS
+		let forceChargeOS = false;
+		const forceChargeBtn = document.getElementById('btn-force-charge-os');
+		const resetChargeBtn = document.getElementById('btn-reset-charge-os');
+		const noChargeWarning = document.getElementById('no-charge-warning');
+		const forceChargeInfo = document.getElementById('force-charge-os-info');
+		const valorInput = document.getElementById('valor');
+
+		if (forceChargeBtn) {
+			forceChargeBtn.addEventListener('click', function () {
+				forceChargeOS = true;
+				valorInput.disabled = false;
+				valorInput.value = '';
+				valorInput.classList.remove('bg-gray-100', 'cursor-not-allowed');
+				noChargeWarning.classList.add('hidden');
+				forceChargeInfo.classList.remove('hidden');
+				valorInput.focus();
+			});
+		}
+
+		if (resetChargeBtn) {
+			resetChargeBtn.addEventListener('click', function () {
+				forceChargeOS = false;
+				valorInput.disabled = true;
+				valorInput.value = '0.00';
+				valorInput.classList.add('bg-gray-100', 'cursor-not-allowed');
+				noChargeWarning.classList.remove('hidden');
+				forceChargeInfo.classList.add('hidden');
+			});
+		}
+
+		// Finalizar OS
+		finalizarForm.addEventListener('submit', async function (e) {
+			e.preventDefault();
+
+			if (!currentOsData) {
+				showError('Nenhuma ordem de serviço carregada');
+				return;
+			}
+
+			const formData = new FormData(finalizarForm);
+			const servicoExecutado = formData.get('servico_executado');
+			let valor = parseFloat(formData.get('valor')) || 0;
+
+			if (!servicoExecutado.trim()) {
+				showError('Serviço executado é obrigatório');
+				return;
+			}
+
+			// Se cliente tem flag "não cobra atendimento", forçar valor 0 (exceto se forçado manual)
+			if (currentOsData && currentOsData.no_charge && !forceChargeOS) {
+				valor = 0;
+			}
+
+			finalizarBtn.disabled = true;
+			finalizarBtn.textContent = 'Finalizando...';
+
+			try {
+				const response = await fetch('/ordens-servico/processar-finalizacao', {
+					method: 'POST',
+					headers: {
+						'Content-Type': 'application/json',
+					},
+					body: JSON.stringify({
+						codigo: currentOsData.codigo,
+						servico_executado: servicoExecutado,
+						valor: valor,
+						produtos: window.ProductsPicker ? window.ProductsPicker.getSelectedPayload() : []
+					})
+				});
+
+				const data = await response.json();
+				console.log('Resposta da finalização:', data);
+
+				if (response.ok) {
+					let message = data.message;
+					if (data.ps_generated) {
+						message += ` PS gerada: ${data.ps_number}`;
+						// Abrir PDF automaticamente se foi gerado
+						if (data.ps_file) {
+							const pdfUrl = `/ordens-servico/pdf/${data.ps_file}`;
+							setTimeout(() => {
+								const pdfWindow = window.open(pdfUrl, '_blank');
+								if (!pdfWindow) {
+									console.error('Falha ao abrir PDF - popup bloqueado');
+									showError('Falha ao abrir PDF. Verifique se o popup está bloqueado.');
+								}
+							}, 500);
+						}
+					}
+					if (data.delivery_generated) {
+						message += ` Recibo de entrega gerado.`;
+						// Abrir PDF de recibo automaticamente se foi gerado
+						if (data.delivery_file) {
+							const pdfUrl = `/ordens-servico/pdf/${data.delivery_file}`;
+							setTimeout(() => {
+								const pdfWindow = window.open(pdfUrl, '_blank');
+								if (!pdfWindow) {
+									console.error('Falha ao abrir PDF de recibo - popup bloqueado');
+									showError('Falha ao abrir PDF de recibo. Verifique se o popup está bloqueado.');
+								}
+							}, 500);
+						}
+					}
+					showSuccess(message);
+					finalizarForm.reset();
+					hideOsData();
+					codigoInput.value = '';
+				} else {
+					showError(data.error || 'Erro ao finalizar ordem de serviço');
+				}
+			} catch (e) {
+				console.error('Erro na finalização:', e);
+				showError('Erro de conexão: ' + e.message);
+			} finally {
+				finalizarBtn.disabled = false;
+				finalizarBtn.textContent = 'Finalizar Ordem de Serviço';
+			}
+		});
+
+		function showLoading() {
+			loading.classList.remove('hidden');
+		}
+
+		function hideLoading() {
+			loading.classList.add('hidden');
+		}
+
+		function showError(message) {
+			errorMessage.textContent = message;
+			error.classList.remove('hidden');
+		}
+
+		function hideError() {
+			error.classList.add('hidden');
+		}
+
+		function showSuccess(message) {
+			successMessage.textContent = message;
+			success.classList.remove('hidden');
+		}
+
+		function hideSuccess() {
+			success.classList.add('hidden');
+		}
+
+		function showOsData() {
+			osData.classList.remove('hidden');
+		}
+
+		function hideOsData() {
+			osData.classList.add('hidden');
+		}
+	});
+</script>
+{% endblock %}

@@ -1,0 +1,556 @@
+{% extends 'base.html' %}
+{% block page_title %}📋 Orçamentos{% endblock %}
+{% block content %}
+
+<!-- Cabeçalho -->
+<div class="mb-6">
+	<div class="flex items-center justify-between gap-3 flex-wrap">
+		<div>
+			<h1 class="text-2xl font-bold text-primary mb-1">Orçamentos</h1>
+			<p class="text-muted text-sm">Gerencie seus orçamentos e propostas comerciais.</p>
+		</div>
+		<div class="flex gap-2 flex-wrap">
+			{% if current_user.has_role('admin') %}
+			<a href="{{ url_for('budget.settings') }}" class="btn btn-secondary" title="Logo e temas de cores">
+				<i class="fas fa-palette"></i>
+				Personalização
+			</a>
+			{% endif %}
+			<a href="{{ url_for('budget.new_budget') }}" class="btn btn-secondary" title="Cadastro simples com anexo de arquivo">
+				<i class="fas fa-paperclip"></i>
+				Proposta com Anexo
+			</a>
+			<a href="{{ url_for('budget.builder') }}" class="btn btn-primary">
+				<i class="fas fa-plus"></i>
+				Novo Orçamento
+			</a>
+		</div>
+	</div>
+</div>
+
+<!-- Busca e filtros -->
+{% set has_advanced_filters = status_filter or client_filter or date_from or date_to %}
+<div class="mb-6">
+	<form method="GET" action="{{ url_for('budget.index') }}" id="search-form">
+		<div class="flex gap-2 flex-wrap">
+			<div class="flex-1 relative" style="min-width: 200px;">
+				<input type="text"
+					   id="q"
+					   name="q"
+					   value="{{ search_term or '' }}"
+					   placeholder="Buscar por título ou descrição..."
+					   class="form-input pl-10 w-full">
+				<i class="fas fa-search absolute text-muted" style="left: 0.85rem; top: 50%; transform: translateY(-50%);"></i>
+			</div>
+			<button type="submit" class="btn btn-primary">Buscar</button>
+			{% if search_term or has_advanced_filters %}
+			<a href="{{ url_for('budget.index') }}" class="btn btn-secondary" title="Limpar filtros">
+				<i class="fas fa-times"></i>
+			</a>
+			{% endif %}
+		</div>
+
+		<details class="mt-3" id="advanced-filters"{% if has_advanced_filters %} open{% endif %}>
+			<summary class="text-sm text-muted" style="cursor: pointer; user-select: none;">
+				<i class="fas fa-sliders-h mr-1"></i>Filtros avançados
+			</summary>
+			<div class="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3">
+				<div class="form-group">
+					<label for="status" class="form-label">Status</label>
+					<select id="status" name="status" class="form-select">
+						<option value="">Todos os status</option>
+						<option value="draft" {% if status_filter == 'draft' %}selected{% endif %}>Rascunho</option>
+						<option value="sent" {% if status_filter == 'sent' %}selected{% endif %}>Enviado</option>
+						<option value="approved" {% if status_filter == 'approved' %}selected{% endif %}>Aprovado</option>
+						<option value="rejected" {% if status_filter == 'rejected' %}selected{% endif %}>Rejeitado</option>
+					</select>
+				</div>
+				<div class="form-group">
+					<label for="client" class="form-label">Cliente</label>
+					<select id="client" name="client" class="form-select">
+						<option value="">Todos os clientes</option>
+						<option value="internal" {% if client_filter == 'internal' %}selected{% endif %}>Clientes Internos</option>
+						<option value="external" {% if client_filter == 'external' %}selected{% endif %}>Clientes Externos</option>
+						<option value="none" {% if client_filter == 'none' %}selected{% endif %}>Sem Cliente</option>
+					</select>
+				</div>
+				<div class="form-group">
+					<label for="date_from" class="form-label">Data inicial</label>
+					<input type="date"
+						   id="date_from"
+						   name="date_from"
+						   class="form-input"
+						   value="{{ date_from }}">
+				</div>
+				<div class="form-group">
+					<label for="date_to" class="form-label">Data final</label>
+					<input type="date"
+						   id="date_to"
+						   name="date_to"
+						   class="form-input"
+						   value="{{ date_to }}">
+				</div>
+			</div>
+		</details>
+	</form>
+
+	{% if search_term %}
+	<div class="mt-2 text-sm text-muted">
+		Resultado para <strong>"{{ search_term }}"</strong>
+		{% if budgets is defined %}
+		: {{ budgets|length }} orçamento(s) nesta página
+		{% endif %}
+	</div>
+	{% endif %}
+</div>
+
+{% if budgets %}
+<!-- Lista compacta de orçamentos -->
+<div class="bg-secondary rounded-lg shadow-lg">
+	{% for budget in budgets %}
+	<div class="p-4 budget-list-row" data-budget-id="{{ budget.id }}" {% if not loop.last %}style="border-bottom: 1px solid var(--border-color);"{% endif %}>
+		<div class="flex items-center justify-between gap-3 flex-wrap">
+			<!-- Título + badges + resumo -->
+			<div class="flex-1" style="min-width: 260px;">
+				<div class="flex items-center gap-2 flex-wrap">
+					<a href="{{ url_for('budget.view_budget', budget_id=budget.id) }}" class="text-lg font-semibold text-primary">
+						{{ budget.title }}
+					</a>
+					<span class="budget-editing-badge hidden inline-flex items-center gap-1 bg-amber-100 text-amber-800 text-xs px-2 py-1 rounded-full font-medium" title="Alguém está editando este orçamento">
+						<span class="inline-block w-1.5 h-1.5 rounded-full bg-amber-500" style="animation: budgetPulse 1.2s ease-in-out infinite;"></span>
+						<span class="budget-editing-badge-text">Editando</span>
+					</span>
+					{% if budget.status == 'approved' %}
+					<span class="inline-block bg-green-100 text-green-700 text-xs px-2 py-1 rounded-full font-medium">Aprovado</span>
+					{% elif budget.status == 'sent' %}
+					<span class="inline-block bg-blue-100 text-blue-800 text-xs px-2 py-1 rounded-full font-medium">Enviado</span>
+					{% elif budget.status == 'rejected' %}
+					<span class="inline-block bg-red-100 text-red-700 text-xs px-2 py-1 rounded-full font-medium">Rejeitado</span>
+					{% else %}
+					<span class="inline-block bg-secondary-100 text-gray-500 text-xs px-2 py-1 rounded-full font-medium">Rascunho</span>
+					{% endif %}
+					{% if budget.items %}
+					<span class="inline-block bg-green-100 text-green-700 text-xs px-2 py-1 rounded-full font-medium" title="Valor total">
+						{{ format_brl(budget.total) }}
+					</span>
+					{% endif %}
+					{% if budget.public_token %}
+					<span class="inline-block bg-purple-100 text-purple-800 text-xs px-2 py-1 rounded-full font-medium" title="Possui link público ativo">
+						<i class="fas fa-link"></i> Link
+					</span>
+					{% endif %}
+					{% if budget.has_file() %}
+					<span class="inline-block bg-blue-100 text-blue-800 text-xs px-2 py-1 rounded-full font-medium" title="{{ budget.original_filename }}">
+						<i class="fas fa-paperclip"></i> Arquivo
+					</span>
+					{% endif %}
+				</div>
+				<div class="text-sm text-muted mt-1">
+					<i class="fas fa-user mr-1"></i>{{ budget.get_client_name() }}
+					&nbsp;·&nbsp;
+					<i class="fas fa-calendar mr-1"></i>{{ budget.created_at.strftime('%d/%m/%Y %H:%M') }}
+					&nbsp;·&nbsp;
+					por {{ budget.created_by.name }}
+				</div>
+			</div>
+			<!-- Ações -->
+			<div class="flex items-center gap-1 flex-wrap">
+				<a href="{{ url_for('budget.view_budget', budget_id=budget.id) }}" class="btn btn-secondary btn-sm" title="Visualizar">
+					<i class="fas fa-eye"></i>
+				</a>
+				<a href="{{ url_for('budget.builder', budget_id=budget.id) }}"
+				   class="btn btn-secondary btn-sm budget-edit-link"
+				   data-budget-id="{{ budget.id }}"
+				   data-budget-title="{{ budget.title|e }}"
+				   title="Editar no builder">
+					<i class="fas fa-edit"></i>
+				</a>
+				<a href="{{ url_for('budget.export_pdf', budget_id=budget.id) }}" class="btn btn-secondary btn-sm" title="Exportar PDF">
+					<i class="fas fa-file-pdf"></i>
+				</a>
+				<button onclick="copyPublicLink({{ budget.id }}, this)"
+						class="btn btn-secondary btn-sm"
+						title="{{ 'Copiar link público' if budget.public_token else 'Gerar e copiar link público' }}">
+					<i class="fas fa-link"></i>
+				</button>
+				{% if budget.has_file() %}
+				<a href="{{ url_for('budget.download_file', budget_id=budget.id) }}" class="btn btn-secondary btn-sm" title="Download do anexo">
+					<i class="fas fa-download"></i>
+				</a>
+				{% endif %}
+				<button onclick="confirmDelete({{ budget.id }}, '{{ budget.title }}')" class="btn btn-error btn-sm" title="Excluir">
+					<i class="fas fa-trash"></i>
+				</button>
+			</div>
+		</div>
+	</div>
+	{% endfor %}
+</div>
+
+<!-- Paginação -->
+{% if pagination and pagination.pages > 1 %}
+<div class="pagination">
+	{% if pagination.has_prev %}
+	<a class="btn btn-secondary" href="{{ url_for('budget.index', page=pagination.prev_num, q=search_term, status=status_filter, client=client_filter, date_from=date_from, date_to=date_to) }}" title="Página anterior">
+		<i class="fas fa-chevron-left"></i>
+	</a>
+	{% endif %}
+
+	{% for page_num in pagination.iter_pages() %}
+		{% if page_num %}
+			{% if page_num != pagination.page %}
+			<a class="btn btn-secondary" href="{{ url_for('budget.index', page=page_num, q=search_term, status=status_filter, client=client_filter, date_from=date_from, date_to=date_to) }}">
+				{{ page_num }}
+			</a>
+			{% else %}
+			<span class="btn active">{{ page_num }}</span>
+			{% endif %}
+		{% else %}
+		<span class="btn btn-secondary" style="pointer-events:none; opacity:0.5;">…</span>
+		{% endif %}
+	{% endfor %}
+
+	{% if pagination.has_next %}
+	<a class="btn btn-secondary" href="{{ url_for('budget.index', page=pagination.next_num, q=search_term, status=status_filter, client=client_filter, date_from=date_from, date_to=date_to) }}" title="Próxima página">
+		<i class="fas fa-chevron-right"></i>
+	</a>
+	{% endif %}
+</div>
+{% endif %}
+
+{% else %}
+<!-- Estado vazio -->
+<div class="text-center py-12">
+	<i class="fas fa-file-invoice-dollar text-6xl text-muted mb-4"></i>
+	<h2 class="text-xl font-semibold text-primary mb-2">Nenhum orçamento encontrado</h2>
+	<p class="text-muted mb-6">
+		{% if search_term or status_filter or client_filter or date_from or date_to %}
+			Tente ajustar os filtros de pesquisa ou criar um novo orçamento.
+		{% else %}
+			Comece criando seu primeiro orçamento.
+		{% endif %}
+	</p>
+	<a href="{{ url_for('budget.builder') }}" class="btn btn-primary">
+		<i class="fas fa-plus"></i>
+		Criar Primeiro Orçamento
+	</a>
+</div>
+{% endif %}
+
+<!-- Modal de Confirmação de Exclusão -->
+<div id="deleteModal" class="modal-overlay">
+	<div class="modal-container">
+		<div class="modal-content">
+			<div class="modal-header">
+				<h3 class="modal-title">Confirmar Exclusão</h3>
+				<button type="button" class="modal-close" onclick="closeDeleteModal()">
+					<i class="fas fa-times"></i>
+				</button>
+			</div>
+			<div class="modal-body">
+				<p>Tem certeza que deseja excluir o orçamento <strong id="deleteTitle"></strong>?</p>
+				<p class="text-danger text-sm">Esta ação não pode ser desfeita.</p>
+			</div>
+			<div class="modal-footer">
+				<button type="button" class="btn btn-secondary" onclick="closeDeleteModal()">Cancelar</button>
+				<form id="deleteForm" method="POST" style="display: inline;">
+					<button type="submit" class="btn btn-danger">Excluir</button>
+				</form>
+			</div>
+		</div>
+	</div>
+</div>
+
+<!-- Modal Co-op: alguém já está editando -->
+<div id="coopEditModal" class="modal-overlay">
+	<div class="modal-container">
+		<div class="modal-content">
+			<div class="modal-header">
+				<h3 class="modal-title"><i class="fas fa-users mr-2"></i>Orçamento em edição</h3>
+				<button type="button" class="modal-close" onclick="closeCoopEditModal()">
+					<i class="fas fa-times"></i>
+				</button>
+			</div>
+			<div class="modal-body">
+				<p id="coopEditModalText" class="mb-2">Outra pessoa está editando este orçamento agora.</p>
+				<p class="text-sm text-muted">Você pode entrar mesmo assim. Atenção ao salvar: a última gravação pode sobrescrever alterações.</p>
+			</div>
+			<div class="modal-footer">
+				<button type="button" class="btn btn-secondary" onclick="closeCoopEditModal()">Cancelar</button>
+				<button type="button" class="btn btn-primary" id="coopEditConfirmBtn">Entrar mesmo assim</button>
+			</div>
+		</div>
+	</div>
+</div>
+
+<style>
+@keyframes budgetPulse {
+	0%, 100% { opacity: 1; transform: scale(1); }
+	50% { opacity: 0.45; transform: scale(0.85); }
+}
+</style>
+
+<script>
+const CURRENT_USER_ID = {{ current_user.id|int }};
+const EDITORS_URL_TEMPLATE = "{{ url_for('budget.builder_editors', budget_id=999999001) }}".replace('999999001', '__ID__');
+const PRESENCE_SNAPSHOT_URL = "{{ url_for('budget.presence_snapshot') }}";
+let pendingCoopEditUrl = null;
+let presenceListPollTimer = null;
+
+// Função para confirmar exclusão
+function confirmDelete(budgetId, title) {
+	document.getElementById('deleteTitle').textContent = title;
+	document.getElementById('deleteForm').action = "{{ url_for('budget.delete_budget', budget_id=0) }}".replace('0', budgetId);
+	
+	const modal = document.getElementById('deleteModal');
+	modal.classList.add('active');
+}
+
+// Função para fechar modal de exclusão
+function closeDeleteModal() {
+	const modal = document.getElementById('deleteModal');
+	modal.classList.remove('active');
+}
+
+function closeCoopEditModal() {
+	pendingCoopEditUrl = null;
+	document.getElementById('coopEditModal').classList.remove('active');
+}
+
+function openCoopEditModal(editors, targetUrl) {
+	const others = (editors || []).filter(e => Number(e.id) !== CURRENT_USER_ID);
+	const names = others.map(e => e.name).filter(Boolean);
+	let text = 'Outra pessoa está editando este orçamento agora.';
+	if (names.length === 1) {
+		text = '**NAME** está editando este orçamento agora.'.replace('**NAME**', names[0]);
+		document.getElementById('coopEditModalText').innerHTML =
+			'<strong>' + names[0].replace(/</g, '&lt;') + '</strong> está editando este orçamento agora.';
+	} else if (names.length > 1) {
+		document.getElementById('coopEditModalText').innerHTML =
+			'<strong>' + names.map(n => n.replace(/</g, '&lt;')).join(', ') + '</strong> estão editando este orçamento agora.';
+	} else {
+		document.getElementById('coopEditModalText').textContent = text;
+	}
+	pendingCoopEditUrl = targetUrl;
+	document.getElementById('coopEditModal').classList.add('active');
+}
+
+function formatEditingBadge(editors) {
+	const others = (editors || []).filter(e => Number(e.id) !== CURRENT_USER_ID);
+	if (!others.length) return '';
+	if (others.length === 1) return others[0].name + ' editando';
+	return others.length + ' pessoas editando';
+}
+
+function updateBudgetEditingBadge(budgetId, editors) {
+	const row = document.querySelector('.budget-list-row[data-budget-id="' + budgetId + '"]');
+	if (!row) return;
+	const badge = row.querySelector('.budget-editing-badge');
+	const label = row.querySelector('.budget-editing-badge-text');
+	if (!badge || !label) return;
+	const text = formatEditingBadge(editors);
+	if (!text) {
+		badge.classList.add('hidden');
+		label.textContent = 'Editando';
+		return;
+	}
+	label.textContent = text;
+	badge.classList.remove('hidden');
+}
+
+function applyPresenceMap(presence) {
+	presence = presence || {};
+	document.querySelectorAll('.budget-list-row[data-budget-id]').forEach(row => {
+		const id = row.getAttribute('data-budget-id');
+		updateBudgetEditingBadge(id, presence[String(id)] || []);
+	});
+}
+
+function getAppSocket() {
+	if (window.helpdeskSocket) return window.helpdeskSocket;
+	if (typeof helpdeskSocket !== 'undefined' && helpdeskSocket) return helpdeskSocket;
+	if (!window._budgetSocket) {
+		const uid = document.body.getAttribute('data-user-id') || String(CURRENT_USER_ID || '');
+		window._budgetSocket = io({
+			query: uid ? { user_id: String(uid) } : {},
+			transports: ['websocket', 'polling'],
+		});
+	}
+	return window._budgetSocket;
+}
+
+async function fetchBudgetEditors(budgetId) {
+	const url = EDITORS_URL_TEMPLATE.replace('__ID__', String(budgetId));
+	const response = await fetch(url, { credentials: 'include', headers: { 'Accept': 'application/json' } });
+	const data = await response.json().catch(() => ({}));
+	if (!response.ok || !data.success) return [];
+	return data.editors || [];
+}
+
+async function handleBudgetEditClick(event) {
+	const link = event.currentTarget;
+	const budgetId = link.getAttribute('data-budget-id');
+	const href = link.getAttribute('href');
+	if (!budgetId || !href) return;
+
+	event.preventDefault();
+	try {
+		const editors = await fetchBudgetEditors(budgetId);
+		const others = editors.filter(e => Number(e.id) !== CURRENT_USER_ID);
+		if (others.length) {
+			openCoopEditModal(editors, href);
+			return;
+		}
+		window.location.href = href;
+	} catch (err) {
+		console.warn('[Co-op] Falha ao consultar editores, abrindo mesmo assim:', err);
+		window.location.href = href;
+	}
+}
+
+function bindBudgetListPresence(socket) {
+	if (!socket || socket._budgetListBound) return;
+	socket._budgetListBound = true;
+
+	const subscribe = function() {
+		console.log('[Co-op] subscribe lista de orçamentos');
+		socket.emit('budget_subscribe_list');
+	};
+	if (socket.connected) subscribe();
+	else socket.on('connect', subscribe);
+
+	socket.on('budget_presence_snapshot', function(data) {
+		console.log('[Co-op] snapshot presença', data);
+		applyPresenceMap((data && data.presence) || {});
+	});
+	socket.on('budget_presence_update', function(data) {
+		if (!data || data.budget_id == null) return;
+		console.log('[Co-op] update presença', data);
+		updateBudgetEditingBadge(data.budget_id, data.editors || []);
+	});
+
+	window.addEventListener('beforeunload', function() {
+		try { socket.emit('budget_unsubscribe_list'); } catch (e) {}
+	});
+}
+
+async function pollPresenceSnapshot() {
+	try {
+		const response = await fetch(PRESENCE_SNAPSHOT_URL, {
+			credentials: 'include',
+			headers: { 'Accept': 'application/json' },
+		});
+		const data = await response.json().catch(function() { return {}; });
+		if (response.ok && data.success) {
+			applyPresenceMap(data.presence || {});
+			return;
+		}
+		console.warn('[Co-op] snapshot HTTP falhou', response.status, data);
+	} catch (err) {
+		console.warn('[Co-op] snapshot HTTP erro', err);
+	}
+}
+
+function initBudgetListPresence() {
+	// HTTP é o caminho principal (não depende de WebSocket)
+	pollPresenceSnapshot();
+	if (presenceListPollTimer) clearInterval(presenceListPollTimer);
+	presenceListPollTimer = setInterval(pollPresenceSnapshot, 3000);
+
+	// Socket opcional para atualização mais rápida
+	let tries = 0;
+	const tryBind = function() {
+		const shared = window.helpdeskSocket || (typeof helpdeskSocket !== 'undefined' ? helpdeskSocket : null);
+		if (shared) {
+			bindBudgetListPresence(shared);
+			return;
+		}
+		tries += 1;
+		if (tries < 40) {
+			setTimeout(tryBind, 50);
+			return;
+		}
+		console.warn('[Co-op] socket indisponível — mantendo só poll HTTP');
+	};
+	tryBind();
+}
+
+// Copia texto com fallback para páginas HTTP (navigator.clipboard exige HTTPS)
+async function copyTextToClipboard(text) {
+	if (navigator.clipboard && window.isSecureContext) {
+		await navigator.clipboard.writeText(text);
+		return true;
+	}
+	const textarea = document.createElement('textarea');
+	textarea.value = text;
+	textarea.style.position = 'fixed';
+	textarea.style.opacity = '0';
+	document.body.appendChild(textarea);
+	textarea.focus();
+	textarea.select();
+	let ok = false;
+	try {
+		ok = document.execCommand('copy');
+	} catch (err) {
+		ok = false;
+	}
+	document.body.removeChild(textarea);
+	if (!ok) {
+		window.prompt('Copie o link abaixo (Ctrl+C):', text);
+	}
+	return true;
+}
+
+// Gera (se necessário) e copia o link público do orçamento
+async function copyPublicLink(budgetId, btn) {
+	try {
+		const response = await fetch(`{{ url_for('budget.index') }}${budgetId}/compartilhar`, {
+			method: 'POST',
+			headers: {'Content-Type': 'application/json'},
+			body: JSON.stringify({action: 'generate'}),
+			credentials: 'include',
+		});
+		const data = await response.json();
+		if (data.success && data.public_url) {
+			await copyTextToClipboard(data.public_url);
+			const icon = btn.querySelector('i');
+			icon.className = 'fas fa-check';
+			setTimeout(() => { icon.className = 'fas fa-link'; }, 2000);
+		} else {
+			alert(data.error || 'Erro ao gerar link público.');
+		}
+	} catch (err) {
+		alert('Erro: ' + err.message);
+	}
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+	// Fechar modal clicando fora dele
+	document.getElementById('deleteModal').addEventListener('click', function(e) {
+		if (e.target === this) {
+			closeDeleteModal();
+		}
+	});
+
+	const coopModal = document.getElementById('coopEditModal');
+	if (coopModal) {
+		coopModal.addEventListener('click', function(e) {
+			if (e.target === this) closeCoopEditModal();
+		});
+	}
+	const coopConfirm = document.getElementById('coopEditConfirmBtn');
+	if (coopConfirm) {
+		coopConfirm.addEventListener('click', function() {
+			if (pendingCoopEditUrl) window.location.href = pendingCoopEditUrl;
+		});
+	}
+
+	document.querySelectorAll('.budget-edit-link').forEach(function(link) {
+		link.addEventListener('click', handleBudgetEditClick);
+	});
+
+	initBudgetListPresence();
+});
+</script>
+
+{% endblock %}

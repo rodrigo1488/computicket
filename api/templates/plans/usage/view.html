@@ -1,0 +1,44 @@
+{% extends 'base.html' %}
+{% block page_title %}⏱️ Uso de Horas - {{ client_plan.client.name }}{% endblock %}
+{% block content %}
+
+<div class="bg-secondary rounded-lg shadow-lg p-6 mb-6">
+	<div class="flex items-center justify-between">
+		<h1 class="text-2xl font-bold text-primary">Uso de Horas - {{ client_plan.plan.name }}</h1>
+		<a href="{{ url_for('plans.add_usage', client_plan_id=client_plan.id) }}" class="btn btn-primary"><i class="fas fa-plus mr-2"></i>Adicionar Uso</a>
+	</div>
+</div>
+
+<div class="bg-secondary rounded-lg shadow-lg p-6">
+	{% if usage_records %}
+	<div class="overflow-x-auto">
+		<table class="w-full">
+			<thead>
+				<tr class="border-b border-gray-200">
+					<th class="text-left py-3 px-4">Mês/Ano</th>
+					<th class="text-left py-3 px-4">Horas</th>
+					<th class="text-left py-3 px-4">Ticket</th>
+				</tr>
+			</thead>
+			<tbody>
+				{% for u in usage_records %}
+				<tr class="border-b border-gray-100">
+					<td class="py-3 px-4">{{ u.get_month_year_display() }}</td>
+					<td class="py-3 px-4">{{ '%.2f'|format(u.hours_used) }}h</td>
+					<td class="py-3 px-4">{{ u.ticket_id or '—' }}</td>
+				</tr>
+				{% endfor %}
+			</tbody>
+		</table>
+	</div>
+	{% else %}
+	<div class="empty-state">
+		<i class="fas fa-clock text-4xl text-muted mb-4"></i>
+		<h3 class="text-lg font-semibold text-primary mb-2">Nenhum uso registrado</h3>
+		<p class="text-secondary">Clique em "Adicionar Uso" para lançar horas.</p>
+	</div>
+	{% endif %}
+</div>
+
+{% endblock %}
+

@@ -1,0 +1,178 @@
+{% extends 'base.html' %}
+{% block page_title %}🔧 Serviços{% endblock %}
+{% block content %}
+
+<div class="bg-secondary rounded-lg shadow-lg p-6 mb-6">
+	<div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 mb-4">
+		<div>
+			<h1 class="text-2xl font-bold text-primary mb-2">Serviços</h1>
+			<p class="text-muted">Gerencie os tipos de serviços oferecidos</p>
+		</div>
+		<div class="flex flex-col sm:flex-row gap-3">
+			<a href="{{ url_for('services.create_service') }}" class="btn btn-primary">
+				<i class="fas fa-plus"></i>
+				<span class="hidden sm:inline">Novo Serviço</span>
+				<span class="sm:hidden">Novo</span>
+			</a>
+		</div>
+	</div>
+</div>
+
+<div class="bg-secondary rounded-lg shadow-lg p-6">
+	<h2 class="text-lg font-semibold text-primary mb-4 flex items-center">
+		<i class="fas fa-cogs mr-2"></i>
+		Lista de Serviços
+	</h2>
+	
+	{% if services %}
+	<!-- Desktop Table View -->
+	<div class="hidden lg:block bg-secondary rounded-lg shadow-lg overflow-hidden">
+		<div class="overflow-x-auto">
+			<table class="table">
+				<thead>
+					<tr>
+						<th>Serviço</th>
+						<th>Descrição</th>
+						<th>Valor/Hora</th>
+						<th class="table-actions">Ações</th>
+					</tr>
+				</thead>
+				<tbody>
+					{% for s in services %}
+					<tr>
+						<td>
+							<div class="flex items-center">
+								<div class="w-10 h-10 bg-primary/10 rounded-full flex items-center justify-center mr-3">
+									<i class="fas fa-cogs text-primary"></i>
+								</div>
+								<div>
+									<div class="font-medium text-primary">{{ s.name }}</div>
+									<div class="text-sm text-muted">ID: {{ s.id }}</div>
+								</div>
+							</div>
+						</td>
+						<td>
+							<div class="text-muted max-w-xs truncate" title="{{ s.description or '—' }}">
+								{{ s.description or '—' }}
+							</div>
+						</td>
+						<td>
+							<div class="flex items-center">
+								<i class="fas fa-dollar-sign text-success mr-2"></i>
+								<span class="font-medium text-success">
+									R$ {{ '%.2f'|format(s.hourly_rate or 0) }}
+								</span>
+							</div>
+						</td>
+						<td class="table-actions">
+							<div class="flex items-center gap-2">
+								<a href="{{ url_for('services.edit_service', service_id=s.id) }}" class="btn btn-sm btn-primary">
+									<i class="fas fa-edit"></i>
+									<span class="hidden xl:inline">Editar</span>
+								</a>
+							</div>
+						</td>
+					</tr>
+					{% endfor %}
+				</tbody>
+			</table>
+		</div>
+	</div>
+
+	<!-- Mobile Card View -->
+	<div class="lg:hidden space-y-4">
+		{% for s in services %}
+		<div class="bg-secondary rounded-lg shadow-lg p-4">
+			<div class="flex items-start justify-between mb-3">
+				<div class="flex items-center">
+					<div class="w-12 h-12 bg-primary/10 rounded-full flex items-center justify-center mr-3">
+						<i class="fas fa-cogs text-primary"></i>
+					</div>
+					<div>
+						<h3 class="font-semibold text-primary">{{ s.name }}</h3>
+						<p class="text-sm text-muted">ID: {{ s.id }}</p>
+					</div>
+				</div>
+				<div class="flex gap-2">
+					<a href="{{ url_for('services.edit_service', service_id=s.id) }}" class="btn btn-sm btn-primary">
+						<i class="fas fa-edit"></i>
+					</a>
+				</div>
+			</div>
+			
+			<div class="space-y-2 text-sm">
+				{% if s.description %}
+				<div class="flex items-start">
+					<i class="fas fa-align-left text-muted mr-2 w-4 mt-0.5"></i>
+					<span class="text-muted">{{ s.description }}</span>
+				</div>
+				{% endif %}
+				<div class="flex items-center">
+					<i class="fas fa-dollar-sign text-success mr-2 w-4"></i>
+					<span class="font-medium text-success">
+						R$ {{ '%.2f'|format(s.hourly_rate or 0) }} / hora
+					</span>
+				</div>
+			</div>
+		</div>
+		{% endfor %}
+	</div>
+	
+	<!-- Estatísticas -->
+	<div class="mt-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+		<div class="bg-tertiary rounded-lg p-4">
+			<div class="flex items-center">
+				<div class="w-12 h-12 bg-primary/10 rounded-full flex items-center justify-center mr-3">
+					<i class="fas fa-cogs text-primary text-xl"></i>
+				</div>
+				<div>
+					<div class="text-sm text-muted">Total de Serviços</div>
+					<div class="text-2xl font-bold text-primary">{{ services|length }}</div>
+				</div>
+			</div>
+		</div>
+		<div class="bg-tertiary rounded-lg p-4">
+			<div class="flex items-center">
+				<div class="w-12 h-12 bg-success/10 rounded-full flex items-center justify-center mr-3">
+					<i class="fas fa-dollar-sign text-success text-xl"></i>
+				</div>
+				<div>
+					<div class="text-sm text-muted">Valor Médio/Hora</div>
+					<div class="text-2xl font-bold text-success">
+						R$ {{ '%.2f'|format((services|sum(attribute='hourly_rate') / services|length) if services|length > 0 else 0) }}
+					</div>
+				</div>
+			</div>
+		</div>
+		<div class="bg-tertiary rounded-lg p-4 sm:col-span-2 lg:col-span-1">
+			<div class="flex items-center">
+				<div class="w-12 h-12 bg-warning/10 rounded-full flex items-center justify-center mr-3">
+					<i class="fas fa-chart-line text-warning text-xl"></i>
+				</div>
+				<div>
+					<div class="text-sm text-muted">Serviços Ativos</div>
+					<div class="text-2xl font-bold text-warning">{{ services|length }}</div>
+				</div>
+			</div>
+		</div>
+	</div>
+	{% else %}
+	<!-- Estado Vazio -->
+	<div class="empty-state">
+		<div class="text-center py-12">
+			<div class="w-24 h-24 bg-primary/10 rounded-full flex items-center justify-center mx-auto mb-6">
+				<i class="fas fa-cogs text-primary text-3xl"></i>
+			</div>
+			<h3 class="text-xl font-semibold text-primary mb-2">Nenhum serviço cadastrado</h3>
+			<p class="text-muted mb-6 max-w-md mx-auto">
+				Crie um novo serviço para começar a organizar seus atendimentos e definir valores por hora.
+			</p>
+			<a href="{{ url_for('services.create_service') }}" class="btn btn-primary">
+				<i class="fas fa-plus"></i>
+				Criar Primeiro Serviço
+			</a>
+		</div>
+	</div>
+	{% endif %}
+</div>
+{% endblock %}

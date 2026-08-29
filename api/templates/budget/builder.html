@@ -1,0 +1,1880 @@
+{% extends 'base.html' %}
+{% block page_title %}🧾 Builder de Orçamento{% endblock %}
+{% block content %}
+{% include 'partials/_rich_text_editor.html' %}
+
+<div class="mb-6">
+	<div class="flex items-center justify-between gap-3 flex-wrap">
+		<div>
+			<div class="text-sm text-muted mb-1">
+				<a href="{{ url_for('budget.index') }}" class="text-muted">Orçamentos</a>
+				<i class="fas fa-chevron-right mx-1 text-xs"></i>
+				{{ 'Editar' if budget else 'Novo' }}
+			</div>
+			<h1 class="text-2xl font-bold text-primary">{{ 'Editar Orçamento' if budget else 'Novo Orçamento' }}</h1>
+		</div>
+		<div class="flex flex-wrap gap-2">
+			<button type="button" class="btn btn-primary" onclick="openBudgetAIModal()" title="Descreva o orçamento e a IA preenche itens, condições e observações">
+				<i class="fas fa-wand-magic-sparkles"></i>
+				Gerar com IA
+			</button>
+			<a href="{{ url_for('budget.index') }}" class="btn btn-outline">
+				<i class="fas fa-arrow-left"></i>
+				Voltar
+			</a>
+		</div>
+	</div>
+	{% if budget %}
+	<div id="budget-coop-banner" class="hidden mt-3 rounded-lg border border-amber-300 bg-amber-50 px-4 py-2.5 text-sm text-amber-900 flex items-center gap-2 flex-wrap">
+		<span class="inline-flex items-center justify-center w-7 h-7 rounded-full bg-amber-200 text-amber-800 shrink-0">
+			<i class="fas fa-users text-xs"></i>
+		</span>
+		<div class="min-w-0 flex-1">
+			<span class="font-medium">Co-op:</span>
+			<span id="budget-coop-banner-text">Outras pessoas estão editando este orçamento.</span>
+			<div id="budget-coop-activity" class="text-xs mt-0.5 opacity-90"></div>
+		</div>
+	</div>
+	<div id="budget-coop-cursors" class="coop-caret-layer" aria-hidden="true"></div>
+	{% endif %}
+</div>
+
+{% if budget %}
+<!-- Modal Co-op: alguém já está editando -->
+<div id="coopEditModal" class="fixed inset-0 z-1050 hidden flex items-center justify-center p-4"
+	style="background-color: rgba(0, 0, 0, 0.65); backdrop-filter: blur(3px);">
+	<div class="bg-secondary rounded-xl shadow-2xl w-full max-w-md border border-border-color overflow-hidden">
+		<div class="px-5 py-3 border-b border-border-color flex items-center justify-between">
+			<h3 class="text-lg font-semibold text-primary"><i class="fas fa-users mr-2"></i>Orçamento em edição</h3>
+			<button type="button" class="text-muted hover:text-primary p-1" onclick="closeBuilderCoopModal(false)" aria-label="Fechar">
+				<i class="fas fa-times"></i>
+			</button>
+		</div>
+		<div class="px-5 py-4 space-y-2">
+			<p id="coopEditModalText" class="text-primary">Outra pessoa está editando este orçamento agora.</p>
+			<p class="text-sm text-muted">Você pode entrar mesmo assim. Ao salvar, se alguém tiver gravado antes, você será avisado.</p>
+		</div>
+		<div class="px-5 py-3 border-t border-border-color flex justify-end gap-2">
+			<button type="button" class="btn btn-outline" id="coopEditCancelBtn">Cancelar</button>
+			<button type="button" class="btn btn-primary" id="coopEditConfirmBtn">Entrar mesmo assim</button>
+		</div>
+	</div>
+</div>
+{% endif %}
+
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+	<!-- Coluna principal: dados + itens -->
+	<div class="lg:col-span-2 space-y-6">
+		<!-- Dados gerais -->
+		<div class="bg-secondary rounded-lg shadow-lg p-6">
+			<h2 class="text-lg font-semibold text-primary mb-4"><i class="fas fa-file-alt mr-2"></i>Dados do Orçamento</h2>
+			
+			<div class="mb-3">
+				<label class="form-label" for="budget-title">Título *</label>
+				<input type="text" id="budget-title" class="form-input w-full" placeholder="Ex: Orçamento de infraestrutura de rede" required>
+			</div>
+			
+			<div class="mb-3">
+				<label class="form-label" for="client-search-input">Cliente</label>
+				<div class="relative">
+					<input type="text" id="client-search-input" class="form-input w-full" placeholder="Digite para buscar o cliente..." autocomplete="off">
+					<div id="client-results" class="hidden absolute z-10 w-full bg-secondary border border-border-color rounded-lg shadow-lg max-h-48 overflow-y-auto mt-1"></div>
+				</div>
+				<div id="selected-client" class="hidden mt-2 flex items-center gap-2 text-sm">
+					<span class="inline-block bg-blue-100 text-blue-800 px-2 py-1 rounded-full" id="selected-client-name"></span>
+					<button type="button" class="btn btn-sm btn-outline" onclick="clearClient()"><i class="fas fa-times"></i></button>
+				</div>
+			</div>
+			
+			<div class="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
+				<div>
+					<label class="form-label" for="budget-valid-until">Válido até</label>
+					<input type="date" id="budget-valid-until" class="form-input w-full">
+				</div>
+				<div>
+					<label class="form-label" for="budget-status">Status</label>
+					<select id="budget-status" class="form-select w-full">
+						<option value="draft">Rascunho</option>
+						<option value="sent">Enviado</option>
+						<option value="approved">Aprovado</option>
+						<option value="rejected">Rejeitado</option>
+					</select>
+				</div>
+			</div>
+			
+			<div class="mb-1">
+				<label class="form-label">Descrição / introdução</label>
+				<div id="budget-description-rte"></div>
+				<p class="text-xs text-muted mt-1">Visível ao cliente. Use a barra para negrito, itálico, cores e listas.</p>
+			</div>
+		</div>
+		
+		<!-- Itens -->
+		<div class="bg-secondary rounded-lg shadow-lg p-6">
+			<div class="flex items-center justify-between mb-4 flex-wrap gap-2">
+				<h2 class="text-lg font-semibold text-primary"><i class="fas fa-list mr-2"></i>Itens</h2>
+				<div class="flex flex-wrap gap-2">
+					<button type="button" class="btn btn-outline btn-sm" onclick="openBudgetAIModal()">
+						<i class="fas fa-wand-magic-sparkles"></i>
+						IA
+					</button>
+					<button type="button" class="btn btn-primary btn-sm" id="btn-add-product">
+						<i class="fas fa-box"></i>
+						Produto
+					</button>
+					<button type="button" class="btn btn-primary btn-sm" id="btn-add-service">
+						<i class="fas fa-wrench"></i>
+						Serviço
+					</button>
+					<button type="button" class="btn btn-outline btn-sm" onclick="addItemRow()">
+						<i class="fas fa-plus"></i>
+						Item manual
+					</button>
+				</div>
+			</div>
+			
+			<p class="text-xs text-muted mb-3">
+				<i class="fas fa-grip-vertical mr-1"></i>Segure o ícone e arraste para reordenar. Marque <strong>Recorrente</strong> para cobrança mensal, trimestral ou anual.
+			</p>
+			<div id="items-body" class="space-y-3"></div>
+			
+			<div id="no-items" class="text-center py-6 text-muted hidden">
+				<i class="fas fa-inbox text-3xl mb-2"></i>
+				<p>Nenhum item. Adicione produtos, serviços ou itens manuais.</p>
+			</div>
+			
+			<div class="flex justify-end mt-4">
+				<div style="min-width: 260px" class="space-y-1 text-sm">
+					<div class="flex justify-between">
+						<span class="text-muted">Subtotal (único)</span>
+						<span id="subtotal-display" class="text-primary font-medium">R$ 0,00</span>
+					</div>
+					<div id="recurring-totals" class="hidden space-y-1"></div>
+					<div class="flex justify-between items-center">
+						<span class="text-muted">Desconto (R$)</span>
+						<input type="number" id="budget-discount" class="form-input text-right" style="width:120px" min="0" step="0.01" value="0">
+					</div>
+					<div class="flex justify-between border-t border-border-color pt-2 mt-1">
+						<span class="font-semibold text-primary">TOTAL (único)</span>
+						<span id="total-display" class="font-bold text-primary text-lg">R$ 0,00</span>
+					</div>
+				</div>
+			</div>
+		</div>
+		
+		<!-- Condições -->
+		<div class="bg-secondary rounded-lg shadow-lg p-6">
+			<h2 class="text-lg font-semibold text-primary mb-3"><i class="fas fa-handshake mr-2"></i>Condições e Observações</h2>
+			<p class="text-xs text-muted mb-2">Visível ao cliente no PDF e no link público.</p>
+			<div id="budget-payment-terms-rte"></div>
+		</div>
+
+		<!-- Observações internas -->
+		<div class="bg-secondary rounded-lg shadow-lg p-6 budget-internal-box">
+			<h2 class="text-lg font-semibold text-primary mb-1">
+				<i class="fas fa-lock mr-2" style="color: var(--warning)"></i>Observações Internas
+			</h2>
+			<p class="text-xs text-muted mb-3">
+				<i class="fas fa-eye-slash mr-1"></i>Uso exclusivo da empresa — <strong>não</strong> aparece para o cliente, no PDF nem no link público.
+			</p>
+			<div id="budget-internal-notes-rte"></div>
+		</div>
+	</div>
+	
+	<!-- Coluna lateral: aparência + resumo -->
+	<div class="space-y-6">
+		<div class="bg-secondary rounded-lg shadow-lg p-6">
+			<h2 class="text-lg font-semibold text-primary mb-4"><i class="fas fa-palette mr-2"></i>Aparência</h2>
+			
+			<div class="mb-3">
+				<label class="form-label" for="budget-theme">Tema de cores</label>
+				<select id="budget-theme" class="form-select w-full">
+					<option value="" data-primary="#2563eb" data-accent="#0ea5e9" data-text="#1e293b" data-title="#ffffff">Padrão</option>
+					{% for theme in themes %}
+					<option value="{{ theme.id }}"
+						data-primary="{{ theme.primary_color }}"
+						data-accent="{{ theme.accent_color }}"
+						data-text="{{ theme.text_color }}"
+						data-title="{{ theme.title_color or '#ffffff' }}"
+						{% if theme.is_default and not budget %}selected{% endif %}>{{ theme.name }}</option>
+					{% endfor %}
+				</select>
+				<div class="text-xs text-muted mt-1">
+					<a href="{{ url_for('budget.settings') }}">Gerenciar temas e logo</a>
+				</div>
+			</div>
+			
+			<label class="flex items-center gap-2 mb-4">
+				<input type="checkbox" id="budget-show-logo" class="form-checkbox" checked {% if not has_logo %}disabled{% endif %}>
+				<span class="text-sm">Exibir logo no PDF e no link público</span>
+			</label>
+			{% if not has_logo %}
+			<div class="text-xs text-muted mb-3">
+				<i class="fas fa-info-circle mr-1"></i>Nenhum logo configurado. Envie um em <a href="{{ url_for('budget.settings') }}">Configurações</a>.
+			</div>
+			{% endif %}
+			
+			<!-- Preview -->
+			<div class="border border-border-color rounded-lg overflow-hidden">
+				<div id="preview-header" class="p-3" style="background:#2563eb; color:#ffffff">
+					{% if has_logo %}
+					<img src="{{ url_for('budget.serve_logo') }}" alt="Logo" id="preview-logo" style="max-height:28px; max-width:120px; margin-bottom:6px;">
+					{% endif %}
+					<div class="text-xs opacity-80" id="preview-kicker">ORÇAMENTO</div>
+					<div class="font-semibold" id="preview-title">Título do orçamento</div>
+					<div class="text-xs opacity-90 mt-1" id="preview-meta">Nº 1 • Emitido em 07/07/2026</div>
+				</div>
+				<div class="p-3 text-sm bg-white" id="preview-body" style="color:#1e293b">
+					<div class="flex justify-between py-1" style="border-bottom: 2px solid #0ea5e9" id="preview-line">
+						<span>Itens</span>
+						<span id="preview-count">0</span>
+					</div>
+					<div class="flex justify-between pt-2 font-bold">
+						<span>Total</span>
+						<span id="preview-total" style="color:#2563eb">R$ 0,00</span>
+					</div>
+				</div>
+			</div>
+		</div>
+		
+		<div class="bg-secondary rounded-lg shadow-lg p-6">
+			<button type="button" class="btn btn-primary w-full mb-2" onclick="saveBudget()" id="save-btn">
+				<i class="fas fa-save"></i>
+				Salvar Orçamento
+			</button>
+			{% if budget %}
+			<a href="{{ url_for('budget.export_pdf', budget_id=budget.id) }}" class="btn btn-secondary w-full mb-2">
+				<i class="fas fa-file-pdf"></i>
+				Exportar PDF
+			</a>
+			<button type="button" class="btn btn-outline w-full" onclick="shareBudget()">
+				<i class="fas fa-link"></i>
+				<span id="share-btn-text">{{ 'Copiar Link Público' if budget.public_token else 'Gerar Link Público' }}</span>
+			</button>
+			{% if budget.public_token %}
+			<button type="button" class="btn btn-outline w-full mt-2 text-red-500" onclick="revokeShare()">
+				<i class="fas fa-unlink"></i>
+				Revogar Link Público
+			</button>
+			{% endif %}
+			{% else %}
+			<div class="text-xs text-muted text-center">Salve o orçamento para exportar PDF ou gerar link público.</div>
+			{% endif %}
+		</div>
+	</div>
+</div>
+
+<!-- Modal Assistente IA -->
+<div id="budget-ai-modal" class="hidden fixed inset-0 z-1050 flex items-center justify-center p-4 sm:p-6"
+	style="background-color: rgba(0, 0, 0, 0.75); backdrop-filter: blur(4px);">
+	<div class="relative w-full max-w-2xl rounded-xl shadow-2xl flex flex-col overflow-hidden border border-slate-700 bg-slate-950"
+		style="max-height: 85vh;">
+		<div class="px-5 py-3 border-b border-slate-700 flex items-center justify-between bg-slate-900 shrink-0">
+			<h3 class="text-lg font-bold text-slate-100 flex items-center gap-2">
+				<i class="fas fa-wand-magic-sparkles text-blue-400"></i>
+				Assistente de Orçamento
+			</h3>
+			<button type="button" onclick="closeBudgetAIModal()"
+				class="text-slate-400 hover:text-slate-100 transition-colors p-1 hover:bg-slate-700 rounded-lg"
+				aria-label="Fechar">
+				<i class="fas fa-times"></i>
+			</button>
+		</div>
+		<div class="flex-1 overflow-y-auto custom-scrollbar p-5 space-y-4 bg-slate-950">
+			<div>
+				<label class="block text-sm font-medium text-slate-300 mb-1.5" for="budget-ai-prompt">
+					Descreva o orçamento
+				</label>
+				<textarea id="budget-ai-prompt" rows="5"
+					class="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all resize-y"
+					placeholder="Ex: 2 switches 24 portas PoE, 1 rack 19&quot; 24U, 50m de cabo Cat6 e instalação de rede para o cliente. Pagamento em 3x, garantia de 90 dias."></textarea>
+				<p class="text-xs text-slate-500 mt-1.5">
+					A IA preenche itens (com match no catálogo quando possível), condições e observações. Revise antes de salvar.
+				</p>
+			</div>
+			<div id="budget-ai-status" class="hidden rounded-lg border border-slate-600 bg-slate-900 px-3 py-2 text-sm text-slate-300"></div>
+			<div id="budget-ai-error" class="hidden rounded-lg border border-red-800/60 bg-red-950/40 px-3 py-2 text-sm text-red-300"></div>
+			<div id="budget-ai-success" class="hidden rounded-lg border border-emerald-800/60 bg-emerald-950/40 px-3 py-2 text-sm text-emerald-300"></div>
+			<div id="budget-ai-preview" class="hidden space-y-3">
+				<div class="border-t border-slate-700 pt-3">
+					<div class="text-xs uppercase tracking-wider text-slate-500 mb-1">Pré-visualização</div>
+					<div id="budget-ai-preview-title" class="text-base font-semibold text-slate-100"></div>
+				</div>
+				<div>
+					<div class="text-xs font-medium text-slate-400 mb-1.5">Itens</div>
+					<div id="budget-ai-preview-items" class="space-y-1.5 max-h-40 overflow-y-auto custom-scrollbar"></div>
+					<div id="budget-ai-preview-total" class="text-sm font-semibold text-slate-200 mt-2 text-right"></div>
+				</div>
+				<div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+					<div class="rounded-lg border border-slate-700 bg-slate-900 p-3">
+						<div class="font-medium text-slate-400 mb-1">Condições</div>
+						<div id="budget-ai-preview-terms" class="text-slate-300 line-clamp-4"></div>
+					</div>
+					<div class="rounded-lg border border-slate-700 bg-slate-900 p-3">
+						<div class="font-medium text-slate-400 mb-1">Obs. internas</div>
+						<div id="budget-ai-preview-notes" class="text-slate-300 line-clamp-4"></div>
+					</div>
+				</div>
+			</div>
+		</div>
+		<div class="px-5 py-3 border-t border-slate-700 bg-slate-900 flex flex-wrap justify-between gap-2 shrink-0">
+			<button type="button" id="budget-ai-test-btn" class="btn btn-outline">
+				<i class="fas fa-plug"></i>
+				<span id="budget-ai-test-label">Testar IA</span>
+			</button>
+			<div class="flex flex-wrap gap-2">
+				<button type="button" id="budget-ai-close-btn" class="btn btn-outline">Fechar</button>
+				<button type="button" id="budget-ai-generate-btn" class="btn btn-primary">
+					<i class="fas fa-magic"></i>
+					<span id="budget-ai-generate-label">Gerar</span>
+				</button>
+				<button type="button" id="budget-ai-apply-btn" class="btn btn-primary hidden" disabled>
+					<i class="fas fa-check"></i>
+					Aplicar no formulário
+				</button>
+			</div>
+		</div>
+	</div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.6/Sortable.min.js"></script>
+<script>
+const BUDGET_DATA = {{ budget_data|tojson if budget_data else 'null' }};
+
+const SAVE_URL = "{{ url_for('budget.save_builder', budget_id=budget.id) if budget else url_for('budget.save_builder') }}";
+const AI_GENERATE_URL = "{{ url_for('budget.generate_builder_ai') }}";
+const AI_TEST_URL = "{{ url_for('budget.test_builder_ai') }}";
+const HAS_LOGO = {{ 'true' if has_logo else 'false' }};
+const CURRENT_USER_ID = {{ current_user.id|int }};
+const BUDGET_ID = {{ budget.id if budget else 'null' }};
+const EDITORS_URL = {% if budget %}"{{ url_for('budget.builder_editors', budget_id=budget.id) }}"{% else %}null{% endif %};
+const PRESENCE_URL = {% if budget %}"{{ url_for('budget.builder_presence', budget_id=budget.id) }}"{% else %}null{% endif %};
+const BUDGET_INDEX_URL = "{{ url_for('budget.index') }}";
+const PRESENCE_TAB_ID = 'tab-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
+let expectedUpdatedAt = (BUDGET_DATA && BUDGET_DATA.updated_at) ? BUDGET_DATA.updated_at : null;
+let budgetAIDraft = null;
+let budgetAIBusy = false;
+let itemsSortable = null;
+let budgetCoopJoined = false;
+let budgetCoopSocket = null;
+let presenceHeartbeatTimer = null;
+let presencePollTimer = null;
+
+let selectedClient = null;  // {id, type, name}
+
+const RECURRENCE_LABELS = {
+	monthly: 'Mensal',
+	quarterly: 'Trimestral',
+	yearly: 'Anual',
+};
+const RECURRENCE_SUFFIX = {
+	monthly: '/mês',
+	quarterly: '/trim.',
+	yearly: '/ano',
+};
+
+function formatBRL(value) {
+	return 'R$ ' + (value || 0).toLocaleString('pt-br', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+}
+
+function normalizeRecurrencePeriod(period) {
+	return RECURRENCE_LABELS[period] ? period : 'monthly';
+}
+
+// Copia texto com fallback para páginas HTTP (navigator.clipboard exige HTTPS)
+async function copyTextToClipboard(text) {
+	if (navigator.clipboard && window.isSecureContext) {
+		await navigator.clipboard.writeText(text);
+		return true;
+	}
+	const textarea = document.createElement('textarea');
+	textarea.value = text;
+	textarea.style.position = 'fixed';
+	textarea.style.opacity = '0';
+	document.body.appendChild(textarea);
+	textarea.focus();
+	textarea.select();
+	let ok = false;
+	try {
+		ok = document.execCommand('copy');
+	} catch (err) {
+		ok = false;
+	}
+	document.body.removeChild(textarea);
+	if (!ok) {
+		window.prompt('Copie o link abaixo (Ctrl+C):', text);
+	}
+	return true;
+}
+
+const TYPE_LABELS = {manual: 'Item', product: 'Produto', service: 'Serviço'};
+const TYPE_CLASS = {manual: 'item-type-manual', product: 'item-type-product', service: 'item-type-service'};
+
+// ----- Itens -----
+function syncItemRecurrenceUI(block) {
+	const checkbox = block.querySelector('.item-is-recurring');
+	const periodSelect = block.querySelector('.item-recurrence-period');
+	if (!checkbox || !periodSelect) return;
+	const on = checkbox.checked;
+	periodSelect.classList.toggle('hidden', !on);
+	periodSelect.disabled = !on;
+	if (on && !periodSelect.value) {
+		periodSelect.value = 'monthly';
+	}
+}
+
+function addItemRow(item) {
+	item = item || {item_type: 'manual', description: '', quantity: 1, unit_price: 0, observations: ''};
+	const container = document.getElementById('items-body');
+	const type = item.item_type || 'manual';
+	const blockId = 'item-' + Date.now() + '-' + Math.random().toString(36).slice(2, 7);
+	const isRecurring = !!item.is_recurring;
+	const recurrencePeriod = normalizeRecurrencePeriod(item.recurrence_period);
+
+	const block = document.createElement('div');
+	block.className = 'item-block';
+	block.dataset.blockId = blockId;
+	block.innerHTML = `
+		<div class="item-block-header">
+			<span class="item-drag-handle" title="Segurar e arrastar para reordenar" aria-label="Arrastar item">
+				<i class="fas fa-grip-vertical"></i>
+			</span>
+			<span class="item-type-badge ${TYPE_CLASS[type] || TYPE_CLASS.manual}">${TYPE_LABELS[type] || 'Item'}</span>
+			<span class="item-coop-pill" data-coop-pill></span>
+			<input type="hidden" class="item-type" value="${type}">
+			<input type="hidden" class="item-product-id" value="${item.product_id || ''}">
+			<input type="hidden" class="item-service-id" value="${item.service_id || ''}">
+			<input type="hidden" class="item-codigo" value="${item.codigo || ''}">
+			<input type="hidden" class="item-unit-of-measure" value="${item.unit_of_measure || ''}">
+			<div class="item-fields-grid">
+				<div class="coop-field-remote">
+					<span class="item-field-label">Qtd</span>
+					<input type="number" class="form-input item-quantity" min="0" step="0.01" value="1"
+						data-coop-field="item:${blockId}:quantity" data-coop-label="Qtd do item">
+				</div>
+				<div class="coop-field-remote">
+					<span class="item-field-label">Valor Unit. (R$)</span>
+					<input type="number" class="form-input item-price" min="0" step="0.01" value="0"
+						data-coop-field="item:${blockId}:price" data-coop-label="Valor unitário">
+				</div>
+				<div class="item-block-total item-total">R$ 0,00</div>
+			</div>
+			<div class="item-recurrence-controls">
+				<label class="item-recurrence-toggle" title="Cobrança em recorrência">
+					<input type="checkbox" class="form-checkbox item-is-recurring" ${isRecurring ? 'checked' : ''}>
+					<span>Recorrente</span>
+				</label>
+				<select class="form-select item-recurrence-period ${isRecurring ? '' : 'hidden'}" ${isRecurring ? '' : 'disabled'} title="Período da recorrência">
+					<option value="monthly" ${recurrencePeriod === 'monthly' ? 'selected' : ''}>Mensal</option>
+					<option value="quarterly" ${recurrencePeriod === 'quarterly' ? 'selected' : ''}>Trimestral</option>
+					<option value="yearly" ${recurrencePeriod === 'yearly' ? 'selected' : ''}>Anual</option>
+				</select>
+			</div>
+			<button type="button" class="btn btn-error btn-sm shrink-0" onclick="removeItemBlock('${blockId}')" title="Remover item">
+				<i class="fas fa-trash"></i>
+			</button>
+		</div>
+		<div class="text-xs text-muted mb-2 item-codigo-display ${item.codigo ? '' : 'hidden'}">${item.codigo ? 'Cód: ' + item.codigo : ''}</div>
+		<div class="item-block-section">
+			<label>Descrição</label>
+			<div class="item-description-rte"></div>
+		</div>
+		<div class="item-block-section">
+			<label>Observações <span class="opacity-70">(visível ao cliente)</span></label>
+			<div class="item-observations-rte"></div>
+		</div>
+	`;
+	container.appendChild(block);
+
+	const descRte = block.querySelector('.item-description-rte');
+	const obsRte = block.querySelector('.item-observations-rte');
+	const descPlaceholder = type === 'service'
+		? 'Descreva o serviço (ex: Instalação de rede, manutenção...)'
+		: type === 'product'
+		? 'Descreva o produto (ex: Switch 24 portas, cabo de rede...)'
+		: 'Descrição do item';
+	RichTextEditor.mount(descRte, {
+		compact: true,
+		placeholder: descPlaceholder,
+		value: item.description || '',
+		onInput: recalcTotals,
+	});
+	RichTextEditor.mount(obsRte, {
+		compact: true,
+		placeholder: 'Detalhes ou condições (opcional)',
+		value: item.observations || '',
+	});
+
+	const descContent = RichTextEditor.getContentEl(descRte);
+	const obsContent = RichTextEditor.getContentEl(obsRte);
+	if (descContent) {
+		descContent.setAttribute('data-coop-field', 'item:' + blockId + ':description');
+		descContent.setAttribute('data-coop-label', 'Descrição do item');
+		descRte.classList.add('coop-field-remote');
+	}
+	if (obsContent) {
+		obsContent.setAttribute('data-coop-field', 'item:' + blockId + ':observations');
+		obsContent.setAttribute('data-coop-label', 'Observações do item');
+		obsRte.classList.add('coop-field-remote');
+	}
+
+	block.querySelector('.item-quantity').value = item.quantity ?? 1;
+	block.querySelector('.item-price').value = item.unit_price ?? 0;
+	block.querySelectorAll('.item-quantity, .item-price').forEach(input => input.addEventListener('input', recalcTotals));
+
+	const recurringCheckbox = block.querySelector('.item-is-recurring');
+	const periodSelect = block.querySelector('.item-recurrence-period');
+	recurringCheckbox.addEventListener('change', function() {
+		syncItemRecurrenceUI(block);
+		recalcTotals();
+	});
+	periodSelect.addEventListener('change', recalcTotals);
+	syncItemRecurrenceUI(block);
+
+	if (typeof bindCoopFieldsIn === 'function') bindCoopFieldsIn(block);
+
+	recalcTotals();
+	if (item._focus) {
+		setTimeout(() => RichTextEditor.getContentEl(descRte)?.focus(), 50);
+	}
+}
+
+function addProductRow() {
+	addItemRow({
+		item_type: 'product',
+		description: '',
+		quantity: 1,
+		unit_price: 0,
+		observations: '',
+		_focus: true,
+	});
+}
+
+function addServiceRow() {
+	addItemRow({
+		item_type: 'service',
+		description: '',
+		quantity: 1,
+		unit_price: 0,
+		observations: '',
+		_focus: true,
+	});
+}
+
+function removeItemBlock(blockId) {
+	const block = document.querySelector(`.item-block[data-block-id="${blockId}"]`);
+	if (block) block.remove();
+	recalcTotals();
+}
+
+function getItems() {
+	return Array.from(document.querySelectorAll('.item-block')).map(block => {
+		const descRte = block.querySelector('.item-description-rte');
+		const obsRte = block.querySelector('.item-observations-rte');
+		const isRecurring = !!block.querySelector('.item-is-recurring')?.checked;
+		return {
+			item_type: block.querySelector('.item-type').value || 'manual',
+			product_id: block.querySelector('.item-product-id').value || null,
+			service_id: block.querySelector('.item-service-id').value || null,
+			codigo: block.querySelector('.item-codigo').value || '',
+			unit_of_measure: block.querySelector('.item-unit-of-measure').value || '',
+			description: RichTextEditor.getHTML(descRte),
+			quantity: parseFloat(block.querySelector('.item-quantity').value) || 0,
+			unit_price: parseFloat(block.querySelector('.item-price').value) || 0,
+			observations: RichTextEditor.getHTML(obsRte),
+			is_recurring: isRecurring,
+			recurrence_period: isRecurring
+				? normalizeRecurrencePeriod(block.querySelector('.item-recurrence-period')?.value)
+				: null,
+			_hasContent: RichTextEditor.hasContent(descRte),
+		};
+	}).filter(item => item._hasContent).map(({ _hasContent, ...item }) => item);
+}
+
+function recalcTotals() {
+	let subtotal = 0;
+	const recurringByPeriod = {monthly: 0, quarterly: 0, yearly: 0};
+
+	document.querySelectorAll('.item-block').forEach(block => {
+		const quantity = parseFloat(block.querySelector('.item-quantity').value) || 0;
+		const price = parseFloat(block.querySelector('.item-price').value) || 0;
+		const total = quantity * price;
+		const isRecurring = !!block.querySelector('.item-is-recurring')?.checked;
+		const period = normalizeRecurrencePeriod(block.querySelector('.item-recurrence-period')?.value);
+		const totalEl = block.querySelector('.item-total');
+
+		if (isRecurring) {
+			totalEl.innerHTML = formatBRL(total) +
+				'<span class="item-recurrence-suffix">' + (RECURRENCE_SUFFIX[period] || '/mês') + '</span>';
+			recurringByPeriod[period] += total;
+		} else {
+			totalEl.textContent = formatBRL(total);
+			subtotal += total;
+		}
+	});
+
+	const discount = parseFloat(document.getElementById('budget-discount').value) || 0;
+	const total = Math.max(subtotal - discount, 0);
+	document.getElementById('subtotal-display').textContent = formatBRL(subtotal);
+	document.getElementById('total-display').textContent = formatBRL(total);
+
+	const recurringBox = document.getElementById('recurring-totals');
+	const periodOrder = ['monthly', 'quarterly', 'yearly'];
+	const lines = periodOrder
+		.filter(period => recurringByPeriod[period] > 0)
+		.map(period =>
+			'<div class="flex justify-between">' +
+			'<span class="text-muted">Recorrente (' + RECURRENCE_LABELS[period].toLowerCase() + ')</span>' +
+			'<span class="text-primary font-medium">' + formatBRL(recurringByPeriod[period]) +
+			' <span class="text-muted text-xs">' + (RECURRENCE_SUFFIX[period] || '') + '</span></span>' +
+			'</div>'
+		);
+	if (recurringBox) {
+		recurringBox.innerHTML = lines.join('');
+		recurringBox.classList.toggle('hidden', lines.length === 0);
+	}
+
+	document.getElementById('no-items').classList.toggle('hidden', document.querySelectorAll('.item-block').length > 0);
+	updatePreview();
+}
+
+function initItemsSortable() {
+	const container = document.getElementById('items-body');
+	if (!container || typeof Sortable === 'undefined') return;
+	if (itemsSortable) {
+		itemsSortable.destroy();
+		itemsSortable = null;
+	}
+	itemsSortable = Sortable.create(container, {
+		animation: 180,
+		handle: '.item-drag-handle',
+		draggable: '.item-block',
+		ghostClass: 'sortable-ghost',
+		dragClass: 'sortable-drag',
+		forceFallback: true,
+		onEnd: function() {
+			recalcTotals();
+		},
+	});
+}
+
+// ----- Preview -----
+function updatePreview() {
+	const select = document.getElementById('budget-theme');
+	const option = select.options[select.selectedIndex];
+	const primary = option.dataset.primary || '#2563eb';
+	const accent = option.dataset.accent || '#0ea5e9';
+	const text = option.dataset.text || '#1e293b';
+	const title = option.dataset.title || '#ffffff';
+	
+	document.getElementById('preview-header').style.background = primary;
+	document.getElementById('preview-header').style.color = title;
+	document.getElementById('preview-body').style.color = text;
+	document.getElementById('preview-line').style.borderBottom = '2px solid ' + accent;
+	document.getElementById('preview-total').style.color = primary;
+	document.getElementById('preview-title').textContent = document.getElementById('budget-title').value || 'Título do orçamento';
+	document.getElementById('preview-count').textContent = getItems().length;
+	document.getElementById('preview-total').textContent = document.getElementById('total-display').textContent;
+	
+	const previewLogo = document.getElementById('preview-logo');
+	if (previewLogo) {
+		previewLogo.style.display = document.getElementById('budget-show-logo').checked ? '' : 'none';
+	}
+}
+
+// ----- Cliente (busca AJAX) -----
+let allClients = null;
+
+async function loadClients() {
+	if (allClients) return allClients;
+	const response = await fetch("{{ url_for('budget.api_clients') }}");
+	const data = await response.json();
+	allClients = data.success ? data.clients : [];
+	return allClients;
+}
+
+function selectClient(client) {
+	selectedClient = client;
+	document.getElementById('selected-client-name').textContent = client.name + (client.type === 'external' ? ' (ERP)' : '');
+	document.getElementById('selected-client').classList.remove('hidden');
+	document.getElementById('client-results').classList.add('hidden');
+	document.getElementById('client-search-input').value = '';
+}
+
+function clearClient() {
+	selectedClient = null;
+	document.getElementById('selected-client').classList.add('hidden');
+}
+
+document.getElementById('client-search-input').addEventListener('input', async function() {
+	const query = this.value.trim().toLowerCase();
+	const resultsDiv = document.getElementById('client-results');
+	if (query.length < 2) {
+		resultsDiv.classList.add('hidden');
+		return;
+	}
+	const clients = await loadClients();
+	const matches = clients.filter(c => c.name.toLowerCase().includes(query)).slice(0, 15);
+	resultsDiv.innerHTML = matches.length
+		? matches.map(c => `<div class="p-2 cursor-pointer hover:bg-tertiary text-sm client-option" data-id="${c.id}" data-type="${c.type}">${c.name} <span class="text-muted text-xs">${c.type === 'external' ? 'ERP' : 'Interno'}</span></div>`).join('')
+		: '<div class="p-2 text-sm text-muted">Nenhum cliente encontrado</div>';
+	resultsDiv.classList.remove('hidden');
+	resultsDiv.querySelectorAll('.client-option').forEach(el => {
+		el.addEventListener('click', () => selectClient({
+			id: parseInt(el.dataset.id),
+			type: el.dataset.type,
+			name: el.textContent.replace(/\s*(ERP|Interno)\s*$/, '').trim()
+		}));
+	});
+});
+
+document.addEventListener('click', function(e) {
+	if (!e.target.closest('#client-search-input') && !e.target.closest('#client-results')) {
+		document.getElementById('client-results').classList.add('hidden');
+	}
+});
+
+// ----- Assistente IA -----
+function setBudgetAIStatus(message) {
+	const el = document.getElementById('budget-ai-status');
+	if (!el) return;
+	if (!message) {
+		el.classList.add('hidden');
+		el.textContent = '';
+		return;
+	}
+	el.textContent = message;
+	el.classList.remove('hidden');
+}
+
+function setBudgetAIError(message) {
+	const el = document.getElementById('budget-ai-error');
+	const ok = document.getElementById('budget-ai-success');
+	if (ok) {
+		ok.classList.add('hidden');
+		ok.textContent = '';
+	}
+	if (!el) {
+		if (message) alert(message);
+		return;
+	}
+	if (!message) {
+		el.classList.add('hidden');
+		el.textContent = '';
+		return;
+	}
+	el.textContent = message;
+	el.classList.remove('hidden');
+	el.scrollIntoView({behavior: 'smooth', block: 'nearest'});
+	console.error('[IA Orçamento]', message);
+}
+
+function setBudgetAISuccess(message) {
+	const el = document.getElementById('budget-ai-success');
+	const err = document.getElementById('budget-ai-error');
+	if (err) {
+		err.classList.add('hidden');
+		err.textContent = '';
+	}
+	if (!el) return;
+	if (!message) {
+		el.classList.add('hidden');
+		el.textContent = '';
+		return;
+	}
+	el.textContent = message;
+	el.classList.remove('hidden');
+	el.scrollIntoView({behavior: 'smooth', block: 'nearest'});
+}
+
+function setBudgetAIBusy(busy) {
+	budgetAIBusy = !!busy;
+	const genBtn = document.getElementById('budget-ai-generate-btn');
+	const testBtn = document.getElementById('budget-ai-test-btn');
+	const applyBtn = document.getElementById('budget-ai-apply-btn');
+	if (genBtn) genBtn.disabled = busy;
+	if (testBtn) testBtn.disabled = busy;
+	if (applyBtn && !budgetAIDraft) applyBtn.disabled = true;
+	else if (applyBtn && budgetAIDraft) applyBtn.disabled = busy;
+}
+
+function openBudgetAIModal() {
+	const modal = document.getElementById('budget-ai-modal');
+	if (!modal) {
+		alert('Modal da IA não encontrado. Recarregue a página (Ctrl+F5).');
+		return;
+	}
+	modal.classList.remove('hidden');
+	setBudgetAIStatus('');
+	setBudgetAIError('');
+	setBudgetAISuccess('');
+	setTimeout(function() {
+		const prompt = document.getElementById('budget-ai-prompt');
+		if (prompt) prompt.focus();
+	}, 50);
+}
+
+function closeBudgetAIModal() {
+	if (budgetAIBusy) return;
+	const modal = document.getElementById('budget-ai-modal');
+	if (modal) modal.classList.add('hidden');
+}
+
+function stripHtmlPreview(html) {
+	const tmp = document.createElement('div');
+	tmp.innerHTML = html || '';
+	return (tmp.textContent || tmp.innerText || '').trim();
+}
+
+function renderBudgetAIPreview(data) {
+	budgetAIDraft = data || null;
+	const preview = document.getElementById('budget-ai-preview');
+	const applyBtn = document.getElementById('budget-ai-apply-btn');
+	if (!preview || !data) return;
+
+	document.getElementById('budget-ai-preview-title').textContent = data.title || 'Orçamento';
+
+	const itemsEl = document.getElementById('budget-ai-preview-items');
+	const items = data.items || [];
+	let total = 0;
+	itemsEl.innerHTML = items.map(function(item) {
+		const qty = Number(item.quantity) || 0;
+		const price = Number(item.unit_price) || 0;
+		const line = qty * price;
+		total += line;
+		const label = TYPE_LABELS[item.item_type] || 'Item';
+		const desc = stripHtmlPreview(item.description) || '(sem descrição)';
+		const codigo = item.codigo ? (' · ' + item.codigo) : '';
+		return '<div class="flex justify-between gap-3 text-sm border border-slate-700/80 rounded-lg px-2.5 py-2 bg-slate-900/80">' +
+			'<div class="min-w-0">' +
+			'<span class="text-xs text-slate-500">' + label + codigo + '</span>' +
+			'<div class="text-slate-200 truncate">' + desc.replace(/</g, '&lt;') + '</div>' +
+			'</div>' +
+			'<div class="text-right shrink-0 text-slate-300">' +
+			'<div>' + qty + ' × ' + formatBRL(price) + '</div>' +
+			'<div class="font-medium text-slate-100">' + formatBRL(line) + '</div>' +
+			'</div></div>';
+	}).join('') || '<div class="text-sm text-slate-500">Nenhum item</div>';
+
+	document.getElementById('budget-ai-preview-total').textContent = 'Total estimado: ' + formatBRL(total);
+	document.getElementById('budget-ai-preview-terms').textContent =
+		stripHtmlPreview(data.payment_terms) || '—';
+	document.getElementById('budget-ai-preview-notes').textContent =
+		stripHtmlPreview(data.internal_notes) || '—';
+
+	preview.classList.remove('hidden');
+	applyBtn.classList.remove('hidden');
+	applyBtn.disabled = items.length === 0;
+	setBudgetAISuccess('Rascunho gerado. Revise e clique em “Aplicar no formulário”.');
+	setBudgetAIStatus('');
+}
+
+async function testBudgetAI() {
+	if (budgetAIBusy) return;
+	setBudgetAIError('');
+	setBudgetAISuccess('');
+	setBudgetAIStatus('Testando conexão com o Gemini...');
+	setBudgetAIBusy(true);
+
+	const testLabel = document.getElementById('budget-ai-test-label');
+	if (testLabel) testLabel.textContent = 'Testando...';
+
+	try {
+		console.log('[IA Orçamento] Teste →', AI_TEST_URL);
+		const response = await fetch(AI_TEST_URL, {
+			method: 'GET',
+			credentials: 'include',
+			headers: {'Accept': 'application/json'},
+		});
+		const raw = await response.text();
+		let data = {};
+		try { data = JSON.parse(raw); } catch (e) { data = {}; }
+
+		if (!response.ok || !data.ok) {
+			const msg = data.error || ('Teste falhou (HTTP ' + response.status + '). Reinicie o servidor Flask e confira o .env / google-genai.');
+			setBudgetAIStatus('');
+			setBudgetAIError(msg);
+			alert(msg);
+			return;
+		}
+
+		const msg = (data.message || 'Conexão OK') +
+			' Modelo: ' + (data.model || '-') +
+			(data.reply ? (' · Resposta: ' + data.reply) : '');
+		setBudgetAIStatus('');
+		setBudgetAISuccess(msg);
+	} catch (err) {
+		const msg = 'Erro de conexão no teste: ' + err.message;
+		setBudgetAIStatus('');
+		setBudgetAIError(msg);
+		alert(msg);
+	} finally {
+		setBudgetAIBusy(false);
+		if (testLabel) testLabel.textContent = 'Testar IA';
+	}
+}
+
+async function generateBudgetAI() {
+	if (budgetAIBusy) return;
+
+	const promptEl = document.getElementById('budget-ai-prompt');
+	if (!promptEl) {
+		alert('Campo de descrição da IA não encontrado. Recarregue a página (Ctrl+F5).');
+		return;
+	}
+
+	const prompt = promptEl.value.trim();
+	if (prompt.length < 15) {
+		const msg = 'Descreva o orçamento com pelo menos 15 caracteres.';
+		setBudgetAIError(msg);
+		alert(msg);
+		return;
+	}
+
+	setBudgetAIError('');
+	setBudgetAISuccess('');
+	budgetAIDraft = null;
+	const preview = document.getElementById('budget-ai-preview');
+	const applyBtn = document.getElementById('budget-ai-apply-btn');
+	if (preview) preview.classList.add('hidden');
+	if (applyBtn) {
+		applyBtn.classList.add('hidden');
+		applyBtn.disabled = true;
+	}
+
+	const label = document.getElementById('budget-ai-generate-label');
+	if (label) label.textContent = 'Gerando...';
+	setBudgetAIStatus('Gerando orçamento com IA... isso pode levar alguns segundos.');
+	setBudgetAIBusy(true);
+
+	const payload = {
+		prompt: prompt,
+		client_name: selectedClient ? selectedClient.name : null,
+	};
+
+	try {
+		console.log('[IA Orçamento] Gerar →', AI_GENERATE_URL, payload);
+		const response = await fetch(AI_GENERATE_URL, {
+			method: 'POST',
+			headers: {'Content-Type': 'application/json', 'Accept': 'application/json'},
+			body: JSON.stringify(payload),
+			credentials: 'include',
+		});
+		const raw = await response.text();
+		let data = {};
+		try { data = JSON.parse(raw); } catch (e) { data = {}; }
+
+		if (!response.ok || !data.success) {
+			const msg = data.error || ('Não foi possível gerar o orçamento (HTTP ' + response.status + '). Use “Testar IA” para diagnosticar.');
+			setBudgetAIStatus('');
+			setBudgetAIError(msg);
+			alert(msg);
+			return;
+		}
+		if (!data.data) {
+			const msg = 'Resposta da IA sem dados. Tente novamente.';
+			setBudgetAIStatus('');
+			setBudgetAIError(msg);
+			alert(msg);
+			return;
+		}
+		renderBudgetAIPreview(data.data);
+	} catch (err) {
+		const msg = 'Erro de conexão ao gerar: ' + err.message + '. Confira se o servidor está no ar e reinicie após instalar google-genai.';
+		setBudgetAIStatus('');
+		setBudgetAIError(msg);
+		alert(msg);
+		console.error(err);
+	} finally {
+		setBudgetAIBusy(false);
+		if (label) label.textContent = 'Gerar';
+	}
+}
+
+function itemBlockHasContent(block) {
+	const descRte = block.querySelector('.item-description-rte');
+	const desc = descRte ? stripHtmlPreview(RichTextEditor.getHTML(descRte)) : '';
+	const priceInput = block.querySelector('.item-price');
+	const price = priceInput ? (parseFloat(priceInput.value) || 0) : 0;
+	return Boolean(desc) || price > 0;
+}
+
+function applyBudgetAI() {
+	if (!budgetAIDraft) {
+		alert('Nenhum rascunho para aplicar. Clique em Gerar primeiro.');
+		return;
+	}
+	if (budgetAIBusy) return;
+
+	const existingBlocks = Array.from(document.querySelectorAll('.item-block'));
+	const hasContent = existingBlocks.some(itemBlockHasContent);
+	if (hasContent) {
+		if (!confirm('Substituir os itens atuais pelos gerados pela IA?')) {
+			return;
+		}
+	}
+
+	const titleInput = document.getElementById('budget-title');
+	const currentTitle = titleInput.value.trim();
+	if (budgetAIDraft.title) {
+		if (!currentTitle) {
+			titleInput.value = budgetAIDraft.title;
+		} else if (currentTitle !== budgetAIDraft.title) {
+			if (confirm('Substituir o título atual pelo sugerido pela IA?')) {
+				titleInput.value = budgetAIDraft.title;
+			}
+		}
+	}
+
+	RichTextEditor.setHTML('#budget-description-rte', budgetAIDraft.description || '');
+	RichTextEditor.setHTML('#budget-payment-terms-rte', budgetAIDraft.payment_terms || '');
+	RichTextEditor.setHTML('#budget-internal-notes-rte', budgetAIDraft.internal_notes || '');
+
+	document.getElementById('items-body').innerHTML = '';
+	(budgetAIDraft.items || []).forEach(function(item) { addItemRow(item); });
+	if (!(budgetAIDraft.items || []).length) {
+		addItemRow();
+	}
+	recalcTotals();
+	closeBudgetAIModal();
+}
+
+// Expõe no window para onclick / console
+window.openBudgetAIModal = openBudgetAIModal;
+window.closeBudgetAIModal = closeBudgetAIModal;
+window.generateBudgetAI = generateBudgetAI;
+window.testBudgetAI = testBudgetAI;
+window.applyBudgetAI = applyBudgetAI;
+
+// ----- Salvar -----
+async function saveBudget() {
+	const title = document.getElementById('budget-title').value.trim();
+	if (!title) {
+		alert('Informe o título do orçamento.');
+		document.getElementById('budget-title').focus();
+		return;
+	}
+	
+	const payload = {
+		title: title,
+		description: RichTextEditor.getHTML('#budget-description-rte'),
+		status: document.getElementById('budget-status').value,
+		valid_until: document.getElementById('budget-valid-until').value,
+		theme_id: document.getElementById('budget-theme').value || null,
+		show_logo: document.getElementById('budget-show-logo').checked,
+		discount: parseFloat(document.getElementById('budget-discount').value) || 0,
+		payment_terms: RichTextEditor.getHTML('#budget-payment-terms-rte'),
+		internal_notes: RichTextEditor.getHTML('#budget-internal-notes-rte'),
+		items: getItems(),
+		client_id: null,
+		external_client_id: null,
+		external_client_name: null,
+		expected_updated_at: expectedUpdatedAt,
+	};
+	if (selectedClient) {
+		if (selectedClient.type === 'external') {
+			payload.external_client_id = selectedClient.id;
+			payload.external_client_name = selectedClient.name;
+		} else {
+			payload.client_id = selectedClient.id;
+		}
+	}
+	
+	const saveBtn = document.getElementById('save-btn');
+	saveBtn.disabled = true;
+	try {
+		const response = await fetch(SAVE_URL, {
+			method: 'POST',
+			headers: {'Content-Type': 'application/json'},
+			body: JSON.stringify(payload),
+			credentials: 'include',
+		});
+		const data = await response.json().catch(() => ({}));
+		if (response.status === 409 || data.conflict) {
+			alert(data.error || 'Este orçamento foi alterado por outro usuário. Recarregue a página.');
+			return;
+		}
+		if (data.success) {
+			if (data.updated_at) expectedUpdatedAt = data.updated_at;
+			leaveBudgetCoop();
+			window.location.href = BUDGET_INDEX_URL + "view/" + data.budget_id;
+		} else {
+			alert(data.error || 'Erro ao salvar o orçamento.');
+		}
+	} catch (err) {
+		alert('Erro de conexão ao salvar: ' + err.message);
+	} finally {
+		saveBtn.disabled = false;
+	}
+}
+
+// ----- Co-op / presença + awareness (foco, digitação, cursor) -----
+const COOP_COLORS = ['#0ea5e9', '#ef4444', '#22c55e', '#a855f7', '#f59e0b', '#06b6d4', '#ec4899', '#84cc16'];
+let remoteAwareness = {}; // userId -> state
+let coopAwarenessBound = false;
+let coopEmitTimer = null;
+let coopTypingTimer = null;
+let localCoopState = { field: null, block_id: null, caret: null, typing: false, label: '' };
+
+function getAppSocket() {
+	if (window.helpdeskSocket) return window.helpdeskSocket;
+	if (typeof helpdeskSocket !== 'undefined' && helpdeskSocket) return helpdeskSocket;
+	if (!window._budgetSocket) {
+		const uid = document.body.getAttribute('data-user-id') || String(CURRENT_USER_ID || '');
+		window._budgetSocket = io({
+			query: uid ? { user_id: String(uid) } : {},
+			transports: ['websocket', 'polling'],
+		});
+	}
+	return window._budgetSocket;
+}
+
+function waitForAppSocket(callback) {
+	let tries = 0;
+	const tick = function() {
+		const shared = window.helpdeskSocket || (typeof helpdeskSocket !== 'undefined' ? helpdeskSocket : null);
+		if (shared) {
+			callback(shared);
+			return;
+		}
+		tries += 1;
+		if (tries < 40) {
+			setTimeout(tick, 50);
+			return;
+		}
+		callback(getAppSocket());
+	};
+	tick();
+}
+
+function otherEditors(editors) {
+	return (editors || []).filter(function(e) { return Number(e.id) !== CURRENT_USER_ID; });
+}
+
+function coopColorForUser(userId) {
+	const n = Math.abs(Number(userId) || 0);
+	return COOP_COLORS[n % COOP_COLORS.length];
+}
+
+function escapeHtml(str) {
+	return String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function updateCoopBanner(editors) {
+	const banner = document.getElementById('budget-coop-banner');
+	const textEl = document.getElementById('budget-coop-banner-text');
+	if (!banner || !textEl) return;
+	const others = otherEditors(editors);
+	if (!others.length && !Object.keys(remoteAwareness).length) {
+		banner.classList.add('hidden');
+		return;
+	}
+	const names = others.map(function(e) { return e.name; }).filter(Boolean);
+	if (names.length === 1) {
+		textEl.textContent = names[0] + ' também está editando este orçamento.';
+	} else if (names.length > 1) {
+		textEl.textContent = names.join(', ') + ' também estão editando este orçamento.';
+	} else {
+		textEl.textContent = 'Colaboração em tempo real ativa.';
+	}
+	banner.classList.remove('hidden');
+	refreshCoopActivityLine();
+}
+
+function refreshCoopActivityLine() {
+	const el = document.getElementById('budget-coop-activity');
+	if (!el) return;
+	const parts = [];
+	Object.keys(remoteAwareness).forEach(function(uid) {
+		const st = remoteAwareness[uid];
+		if (!st || st.cleared || !st.field) return;
+		const where = st.label || st.field;
+		const typing = st.typing ? ' digitando em ' : ' em ';
+		parts.push(st.user_name + typing + where);
+	});
+	el.textContent = parts.join(' · ');
+}
+
+function findCoopElement(field) {
+	if (!field) return null;
+	return document.querySelector('[data-coop-field="' + field.replace(/"/g, '\\"') + '"]');
+}
+
+function getTextCaretOffset(root) {
+	const sel = window.getSelection();
+	if (!sel || !sel.rangeCount || !root.contains(sel.focusNode)) return null;
+	try {
+		const range = sel.getRangeAt(0).cloneRange();
+		const pre = document.createRange();
+		pre.selectNodeContents(root);
+		pre.setEnd(range.endContainer, range.endOffset);
+		return pre.toString().length;
+	} catch (e) {
+		return null;
+	}
+}
+
+function caretRectInContentEditable(root, offset) {
+	if (!root || offset == null) return null;
+	const textLen = (root.textContent || '').length;
+	const pos = Math.max(0, Math.min(offset, textLen));
+	const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+	let remaining = pos;
+	let node = walker.nextNode();
+	while (node) {
+		const len = node.nodeValue.length;
+		if (remaining <= len) {
+			const range = document.createRange();
+			range.setStart(node, remaining);
+			range.setEnd(node, remaining);
+			const rects = range.getClientRects();
+			const rect = rects[0] || range.getBoundingClientRect();
+			if (rect && (rect.width || rect.height || rect.top || rect.left)) {
+				return { left: rect.left, top: rect.top, height: rect.height || 18 };
+			}
+			break;
+		}
+		remaining -= len;
+		node = walker.nextNode();
+	}
+	const fallback = root.getBoundingClientRect();
+	return { left: fallback.left + 8, top: fallback.top + 6, height: 18 };
+}
+
+function caretRectInInput(input, position) {
+	if (!input) return null;
+	const pos = position == null ? (input.selectionStart || 0) : position;
+	const mirror = document.createElement('div');
+	const style = window.getComputedStyle(input);
+	const props = [
+		'direction', 'boxSizing', 'width', 'height', 'overflowX', 'overflowY',
+		'borderTopWidth', 'borderRightWidth', 'borderBottomWidth', 'borderLeftWidth',
+		'paddingTop', 'paddingRight', 'paddingBottom', 'paddingLeft',
+		'fontStyle', 'fontVariant', 'fontWeight', 'fontStretch', 'fontSize',
+		'fontSizeAdjust', 'lineHeight', 'fontFamily', 'textAlign', 'textTransform',
+		'textIndent', 'textDecoration', 'letterSpacing', 'wordSpacing', 'tabSize', 'whiteSpace',
+	];
+	mirror.style.position = 'absolute';
+	mirror.style.visibility = 'hidden';
+	mirror.style.whiteSpace = 'pre-wrap';
+	mirror.style.overflow = 'hidden';
+	props.forEach(function(p) { mirror.style[p] = style[p]; });
+	mirror.style.width = input.clientWidth + 'px';
+	const value = input.value || '';
+	mirror.textContent = value.substring(0, pos);
+	const marker = document.createElement('span');
+	marker.textContent = value.substring(pos) || '.';
+	mirror.appendChild(marker);
+	document.body.appendChild(mirror);
+	const inputRect = input.getBoundingClientRect();
+	const markerRect = marker.getBoundingClientRect();
+	const mirrorRect = mirror.getBoundingClientRect();
+	document.body.removeChild(mirror);
+	return {
+		left: inputRect.left + (markerRect.left - mirrorRect.left) - (input.scrollLeft || 0),
+		top: inputRect.top + (markerRect.top - mirrorRect.top) - (input.scrollTop || 0),
+		height: markerRect.height || parseFloat(style.lineHeight) || 18,
+	};
+}
+
+function currentAwarenessPayload() {
+	if (!localCoopState.field) return null;
+	return {
+		field: localCoopState.field,
+		block_id: localCoopState.block_id,
+		caret: localCoopState.caret,
+		typing: !!localCoopState.typing,
+		label: localCoopState.label || '',
+	};
+}
+
+function applyEditorsFromHttp(editors) {
+	updateCoopBanner(editors || []);
+	const next = {};
+	(editors || []).forEach(function(e) {
+		if (Number(e.id) === Number(CURRENT_USER_ID)) return;
+		const aw = e.awareness || {};
+		if (!aw.field) return;
+		next[String(e.id)] = {
+			user_id: e.id,
+			user_name: e.name || 'Usuário',
+			field: aw.field,
+			block_id: aw.block_id,
+			caret: aw.caret,
+			typing: !!aw.typing,
+			label: aw.label || '',
+			cleared: false,
+		};
+	});
+	remoteAwareness = next;
+	renderRemoteAwareness();
+}
+
+async function httpPresencePing() {
+	if (!PRESENCE_URL || !BUDGET_ID) return null;
+	try {
+		const response = await fetch(PRESENCE_URL, {
+			method: 'POST',
+			credentials: 'include',
+			headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+			body: JSON.stringify({
+				action: 'ping',
+				tab_id: PRESENCE_TAB_ID,
+				awareness: currentAwarenessPayload(),
+				clear_awareness: !localCoopState.field,
+			}),
+		});
+		const data = await response.json().catch(function() { return {}; });
+		if (response.ok && data.success) {
+			applyEditorsFromHttp(data.editors || []);
+			return data;
+		}
+		console.warn('[Co-op] ping presença falhou', response.status, data);
+	} catch (err) {
+		console.warn('[Co-op] ping presença erro', err);
+	}
+	return null;
+}
+
+async function httpPresenceLeave() {
+	if (!PRESENCE_URL || !BUDGET_ID) return;
+	try {
+		await fetch(PRESENCE_URL, {
+			method: 'POST',
+			credentials: 'include',
+			headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+			body: JSON.stringify({ action: 'leave', tab_id: PRESENCE_TAB_ID }),
+			keepalive: true,
+		});
+	} catch (e) {}
+}
+
+function startHttpPresence() {
+	if (!PRESENCE_URL) return;
+	httpPresencePing();
+	if (presenceHeartbeatTimer) clearInterval(presenceHeartbeatTimer);
+	if (presencePollTimer) clearInterval(presencePollTimer);
+	presenceHeartbeatTimer = setInterval(httpPresencePing, 10000);
+	presencePollTimer = setInterval(async function() {
+		if (!EDITORS_URL) return;
+		try {
+			const response = await fetch(EDITORS_URL, {
+				credentials: 'include',
+				headers: { 'Accept': 'application/json' },
+			});
+			const data = await response.json().catch(function() { return {}; });
+			if (response.ok && data.success) applyEditorsFromHttp(data.editors || []);
+		} catch (e) {}
+	}, 2500);
+}
+
+function stopHttpPresence() {
+	if (presenceHeartbeatTimer) {
+		clearInterval(presenceHeartbeatTimer);
+		presenceHeartbeatTimer = null;
+	}
+	if (presencePollTimer) {
+		clearInterval(presencePollTimer);
+		presencePollTimer = null;
+	}
+	httpPresenceLeave();
+}
+
+function emitCoopAwareness(partial) {
+	if (!BUDGET_ID || !budgetCoopJoined) return;
+	Object.assign(localCoopState, partial || {});
+	const socket = budgetCoopSocket || getAppSocket();
+	const payload = {
+		budget_id: BUDGET_ID,
+		field: localCoopState.field,
+		block_id: localCoopState.block_id,
+		caret: localCoopState.caret,
+		typing: !!localCoopState.typing,
+		label: localCoopState.label || '',
+		cleared: !localCoopState.field,
+	};
+	if (socket && socket.connected) {
+		try { socket.emit('budget_awareness', payload); } catch (e) {}
+	}
+	// HTTP garante presença/awareness mesmo sem socket
+	httpPresencePing();
+}
+
+function scheduleCoopEmit(partial, immediate) {
+	Object.assign(localCoopState, partial || {});
+	if (immediate) {
+		if (coopEmitTimer) clearTimeout(coopEmitTimer);
+		emitCoopAwareness();
+		return;
+	}
+	if (coopEmitTimer) return;
+	coopEmitTimer = setTimeout(function() {
+		coopEmitTimer = null;
+		emitCoopAwareness();
+	}, 80);
+}
+
+function markLocalTyping() {
+	scheduleCoopEmit({ typing: true });
+	if (coopTypingTimer) clearTimeout(coopTypingTimer);
+	coopTypingTimer = setTimeout(function() {
+		scheduleCoopEmit({ typing: false }, true);
+	}, 1400);
+}
+
+function readLocalCaret(el) {
+	if (!el) return null;
+	if (el.isContentEditable) return getTextCaretOffset(el);
+	if (typeof el.selectionStart === 'number') return el.selectionStart;
+	return null;
+}
+
+function onCoopFieldFocus(el) {
+	const field = el.getAttribute('data-coop-field');
+	if (!field) return;
+	const label = el.getAttribute('data-coop-label') || field;
+	const block = el.closest('.item-block');
+	scheduleCoopEmit({
+		field: field,
+		block_id: block ? block.dataset.blockId : null,
+		label: label,
+		caret: readLocalCaret(el),
+		typing: false,
+	}, true);
+}
+
+function onCoopFieldBlur(el) {
+	setTimeout(function() {
+		const active = document.activeElement;
+		if (active && active.getAttribute && active.getAttribute('data-coop-field')) return;
+		localCoopState = { field: null, block_id: null, caret: null, typing: false, label: '' };
+		emitCoopAwareness();
+	}, 80);
+}
+
+function bindCoopField(el) {
+	if (!el || el._coopBound) return;
+	el._coopBound = true;
+	el.addEventListener('focus', function() { onCoopFieldFocus(el); });
+	el.addEventListener('blur', function() { onCoopFieldBlur(el); });
+	el.addEventListener('input', function() {
+		onCoopFieldFocus(el);
+		markLocalTyping();
+		scheduleCoopEmit({ caret: readLocalCaret(el) });
+	});
+	el.addEventListener('keyup', function() {
+		scheduleCoopEmit({ caret: readLocalCaret(el) });
+	});
+	el.addEventListener('click', function() {
+		scheduleCoopEmit({ caret: readLocalCaret(el) });
+	});
+	el.addEventListener('select', function() {
+		scheduleCoopEmit({ caret: readLocalCaret(el) });
+	});
+}
+
+function bindCoopFieldsIn(root) {
+	(root || document).querySelectorAll('[data-coop-field]').forEach(bindCoopField);
+}
+
+function clearRemoteVisuals() {
+	document.querySelectorAll('.item-block.coop-remote-active').forEach(function(block) {
+		block.classList.remove('coop-remote-active');
+		block.style.removeProperty('--coop-color');
+		const pill = block.querySelector('[data-coop-pill]');
+		if (pill) pill.textContent = '';
+	});
+	document.querySelectorAll('.coop-field-active').forEach(function(el) {
+		el.classList.remove('coop-field-active');
+		el.style.removeProperty('--coop-color');
+	});
+	document.querySelectorAll('.coop-field-badge').forEach(function(el) { el.remove(); });
+	const layer = document.getElementById('budget-coop-cursors');
+	if (layer) layer.innerHTML = '';
+}
+
+function renderRemoteAwareness() {
+	clearRemoteVisuals();
+	const layer = document.getElementById('budget-coop-cursors');
+	const blockUsers = {};
+
+	Object.keys(remoteAwareness).forEach(function(uid) {
+		const st = remoteAwareness[uid];
+		if (!st || st.cleared || !st.field) return;
+		const color = coopColorForUser(uid);
+		const el = findCoopElement(st.field);
+		if (!el) return;
+
+		const wrap = el.closest('.coop-field-remote') || el.parentElement;
+		if (wrap) {
+			wrap.classList.add('coop-field-active');
+			wrap.style.setProperty('--coop-color', color);
+			let badge = wrap.querySelector('.coop-field-badge[data-user="' + uid + '"]');
+			if (!badge) {
+				badge = document.createElement('span');
+				badge.className = 'coop-field-badge';
+				badge.dataset.user = uid;
+				wrap.appendChild(badge);
+			}
+			badge.style.setProperty('--coop-color', color);
+			badge.textContent = st.user_name + (st.typing ? '' : '');
+			badge.classList.toggle('is-typing', !!st.typing);
+		}
+
+		const block = el.closest('.item-block');
+		if (block) {
+			const bid = block.dataset.blockId;
+			if (!blockUsers[bid]) blockUsers[bid] = [];
+			blockUsers[bid].push({ name: st.user_name, color: color, typing: st.typing });
+			block.classList.add('coop-remote-active');
+			block.style.setProperty('--coop-color', color);
+		}
+
+		if (st.caret == null || !layer) return;
+		let rect = null;
+		if (el.isContentEditable) rect = caretRectInContentEditable(el, st.caret);
+		else if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') rect = caretRectInInput(el, st.caret);
+		if (!rect) return;
+
+		const caret = document.createElement('div');
+		caret.className = 'coop-caret';
+		caret.style.setProperty('--coop-color', color);
+		caret.style.left = rect.left + 'px';
+		caret.style.top = rect.top + 'px';
+		caret.style.height = Math.max(14, rect.height) + 'px';
+		caret.innerHTML = '<span class="coop-caret-label">' + escapeHtml(st.user_name) + (st.typing ? '…' : '') + '</span>';
+		layer.appendChild(caret);
+	});
+
+	Object.keys(blockUsers).forEach(function(bid) {
+		const block = document.querySelector('.item-block[data-block-id="' + bid + '"]');
+		if (!block) return;
+		const pill = block.querySelector('[data-coop-pill]');
+		if (!pill) return;
+		const users = blockUsers[bid];
+		pill.style.setProperty('--coop-color', users[0].color);
+		if (users.length === 1) {
+			pill.textContent = users[0].name + (users[0].typing ? ' digitando' : '');
+		} else {
+			pill.textContent = users.length + ' editando';
+		}
+	});
+
+	refreshCoopActivityLine();
+}
+
+function applyRemoteAwareness(data) {
+	if (!data || Number(data.user_id) === Number(CURRENT_USER_ID)) return;
+	const uid = String(data.user_id);
+	if (data.cleared) {
+		delete remoteAwareness[uid];
+	} else {
+		remoteAwareness[uid] = {
+			user_id: data.user_id,
+			user_name: data.user_name || 'Usuário',
+			field: data.field,
+			block_id: data.block_id,
+			caret: data.caret,
+			typing: !!data.typing,
+			label: data.label || '',
+			cleared: false,
+		};
+	}
+	renderRemoteAwareness();
+}
+
+function applyAwarenessSnapshot(list) {
+	(list || []).forEach(applyRemoteAwareness);
+}
+
+function tagStaticCoopFields() {
+	const title = document.getElementById('budget-title');
+	if (title) {
+		title.setAttribute('data-coop-field', 'title');
+		title.setAttribute('data-coop-label', 'Título');
+		title.classList.add('coop-field-remote');
+	}
+	const discount = document.getElementById('budget-discount');
+	if (discount) {
+		discount.setAttribute('data-coop-field', 'discount');
+		discount.setAttribute('data-coop-label', 'Desconto');
+		const wrap = discount.closest('div') || discount.parentElement;
+		if (wrap) wrap.classList.add('coop-field-remote');
+	}
+	[
+		['#budget-description-rte', 'description', 'Descrição'],
+		['#budget-payment-terms-rte', 'payment_terms', 'Condições'],
+		['#budget-internal-notes-rte', 'internal_notes', 'Obs. internas'],
+	].forEach(function(row) {
+		const wrap = document.querySelector(row[0]);
+		const content = wrap ? RichTextEditor.getContentEl(wrap) : null;
+		if (!content) return;
+		content.setAttribute('data-coop-field', row[1]);
+		content.setAttribute('data-coop-label', row[2]);
+		wrap.classList.add('coop-field-remote');
+	});
+}
+
+function initCoopAwarenessTracking(socket) {
+	if (coopAwarenessBound) return;
+	coopAwarenessBound = true;
+	tagStaticCoopFields();
+	bindCoopFieldsIn(document);
+	window.addEventListener('scroll', function() { renderRemoteAwareness(); }, true);
+	window.addEventListener('resize', function() { renderRemoteAwareness(); });
+}
+
+function joinBudgetCoop() {
+	if (!BUDGET_ID || budgetCoopJoined) return;
+	budgetCoopJoined = true;
+	console.log('[Co-op] iniciando presença HTTP + socket budget', BUDGET_ID);
+	// HTTP primeiro — popup/lista funcionam mesmo se o WebSocket falhar
+	startHttpPresence();
+	tagStaticCoopFields();
+	bindCoopFieldsIn(document);
+
+	waitForAppSocket(function(socket) {
+		budgetCoopSocket = socket;
+		if (!socket._budgetCoopHandlersBound) {
+			socket._budgetCoopHandlersBound = true;
+			socket.on('budget_joined_edit', function(data) {
+				if (!data || Number(data.budget_id) !== Number(BUDGET_ID)) return;
+				console.log('[Co-op] joined edit', data);
+				applyEditorsFromHttp(data.editors || []);
+				applyAwarenessSnapshot(data.awareness || []);
+			});
+			socket.on('budget_editors_changed', function(data) {
+				if (!data || Number(data.budget_id) !== Number(BUDGET_ID)) return;
+				applyEditorsFromHttp(data.editors || []);
+			});
+			socket.on('budget_awareness', function(data) {
+				if (!data || Number(data.budget_id) !== Number(BUDGET_ID)) return;
+				applyRemoteAwareness(data);
+			});
+		}
+		initCoopAwarenessTracking(socket);
+		const doJoin = function() {
+			console.log('[Co-op] join_edit socket budget', BUDGET_ID);
+			budgetCoopSocket.emit('budget_join_edit', { budget_id: BUDGET_ID });
+		};
+		if (budgetCoopSocket.connected) doJoin();
+		else budgetCoopSocket.once('connect', doJoin);
+	});
+}
+
+function leaveBudgetCoop() {
+	if (!BUDGET_ID) return;
+	try {
+		const socket = budgetCoopSocket || getAppSocket();
+		if (socket && socket.connected) {
+			socket.emit('budget_awareness', { budget_id: BUDGET_ID, cleared: true });
+			socket.emit('budget_leave_edit', { budget_id: BUDGET_ID });
+		}
+	} catch (e) {}
+	stopHttpPresence();
+	budgetCoopJoined = false;
+	remoteAwareness = {};
+	clearRemoteVisuals();
+}
+
+function setCoopModalText(editors) {
+	const others = otherEditors(editors);
+	const el = document.getElementById('coopEditModalText');
+	if (!el) return;
+	const names = others.map(function(e) { return e.name; }).filter(Boolean);
+	if (names.length === 1) {
+		el.innerHTML = '<strong>' + escapeHtml(names[0]) + '</strong> está editando este orçamento agora.';
+	} else if (names.length > 1) {
+		el.innerHTML = '<strong>' + names.map(escapeHtml).join(', ') + '</strong> estão editando este orçamento agora.';
+	} else {
+		el.textContent = 'Outra pessoa está editando este orçamento agora.';
+	}
+}
+
+function closeBuilderCoopModal(enter) {
+	const modal = document.getElementById('coopEditModal');
+	if (modal) modal.classList.add('hidden');
+	if (enter) {
+		joinBudgetCoop();
+	} else {
+		window.location.href = BUDGET_INDEX_URL;
+	}
+}
+
+async function initBudgetCoop() {
+	if (!BUDGET_ID || !EDITORS_URL) return;
+
+	const modal = document.getElementById('coopEditModal');
+	const confirmBtn = document.getElementById('coopEditConfirmBtn');
+	const cancelBtn = document.getElementById('coopEditCancelBtn');
+	if (confirmBtn) confirmBtn.addEventListener('click', function() { closeBuilderCoopModal(true); });
+	if (cancelBtn) cancelBtn.addEventListener('click', function() { closeBuilderCoopModal(false); });
+	if (modal) {
+		modal.addEventListener('click', function(e) {
+			if (e.target === modal) closeBuilderCoopModal(false);
+		});
+	}
+
+	window.addEventListener('beforeunload', leaveBudgetCoop);
+	window.addEventListener('pagehide', leaveBudgetCoop);
+
+	try {
+		const response = await fetch(EDITORS_URL, {
+			credentials: 'include',
+			headers: { 'Accept': 'application/json' },
+		});
+		const data = await response.json().catch(function() { return {}; });
+		const editors = (data && data.editors) || [];
+		const others = otherEditors(editors);
+		if (others.length && modal) {
+			setCoopModalText(editors);
+			modal.classList.remove('hidden');
+			return;
+		}
+	} catch (err) {
+		console.warn('[Co-op] Falha ao consultar editores:', err);
+	}
+	joinBudgetCoop();
+}
+
+// ----- Compartilhar -----
+{% if budget %}
+async function shareBudget() {
+	try {
+		const response = await fetch("{{ url_for('budget.share_budget', budget_id=budget.id) }}", {
+			method: 'POST',
+			headers: {'Content-Type': 'application/json'},
+			body: JSON.stringify({action: 'generate'}),
+			credentials: 'include',
+		});
+		const data = await response.json();
+		if (data.success && data.public_url) {
+			await copyTextToClipboard(data.public_url);
+			document.getElementById('share-btn-text').textContent = 'Link copiado!';
+			setTimeout(() => { document.getElementById('share-btn-text').textContent = 'Copiar Link Público'; }, 2500);
+		} else {
+			alert(data.error || 'Erro ao gerar link.');
+		}
+	} catch (err) {
+		alert('Erro: ' + err.message);
+	}
+}
+
+async function revokeShare() {
+	if (!confirm('Revogar o link público? Quem tiver o link não conseguirá mais acessar.')) return;
+	const response = await fetch("{{ url_for('budget.share_budget', budget_id=budget.id) }}", {
+		method: 'POST',
+		headers: {'Content-Type': 'application/json'},
+		body: JSON.stringify({action: 'revoke'}),
+		credentials: 'include',
+	});
+	const data = await response.json();
+	if (data.success) {
+		window.location.reload();
+	} else {
+		alert(data.error || 'Erro ao revogar link.');
+	}
+}
+{% endif %}
+
+// ----- Inicialização -----
+document.addEventListener('DOMContentLoaded', function() {
+	document.getElementById('budget-discount').addEventListener('input', recalcTotals);
+	document.getElementById('budget-title').addEventListener('input', updatePreview);
+	document.getElementById('budget-theme').addEventListener('change', updatePreview);
+	document.getElementById('budget-show-logo').addEventListener('change', updatePreview);
+
+	RichTextEditor.mount('#budget-description-rte', {
+		placeholder: 'Texto de apresentação exibido no orçamento (opcional)',
+	});
+	RichTextEditor.mount('#budget-payment-terms-rte', {
+		placeholder: 'Ex: Pagamento em até 3x sem juros. Garantia de 90 dias sobre os serviços.',
+	});
+	RichTextEditor.mount('#budget-internal-notes-rte', {
+		placeholder: 'Anotações internas: margem, custos, contato comercial, lembretes da equipe...',
+	});
+
+	// Produto e serviço: linhas manuais (descrição livre)
+	document.getElementById('btn-add-product').addEventListener('click', addProductRow);
+	document.getElementById('btn-add-service').addEventListener('click', addServiceRow);
+
+	// Assistente IA — listeners diretos (mais confiável que só onclick)
+	const aiModal = document.getElementById('budget-ai-modal');
+	const aiGenerateBtn = document.getElementById('budget-ai-generate-btn');
+	const aiTestBtn = document.getElementById('budget-ai-test-btn');
+	const aiApplyBtn = document.getElementById('budget-ai-apply-btn');
+	const aiCloseBtn = document.getElementById('budget-ai-close-btn');
+	const aiPrompt = document.getElementById('budget-ai-prompt');
+
+	if (aiModal) {
+		aiModal.addEventListener('click', function(e) {
+			if (e.target === aiModal) closeBudgetAIModal();
+		});
+	}
+	if (aiGenerateBtn) {
+		aiGenerateBtn.addEventListener('click', function(e) {
+			e.preventDefault();
+			e.stopPropagation();
+			generateBudgetAI();
+		});
+	}
+	if (aiTestBtn) {
+		aiTestBtn.addEventListener('click', function(e) {
+			e.preventDefault();
+			e.stopPropagation();
+			testBudgetAI();
+		});
+	}
+	if (aiApplyBtn) {
+		aiApplyBtn.addEventListener('click', function(e) {
+			e.preventDefault();
+			e.stopPropagation();
+			applyBudgetAI();
+		});
+	}
+	if (aiCloseBtn) {
+		aiCloseBtn.addEventListener('click', function(e) {
+			e.preventDefault();
+			closeBudgetAIModal();
+		});
+	}
+	if (aiPrompt) {
+		aiPrompt.addEventListener('keydown', function(e) {
+			if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+				e.preventDefault();
+				generateBudgetAI();
+			}
+		});
+	}
+	console.log('[IA Orçamento] Pronto. Gerar:', AI_GENERATE_URL, '| Testar:', AI_TEST_URL);
+
+	if (BUDGET_DATA) {
+		document.getElementById('budget-title').value = BUDGET_DATA.title;
+		document.getElementById('budget-status').value = BUDGET_DATA.status;
+		document.getElementById('budget-valid-until').value = BUDGET_DATA.valid_until;
+		document.getElementById('budget-theme').value = BUDGET_DATA.theme_id;
+		document.getElementById('budget-show-logo').checked = BUDGET_DATA.show_logo && HAS_LOGO;
+		document.getElementById('budget-discount').value = BUDGET_DATA.discount;
+
+		if (BUDGET_DATA.external_client_id) {
+			selectClient({id: BUDGET_DATA.external_client_id, type: 'external', name: BUDGET_DATA.client_name});
+		} else if (BUDGET_DATA.client_id) {
+			selectClient({id: BUDGET_DATA.client_id, type: 'internal', name: BUDGET_DATA.client_name});
+		}
+
+		(BUDGET_DATA.items || []).forEach(item => addItemRow(item));
+
+		// Carregar textos ricos após montar editores e itens
+		RichTextEditor.setHTML('#budget-description-rte', BUDGET_DATA.description);
+		RichTextEditor.setHTML('#budget-payment-terms-rte', BUDGET_DATA.payment_terms);
+		RichTextEditor.setHTML('#budget-internal-notes-rte', BUDGET_DATA.internal_notes || '');
+	} else {
+		addItemRow();
+	}
+	initItemsSortable();
+	recalcTotals();
+	initBudgetCoop();
+});
+</script>
+
+{% endblock %}

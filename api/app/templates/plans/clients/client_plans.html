@@ -1,0 +1,53 @@
+{% extends 'base.html' %}
+{% block page_title %}👤 Planos de {{ client.name }}{% endblock %}
+{% block content %}
+
+<div class="bg-secondary rounded-lg shadow-lg p-6 mb-6">
+	<div class="flex items-center justify-between">
+		<h1 class="text-2xl font-bold text-primary">Planos de {{ client.name }}</h1>
+		<a href="{{ url_for('plans.create_client_plan', client_id=client.id) }}" class="btn btn-primary">
+			<i class="fas fa-plus mr-2"></i> Novo Plano
+		</a>
+	</div>
+</div>
+
+<div class="bg-secondary rounded-lg shadow-lg p-6">
+	{% if client_plans %}
+	<div class="overflow-x-auto">
+		<table class="w-full">
+			<thead>
+				<tr class="border-b border-gray-200">
+					<th class="text-left py-3 px-4">Plano</th>
+					<th class="text-left py-3 px-4">Período</th>
+					<th class="text-left py-3 px-4">Status</th>
+					<th class="text-right py-3 px-4">Ações</th>
+				</tr>
+			</thead>
+			<tbody>
+				{% for cp in client_plans %}
+				<tr class="border-b border-gray-100">
+					<td class="py-3 px-4">{{ cp.plan.name }} ({{ cp.plan.system.name }})</td>
+					<td class="py-3 px-4">{{ cp.start_date.strftime('%d/%m/%Y') }} - {{ cp.end_date.strftime('%d/%m/%Y') }}</td>
+					<td class="py-3 px-4">
+						<span class="status-badge status-{{ cp.get_status_color() }}">{{ cp.get_status_text() }}</span>
+					</td>
+					<td class="py-3 px-4 text-right">
+						<a class="btn btn-sm btn-info" href="{{ url_for('plans.view_client_plan', client_plan_id=cp.id) }}"><i class="fas fa-eye"></i></a>
+						<a class="btn btn-sm btn-warning" href="{{ url_for('plans.edit_client_plan', client_plan_id=cp.id) }}"><i class="fas fa-edit"></i></a>
+					</td>
+				</tr>
+				{% endfor %}
+			</tbody>
+		</table>
+	</div>
+	{% else %}
+	<div class="empty-state">
+		<i class="fas fa-list text-4xl text-muted mb-4"></i>
+		<h3 class="text-lg font-semibold text-primary mb-2">Nenhum plano contratado</h3>
+		<p class="text-secondary">Clique em "Novo Plano" para contratar.</p>
+	</div>
+	{% endif %}
+</div>
+
+{% endblock %}
+

@@ -1,0 +1,373 @@
+{% extends 'base.html' %}
+{% block page_title %}👥 Usuários{% endblock %}
+{% block content %}
+
+<div class="bg-secondary rounded-lg shadow-lg p-6 mb-6">
+	<div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 mb-4">
+		<div>
+			<h1 class="text-2xl font-bold text-primary mb-2">Usuários</h1>
+			<p class="text-muted">Gerencie os usuários do sistema e suas permissões</p>
+		</div>
+		<div class="flex flex-col sm:flex-row gap-3">
+			<a href="{{ url_for('users.create_user') }}" class="btn btn-primary">
+				<i class="fas fa-user-plus"></i>
+				<span class="hidden sm:inline">Novo Usuário</span>
+				<span class="sm:hidden">Novo</span>
+			</a>
+		</div>
+	</div>
+</div>
+
+<div class="bg-secondary rounded-lg shadow-lg p-6">
+	<h2 class="text-lg font-semibold text-primary mb-4 flex items-center">
+		<i class="fas fa-users mr-2"></i>
+		Lista de Usuários
+	</h2>
+	
+	{% if users %}
+	<!-- Desktop Table View -->
+	<div class="hidden lg:block bg-secondary rounded-lg shadow-lg overflow-hidden">
+		<div class="overflow-x-auto">
+			<table class="table">
+				<thead>
+					<tr>
+						<th>Usuário</th>
+						<th>Email</th>
+						<th>Função</th>
+						<th>Equipe</th>
+						<th>Status</th>
+						<th class="table-actions">Ações</th>
+					</tr>
+				</thead>
+				<tbody>
+					{% for u in users %}
+					<tr>
+						<td>
+							<div class="flex items-center">
+								<div class="w-10 h-10 bg-primary/10 rounded-full flex items-center justify-center mr-3">
+									<i class="fas fa-user text-primary"></i>
+								</div>
+								<div>
+									<div class="font-medium text-primary">{{ u.name }}</div>
+									<div class="text-sm text-muted">ID: {{ u.id }}</div>
+								</div>
+							</div>
+						</td>
+						<td>
+							<div class="flex items-center">
+								<i class="fas fa-envelope text-muted mr-2"></i>
+								<span>{{ u.email }}</span>
+							</div>
+						</td>
+						<td>
+							{% if u.role == 'admin' %}
+								<span class="status-badge bg-error/10 border-error/20 text-error/90">
+									<i class="fas fa-crown mr-1"></i>
+									Administrador
+								</span>
+							{% elif u.role == 'tecnico' %}
+								<span class="status-badge bg-warning/10 border-warning/20 text-warning/90">
+									<i class="fas fa-tools mr-1"></i>
+									Técnico
+								</span>
+							{% else %}
+								<span class="status-badge bg-success/10 border-success/20 text-success/90">
+									<i class="fas fa-user mr-1"></i>
+									{{ u.role|title }}
+								</span>
+							{% endif %}
+						</td>
+						<td>
+							{% if u.team == 'Equipe 1' %}
+								<span class="status-badge bg-primary/10 border-primary/20 text-primary">
+									👥 Equipe 1
+								</span>
+							{% elif u.team == 'Equipe 2' %}
+								<span class="status-badge bg-primary/10 border-primary/20 text-primary">
+									👥 Equipe 2
+								</span>
+							{% else %}
+								<span class="status-badge bg-secondary/15 border-secondary/25 text-muted">
+									🚫 Fora Rotação
+								</span>
+							{% endif %}
+						</td>
+						<td>
+							{% if u.status == '1' %}
+								<span class="status-badge bg-success/10 border-success/20 text-success/90">
+									Ativo
+								</span>
+							{% else %}
+								<span class="status-badge bg-danger/10 border-danger/20 text-danger/90">
+									Inativo
+								</span>
+							{% endif %}
+						</td>
+						<td class="table-actions">
+							<div class="flex items-center gap-2">
+								{% if current_user.has_role('admin') and u.id != current_user.id %}
+								<form action="{{ url_for('users.toggle_user_status', user_id=u.id) }}" method="POST" class="inline-block">
+									<button type="submit" class="btn btn-sm {% if u.status == '1' %}btn-danger{% else %}btn-success{% endif %} transition-all duration-200 ease-in-out" title="{% if u.status == '1' %}Inativar Usuário{% else %}Ativar Usuário{% endif %}">
+										{% if u.status == '1' %}
+										<i class="fas fa-ban"></i>
+										<span class="hidden xl:inline">Inativar</span>
+										{% else %}
+										<i class="fas fa-check-circle"></i>
+										<span class="hidden xl:inline">Ativar</span>
+										{% endif %}
+									</button>
+								</form>
+								{% endif %}
+								<a href="{{ url_for('users.edit_user', user_id=u.id) }}" class="btn btn-sm btn-primary">
+									<i class="fas fa-edit"></i>
+									<span class="hidden xl:inline">Editar</span>
+								</a>
+								{% if u.id != current_user.id %}
+								<button class="btn btn-sm btn-error" onclick="confirmDelete({{ u.id }}, '{{ u.name | e }}')">
+									<i class="fas fa-trash"></i>
+									<span class="hidden xl:inline">Excluir</span>
+								</button>
+								{% endif %}
+							</div>
+						</td>
+					</tr>
+					{% endfor %}
+				</tbody>
+			</table>
+		</div>
+	</div>
+
+	<!-- Mobile Card View -->
+	<div class="lg:hidden space-y-4">
+		{% for u in users %}
+		<div class="bg-secondary rounded-lg shadow-lg p-4">
+			<div class="flex items-start justify-between mb-3">
+				<div class="flex items-center">
+					<div class="w-12 h-12 bg-primary/10 rounded-full flex items-center justify-center mr-3">
+						<i class="fas fa-user text-primary"></i>
+					</div>
+					<div>
+						<h3 class="font-semibold text-primary">{{ u.name }}</h3>
+						<p class="text-sm text-muted">ID: {{ u.id }}</p>
+					</div>
+				</div>
+				<div class="flex gap-2">
+					{% if current_user.has_role('admin') and u.id != current_user.id %}
+					<form action="{{ url_for('users.toggle_user_status', user_id=u.id) }}" method="POST" class="inline-block">
+						<button type="submit" class="btn btn-sm {% if u.status == '1' %}btn-danger{% else %}btn-success{% endif %} transition-all duration-200 ease-in-out" title="{% if u.status == '1' %}Inativar Usuário{% else %}Ativar Usuário{% endif %}">
+							{% if u.status == '1' %}
+							<i class="fas fa-ban"></i>
+							<span class="hidden xl:inline">Inativar</span>
+							{% else %}
+							<i class="fas fa-check-circle"></i>
+							<span class="hidden xl:inline">Ativar</span>
+							{% endif %}
+						</button>
+					</form>
+					{% endif %}
+					<a href="{{ url_for('users.edit_user', user_id=u.id) }}" class="btn btn-sm btn-primary">
+						<i class="fas fa-edit"></i>
+					</a>
+					{% if u.id != current_user.id %}
+					<button class="btn btn-sm btn-error" onclick="confirmDelete({{ u.id }}, '{{ u.name | e }}')">
+						<i class="fas fa-trash"></i>
+					</button>
+					{% endif %}
+				</div>
+			</div>
+			
+			<div class="space-y-2 text-sm">
+				<div class="flex items-center">
+					<i class="fas fa-envelope text-muted mr-2 w-4"></i>
+					<span>{{ u.email }}</span>
+				</div>
+				<div class="flex items-center">
+					<i class="fas fa-user-tag text-muted mr-2 w-4"></i>
+					{% if u.role == 'admin' %}
+						<span class="status-badge bg-error/10 border-error/20 text-error/90">
+							<i class="fas fa-crown mr-1"></i>
+							Administrador
+						</span>
+					{% elif u.role == 'tecnico' %}
+						<span class="status-badge bg-warning/10 border-warning/20 text-warning/90">
+							<i class="fas fa-tools mr-1"></i>
+							Técnico
+						</span>
+					{% else %}
+						<span class="status-badge bg-success/10 border-success/20 text-success/90">
+							<i class="fas fa-user mr-1"></i>
+							{{ u.role|title }}
+						</span>
+					{% endif %}
+				</div>
+				<div class="flex items-center">
+					<i class="fas fa-users text-muted mr-2 w-4"></i>
+					{% if u.team == 'Equipe 1' %}
+						<span class="status-badge bg-primary/10 border-primary/20 text-primary">
+							👥 Equipe 1
+						</span>
+					{% elif u.team == 'Equipe 2' %}
+						<span class="status-badge bg-primary/10 border-primary/20 text-primary">
+							👥 Equipe 2
+						</span>
+					{% else %}
+						<span class="status-badge bg-secondary/15 border-secondary/25 text-muted">
+							🚫 Fora Rotação
+						</span>
+					{% endif %}
+				</div>
+				<div class="flex items-center">
+					<i class="fas fa-power-off text-muted mr-2 w-4"></i>
+					{% if u.status == '1' %}
+						<span class="status-badge bg-success/10 border-success/20 text-success/90">
+							Ativo
+						</span>
+					{% else %}
+						<span class="status-badge bg-danger/10 border-danger/20 text-danger/90">
+							Inativo
+						</span>
+					{% endif %}
+				</div>
+			</div>
+		</div>
+		{% endfor %}
+	</div>
+	
+	<!-- Estatísticas -->
+	<div class="mt-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+		<div class="bg-tertiary rounded-lg p-4">
+			<div class="flex items-center">
+				<div class="w-12 h-12 bg-primary/10 rounded-full flex items-center justify-center mr-3">
+					<i class="fas fa-users text-primary text-xl"></i>
+				</div>
+				<div>
+					<div class="text-sm text-muted">Total de Usuários</div>
+					<div class="text-2xl font-bold text-primary">{{ users|length }}</div>
+				</div>
+			</div>
+		</div>
+		<div class="bg-tertiary rounded-lg p-4">
+			<div class="flex items-center">
+				<div class="w-12 h-12 bg-error/10 rounded-full flex items-center justify-center mr-3">
+					<i class="fas fa-crown text-error text-xl"></i>
+				</div>
+				<div>
+					<div class="text-sm text-muted">Administradores</div>
+					<div class="text-2xl font-bold text-error">
+						{{ users|selectattr('role', 'equalto', 'admin')|list|length }}
+					</div>
+				</div>
+			</div>
+		</div>
+		<div class="bg-tertiary rounded-lg p-4 sm:col-span-2 lg:col-span-1">
+			<div class="flex items-center">
+				<div class="w-12 h-12 bg-warning/10 rounded-full flex items-center justify-center mr-3">
+					<i class="fas fa-tools text-warning text-xl"></i>
+				</div>
+				<div>
+					<div class="text-sm text-muted">Técnicos</div>
+					<div class="text-2xl font-bold text-warning">
+						{{ users|selectattr('role', 'equalto', 'tecnico')|list|length }}
+					</div>
+				</div>
+			</div>
+		</div>
+	</div>
+	{% else %}
+	<!-- Estado Vazio -->
+	<div class="empty-state">
+		<div class="text-center py-12">
+			<div class="w-24 h-24 bg-primary/10 rounded-full flex items-center justify-center mx-auto mb-6">
+				<i class="fas fa-users text-primary text-3xl"></i>
+			</div>
+			<h3 class="text-xl font-semibold text-primary mb-2">Nenhum usuário cadastrado</h3>
+			<p class="text-muted mb-6 max-w-md mx-auto">
+				Crie um novo usuário para começar a gerenciar o sistema e suas permissões.
+			</p>
+			<a href="{{ url_for('users.create_user') }}" class="btn btn-primary">
+				<i class="fas fa-user-plus"></i>
+				Criar Primeiro Usuário
+			</a>
+		</div>
+	</div>
+	{% endif %}
+</div>
+
+<!-- Modal de confirmação de exclusão -->
+<div id="delete-modal" class="modal-overlay">
+	<div class="modal max-w-md mx-4">
+		<div class="modal-header">
+			<h3 class="modal-title">
+				<i class="fas fa-exclamation-triangle mr-2"></i>
+				Confirmar Exclusão
+			</h3>
+			<button id="close-delete-modal" class="btn btn-sm btn-secondary">
+				<i class="fas fa-times"></i>
+			</button>
+		</div>
+		<div class="p-6">
+			<div class="bg-error/10 border border-error/20 rounded-lg p-4 mb-6">
+				<div class="flex items-start">
+					<i class="fas fa-exclamation-triangle text-error mr-3 mt-0.5"></i>
+					<div>
+						<p class="text-sm text-error/90 font-medium mb-2">Atenção!</p>
+						<p class="text-sm text-error/90">
+							Tem certeza que deseja excluir o usuário <strong id="user-name"></strong>?
+							Esta ação não pode ser desfeita.
+						</p>
+					</div>
+				</div>
+			</div>
+			<div class="flex flex-col sm:flex-row items-center gap-3 justify-end">
+				<button id="cancel-delete" class="btn btn-secondary w-full sm:w-auto">
+					<i class="fas fa-times mr-2"></i>
+					Cancelar
+				</button>
+				<button id="confirm-delete" class="btn btn-error w-full sm:w-auto">
+					<i class="fas fa-trash mr-2"></i>
+					Excluir Usuário
+				</button>
+			</div>
+		</div>
+	</div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+	let userIdToDelete = null;
+	
+	// Função para abrir modal de exclusão
+	window.confirmDelete = function(userId, userName) {
+		userIdToDelete = userId;
+		document.getElementById('user-name').textContent = userName;
+		document.getElementById('delete-modal').classList.add('active');
+	};
+	
+	// Função para fechar modal
+	function closeDeleteModal() {
+		document.getElementById('delete-modal').classList.remove('active');
+		userIdToDelete = null;
+	}
+	
+	// Event listeners para modal
+	document.getElementById('close-delete-modal').addEventListener('click', closeDeleteModal);
+	document.getElementById('cancel-delete').addEventListener('click', closeDeleteModal);
+	
+	// Confirmar exclusão
+	document.getElementById('confirm-delete').addEventListener('click', function() {
+		if (userIdToDelete) {
+			// Aqui você pode implementar a lógica de exclusão
+			// Por exemplo, fazer uma requisição AJAX para o backend
+			window.location.href = `/users/delete/${userIdToDelete}`;
+		}
+	});
+	
+	// Fechar modal clicando fora
+	document.getElementById('delete-modal').addEventListener('click', function(e) {
+		if (e.target === this) {
+			closeDeleteModal();
+		}
+	});
+});
+</script>
+{% endblock %}

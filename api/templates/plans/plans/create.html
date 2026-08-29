@@ -1,0 +1,345 @@
+{% extends 'base.html' %}
+{% block page_title %}➕ Novo Plano - {{ system.name }}{% endblock %}
+{% block content %}
+
+<div class="bg-secondary rounded-lg shadow-lg p-6 mb-6">
+	<div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 mb-6">
+		<div class="flex-1">
+			<h1 class="text-2xl lg:text-3xl font-bold text-primary mb-2">
+				➕ Novo Plano
+			</h1>
+			<p class="text-secondary">
+				Criar plano de suporte para <strong>{{ system.name }}</strong>
+			</p>
+		</div>
+		<div class="flex-shrink-0">
+			<a href="{{ url_for('plans.view_system', system_id=system.id) }}" class="btn btn-secondary">
+				<i class="fas fa-arrow-left mr-2"></i>
+				Voltar
+			</a>
+		</div>
+	</div>
+</div>
+
+<!-- Formulário -->
+<div class="bg-secondary rounded-lg shadow-lg p-6">
+	<form method="post" class="space-y-6">
+		<!-- Informações Básicas -->
+		<div class="bg-tertiary rounded-lg p-4">
+			<h3 class="text-lg font-semibold text-primary mb-4">
+				<i class="fas fa-info-circle mr-2"></i>
+				Informações Básicas
+			</h3>
+			
+			<div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+				<div class="form-group">
+					<label class="form-label">Nome do Plano *</label>
+					<input type="text" name="name" class="form-input" required 
+						   placeholder="Ex: Plano Básico, Premium, Enterprise" 
+						   value="{{ request.form.get('name', '') }}">
+					<div class="form-help">
+						Nome que identifica o plano de suporte
+					</div>
+				</div>
+				
+				<div class="form-group">
+					<label class="form-label">Descrição</label>
+					<textarea name="description" class="form-textarea" rows="3" 
+							  placeholder="Descreva o que está incluído neste plano...">{{ request.form.get('description', '') }}</textarea>
+					<div class="form-help">
+						Descrição detalhada do plano
+					</div>
+				</div>
+			</div>
+		</div>
+		
+		<!-- Configurações de Horas -->
+		<div class="bg-tertiary rounded-lg p-4">
+			<h3 class="text-lg font-semibold text-primary mb-4">
+				<i class="fas fa-clock mr-2"></i>
+				Configurações de Horas
+			</h3>
+			
+			<div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+				<div class="form-group">
+					<label class="form-label">Horas Mensais Incluídas</label>
+					<input type="number" name="monthly_hours" class="form-input" min="0" 
+						   placeholder="Ex: 8, 20, 40" 
+						   value="{{ request.form.get('monthly_hours', '') }}">
+					<div class="form-help">
+						Quantidade de horas de suporte incluídas por mês
+					</div>
+				</div>
+				
+				<div class="form-group">
+					<label class="form-label">Valor da Hora Adicional (R$)</label>
+					<input type="number" name="additional_hour_rate" class="form-input" min="0" step="0.01" 
+						   placeholder="Ex: 80.00, 120.00" 
+						   value="{{ request.form.get('additional_hour_rate', '') }}">
+					<div class="form-help">
+						Valor cobrado por hora adicional além do limite mensal
+					</div>
+				</div>
+			</div>
+		</div>
+		
+		<!-- Configurações Financeiras -->
+		<div class="bg-tertiary rounded-lg p-4">
+			<h3 class="text-lg font-semibold text-primary mb-4">
+				<i class="fas fa-dollar-sign mr-2"></i>
+				Configurações Financeiras
+			</h3>
+			
+			<div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+				<div class="form-group">
+					<label class="form-label">Valor Mensal (R$)</label>
+					<input type="number" name="monthly_value" class="form-input" min="0" step="0.01" 
+						   placeholder="Ex: 200.00, 500.00" 
+						   value="{{ request.form.get('monthly_value', '') }}">
+					<div class="form-help">
+						Valor mensal do plano
+					</div>
+				</div>
+				
+				<div class="form-group">
+					<label class="form-label">Taxa de Setup (R$)</label>
+					<input type="number" name="setup_fee" class="form-input" min="0" step="0.01" 
+						   placeholder="Ex: 100.00, 0.00" 
+						   value="{{ request.form.get('setup_fee', '') }}">
+					<div class="form-help">
+						Taxa única de configuração (opcional)
+					</div>
+				</div>
+			</div>
+		</div>
+
+		<!-- Adicionais do Plano -->
+		<div class="bg-tertiary rounded-lg p-4">
+			<h3 class="text-lg font-semibold text-primary mb-4">
+				<i class="fas fa-plus-circle mr-2"></i>
+				Adicionais do Plano
+			</h3>
+			<div id="additionals-container" class="space-y-3">
+				<div class="grid grid-cols-1 md:grid-cols-3 gap-3 additional-row">
+					<div class="form-group">
+						<label class="form-label">Descrição</label>
+						<input type="text" name="additional_description[]" class="form-input" placeholder="Ex: Treinamento, SLA estendido">
+					</div>
+					<div class="form-group">
+						<label class="form-label">Valor (R$)</label>
+						<input type="number" name="additional_value[]" class="form-input" step="0.01" min="0" placeholder="Ex: 150.00">
+					</div>
+					<div class="form-group flex items-end">
+						<button type="button" class="btn btn-secondary w-full remove-additional" onclick="removeAdditional(this)">
+							<i class="fas fa-trash mr-2"></i> Remover
+						</button>
+					</div>
+				</div>
+			</div>
+			<div class="mt-3">
+				<button type="button" class="btn btn-primary" onclick="addAdditional()">
+					<i class="fas fa-plus mr-2"></i> Adicionar adicional
+				</button>
+			</div>
+		</div>
+		
+		<!-- Configurações de SLA -->
+		<div class="bg-tertiary rounded-lg p-4">
+			<h3 class="text-lg font-semibold text-primary mb-4">
+				<i class="fas fa-stopwatch mr-2"></i>
+				Configurações de SLA
+			</h3>
+			
+			<div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+				<div class="form-group">
+					<label class="form-label">Tempo de Resposta (horas)</label>
+					<select name="response_time_hours" class="form-select">
+						<option value="1" {{ 'selected' if request.form.get('response_time_hours') == '1' else '' }}>1 hora</option>
+						<option value="2" {{ 'selected' if request.form.get('response_time_hours') == '2' else '' }}>2 horas</option>
+						<option value="4" {{ 'selected' if request.form.get('response_time_hours') == '4' else '' }}>4 horas</option>
+						<option value="8" {{ 'selected' if request.form.get('response_time_hours') == '8' else '' }}>8 horas</option>
+						<option value="24" {{ 'selected' if request.form.get('response_time_hours') == '24' else '' }}>24 horas</option>
+						<option value="48" {{ 'selected' if request.form.get('response_time_hours') == '48' else '' }}>48 horas</option>
+					</select>
+					<div class="form-help">
+						Tempo máximo para responder ao ticket
+					</div>
+				</div>
+				
+				<div class="form-group">
+					<label class="form-label">Tempo de Resolução (horas)</label>
+					<select name="resolution_time_hours" class="form-select">
+						<option value="4" {{ 'selected' if request.form.get('resolution_time_hours') == '4' else '' }}>4 horas</option>
+						<option value="8" {{ 'selected' if request.form.get('resolution_time_hours') == '8' else '' }}>8 horas</option>
+						<option value="24" {{ 'selected' if request.form.get('resolution_time_hours') == '24' else '' }}>24 horas</option>
+						<option value="48" {{ 'selected' if request.form.get('resolution_time_hours') == '48' else '' }}>48 horas</option>
+						<option value="72" {{ 'selected' if request.form.get('resolution_time_hours') == '72' else '' }}>72 horas</option>
+						<option value="168" {{ 'selected' if request.form.get('resolution_time_hours') == '168' else '' }}>168 horas (7 dias)</option>
+					</select>
+					<div class="form-help">
+						Tempo máximo para resolver o ticket
+					</div>
+				</div>
+			</div>
+			
+			<div class="form-group">
+				<label class="form-label">Nível de Prioridade</label>
+				<select name="priority_level" class="form-select">
+					<option value="1" {{ 'selected' if request.form.get('priority_level') == '1' else '' }}>1 - Crítica</option>
+					<option value="2" {{ 'selected' if request.form.get('priority_level') == '2' else '' }}>2 - Alta</option>
+					<option value="3" {{ 'selected' if request.form.get('priority_level') == '3' else '' }}>3 - Média</option>
+					<option value="4" {{ 'selected' if request.form.get('priority_level') == '4' else '' }}>4 - Baixa</option>
+				</select>
+				<div class="form-help">
+					Prioridade padrão dos tickets deste plano
+				</div>
+			</div>
+		</div>
+		
+		<!-- Tipos de Suporte -->
+		<div class="bg-tertiary rounded-lg p-4">
+			<h3 class="text-lg font-semibold text-primary mb-4">
+				<i class="fas fa-headset mr-2"></i>
+				Tipos de Suporte Incluídos
+			</h3>
+			
+			<div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+				<div class="form-group">
+					<label class="flex items-center">
+						<input type="checkbox" name="includes_remote_support" class="form-checkbox mr-2" 
+							   {{ 'checked' if request.form.get('includes_remote_support') == 'on' else '' }}>
+						<span class="form-label">Suporte Remoto</span>
+					</label>
+					<div class="form-help">
+						Acesso remoto para resolução de problemas
+					</div>
+				</div>
+				
+				<div class="form-group">
+					<label class="flex items-center">
+						<input type="checkbox" name="includes_on_site_support" class="form-checkbox mr-2" 
+							   {{ 'checked' if request.form.get('includes_on_site_support') == 'on' else '' }}>
+						<span class="form-label">Suporte Presencial</span>
+					</label>
+					<div class="form-help">
+						Visitas técnicas no local do cliente
+					</div>
+				</div>
+				
+				<div class="form-group">
+					<label class="flex items-center">
+						<input type="checkbox" name="includes_phone_support" class="form-checkbox mr-2" 
+							   {{ 'checked' if request.form.get('includes_phone_support') == 'on' else '' }}>
+						<span class="form-label">Suporte por Telefone</span>
+					</label>
+					<div class="form-help">
+						Atendimento telefônico para suporte
+					</div>
+				</div>
+				
+				<div class="form-group">
+					<label class="flex items-center">
+						<input type="checkbox" name="includes_email_support" class="form-checkbox mr-2" 
+							   {{ 'checked' if request.form.get('includes_email_support') == 'on' else '' }}>
+						<span class="form-label">Suporte por Email</span>
+					</label>
+					<div class="form-help">
+						Atendimento por email e sistema de tickets
+					</div>
+				</div>
+			</div>
+		</div>
+		
+		<!-- Configurações de Status -->
+		<div class="bg-tertiary rounded-lg p-4">
+			<h3 class="text-lg font-semibold text-primary mb-4">
+				<i class="fas fa-cogs mr-2"></i>
+				Configurações de Status
+			</h3>
+			
+			<div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+				<div class="form-group">
+					<label class="flex items-center">
+						<input type="checkbox" name="is_active" class="form-checkbox mr-2" checked>
+						<span class="form-label">Plano Ativo</span>
+					</label>
+					<div class="form-help">
+						Planos inativos não aparecem para contratação
+					</div>
+				</div>
+				
+				<div class="form-group">
+					<label class="flex items-center">
+						<input type="checkbox" name="is_featured" class="form-checkbox mr-2" 
+							   {{ 'checked' if request.form.get('is_featured') == 'on' else '' }}>
+						<span class="form-label">Plano em Destaque</span>
+					</label>
+					<div class="form-help">
+						Destacar este plano nas listagens
+					</div>
+				</div>
+			</div>
+		</div>
+		
+		<!-- Botões -->
+		<div class="flex flex-col sm:flex-row items-center gap-3 justify-end">
+			<a href="{{ url_for('plans.view_system', system_id=system.id) }}" class="btn btn-secondary w-full sm:w-auto">
+				<i class="fas fa-times mr-2"></i>
+				Cancelar
+			</a>
+			<button type="submit" class="btn btn-primary w-full sm:w-auto">
+				<i class="fas fa-save mr-2"></i>
+				Criar Plano
+			</button>
+		</div>
+	</form>
+</div>
+
+<!-- Dicas -->
+<div class="bg-info/10 border border-info/20 rounded-lg p-4 mt-6">
+	<div class="flex items-start">
+		<i class="fas fa-lightbulb text-info mr-2 mt-0.5"></i>
+		<div>
+			<h4 class="text-sm font-medium text-info mb-2">💡 Dicas para criar um bom plano:</h4>
+			<ul class="text-sm text-info/80 space-y-1">
+				<li>• Defina horas mensais realistas baseadas na demanda esperada</li>
+				<li>• Configure SLA adequado ao nível de suporte oferecido</li>
+				<li>• Use prioridades para diferenciar planos (Crítica = Premium)</li>
+				<li>• Marque planos em destaque para aumentar vendas</li>
+				<li>• Configure tipos de suporte conforme disponibilidade da equipe</li>
+			</ul>
+		</div>
+	</div>
+</div>
+
+<script>
+function addAdditional() {
+	const container = document.getElementById('additionals-container');
+	if (!container) return;
+	const row = document.createElement('div');
+	row.className = 'grid grid-cols-1 md:grid-cols-3 gap-3 additional-row';
+	row.innerHTML = `
+		<div class="form-group">
+			<label class="form-label">Descrição</label>
+			<input type="text" name="additional_description[]" class="form-input" placeholder="Ex: Treinamento, SLA estendido">
+		</div>
+		<div class="form-group">
+			<label class="form-label">Valor (R$)</label>
+			<input type="number" name="additional_value[]" class="form-input" step="0.01" min="0" placeholder="Ex: 150.00">
+		</div>
+		<div class="form-group flex items-end">
+			<button type="button" class="btn btn-secondary w-full remove-additional" onclick="removeAdditional(this)">
+				<i class="fas fa-trash mr-2"></i> Remover
+			</button>
+		</div>
+	`;
+	container.appendChild(row);
+}
+
+function removeAdditional(btn) {
+	const row = btn.closest('.additional-row');
+	if (row) row.remove();
+}
+</script>
+
+{% endblock %}

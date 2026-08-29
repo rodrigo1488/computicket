@@ -1,0 +1,212 @@
+{% extends 'base.html' %}
+{% block page_title %}⚙️ Configurações de Orçamentos{% endblock %}
+{% block content %}
+
+<div class="mb-6">
+	<div class="flex items-center justify-between gap-3 flex-wrap">
+		<div>
+			<div class="text-sm text-muted mb-1">
+				<a href="{{ url_for('budget.index') }}" class="text-muted">Orçamentos</a>
+				<i class="fas fa-chevron-right mx-1 text-xs"></i>
+				Personalização
+			</div>
+			<h1 class="text-2xl font-bold text-primary">Personalização de Orçamentos</h1>
+			<p class="text-muted text-sm">Logo exibido nos PDFs e links públicos, e temas de cores dos orçamentos.</p>
+		</div>
+		<a href="{{ url_for('budget.index') }}" class="btn btn-outline">
+			<i class="fas fa-arrow-left"></i>
+			Voltar
+		</a>
+	</div>
+</div>
+
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+	<!-- Logo -->
+	<div class="bg-secondary rounded-lg shadow-lg p-6">
+		<h2 class="text-lg font-semibold text-primary mb-4"><i class="fas fa-image mr-2"></i>Logo</h2>
+		
+		{% if has_logo %}
+		<div class="mb-4 p-4 bg-tertiary rounded-lg text-center">
+			<img src="{{ url_for('budget.serve_logo') }}?v={{ range(1, 100000)|random }}" alt="Logo atual" style="max-height:80px; max-width:260px; display:inline-block;">
+			<div class="text-xs text-muted mt-2">Logo atual</div>
+		</div>
+		{% else %}
+		<div class="mb-4 p-4 bg-tertiary rounded-lg text-center text-muted">
+			<i class="fas fa-image text-3xl mb-2"></i>
+			<p class="text-sm">Nenhum logo configurado</p>
+		</div>
+		{% endif %}
+		
+		<form method="post" action="{{ url_for('budget.upload_logo') }}" enctype="multipart/form-data" class="mb-3">
+			<label class="form-label" for="logo-input">Enviar novo logo (PNG ou JPG)</label>
+			<div class="flex gap-2">
+				<input type="file" name="logo" id="logo-input" class="form-input flex-1" accept=".png,.jpg,.jpeg" required>
+				<button type="submit" class="btn btn-primary">
+					<i class="fas fa-upload"></i>
+					Enviar
+				</button>
+			</div>
+		</form>
+		
+		{% if has_logo %}
+		<form method="post" action="{{ url_for('budget.upload_logo') }}" onsubmit="return confirm('Remover o logo atual?');">
+			<input type="hidden" name="remove" value="1">
+			<button type="submit" class="btn btn-error btn-sm">
+				<i class="fas fa-trash"></i>
+				Remover Logo
+			</button>
+		</form>
+		{% endif %}
+	</div>
+	
+	<!-- Novo tema -->
+	<div class="bg-secondary rounded-lg shadow-lg p-6">
+		<h2 class="text-lg font-semibold text-primary mb-4"><i class="fas fa-palette mr-2"></i>Novo Tema de Cores</h2>
+		
+		<form method="post" action="{{ url_for('budget.save_theme') }}" id="new-theme-form">
+			<div class="mb-3">
+				<label class="form-label" for="theme-name">Nome do tema *</label>
+				<input type="text" name="name" id="theme-name" class="form-input w-full" placeholder="Ex: Azul corporativo" required>
+			</div>
+			
+			<div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
+				<div>
+					<label class="form-label" for="theme-primary">Cor principal</label>
+					<input type="color" name="primary_color" id="theme-primary" class="form-input w-full" value="#2563eb" style="height:42px; padding:4px; cursor:pointer;">
+				</div>
+				<div>
+					<label class="form-label" for="theme-accent">Cor de destaque</label>
+					<input type="color" name="accent_color" id="theme-accent" class="form-input w-full" value="#0ea5e9" style="height:42px; padding:4px; cursor:pointer;">
+				</div>
+				<div>
+					<label class="form-label" for="theme-text">Cor do texto</label>
+					<input type="color" name="text_color" id="theme-text" class="form-input w-full" value="#1e293b" style="height:42px; padding:4px; cursor:pointer;">
+				</div>
+				<div>
+					<label class="form-label" for="theme-title">Cor do cabeçalho</label>
+					<input type="color" name="title_color" id="theme-title" class="form-input w-full" value="#ffffff" style="height:42px; padding:4px; cursor:pointer;">
+				</div>
+			</div>
+			
+			<div class="rounded-lg overflow-hidden border border-border-color mb-3" id="new-theme-preview">
+				<div class="theme-preview-header p-2 text-xs" style="background:#2563eb; color:#ffffff;">
+					<div class="opacity-80">ORÇAMENTO</div>
+					<div class="theme-preview-title font-semibold text-sm">Título do orçamento</div>
+					<div class="theme-preview-meta opacity-90 mt-1">Nº 1 • Emitido em 07/07/2026</div>
+				</div>
+				<div class="theme-preview-body p-2 text-xs bg-white" style="color:#1e293b; border-bottom:3px solid #0ea5e9;">Texto do orçamento</div>
+			</div>
+			
+			<label class="flex items-center gap-2 mb-4">
+				<input type="checkbox" name="is_default" class="form-checkbox">
+				<span class="text-sm">Usar como tema padrão dos novos orçamentos</span>
+			</label>
+			
+			<button type="submit" class="btn btn-primary">
+				<i class="fas fa-plus"></i>
+				Criar Tema
+			</button>
+		</form>
+	</div>
+</div>
+
+<!-- Temas existentes -->
+<div class="mt-6 bg-secondary rounded-lg shadow-lg p-6">
+	<h2 class="text-lg font-semibold text-primary mb-4"><i class="fas fa-swatchbook mr-2"></i>Temas Cadastrados</h2>
+	
+	{% if themes %}
+	<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+		{% for theme in themes %}
+		<div class="bg-tertiary rounded-lg p-4 theme-card">
+			<div class="flex items-center justify-between mb-3">
+				<div class="font-medium text-primary">
+					{{ theme.name }}
+					{% if theme.is_default %}
+					<span class="inline-block bg-blue-100 text-blue-800 text-xs px-2 py-1 rounded-full ml-1">Padrão</span>
+					{% endif %}
+				</div>
+				<form method="post" action="{{ url_for('budget.delete_theme', theme_id=theme.id) }}" onsubmit="return confirm('Excluir o tema {{ theme.name }}? Orçamentos que o usam voltarão ao tema padrão.');">
+					<button type="submit" class="btn btn-error btn-sm" title="Excluir tema">
+						<i class="fas fa-trash"></i>
+					</button>
+				</form>
+			</div>
+			
+			<div class="rounded-lg overflow-hidden border border-border-color mb-3 theme-preview">
+				<div class="theme-preview-header p-2 text-xs" style="background: {{ theme.primary_color }}; color: {{ theme.title_color or '#ffffff' }};">
+					<div class="opacity-80">ORÇAMENTO</div>
+					<div class="theme-preview-title font-semibold text-sm">Título do orçamento</div>
+					<div class="theme-preview-meta opacity-90 mt-1">Nº 1 • Emitido em 07/07/2026</div>
+				</div>
+				<div class="theme-preview-body p-2 text-xs bg-white" style="color: {{ theme.text_color }}; border-bottom: 3px solid {{ theme.accent_color }};">Texto do orçamento</div>
+			</div>
+			
+			<!-- Edição inline -->
+			<form method="post" action="{{ url_for('budget.save_theme') }}" class="space-y-2 theme-edit-form">
+				<input type="hidden" name="theme_id" value="{{ theme.id }}">
+				<input type="hidden" name="name" value="{{ theme.name }}">
+				<div class="grid grid-cols-2 gap-2">
+					<input type="color" name="primary_color" value="{{ theme.primary_color }}" class="form-input w-full" style="height:34px; padding:2px; cursor:pointer;" title="Cor principal">
+					<input type="color" name="accent_color" value="{{ theme.accent_color }}" class="form-input w-full" style="height:34px; padding:2px; cursor:pointer;" title="Cor de destaque">
+					<input type="color" name="text_color" value="{{ theme.text_color }}" class="form-input w-full" style="height:34px; padding:2px; cursor:pointer;" title="Cor do texto">
+					<input type="color" name="title_color" value="{{ theme.title_color or '#ffffff' }}" class="form-input w-full" style="height:34px; padding:2px; cursor:pointer;" title="Cor do cabeçalho">
+				</div>
+				<div class="flex items-center justify-between">
+					<label class="flex items-center gap-1 text-xs">
+						<input type="checkbox" name="is_default" class="form-checkbox" {% if theme.is_default %}checked{% endif %}>
+						<span>Padrão</span>
+					</label>
+					<button type="submit" class="btn btn-secondary btn-sm">
+						<i class="fas fa-save"></i>
+						Salvar
+					</button>
+				</div>
+			</form>
+		</div>
+		{% endfor %}
+	</div>
+	{% else %}
+	<div class="text-center py-8 text-muted">
+		<i class="fas fa-palette text-4xl mb-2"></i>
+		<p>Nenhum tema cadastrado. Crie o primeiro tema acima.</p>
+	</div>
+	{% endif %}
+</div>
+
+<script>
+function bindThemePreview(form, previewRoot) {
+	if (!form || !previewRoot) return;
+	const header = previewRoot.querySelector('.theme-preview-header');
+	const body = previewRoot.querySelector('.theme-preview-body');
+	const primaryInput = form.querySelector('[name="primary_color"]');
+	const accentInput = form.querySelector('[name="accent_color"]');
+	const textInput = form.querySelector('[name="text_color"]');
+	const titleInput = form.querySelector('[name="title_color"]');
+	if (!header || !body || !primaryInput || !accentInput || !textInput || !titleInput) return;
+
+	const updatePreview = () => {
+		header.style.background = primaryInput.value;
+		header.style.color = titleInput.value;
+		body.style.color = textInput.value;
+		body.style.borderBottom = '3px solid ' + accentInput.value;
+	};
+
+	[primaryInput, accentInput, textInput, titleInput].forEach(input => {
+		input.addEventListener('input', updatePreview);
+		input.addEventListener('change', updatePreview);
+	});
+	updatePreview();
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+	bindThemePreview(
+		document.getElementById('new-theme-form'),
+		document.getElementById('new-theme-preview')
+	);
+	document.querySelectorAll('.theme-edit-form').forEach(form => {
+		bindThemePreview(form, form.closest('.theme-card')?.querySelector('.theme-preview'));
+	});
+});
+</script>
+
+{% endblock %}

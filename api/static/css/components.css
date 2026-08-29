@@ -1,0 +1,497 @@
+/* =====================================================================
+   COMPUTICKET — DESIGN SYSTEM DE COMPONENTES REUTILIZÁVEIS
+   =====================================================================
+   Este arquivo reúne os componentes visuais "novos" do repaginação do
+   sistema (cabeçalho de página, barra de filtros, tabela de dados,
+   cards de KPI, paginação e estado vazio).
+
+   Convenções:
+   - Todas as classes usam o prefixo "dc-" (Design Computicket) para não
+     colidir com nenhuma classe legada existente em styles.css.
+   - Usa exclusivamente as variáveis de tema já definidas em styles.css
+     (--bg-*, --text-*, --accent-*, --success/--warning/--error/--info,
+     --border-color), preservando a paleta de cores atual e o suporte a
+     tema claro/escuro.
+   - Este arquivo é carregado depois de styles.css em base.html.
+   ===================================================================== */
+
+
+/* =====================================================================
+   1. PAGE HEADER — cabeçalho padrão de cada tela de listagem
+   ===================================================================== */
+.dc-page-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-bottom: 1.5rem;
+}
+
+.dc-page-header__title {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0 0 0.25rem 0;
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+}
+
+.dc-page-header__subtitle {
+  font-size: 0.875rem;
+  color: var(--text-muted);
+  margin: 0;
+}
+
+.dc-page-header__actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+
+/* =====================================================================
+   2. FILTER BAR — barra de filtros padronizada e recolhível
+   ===================================================================== */
+.dc-filter-bar {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+  margin-bottom: 1.5rem;
+  overflow: hidden;
+}
+
+.dc-filter-bar__toggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.875rem 1.25rem;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: var(--text-primary);
+  font-weight: 600;
+  font-size: 0.9375rem;
+}
+
+.dc-filter-bar__toggle-left {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+}
+
+.dc-filter-bar__toggle:hover {
+  background: var(--bg-tertiary);
+}
+
+.dc-filter-bar__count {
+  background: var(--accent-primary);
+  color: white;
+  border-radius: 999px;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 0.375rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.6875rem;
+  font-weight: 700;
+}
+
+.dc-filter-bar__count:empty {
+  display: none;
+}
+
+.dc-filter-bar__chevron {
+  transition: transform 0.2s ease;
+  color: var(--text-muted);
+}
+
+.dc-filter-bar.expanded .dc-filter-bar__chevron {
+  transform: rotate(180deg);
+}
+
+.dc-filter-bar__body {
+  max-height: 0;
+  opacity: 0;
+  overflow: hidden;
+  transition: max-height 0.25s ease, opacity 0.2s ease, padding 0.25s ease;
+  padding: 0 1.25rem;
+  border-top: 1px solid transparent;
+}
+
+.dc-filter-bar.expanded .dc-filter-bar__body {
+  max-height: 1200px;
+  opacity: 1;
+  padding: 1.125rem 1.25rem 1.25rem;
+  border-top-color: var(--border-color);
+}
+
+.dc-filter-bar__row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.dc-filter-bar__row:last-child {
+  margin-bottom: 0;
+}
+
+.dc-filter-bar__row--actions {
+  grid-template-columns: 1fr auto;
+  align-items: end;
+}
+
+.dc-filter-bar__group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+  min-width: 0;
+}
+
+.dc-filter-bar__group label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.dc-filter-bar__group--checkbox {
+  flex-direction: row;
+  align-items: center;
+}
+
+/* Pílulas de status (substituem os antigos .status-btn específicos de Tickets) */
+.dc-status-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.dc-status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.875rem;
+  border: 1.5px solid var(--border-color);
+  border-radius: 999px;
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.dc-status-pill:hover {
+  border-color: var(--accent-primary);
+  color: var(--text-primary);
+}
+
+.dc-status-pill.active {
+  background: var(--accent-primary);
+  border-color: var(--accent-primary);
+  color: white;
+  box-shadow: 0 2px 8px rgba(59, 130, 246, 0.35);
+}
+
+@media (max-width: 768px) {
+  .dc-filter-bar__row {
+    grid-template-columns: 1fr;
+  }
+
+  .dc-filter-bar__row--actions {
+    grid-template-columns: 1fr;
+  }
+}
+
+
+/* =====================================================================
+   3. DATA TABLE — tabela única e responsiva (sem duplicar markup mobile)
+   ===================================================================== */
+.dc-table-container {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+  overflow: hidden;
+}
+
+.dc-table-scroll {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+table.dc-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+
+table.dc-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  text-align: left;
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 0.875rem 1.125rem;
+  border-bottom: 1px solid var(--border-color);
+  white-space: nowrap;
+}
+
+table.dc-table tbody td {
+  padding: 0.875rem 1.125rem;
+  border-bottom: 1px solid var(--border-color);
+  color: var(--text-primary);
+  vertical-align: middle;
+}
+
+table.dc-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+table.dc-table tbody tr {
+  transition: background-color 0.15s ease;
+}
+
+table.dc-table tbody tr:hover {
+  background: var(--bg-tertiary);
+}
+
+.dc-table-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.dc-table-cell-primary {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.dc-table-cell-muted {
+  color: var(--text-muted);
+  font-size: 0.8125rem;
+}
+
+.dc-table-empty {
+  text-align: center;
+  padding: 3rem 1rem;
+  color: var(--text-muted);
+}
+
+.dc-table-empty i {
+  display: block;
+  font-size: 2.5rem;
+  margin-bottom: 0.75rem;
+  opacity: 0.5;
+}
+
+/* Em telas pequenas, esconder colunas de prioridade baixa em vez de
+   duplicar a lista inteira em cards — usar data-priority="low" no <th>/<td> */
+@media (max-width: 768px) {
+  table.dc-table [data-col-priority="low"] {
+    display: none;
+  }
+}
+
+@media (max-width: 560px) {
+  table.dc-table [data-col-priority="medium"] {
+    display: none;
+  }
+}
+
+
+/* =====================================================================
+   4. KPI CARD — cartões de indicadores numéricos (Dashboard)
+   ===================================================================== */
+.dc-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.dc-kpi-card {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  padding: 1.25rem;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+  transition: transform 0.2s ease, box-shadow 0.2s ease, opacity 0.2s ease;
+}
+
+.dc-kpi-card--clickable {
+  cursor: pointer;
+}
+
+.dc-kpi-card--clickable:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.1);
+}
+
+.dc-kpi-card__icon {
+  flex-shrink: 0;
+  width: 48px;
+  height: 48px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.25rem;
+  background: var(--accent-light);
+  color: var(--accent-primary);
+}
+
+.dc-kpi-card__icon--success {
+  background: rgba(16, 185, 129, 0.12);
+  color: var(--success);
+}
+
+.dc-kpi-card__icon--warning {
+  background: rgba(245, 158, 11, 0.12);
+  color: var(--warning);
+}
+
+.dc-kpi-card__icon--error {
+  background: rgba(239, 68, 68, 0.12);
+  color: var(--error);
+}
+
+.dc-kpi-card__icon--info {
+  background: rgba(14, 165, 233, 0.12);
+  color: var(--info);
+}
+
+.dc-kpi-card__body {
+  min-width: 0;
+}
+
+.dc-kpi-card__value {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  line-height: 1.2;
+}
+
+.dc-kpi-card__label {
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+}
+
+.dc-kpi-card__trend {
+  font-size: 0.75rem;
+  font-weight: 600;
+  margin-top: 0.125rem;
+}
+
+.dc-kpi-card__trend--up {
+  color: var(--success);
+}
+
+.dc-kpi-card__trend--down {
+  color: var(--error);
+}
+
+
+/* =====================================================================
+   5. PAGINATION — paginação padronizada
+   ===================================================================== */
+.dc-pagination {
+  margin-top: 1.5rem;
+  padding: 1rem;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+}
+
+.dc-pagination__info {
+  text-align: center;
+  margin-bottom: 0.75rem;
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+}
+
+.dc-pagination__controls {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 0.375rem;
+  flex-wrap: wrap;
+}
+
+.dc-pagination__numbers {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  margin: 0 0.5rem;
+}
+
+.dc-pagination__btn,
+.dc-pagination__number {
+  min-width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 0.5rem;
+  border-radius: 8px;
+  text-decoration: none;
+}
+
+.dc-pagination__number.active {
+  background: var(--accent-primary);
+  color: white;
+  border-color: var(--accent-primary);
+}
+
+.dc-pagination__btn.disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+.dc-pagination__ellipsis {
+  padding: 0 0.375rem;
+  color: var(--text-muted);
+  font-weight: 700;
+}
+
+@media (max-width: 768px) {
+  .dc-pagination__numbers {
+    margin: 0 0.25rem;
+  }
+
+  .dc-pagination__btn,
+  .dc-pagination__number {
+    min-width: 32px;
+    height: 32px;
+    font-size: 0.8125rem;
+  }
+}
+
+
+/* =====================================================================
+   6. EMPTY STATE — reaproveita a classe legada .empty-state (já usada em
+      várias telas do sistema); aqui só complementamos com uma ação.
+   ===================================================================== */
+.empty-state .dc-empty-state__action {
+  margin-top: 0.5rem;
+}

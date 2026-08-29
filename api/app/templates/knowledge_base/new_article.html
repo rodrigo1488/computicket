@@ -1,0 +1,261 @@
+{% extends "base.html" %}
+
+{% block title %}Novo Artigo - {{ category.name }}{% endblock %}
+
+{% block content %}
+<div class="container mx-auto px-4 py-8">
+	<!-- Cabeçalho -->
+	<div class="mb-8">
+		<div class="flex items-center gap-4">
+			<a href="{{ url_for('knowledge_base.category_view', category_id=category.id) }}" class="btn btn-secondary">
+				<i class="fas fa-arrow-left mr-2"></i>Voltar
+			</a>
+			<div>
+				<h1 class="text-3xl font-bold text-primary mb-2">
+					<i class="fas fa-file-plus mr-3"></i>Novo Artigo
+				</h1>
+				<p class="text-muted">Crie um novo artigo na categoria <strong>{{ category.name }}</strong></p>
+			</div>
+		</div>
+	</div>
+
+	<!-- Formulário -->
+	<div class="max-w-5xl mx-auto">
+		<div class="bg-secondary rounded-lg shadow-lg p-8">
+			<form method="POST" enctype="multipart/form-data" class="space-y-8" id="article-form">
+				<!-- Título -->
+				<div class="form-group">
+					<label for="title" class="form-label">
+						<i class="fas fa-heading mr-2"></i>Título do Artigo *
+					</label>
+					<input type="text" 
+						   id="title" 
+						   name="title" 
+						   class="form-input" 
+						   placeholder="Digite o título do artigo"
+						   required>
+					<small class="form-help">Título claro e descritivo do artigo</small>
+				</div>
+
+				<!-- Resumo -->
+				<div class="form-group">
+					<label for="summary" class="form-label">
+						<i class="fas fa-align-left mr-2"></i>Resumo
+					</label>
+					<textarea id="summary" 
+							  name="summary" 
+							  class="form-textarea" 
+							  rows="3" 
+							  placeholder="Breve resumo do que o artigo aborda (opcional)"></textarea>
+					<small class="form-help">Resumo que aparecerá na listagem de artigos</small>
+				</div>
+
+				<!-- Tags -->
+				<div class="form-group">
+					<label for="tags" class="form-label">
+						<i class="fas fa-tags mr-2"></i>Tags
+					</label>
+					<input type="text" 
+						   id="tags" 
+						   name="tags" 
+						   class="form-input" 
+						   placeholder="Ex: manual, procedimento, tutorial, dicas">
+					<small class="form-help">Tags separadas por vírgula para facilitar a busca</small>
+				</div>
+
+				<!-- Conteúdo -->
+				<div class="form-group">
+					<label for="content" class="form-label">
+						<i class="fas fa-file-alt mr-2"></i>Conteúdo *
+					</label>
+					<textarea id="content" 
+							  name="content" 
+							  class="form-textarea" 
+							  rows="15" 
+							  placeholder="Digite o conteúdo do artigo aqui..."
+							  required></textarea>
+					<small class="form-help">Conteúdo principal do artigo. Use quebras de linha para formatação.</small>
+				</div>
+
+				<!-- Anexos -->
+				<div class="form-group">
+					<label for="attachments" class="form-label">
+						<i class="fas fa-paperclip mr-2"></i>Anexos
+					</label>
+					<input type="file" 
+						   id="attachments" 
+						   name="attachments" 
+						   class="form-input" 
+						   multiple
+						   accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.zip,.rar,.jpg,.jpeg,.png,.gif,.mp4,.avi,.mp3,.wav">
+					<small class="form-help">
+						Formatos permitidos: PDF, DOC, DOCX, XLS, XLSX, PPT, PPTX, TXT, ZIP, RAR, JPG, PNG, GIF, MP4, AVI, MP3, WAV (máx. 50MB cada)
+					</small>
+					<div id="file-list" class="mt-3 space-y-2"></div>
+				</div>
+
+				<!-- Configurações -->
+				<div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+					<!-- Status -->
+					<div class="form-group">
+						<label for="status" class="form-label">
+							<i class="fas fa-toggle-on mr-2"></i>Status
+						</label>
+						<select id="status" name="status" class="form-input">
+							<option value="published">Publicado</option>
+							<option value="draft">Rascunho</option>
+							<option value="archived">Arquivado</option>
+						</select>
+						<small class="form-help">Status de publicação do artigo</small>
+					</div>
+
+					<!-- Destaque -->
+					<div class="form-group">
+						<label class="form-label">
+							<i class="fas fa-star mr-2"></i>Destaque
+						</label>
+						<div class="flex items-center gap-3">
+							<label class="flex items-center gap-2 cursor-pointer">
+								<input type="checkbox" 
+									   id="is_featured" 
+									   name="is_featured" 
+									   class="form-checkbox">
+								<span class="text-sm">Marcar como artigo em destaque</span>
+							</label>
+						</div>
+						<small class="form-help">Artigos em destaque aparecem na página inicial</small>
+					</div>
+				</div>
+			</form>
+		</div>
+
+		<!-- Botões de Ação -->
+		<div class="flex flex-col sm:flex-row gap-3 justify-end pt-8 border-t border-border-color mt-8">
+			<a href="{{ url_for('knowledge_base.category_view', category_id=category.id) }}" class="btn btn-secondary w-full sm:w-auto">
+				<i class="fas fa-times mr-2"></i>Cancelar
+			</a>
+			<button type="submit" form="article-form" class="btn btn-primary w-full sm:w-auto">
+				<i class="fas fa-save mr-2"></i>Criar Artigo
+			</button>
+		</div>
+	</div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+	const form = document.querySelector('form');
+	const titleInput = document.getElementById('title');
+	const contentInput = document.getElementById('content');
+	const attachmentsInput = document.getElementById('attachments');
+	const fileList = document.getElementById('file-list');
+
+	// Gerenciar lista de arquivos selecionados
+	attachmentsInput.addEventListener('change', function() {
+		fileList.innerHTML = '';
+		
+		if (this.files.length > 0) {
+			Array.from(this.files).forEach((file, index) => {
+				const fileItem = document.createElement('div');
+				fileItem.className = 'flex items-center gap-3 p-3 bg-primary/5 rounded-lg';
+				
+				const fileSize = (file.size / (1024 * 1024)).toFixed(2);
+				const fileIcon = getFileIcon(file.name);
+				
+				fileItem.innerHTML = `
+					<div class="w-8 h-8 rounded bg-primary/10 flex items-center justify-center">
+						<i class="${fileIcon} text-primary text-sm"></i>
+					</div>
+					<div class="flex-1">
+						<div class="font-medium text-sm">${file.name}</div>
+						<div class="text-xs text-muted">${fileSize} MB</div>
+					</div>
+					<button type="button" onclick="removeFile(${index})" class="text-danger hover:text-danger-dark">
+						<i class="fas fa-times"></i>
+					</button>
+				`;
+				
+				fileList.appendChild(fileItem);
+			});
+		}
+	});
+
+	// Função para obter ícone do arquivo
+	function getFileIcon(filename) {
+		const ext = filename.split('.').pop().toLowerCase();
+		const iconMap = {
+			'pdf': 'fas fa-file-pdf',
+			'doc': 'fas fa-file-word',
+			'docx': 'fas fa-file-word',
+			'xls': 'fas fa-file-excel',
+			'xlsx': 'fas fa-file-excel',
+			'ppt': 'fas fa-file-powerpoint',
+			'pptx': 'fas fa-file-powerpoint',
+			'txt': 'fas fa-file-alt',
+			'zip': 'fas fa-file-archive',
+			'rar': 'fas fa-file-archive',
+			'jpg': 'fas fa-file-image',
+			'jpeg': 'fas fa-file-image',
+			'png': 'fas fa-file-image',
+			'gif': 'fas fa-file-image',
+			'mp4': 'fas fa-file-video',
+			'avi': 'fas fa-file-video',
+			'mp3': 'fas fa-file-audio',
+			'wav': 'fas fa-file-audio'
+		};
+		return iconMap[ext] || 'fas fa-file';
+	}
+
+	// Função para remover arquivo da lista
+	window.removeFile = function(index) {
+		const dt = new DataTransfer();
+		const files = Array.from(attachmentsInput.files);
+		files.splice(index, 1);
+		
+		files.forEach(file => dt.items.add(file));
+		attachmentsInput.files = dt.files;
+		
+		// Recriar lista
+		attachmentsInput.dispatchEvent(new Event('change'));
+	};
+
+	// Validação do formulário
+	form.addEventListener('submit', function(e) {
+		const title = titleInput.value.trim();
+		const content = contentInput.value.trim();
+		
+		if (!title) {
+			e.preventDefault();
+			alert('Título do artigo é obrigatório!');
+			titleInput.focus();
+			return;
+		}
+		
+		if (!content) {
+			e.preventDefault();
+			alert('Conteúdo do artigo é obrigatório!');
+			contentInput.focus();
+			return;
+		}
+
+		// Validar tamanho dos arquivos
+		const files = Array.from(attachmentsInput.files);
+		const maxSize = 50 * 1024 * 1024; // 50MB
+		
+		for (let file of files) {
+			if (file.size > maxSize) {
+				e.preventDefault();
+				alert(`Arquivo "${file.name}" é muito grande. Tamanho máximo: 50MB`);
+				return;
+			}
+		}
+
+		if (!confirm('Tem certeza que deseja criar este artigo?')) {
+			e.preventDefault();
+		}
+	});
+
+	// Auto-focus no primeiro campo
+	titleInput.focus();
+});
+</script>
+{% endblock %}

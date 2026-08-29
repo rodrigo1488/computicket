@@ -1,0 +1,428 @@
+<style>
+.rte-wrap { display: flex; flex-direction: column; width: 100%; }
+.rte-toolbar {
+	display: flex; flex-wrap: wrap; align-items: center; gap: 2px;
+	padding: 6px 8px;
+	border: 1px solid var(--border-color);
+	border-bottom: none;
+	border-radius: 8px 8px 0 0;
+	background: var(--bg-tertiary);
+}
+.rte-toolbar-btn {
+	width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center;
+	border: none; border-radius: 6px; background: transparent;
+	color: var(--text-secondary); cursor: pointer; font-size: 13px;
+	transition: background 0.15s, color 0.15s;
+}
+.rte-toolbar-btn:hover {
+	background: var(--bg-secondary);
+	color: var(--text-primary);
+}
+.rte-toolbar-sep {
+	width: 1px; height: 18px; background: var(--border-color); margin: 0 4px;
+}
+.rte-color-input {
+	position: absolute !important;
+	width: 1px !important;
+	height: 1px !important;
+	min-height: 0 !important;
+	padding: 0 !important;
+	opacity: 0 !important;
+	overflow: hidden !important;
+	pointer-events: none;
+	border: none !important;
+}
+.rte-color-wrap { position: relative; display: inline-flex; }
+.rte-content {
+	min-height: 80px; max-height: 280px; padding: 0.65rem 0.85rem; outline: none;
+	border: 1px solid var(--border-color);
+	border-radius: 0 0 8px 8px;
+	background: var(--bg-secondary);
+	color: var(--text-primary);
+	font-size: 0.875rem; line-height: 1.55; overflow-y: auto;
+	width: 100%;
+}
+.rte-wrap.rte-compact .rte-content { min-height: 56px; max-height: 140px; }
+.rte-wrap.rte-compact .rte-toolbar { padding: 4px 6px; }
+.rte-wrap.rte-compact .rte-toolbar-btn { width: 26px; height: 26px; font-size: 11px; }
+.rte-content:focus {
+	border-color: var(--accent-primary);
+	box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.12);
+}
+.rte-content.rte-is-empty:before {
+	content: attr(data-placeholder);
+	color: var(--text-muted);
+	pointer-events: none;
+	display: block;
+}
+.rte-content ul, .rich-text-content ul { list-style: disc; padding-left: 1.4em; margin: 0.25em 0; }
+.rte-content ol, .rich-text-content ol { list-style: decimal; padding-left: 1.4em; margin: 0.25em 0; }
+.rte-content li, .rich-text-content li { margin: 0.15em 0; }
+.rich-text-content { line-height: 1.6; word-break: break-word; color: var(--text-primary); }
+
+/* Itens do builder */
+.item-block {
+	border: 1px solid var(--border-color);
+	border-radius: 10px;
+	background: var(--bg-secondary);
+	padding: 1rem;
+}
+.item-block.sortable-ghost {
+	opacity: 0.45;
+	border-style: dashed;
+}
+.item-block.sortable-drag {
+	box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+	border-color: var(--accent-secondary, #0ea5e9);
+}
+.item-drag-handle {
+	display: inline-flex; align-items: center; justify-content: center;
+	width: 28px; height: 36px; flex-shrink: 0;
+	color: var(--text-muted); cursor: grab; border-radius: 6px;
+	user-select: none; -webkit-user-select: none;
+}
+.item-drag-handle:hover { color: var(--text-primary); background: var(--bg-tertiary); }
+.item-drag-handle:active { cursor: grabbing; }
+.item-block-header {
+	display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem;
+	margin-bottom: 0.75rem; padding-bottom: 0.75rem;
+	border-bottom: 1px solid var(--border-color);
+}
+.item-type-badge {
+	display: inline-block; font-size: 0.75rem; font-weight: 600;
+	padding: 0.2rem 0.55rem; border-radius: 999px; white-space: nowrap;
+}
+.item-type-manual { background: var(--bg-tertiary); color: var(--text-secondary); }
+.item-type-product { background: var(--accent-light); color: var(--accent-secondary); }
+.item-type-service { background: var(--yellow-100); color: var(--yellow-600); }
+[data-theme="dark"] .item-type-service { background: rgba(251, 191, 36, 0.15); color: var(--warning); }
+.item-fields-grid {
+	display: grid; grid-template-columns: repeat(3, minmax(90px, 1fr)); gap: 0.5rem;
+	flex: 1; min-width: 240px;
+}
+.item-field-label { font-size: 0.7rem; color: var(--text-muted); margin-bottom: 2px; display: block; }
+.item-block .form-input,
+.item-block .form-select { width: 100%; min-height: 38px; padding: 0.45rem 0.65rem; }
+.item-block-total { font-weight: 600; color: var(--text-primary); padding-top: 1.1rem; text-align: right; white-space: nowrap; }
+.item-block-total .item-recurrence-suffix {
+	display: block; font-size: 0.7rem; font-weight: 500; color: var(--text-muted);
+}
+.item-recurrence-controls {
+	display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem;
+	flex-shrink: 0;
+}
+.item-recurrence-toggle {
+	display: inline-flex; align-items: center; gap: 0.4rem;
+	font-size: 0.75rem; color: var(--text-secondary); cursor: pointer;
+	user-select: none; white-space: nowrap;
+}
+.item-recurrence-period {
+	width: auto !important; min-width: 110px; max-width: 130px;
+	font-size: 0.75rem !important; min-height: 32px !important;
+	padding: 0.25rem 0.45rem !important;
+}
+.item-block-section { margin-bottom: 0.65rem; }
+.item-block-section:last-child { margin-bottom: 0; }
+.item-block-section > label { font-size: 0.75rem; color: var(--text-muted); margin-bottom: 4px; display: block; }
+.budget-internal-box { border: 1px solid var(--warning); border-opacity: 0.35; }
+
+/* ----- Co-op awareness (cursores / foco remoto) ----- */
+.item-block.coop-remote-active {
+	outline: 2px solid var(--coop-color, #0ea5e9);
+	box-shadow: 0 0 0 3px color-mix(in srgb, var(--coop-color, #0ea5e9) 22%, transparent);
+}
+.coop-field-remote {
+	position: relative;
+}
+.coop-field-remote.coop-field-active {
+	box-shadow: inset 0 0 0 2px var(--coop-color, #0ea5e9);
+	border-radius: 6px;
+}
+.coop-field-badge {
+	position: absolute;
+	top: -0.55rem;
+	right: 0.4rem;
+	z-index: 5;
+	font-size: 0.65rem;
+	font-weight: 600;
+	line-height: 1;
+	padding: 0.2rem 0.4rem;
+	border-radius: 999px;
+	color: #fff;
+	background: var(--coop-color, #0ea5e9);
+	pointer-events: none;
+	white-space: nowrap;
+	max-width: 160px;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+.coop-field-badge.is-typing::after {
+	content: '…';
+	animation: coopTypingDots 1s steps(3, end) infinite;
+}
+@keyframes coopTypingDots {
+	0%, 20% { content: ''; }
+	40% { content: '.'; }
+	60% { content: '..'; }
+	80%, 100% { content: '...'; }
+}
+.coop-caret-layer {
+	position: fixed;
+	inset: 0;
+	pointer-events: none;
+	z-index: 1040;
+	overflow: hidden;
+}
+.coop-caret {
+	position: absolute;
+	width: 2px;
+	height: 1.1em;
+	background: var(--coop-color, #0ea5e9);
+	transform: translateY(-2px);
+	pointer-events: none;
+	animation: coopCaretBlink 1s step-end infinite;
+}
+.coop-caret-label {
+	position: absolute;
+	left: 0;
+	top: -1.15rem;
+	font-size: 0.65rem;
+	font-weight: 600;
+	line-height: 1;
+	padding: 0.15rem 0.35rem;
+	border-radius: 4px 4px 4px 0;
+	color: #fff;
+	background: var(--coop-color, #0ea5e9);
+	white-space: nowrap;
+	max-width: 140px;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+@keyframes coopCaretBlink {
+	50% { opacity: 0; }
+}
+.item-coop-pill {
+	display: none;
+	align-items: center;
+	gap: 0.3rem;
+	font-size: 0.68rem;
+	font-weight: 600;
+	padding: 0.15rem 0.45rem;
+	border-radius: 999px;
+	color: #fff;
+	background: var(--coop-color, #0ea5e9);
+	white-space: nowrap;
+}
+.item-block.coop-remote-active .item-coop-pill { display: inline-flex; }
+</style>
+
+<script>
+window.RichTextEditor = (function () {
+	const COLORS = ['#1e293b', '#2563eb', '#dc2626', '#16a34a', '#ca8a04', '#9333ea', '#ea580c'];
+
+	function updatePlaceholder(contentEl) {
+		if (!contentEl) return;
+		const empty = !(contentEl.textContent || '').replace(/\u00a0/g, ' ').trim();
+		contentEl.classList.toggle('rte-is-empty', empty);
+	}
+
+	function setContentHTML(contentEl, html) {
+		if (!contentEl) return;
+		if (!html || !String(html).trim()) {
+			contentEl.innerHTML = '';
+			updatePlaceholder(contentEl);
+			return;
+		}
+		const str = String(html);
+		if (str.includes('<')) {
+			contentEl.innerHTML = str;
+		} else {
+			contentEl.textContent = str;
+		}
+		updatePlaceholder(contentEl);
+	}
+
+	function createToolbar(contentEl, compact) {
+		const toolbar = document.createElement('div');
+		toolbar.className = 'rte-toolbar';
+		toolbar.setAttribute('role', 'toolbar');
+
+		[
+			{ cmd: 'bold', icon: 'fa-bold', title: 'Negrito (Ctrl+B)' },
+			{ cmd: 'italic', icon: 'fa-italic', title: 'Itálico (Ctrl+I)' },
+			{ cmd: 'underline', icon: 'fa-underline', title: 'Sublinhado (Ctrl+U)' },
+		].forEach(({ cmd, icon, title }) => {
+			const btn = document.createElement('button');
+			btn.type = 'button';
+			btn.className = 'rte-toolbar-btn';
+			btn.title = title;
+			btn.innerHTML = `<i class="fas ${icon}"></i>`;
+			btn.addEventListener('mousedown', (e) => e.preventDefault());
+			btn.addEventListener('click', () => { contentEl.focus(); document.execCommand(cmd, false, null); });
+			toolbar.appendChild(btn);
+		});
+
+		const sep = document.createElement('span');
+		sep.className = 'rte-toolbar-sep';
+		toolbar.appendChild(sep);
+
+		const colorWrap = document.createElement('span');
+		colorWrap.className = 'rte-color-wrap';
+		const colorBtn = document.createElement('button');
+		colorBtn.type = 'button';
+		colorBtn.className = 'rte-toolbar-btn';
+		colorBtn.title = 'Cor do texto';
+		colorBtn.innerHTML = '<i class="fas fa-palette"></i>';
+		colorBtn.addEventListener('mousedown', (e) => e.preventDefault());
+		const colorInput = document.createElement('input');
+		colorInput.type = 'color';
+		colorInput.className = 'rte-color-input';
+		colorInput.value = '#2563eb';
+		colorInput.tabIndex = -1;
+		colorBtn.addEventListener('click', () => colorInput.click());
+		colorInput.addEventListener('input', () => {
+			contentEl.focus();
+			document.execCommand('foreColor', false, colorInput.value);
+		});
+		colorWrap.appendChild(colorBtn);
+		colorWrap.appendChild(colorInput);
+		toolbar.appendChild(colorWrap);
+
+		if (!compact) {
+			COLORS.forEach(color => {
+				const swatch = document.createElement('button');
+				swatch.type = 'button';
+				swatch.className = 'rte-toolbar-btn';
+				swatch.title = color;
+				swatch.innerHTML = `<i class="fas fa-circle" style="font-size:9px;color:${color}"></i>`;
+				swatch.addEventListener('mousedown', (e) => e.preventDefault());
+				swatch.addEventListener('click', () => {
+					contentEl.focus();
+					document.execCommand('foreColor', false, color);
+					colorInput.value = color;
+				});
+				toolbar.appendChild(swatch);
+			});
+		}
+
+		const sep2 = document.createElement('span');
+		sep2.className = 'rte-toolbar-sep';
+		toolbar.appendChild(sep2);
+
+		[
+			{ cmd: 'insertUnorderedList', icon: 'fa-list-ul', title: 'Lista com marcadores' },
+			{ cmd: 'insertOrderedList', icon: 'fa-list-ol', title: 'Lista numerada' },
+		].forEach(({ cmd, icon, title }) => {
+			const btn = document.createElement('button');
+			btn.type = 'button';
+			btn.className = 'rte-toolbar-btn';
+			btn.title = title;
+			btn.innerHTML = `<i class="fas ${icon}"></i>`;
+			btn.addEventListener('mousedown', (e) => e.preventDefault());
+			btn.addEventListener('click', () => { contentEl.focus(); document.execCommand(cmd, false, null); });
+			toolbar.appendChild(btn);
+		});
+
+		const starBtn = document.createElement('button');
+		starBtn.type = 'button';
+		starBtn.className = 'rte-toolbar-btn';
+		starBtn.title = 'Inserir linha com *';
+		starBtn.innerHTML = '<i class="fas fa-asterisk"></i>';
+		starBtn.addEventListener('mousedown', (e) => e.preventDefault());
+		starBtn.addEventListener('click', () => insertStarListItem(contentEl));
+		toolbar.appendChild(starBtn);
+
+		return toolbar;
+	}
+
+	function insertStarListItem(contentEl) {
+		contentEl.focus();
+		const sel = window.getSelection();
+		if (!sel || !sel.rangeCount) return;
+		const range = sel.getRangeAt(0);
+		const text = document.createTextNode('\n* ');
+		range.deleteContents();
+		range.insertNode(text);
+		range.setStartAfter(text);
+		range.collapse(true);
+		sel.removeAllRanges();
+		sel.addRange(range);
+		updatePlaceholder(contentEl);
+	}
+
+	function mount(container, options) {
+		options = options || {};
+		const el = typeof container === 'string' ? document.querySelector(container) : container;
+		if (!el) return null;
+		if (el.dataset.rteMounted) {
+			if (options.value) setHTML(el, options.value);
+			return el;
+		}
+
+		const placeholder = options.placeholder || '';
+		const compact = !!options.compact;
+		const initial = options.value || el.dataset.rteValue || '';
+
+		el.classList.add('rte-wrap');
+		if (compact) el.classList.add('rte-compact');
+		el.innerHTML = '';
+
+		const content = document.createElement('div');
+		content.className = 'rte-content rte-is-empty';
+		content.contentEditable = 'true';
+		content.dataset.placeholder = placeholder;
+		content.setAttribute('role', 'textbox');
+		content.setAttribute('aria-multiline', 'true');
+
+		const toolbar = createToolbar(content, compact);
+		el.appendChild(toolbar);
+		el.appendChild(content);
+
+		if (initial) setContentHTML(content, initial);
+
+		content.addEventListener('keydown', (e) => {
+			if (e.ctrlKey || e.metaKey) {
+				if (e.key === 'b') { e.preventDefault(); document.execCommand('bold'); }
+				if (e.key === 'i') { e.preventDefault(); document.execCommand('italic'); }
+				if (e.key === 'u') { e.preventDefault(); document.execCommand('underline'); }
+			}
+		});
+
+		content.addEventListener('input', () => {
+			updatePlaceholder(content);
+			if (typeof options.onInput === 'function') options.onInput(content);
+		});
+
+		content.addEventListener('blur', () => updatePlaceholder(content));
+
+		el.dataset.rteMounted = '1';
+		el._rteContent = content;
+		return el;
+	}
+
+	function getContentEl(container) {
+		const el = typeof container === 'string' ? document.querySelector(container) : container;
+		if (!el) return null;
+		if (el.classList && el.classList.contains('rte-content')) return el;
+		return el._rteContent || el.querySelector('.rte-content');
+	}
+
+	function getHTML(container) {
+		const content = getContentEl(container);
+		if (!content) return '';
+		return (content.innerHTML || '').trim();
+	}
+
+	function setHTML(container, html) {
+		setContentHTML(getContentEl(container), html);
+	}
+
+	function hasContent(container) {
+		const content = getContentEl(container);
+		if (!content) return false;
+		return !!(content.textContent || '').replace(/\u00a0/g, ' ').trim();
+	}
+
+	return { mount, getHTML, setHTML, hasContent, getContentEl };
+})();
+</script>

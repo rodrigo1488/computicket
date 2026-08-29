@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% from 'macros/ui.html' import page_header, empty_state %}
+
+{% block page_title %}📋 Ordens de Serviço{% endblock %}
+
+{% block content %}
+
+{% call page_header('Ordens de Serviço', 'Gerencie e finalize ordens de serviço do sistema externo', icon='fas fa-clipboard-list') %}
+<a href="{{ url_for('service_orders.list_finalized') }}" class="btn btn-secondary">
+	<i class="fas fa-list"></i>
+	Ordens Finalizadas
+</a>
+{% endcall %}
+
+<div class="dc-table-container" style="padding: 1rem;">
+	{{ empty_state('fas fa-clipboard-list', 'Módulo de Ordens de Serviço', 'Use o botão "Finalizar OS" para processar ordens de serviço do sistema externo.', url_for('service_orders.finalize_service_order'), 'Iniciar Finalização', 'fas fa-check-circle') }}
+</div>
+{% endblock %}

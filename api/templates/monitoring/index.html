@@ -1,0 +1,463 @@
+{% extends 'base.html' %}
+{% block page_title %}🛰️ Monitoramento de Técnicos{% endblock %}
+{% block content %}
+
+<div class="container mx-auto px-4 py-6">
+	<!-- Cabeçalho -->
+	<div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
+		<div>
+			<h1 class="text-2xl font-bold text-primary mb-2">
+				<i class="fas fa-map-marker-alt mr-2"></i>
+				Monitoramento de Técnicos
+			</h1>
+			<p class="text-secondary">Acompanhe a localização dos técnicos em tempo real</p>
+		</div>
+		
+		<!-- Controles -->
+		<div class="flex gap-2">
+			<a href="{{ url_for('monitoring.map_view') }}" class="btn btn-info">
+				<i class="fas fa-map mr-2"></i>
+				Ver Mapa Geral
+			</a>
+		</div>
+	</div>
+	
+	
+	<!-- Lista de Técnicos -->
+	<div class="bg-tertiary rounded-lg p-6">
+		<h2 class="text-lg font-semibold text-primary mb-4 flex items-center">
+			<i class="fas fa-users mr-2"></i>
+			Técnicos e Administradores
+			<span id="total-count" class="ml-2 px-2 py-1 bg-info text-white text-xs rounded-full">0</span>
+		</h2>
+		
+		<div id="technicians-grid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+			<!-- Técnicos serão carregados via JavaScript -->
+		</div>
+	</div>
+	
+	<!-- Estatísticas -->
+	<div class="grid grid-cols-1 sm:grid-cols-4 gap-4 mt-6">
+		<div class="bg-info/10 border border-info/20 rounded-lg p-4">
+			<div class="flex items-center gap-3">
+				<i class="fas fa-users text-info text-2xl"></i>
+				<div>
+					<div class="text-sm text-muted">Total de Usuários</div>
+					<div id="total-technicians" class="text-xl font-bold text-info">0</div>
+				</div>
+			</div>
+		</div>
+		
+		<div class="bg-success/10 border border-success/20 rounded-lg p-4">
+			<div class="flex items-center gap-3">
+				<i class="fas fa-map-marker-alt text-success text-2xl"></i>
+				<div>
+					<div class="text-sm text-muted">Com Localização</div>
+					<div id="with-location" class="text-xl font-bold text-success">0</div>
+				</div>
+			</div>
+		</div>
+		
+		<div class="bg-warning/10 border border-warning/20 rounded-lg p-4">
+			<div class="flex items-center gap-3">
+				<i class="fas fa-circle text-warning text-2xl"></i>
+				<div>
+					<div class="text-sm text-muted">Online Agora</div>
+					<div id="online-now" class="text-xl font-bold text-warning">0</div>
+				</div>
+			</div>
+		</div>
+		
+		<div class="bg-purple-100 border border-purple-200 rounded-lg p-4">
+			<div class="flex items-center gap-3">
+				<i class="fas fa-clock text-purple-600 text-2xl"></i>
+				<div>
+					<div class="text-sm text-muted">Última Atualização</div>
+					<div id="last-update-time" class="text-sm font-medium text-purple-600">--:--</div>
+				</div>
+			</div>
+		</div>
+	</div>
+</div>
+
+<!-- Modal de Detalhes do Técnico -->
+<div id="technician-modal" class="modal-overlay" style="display: none;">
+	<div class="modal w-full max-w-md mx-4 sm:mx-6 lg:mx-auto">
+		<div class="modal-header">
+			<h3 class="modal-title">
+				<i class="fas fa-user mr-2"></i>
+				Detalhes do Técnico
+			</h3>
+			<button id="close-technician-modal" class="btn btn-sm btn-secondary">
+				<i class="fas fa-times"></i>
+			</button>
+		</div>
+		<div class="modal-body">
+			<div id="technician-details">
+				<!-- Detalhes serão preenchidos via JavaScript -->
+			</div>
+		</div>
+		<div class="modal-footer">
+			<button type="button" id="close-technician-modal-btn" class="btn btn-primary w-full">
+				<i class="fas fa-times mr-2"></i>
+				Fechar
+			</button>
+		</div>
+	</div>
+</div>
+
+<style>
+.technician-card {
+	transition: all 0.2s ease;
+}
+
+.technician-card:hover {
+	transform: translateY(-2px);
+	box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.status-online {
+	background: linear-gradient(135deg, #10b981, #059669);
+}
+
+.status-offline {
+	background: linear-gradient(135deg, #6b7280, #4b5563);
+}
+
+.location-accuracy {
+	font-size: 0.75rem;
+	opacity: 0.8;
+}
+</style>
+
+<script>
+class MonitoringManager {
+	constructor() {
+		this.socket = null;
+		this.technicians = [];
+		this.updateInterval = null;
+		this.isTracking = false;
+		this.init();
+	}
+	
+	init() {
+		this.connectWebSocket();
+		this.setupEventListeners();
+		this.loadInitialData();
+		this.startPeriodicUpdates();
+		
+		console.log('🛰️ MonitoringManager inicializado');
+	}
+	
+	connectWebSocket() {
+		try {
+			if (window.socket) {
+				this.socket = window.socket;
+				this.setupSocketEvents();
+			} else {
+				console.warn('⚠️ WebSocket não disponível para monitoramento');
+			}
+		} catch (error) {
+			console.error('❌ Erro ao conectar WebSocket:', error);
+		}
+	}
+	
+	setupSocketEvents() {
+		if (!this.socket) return;
+		
+		// Entrar na sala de monitoramento
+		this.socket.emit('join_monitoring_room');
+		
+		// Eventos do sistema de monitoramento
+		this.socket.on('active_technicians', (data) => {
+			console.log('👥 Técnicos ativos recebidos:', data);
+			this.updateTechniciansList(data.technicians);
+		});
+		
+		this.socket.on('technician_location_update', (data) => {
+			console.log('📍 Atualização de localização:', data);
+			this.updateTechnicianLocation(data);
+		});
+		
+		this.socket.on('tracking_started', (data) => {
+			console.log('✅ Tracking iniciado:', data);
+			this.updateTrackingStatus(true);
+		});
+		
+		this.socket.on('tracking_stopped', (data) => {
+			console.log('🛑 Tracking parado:', data);
+			this.updateTrackingStatus(false);
+		});
+	}
+	
+	setupEventListeners() {
+		// Modal de técnico
+		document.getElementById('close-technician-modal').addEventListener('click', () => {
+			this.closeTechnicianModal();
+		});
+		
+		document.getElementById('close-technician-modal-btn').addEventListener('click', () => {
+			this.closeTechnicianModal();
+		});
+		
+		document.getElementById('technician-modal').addEventListener('click', (e) => {
+			if (e.target === document.getElementById('technician-modal')) {
+				this.closeTechnicianModal();
+			}
+		});
+		
+	}
+	
+	async loadInitialData() {
+		try {
+			// Carregar lista de técnicos
+			const techniciansResponse = await fetch('/monitoring/api/technicians');
+			const techniciansData = await techniciansResponse.json();
+			
+			if (techniciansData.technicians) {
+				this.updateTechniciansList(techniciansData.technicians);
+			}
+			
+		} catch (error) {
+			console.error('❌ Erro ao carregar dados iniciais:', error);
+		}
+	}
+	
+	startPeriodicUpdates() {
+		// Atualizar a cada 30 segundos
+		this.updateInterval = setInterval(() => {
+			this.loadInitialData();
+		}, 30000);
+	}
+	
+	
+	updateTechniciansList(technicians) {
+		this.technicians = technicians;
+		
+		const gridContainer = document.getElementById('technicians-grid');
+		const totalCount = document.getElementById('total-count');
+		const totalTechnicians = document.getElementById('total-technicians');
+		const withLocation = document.getElementById('with-location');
+		const onlineNow = document.getElementById('online-now');
+		
+		// Calcular estatísticas
+		const withLocationCount = technicians.filter(t => t.latitude !== 0 && t.longitude !== 0).length;
+		const onlineCount = technicians.filter(t => t.is_online).length;
+		
+		// Atualizar contadores
+		totalCount.textContent = technicians.length;
+		totalTechnicians.textContent = technicians.length;
+		withLocation.textContent = withLocationCount;
+		onlineNow.textContent = onlineCount;
+		
+		// Renderizar cards dos técnicos
+		gridContainer.innerHTML = technicians.map(tech => this.renderTechnicianCard(tech)).join('');
+		
+		// Atualizar timestamp
+		document.getElementById('last-update-time').textContent = new Date().toLocaleTimeString();
+	}
+	
+	renderTechnicianCard(technician) {
+		const hasLocation = technician.latitude !== 0 && technician.longitude !== 0;
+		const lastSeen = technician.last_seen ? this.formatDateTimeBrasilia(technician.last_seen) : 'Nunca';
+		const statusClass = technician.is_online ? 'status-online' : 'status-offline';
+		const statusColor = technician.is_online ? 'text-success' : 'text-gray-400';
+		const locationStatus = hasLocation ? 'text-success' : 'text-gray-400';
+		const locationIcon = hasLocation ? 'fa-map-marker-alt' : 'fa-map-marker-alt';
+		
+		return `
+			<div class="technician-card bg-secondary rounded-lg p-4 cursor-pointer hover:shadow-lg transition-all duration-200" 
+				 onclick="monitoringManager.openUserMap(${technician.user_id})">
+				<div class="flex items-center justify-between mb-3">
+					<div class="flex items-center gap-3">
+						<div class="w-12 h-12 rounded-full ${statusClass} flex items-center justify-center">
+							<i class="fas fa-user text-white text-lg"></i>
+						</div>
+						<div>
+							<div class="font-semibold text-primary text-lg">${technician.user_name}</div>
+							<div class="text-sm text-muted capitalize">${technician.user_role}</div>
+						</div>
+					</div>
+					<div class="flex flex-col items-end gap-1">
+						<div class="flex items-center gap-1">
+							<i class="fas fa-circle ${statusColor} text-xs"></i>
+							<span class="text-xs ${statusColor}">${technician.is_online ? 'Online' : 'Offline'}</span>
+						</div>
+						<div class="flex items-center gap-1">
+							<i class="fas ${locationIcon} ${locationStatus} text-xs"></i>
+							<span class="text-xs ${locationStatus}">${hasLocation ? 'Com Localização' : 'Sem Localização'}</span>
+						</div>
+					</div>
+				</div>
+				
+				<div class="space-y-2">
+					${hasLocation ? `
+					<div class="text-sm">
+						<i class="fas fa-map-marker-alt text-info mr-2"></i>
+						<span class="text-muted">${technician.address || 'Coordenadas: ' + technician.latitude.toFixed(4) + ', ' + technician.longitude.toFixed(4)}</span>
+					</div>
+					${technician.accuracy ? `
+					<div class="text-xs text-muted">
+						<i class="fas fa-crosshairs mr-2"></i>
+						Precisão: ${technician.accuracy.toFixed(0)}m
+					</div>
+					` : ''}
+					` : `
+					<div class="text-sm text-muted">
+						<i class="fas fa-exclamation-triangle mr-2"></i>
+						Nenhuma localização registrada
+					</div>
+					`}
+					
+					<div class="text-xs text-muted">
+						<i class="fas fa-clock mr-2"></i>
+						Última atualização: ${lastSeen}
+					</div>
+				</div>
+				
+				<div class="mt-3 pt-3 border-t border-gray-200">
+					<div class="flex items-center justify-center text-primary text-sm font-medium">
+						<i class="fas fa-map mr-2"></i>
+						Ver no Mapa
+					</div>
+				</div>
+			</div>
+		`;
+	}
+	
+	openUserMap(userId) {
+		// Abrir mapa individual do usuário em nova aba
+		window.open(`/monitoring/map/${userId}`, '_blank');
+	}
+	
+	showTechnicianDetails(userId) {
+		const technician = this.technicians.find(t => t.user_id === userId);
+		if (!technician) return;
+		
+		const modal = document.getElementById('technician-modal');
+		const details = document.getElementById('technician-details');
+		
+		details.innerHTML = `
+			<div class="space-y-4">
+				<div class="flex items-center gap-3">
+					<div class="w-12 h-12 rounded-full ${technician.is_online ? 'status-online' : 'status-offline'} flex items-center justify-center">
+						<i class="fas fa-user text-white text-lg"></i>
+					</div>
+					<div>
+						<div class="text-lg font-semibold text-primary">${technician.user_name}</div>
+						<div class="text-sm text-muted">${technician.user_role}</div>
+					</div>
+				</div>
+				
+				<div class="bg-tertiary rounded-lg p-4">
+					<div class="flex items-center gap-2 mb-3">
+						<i class="fas fa-map-marker-alt text-info"></i>
+						<span class="font-semibold text-info">Localização</span>
+					</div>
+					
+					<div class="space-y-2 text-sm">
+						<div class="flex justify-between">
+							<span class="text-muted">Status:</span>
+							<span class="font-medium ${technician.is_online ? 'text-success' : 'text-gray-400'}">
+								${technician.is_online ? 'Online' : 'Offline'}
+							</span>
+						</div>
+						<div class="flex justify-between">
+							<span class="text-muted">Endereço:</span>
+							<span class="font-medium">${technician.address || 'Não disponível'}</span>
+						</div>
+						<div class="flex justify-between">
+							<span class="text-muted">Coordenadas:</span>
+							<span class="font-mono text-xs">${technician.latitude.toFixed(6)}, ${technician.longitude.toFixed(6)}</span>
+						</div>
+						${technician.accuracy ? `
+						<div class="flex justify-between">
+							<span class="text-muted">Precisão:</span>
+							<div class="flex items-center gap-2">
+								<span class="font-medium ${technician.accuracy <= 10 ? 'text-green-600' : technician.accuracy <= 50 ? 'text-yellow-600' : 'text-red-600'}">
+									${Math.round(technician.accuracy)}m
+								</span>
+								${technician.accuracy <= 10 ? 
+									'<i class="fas fa-bullseye text-green-600" title="Alta precisão"></i>' :
+									technician.accuracy <= 50 ? 
+									'<i class="fas fa-crosshairs text-yellow-600" title="Precisão moderada"></i>' :
+									'<i class="fas fa-map-marker-alt text-red-600" title="Baixa precisão"></i>'
+								}
+							</div>
+						</div>
+						` : ''}
+						<div class="flex justify-between">
+							<span class="text-muted">Última atualização:</span>
+							<span class="font-medium">${this.formatDateTimeBrasilia(technician.last_seen)}</span>
+						</div>
+					</div>
+				</div>
+				
+				<div class="flex gap-2">
+					<a href="https://www.google.com/maps?q=${technician.latitude},${technician.longitude}" target="_blank" class="btn btn-info flex-1">
+						<i class="fas fa-external-link-alt mr-2"></i>
+						Abrir no Google Maps
+					</a>
+					<button type="button" onclick="monitoringManager.copyLocation(${technician.latitude}, ${technician.longitude})" class="btn btn-outline flex-1">
+						<i class="fas fa-copy mr-2"></i>
+						Copiar Coordenadas
+					</button>
+				</div>
+			</div>
+		`;
+		
+		modal.style.display = 'flex';
+	}
+	
+	closeTechnicianModal() {
+		document.getElementById('technician-modal').style.display = 'none';
+	}
+	
+	copyLocation(latitude, longitude) {
+		const text = `${latitude}, ${longitude}`;
+		navigator.clipboard.writeText(text).then(() => {
+			this.showNotification('Coordenadas copiadas!', 'success');
+		}).catch(err => {
+			console.error('Erro ao copiar:', err);
+			this.showNotification('Erro ao copiar coordenadas', 'error');
+		});
+	}
+	
+	showNotification(message, type = 'info') {
+		// Implementar sistema de notificações
+		console.log(`📢 ${type.toUpperCase()}: ${message}`);
+		alert(`${type.toUpperCase()}: ${message}`);
+	}
+	
+	formatDateTimeBrasilia(utcDateTimeString) {
+		if (!utcDateTimeString) return 'Nunca';
+		
+		try {
+			// Converter string UTC para Date
+			const utcDate = new Date(utcDateTimeString);
+			
+			// Formatar para exibição no fuso horário de Brasília
+			return utcDate.toLocaleString('pt-BR', {
+				timeZone: 'America/Sao_Paulo',
+				day: '2-digit',
+				month: '2-digit',
+				year: 'numeric',
+				hour: '2-digit',
+				minute: '2-digit',
+				second: '2-digit'
+			});
+		} catch (error) {
+			console.error('Erro ao formatar data:', error);
+			return 'Data inválida';
+		}
+	}
+}
+
+// Inicializar quando a página carregar
+document.addEventListener('DOMContentLoaded', function() {
+	window.monitoringManager = new MonitoringManager();
+});
+</script>
+
+{% endblock %}
+

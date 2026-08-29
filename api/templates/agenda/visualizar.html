@@ -1,0 +1,428 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="visualizar-agendamento-container">
+    <div class="visualizar-agendamento-header">
+        <div class="header-content">
+            <h1><i class="fas fa-eye"></i> Detalhes do Agendamento</h1>
+            <p>Visualize todas as informações do agendamento</p>
+        </div>
+        <div class="header-actions">
+            <a href="{{ url_for('agenda.editar', appointment_id=appointment.id) }}" class="btn btn-primary">
+                <i class="fas fa-edit"></i> Editar
+            </a>
+            <a href="{{ url_for('agenda.index') }}" class="btn btn-secondary">
+                <i class="fas fa-arrow-left"></i> Voltar para Agenda
+            </a>
+        </div>
+    </div>
+
+    <div class="visualizar-agendamento-content">
+        <div class="agendamento-card">
+            <div class="card-header">
+                <h2>{{ appointment.title }}</h2>
+                <div class="card-status">
+                    {% if appointment.is_past() %}
+                        <span class="status-badge status-passed">
+                            <i class="fas fa-clock"></i> Passado
+                        </span>
+                    {% elif appointment.is_today() %}
+                        <span class="status-badge status-today">
+                            <i class="fas fa-calendar-day"></i> Hoje
+                        </span>
+                    {% else %}
+                        <span class="status-badge status-future">
+                            <i class="fas fa-calendar-check"></i> Futuro
+                        </span>
+                    {% endif %}
+                </div>
+            </div>
+            
+            <div class="card-body">
+                <div class="info-grid">
+                    <div class="info-item">
+                        <div class="info-label">
+                            <i class="fas fa-calendar-alt"></i> Data e Hora
+                        </div>
+                        <div class="info-value">
+                            {{ appointment.get_formatted_date() }}
+                        </div>
+                    </div>
+                    
+                    <div class="info-item">
+                        <div class="info-label">
+                            <i class="fas fa-user"></i> Cliente
+                        </div>
+                        <div class="info-value">
+                            {{ appointment.get_client_name() }}
+                        </div>
+                    </div>
+                    
+                    <div class="info-item">
+                        <div class="info-label">
+                            <i class="fas fa-user-tie"></i> Usuário Responsável
+                        </div>
+                        <div class="info-value">
+                            {{ appointment.get_user_name() }}
+                        </div>
+                    </div>
+                    
+                    <div class="info-item">
+                        <div class="info-label">
+                            <i class="fas fa-cogs"></i> Serviço
+                        </div>
+                        <div class="info-value">
+                            {{ appointment.get_service_name() }}
+                        </div>
+                    </div>
+                    
+                    <div class="info-item">
+                        <div class="info-label">
+                            <i class="fas fa-user-plus"></i> Criado por
+                        </div>
+                        <div class="info-value">
+                            {{ appointment.creator.name if appointment.creator else 'Usuário não definido' }}
+                        </div>
+                    </div>
+                    
+                    <div class="info-item">
+                        <div class="info-label">
+                            <i class="fas fa-clock"></i> Criado em
+                        </div>
+                        <div class="info-value">
+                            {{ appointment.created_at.strftime('%d/%m/%Y às %H:%M') }}
+                        </div>
+                    </div>
+                </div>
+                
+                {% if appointment.description %}
+                <div class="description-section">
+                    <h3><i class="fas fa-align-left"></i> Descrição</h3>
+                    <div class="description-content">
+                        {{ appointment.description }}
+                    </div>
+                </div>
+                {% endif %}
+            </div>
+            
+            <div class="card-footer">
+                <div class="footer-actions">
+                    <button class="btn btn-danger" onclick="excluirAgendamento({{ appointment.id }})">
+                        <i class="fas fa-trash"></i> Excluir Agendamento
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+.visualizar-agendamento-container {
+    padding: 1rem;
+    max-width: 900px;
+    margin: 0 auto;
+}
+
+.visualizar-agendamento-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 2rem;
+    padding: 1.5rem;
+    background: var(--bg-secondary);
+    border-radius: 12px;
+    box-shadow: var(--neumorphism-shadow);
+}
+
+.header-content h1 {
+    color: var(--text-primary);
+    margin-bottom: 0.5rem;
+    font-size: 1.8rem;
+}
+
+.header-content p {
+    color: var(--text-secondary);
+    margin: 0;
+}
+
+.header-actions {
+    display: flex;
+    gap: 1rem;
+}
+
+.visualizar-agendamento-content {
+    background: var(--bg-secondary);
+    border-radius: 12px;
+    box-shadow: var(--neumorphism-shadow);
+    overflow: hidden;
+}
+
+.agendamento-card {
+    width: 100%;
+}
+
+.card-header {
+    padding: 2rem;
+    background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
+    color: white;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.card-header h2 {
+    margin: 0;
+    font-size: 1.5rem;
+    font-weight: 600;
+}
+
+.card-status {
+    display: flex;
+    align-items: center;
+}
+
+.status-badge {
+    padding: 0.5rem 1rem;
+    border-radius: 20px;
+    font-size: 0.9rem;
+    font-weight: 500;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.status-passed {
+    background: rgba(239, 68, 68, 0.2);
+    color: #ef4444;
+    border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
+.status-today {
+    background: rgba(245, 158, 11, 0.2);
+    color: #f59e0b;
+    border: 1px solid rgba(245, 158, 11, 0.3);
+}
+
+.status-future {
+    background: rgba(16, 185, 129, 0.2);
+    color: #10b981;
+    border: 1px solid rgba(16, 185, 129, 0.3);
+}
+
+.card-body {
+    padding: 2rem;
+}
+
+.info-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 1.5rem;
+    margin-bottom: 2rem;
+}
+
+.info-item {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.info-label {
+    font-weight: 500;
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.info-value {
+    font-weight: 600;
+    color: var(--text-primary);
+    font-size: 1rem;
+}
+
+.description-section {
+    margin-top: 2rem;
+    padding-top: 2rem;
+    border-top: 1px solid var(--border-color);
+}
+
+.description-section h3 {
+    color: var(--text-primary);
+    margin-bottom: 1rem;
+    font-size: 1.1rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.description-content {
+    background: var(--bg-primary);
+    padding: 1.5rem;
+    border-radius: 8px;
+    border-left: 4px solid var(--accent-primary);
+    color: var(--text-primary);
+    line-height: 1.6;
+    white-space: pre-wrap;
+}
+
+.card-footer {
+    padding: 1.5rem 2rem;
+    background: var(--bg-tertiary);
+    border-top: 1px solid var(--border-color);
+}
+
+.footer-actions {
+    display: flex;
+    justify-content: flex-end;
+}
+
+/* Responsividade */
+@media (max-width: 768px) {
+    .visualizar-agendamento-header {
+        flex-direction: column;
+        gap: 1rem;
+        text-align: center;
+    }
+    
+    .header-actions {
+        flex-direction: column;
+        width: 100%;
+    }
+    
+    .card-header {
+        flex-direction: column;
+        gap: 1rem;
+        text-align: center;
+    }
+    
+    .info-grid {
+        grid-template-columns: 1fr;
+    }
+    
+    .footer-actions {
+        justify-content: center;
+    }
+    
+    .visualizar-agendamento-container {
+        padding: 0.5rem;
+    }
+    
+    .card-body {
+        padding: 1rem;
+    }
+}
+
+/* Modo escuro */
+[data-theme="dark"] .card-header {
+    background: linear-gradient(135deg, #1e3a8a, #1e40af);
+}
+
+[data-theme="dark"] .status-passed {
+    background: rgba(239, 68, 68, 0.1);
+    color: #f87171;
+}
+
+[data-theme="dark"] .status-today {
+    background: rgba(245, 158, 11, 0.1);
+    color: #fbbf24;
+}
+
+[data-theme="dark"] .status-future {
+    background: rgba(16, 185, 129, 0.1);
+    color: #34d399;
+}
+</style>
+
+<script>
+function excluirAgendamento(appointmentId) {
+    if (confirm('Tem certeza que deseja excluir este agendamento? Esta ação não pode ser desfeita.')) {
+        fetch(`/agenda/${appointmentId}/excluir`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            }
+        })
+        .then(response => response.json())
+        .then(result => {
+            if (result.success) {
+                mostrarNotificacao('Agendamento excluído com sucesso!', 'success');
+                setTimeout(() => {
+                    window.location.href = '/agenda';
+                }, 1500);
+            } else {
+                mostrarNotificacao(result.error || 'Erro ao excluir agendamento', 'error');
+            }
+        })
+        .catch(error => {
+            console.error('Erro:', error);
+            mostrarNotificacao('Erro ao excluir agendamento', 'error');
+        });
+    }
+}
+
+function mostrarNotificacao(mensagem, tipo) {
+    // Criar elemento de notificação
+    const notificacao = document.createElement('div');
+    notificacao.className = `notificacao notificacao-${tipo}`;
+    notificacao.innerHTML = `
+        <i class="fas fa-${tipo === 'success' ? 'check-circle' : 'exclamation-circle'}"></i>
+        <span>${mensagem}</span>
+    `;
+    
+    // Adicionar estilos
+    notificacao.style.cssText = `
+        position: fixed;
+        top: 80px;
+        right: 20px;
+        background: ${tipo === 'success' ? '#10b981' : '#ef4444'};
+        color: white;
+        padding: 1rem 1.5rem;
+        border-radius: 8px;
+        box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+        z-index: 10001;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        animation: slideInRight 0.3s ease;
+    `;
+    
+    document.body.appendChild(notificacao);
+    
+    // Remover após 5 segundos
+    setTimeout(() => {
+        notificacao.style.animation = 'slideOutRight 0.3s ease';
+        setTimeout(() => {
+            document.body.removeChild(notificacao);
+        }, 300);
+    }, 5000);
+}
+
+// Adicionar animações CSS
+const style = document.createElement('style');
+style.textContent = `
+    @keyframes slideInRight {
+        from {
+            transform: translateX(100%);
+            opacity: 0;
+        }
+        to {
+            transform: translateX(0);
+            opacity: 1;
+        }
+    }
+    
+    @keyframes slideOutRight {
+        from {
+            transform: translateX(0);
+            opacity: 1;
+        }
+        to {
+            transform: translateX(100%);
+            opacity: 0;
+        }
+    }
+`;
+document.head.appendChild(style);
+</script>
+{% endblock %}

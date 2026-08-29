@@ -1,0 +1,187 @@
+{% extends 'base.html' %}
+{% block page_title %}➕ Novo Plano para {{ client.name }}{% endblock %}
+{% block content %}
+
+<div class="bg-secondary rounded-lg shadow-lg p-6 mb-6">
+	<div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 mb-6">
+		<div class="flex-1">
+			<h1 class="text-2xl lg:text-3xl font-bold text-primary mb-2">
+				➕ Novo Plano de Cliente
+			</h1>
+			<p class="text-secondary">
+				Contratar plano de suporte para <strong>{{ client.name }}</strong>
+			</p>
+		</div>
+		<div class="flex-shrink-0">
+			<a href="{{ url_for('plans.list_client_plans', client_id=client.id) }}" class="btn btn-secondary">
+				<i class="fas fa-arrow-left mr-2"></i>
+				Voltar
+			</a>
+		</div>
+	</div>
+</div>
+
+<!-- Formulário -->
+<div class="bg-secondary rounded-lg shadow-lg p-6">
+	<form method="post" class="space-y-6">
+		<!-- Seleção do Plano -->
+		<div class="bg-tertiary rounded-lg p-4">
+			<h3 class="text-lg font-semibold text-primary mb-4">
+				<i class="fas fa-list mr-2"></i>
+				Seleção do Plano
+			</h3>
+			
+			<div class="form-group">
+				<label class="form-label">Plano de Suporte *</label>
+				<select name="plan_id" class="form-select" required>
+					<option value="">Selecione um plano...</option>
+					{% for plan in plans %}
+					<option value="{{ plan.id }}" {{ 'selected' if request.form.get('plan_id') == plan.id|string else '' }}>
+						{{ plan.name }} ({{ plan.system.name }}) - {{ plan.get_formatted_monthly_value() }}/mês
+					</option>
+					{% endfor %}
+				</select>
+				<div class="form-help">
+					Selecione o plano de suporte que será contratado
+				</div>
+			</div>
+		</div>
+		
+		<!-- Período do Contrato -->
+		<div class="bg-tertiary rounded-lg p-4">
+			<h3 class="text-lg font-semibold text-primary mb-4">
+				<i class="fas fa-calendar mr-2"></i>
+				Período do Contrato
+			</h3>
+			
+			<div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+				<div class="form-group">
+					<label class="form-label">Data de Início *</label>
+					<input type="date" name="start_date" class="form-input" required 
+						   value="{{ request.form.get('start_date', '') }}">
+					<div class="form-help">
+						Data de início do contrato
+					</div>
+				</div>
+				
+				<div class="form-group">
+					<label class="form-label">Data de Fim *</label>
+					<input type="date" name="end_date" class="form-input" required 
+						   value="{{ request.form.get('end_date', '') }}">
+					<div class="form-help">
+						Data de término do contrato
+					</div>
+				</div>
+			</div>
+		</div>
+		
+		<!-- Configurações Personalizadas -->
+		<div class="bg-tertiary rounded-lg p-4">
+			<h3 class="text-lg font-semibold text-primary mb-4">
+				<i class="fas fa-cogs mr-2"></i>
+				Configurações Personalizadas
+			</h3>
+			
+			<div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+				<div class="form-group">
+					<label class="form-label">Horas Mensais Personalizadas</label>
+					<input type="number" name="custom_monthly_hours" class="form-input" min="0" 
+						   placeholder="Deixe vazio para usar o padrão do plano" 
+						   value="{{ request.form.get('custom_monthly_hours', '') }}">
+					<div class="form-help">
+						Override das horas mensais do plano (opcional)
+					</div>
+				</div>
+				
+				<div class="form-group">
+					<label class="form-label">Valor da Hora Adicional Personalizado (R$)</label>
+					<input type="number" name="custom_hour_rate" class="form-input" min="0" step="0.01" 
+						   placeholder="Deixe vazio para usar o padrão do plano" 
+						   value="{{ request.form.get('custom_hour_rate', '') }}">
+					<div class="form-help">
+						Override do valor da hora adicional (opcional)
+					</div>
+				</div>
+			</div>
+		</div>
+		
+		<!-- Configurações de Status -->
+		<div class="bg-tertiary rounded-lg p-4">
+			<h3 class="text-lg font-semibold text-primary mb-4">
+				<i class="fas fa-toggle-on mr-2"></i>
+				Configurações de Status
+			</h3>
+			
+			<div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+				<div class="form-group">
+					<label class="flex items-center">
+						<input type="checkbox" name="is_active" class="form-checkbox mr-2" checked>
+						<span class="form-label">Plano Ativo</span>
+					</label>
+					<div class="form-help">
+						Plano ativo pode ser usado para suporte
+					</div>
+				</div>
+				
+				<div class="form-group">
+					<label class="flex items-center">
+						<input type="checkbox" name="is_auto_renew" class="form-checkbox mr-2" 
+							   {{ 'checked' if request.form.get('is_auto_renew') == 'on' else '' }}>
+						<span class="form-label">Renovação Automática</span>
+					</label>
+					<div class="form-help">
+						Renovar automaticamente ao expirar
+					</div>
+				</div>
+			</div>
+		</div>
+		
+		<!-- Botões -->
+		<div class="flex flex-col sm:flex-row items-center gap-3 justify-end">
+			<a href="{{ url_for('plans.list_client_plans', client_id=client.id) }}" class="btn btn-secondary w-full sm:w-auto">
+				<i class="fas fa-times mr-2"></i>
+				Cancelar
+			</a>
+			<button type="submit" class="btn btn-primary w-full sm:w-auto">
+				<i class="fas fa-save mr-2"></i>
+				Contratar Plano
+			</button>
+		</div>
+	</form>
+</div>
+
+<!-- Informações do Cliente -->
+<div class="bg-info/10 border border-info/20 rounded-lg p-4 mt-6">
+	<div class="flex items-start">
+		<i class="fas fa-info-circle text-info mr-2 mt-0.5"></i>
+		<div>
+			<h4 class="text-sm font-medium text-info mb-2">📋 Informações do Cliente:</h4>
+			<div class="text-sm text-info/80 space-y-1">
+				<div><strong>Nome:</strong> {{ client.name }}</div>
+				<div><strong>Email:</strong> {{ client.email }}</div>
+				{% if client.phone %}
+				<div><strong>Telefone:</strong> {{ client.phone }}</div>
+				{% endif %}
+				<div><strong>Planos ativos:</strong> {{ client.client_plans|selectattr('is_active')|list|length }}</div>
+			</div>
+		</div>
+	</div>
+</div>
+
+<!-- Dicas -->
+<div class="bg-warning/10 border border-warning/20 rounded-lg p-4 mt-4">
+	<div class="flex items-start">
+		<i class="fas fa-lightbulb text-warning mr-2 mt-0.5"></i>
+		<div>
+			<h4 class="text-sm font-medium text-warning mb-2">💡 Dicas para contratar planos:</h4>
+			<ul class="text-sm text-warning/80 space-y-1">
+				<li>• Verifique se o cliente já tem planos ativos para evitar conflitos</li>
+				<li>• Use configurações personalizadas para casos especiais</li>
+				<li>• Configure renovação automática para planos recorrentes</li>
+				<li>• Defina datas de início e fim claras</li>
+			</ul>
+		</div>
+	</div>
+</div>
+
+{% endblock %}

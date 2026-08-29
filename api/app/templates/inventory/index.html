@@ -1,0 +1,110 @@
+{% extends 'base.html' %}
+{% block page_title %}Inventário{% endblock %}
+{% block content %}
+
+<div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
+	<div>
+		<h1 class="text-2xl font-bold text-primary flex items-center">
+			<i class="fas fa-boxes mr-3"></i>
+			Inventário
+		</h1>
+		<p class="text-muted mt-1">Itens com código único (UUID) para etiquetas e histórico de ações</p>
+	</div>
+	<div class="flex gap-2">
+		<a href="{{ url_for('inventory.new_item') }}" class="btn btn-primary">
+			<i class="fas fa-plus mr-2"></i>Novo item
+		</a>
+	</div>
+</div>
+
+<div class="bg-secondary rounded-lg shadow-lg mb-6 p-6">
+	<form method="GET" class="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+		<div class="form-group md:col-span-2">
+			<label for="q" class="form-label"><i class="fas fa-search mr-2"></i>Buscar</label>
+			<input type="text" id="q" name="q" class="form-input" value="{{ q or '' }}"
+				placeholder="Descrição, título, serial ou UUID...">
+		</div>
+		<div class="form-group">
+			<label for="status" class="form-label"><i class="fas fa-filter mr-2"></i>Status</label>
+			<select id="status" name="status" class="form-select">
+				<option value="">Todos</option>
+				<option value="disponivel" {% if status_filter == 'disponivel' %}selected{% endif %}>Disponível</option>
+				<option value="emprestado" {% if status_filter == 'emprestado' %}selected{% endif %}>Emprestado</option>
+				<option value="vendido" {% if status_filter == 'vendido' %}selected{% endif %}>Vendido</option>
+				<option value="descartado" {% if status_filter == 'descartado' %}selected{% endif %}>Descartado</option>
+			</select>
+		</div>
+		<div class="flex gap-2">
+			<button type="submit" class="btn btn-primary"><i class="fas fa-search mr-2"></i>Filtrar</button>
+			<a href="{{ url_for('inventory.index') }}" class="btn btn-secondary">Limpar</a>
+		</div>
+	</form>
+</div>
+
+{% if items %}
+<div class="bg-secondary rounded-lg shadow-lg overflow-hidden">
+	<div class="overflow-x-auto">
+		<table class="w-full min-w-[720px]">
+			<thead>
+				<tr class="border-b border-border-color text-left text-sm text-muted">
+					<th class="p-4">Item</th>
+					<th class="p-4">Serial</th>
+					<th class="p-4">Código</th>
+					<th class="p-4">Status</th>
+					<th class="p-4 text-right">Ações</th>
+				</tr>
+			</thead>
+			<tbody>
+				{% for it in items %}
+				<tr class="border-b border-border-color hover:bg-muted/10">
+					<td class="p-4">
+						<div class="font-medium text-primary">{{ it.title or '—' }}</div>
+						<div class="text-sm text-muted line-clamp-2">{{ it.description[:120] }}{% if it.description|length > 120 %}…{% endif %}</div>
+					</td>
+					<td class="p-4 text-sm">{{ it.serial_number or '—' }}</td>
+					<td class="p-4 text-xs font-mono">{{ it.public_uuid }}</td>
+					<td class="p-4">
+						<span class="badge {% if it.status == 'disponivel' %}badge-success{% elif it.status == 'emprestado' %}badge-warning{% elif it.status == 'vendido' %}badge-info{% else %}badge-secondary{% endif %}">
+							{{ it.status_label() }}
+						</span>
+					</td>
+					<td class="p-4 text-right whitespace-nowrap">
+						<a href="{{ url_for('inventory.detail', item_id=it.id) }}" class="btn btn-sm btn-secondary">Abrir</a>
+					</td>
+				</tr>
+				{% endfor %}
+			</tbody>
+		</table>
+	</div>
+</div>
+
+{% if pagination and pagination.pages > 1 %}
+<div class="mt-6 flex justify-center">
+	<nav class="flex gap-2 items-center">
+		{% if pagination.has_prev %}
+		<a class="btn btn-sm btn-secondary" href="{{ url_for('inventory.index', page=pagination.prev_num, q=q, status=status_filter) }}">Anterior</a>
+		{% endif %}
+		<span class="text-muted text-sm px-2">Página {{ pagination.page }} de {{ pagination.pages }}</span>
+		{% if pagination.has_next %}
+		<a class="btn btn-sm btn-secondary" href="{{ url_for('inventory.index', page=pagination.next_num, q=q, status=status_filter) }}">Próxima</a>
+		{% endif %}
+	</nav>
+</div>
+{% endif %}
+
+{% else %}
+<div class="text-center py-12">
+	<div class="w-24 h-24 mx-auto mb-6 bg-muted/20 rounded-full flex items-center justify-center">
+		<i class="fas fa-box-open text-4xl text-muted"></i>
+	</div>
+	<h3 class="text-xl font-semibold text-primary mb-2">Nenhum item encontrado</h3>
+	<p class="text-muted mb-6">
+		{% if q or status_filter %}Ajuste os filtros ou cadastre um novo item.{% else %}Cadastre o primeiro item do inventário.{% endif %}
+	</p>
+	<a href="{{ url_for('inventory.new_item') }}" class="btn btn-primary">
+		<i class="fas fa-plus mr-2"></i>Novo item
+	</a>
+</div>
+{% endif %}
+
+{% endblock %}

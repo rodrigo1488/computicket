@@ -1,0 +1,1142 @@
+{% extends 'base.html' %}
+{% from 'macros/ui.html' import page_header, filter_bar, filter_text, filter_date, filter_checkbox, filter_submit, status_pills, pagination as render_pagination %}
+{% block page_title %}🎫 Tickets{% endblock %}
+{% block content %}
+
+<style>
+	/* Estilos específicos da visão "Separar por Usuários" */
+	.user-tickets-section {
+		margin-bottom: 2rem;
+		border: 1px solid var(--border-color);
+		border-radius: 8px;
+		overflow: hidden;
+	}
+
+	.user-header {
+		background: var(--bg-secondary);
+		padding: 1rem;
+		border-bottom: 1px solid var(--border-color);
+	}
+
+	.user-info {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+	}
+
+	.user-name {
+		margin: 0;
+		font-size: 1.1rem;
+		font-weight: 600;
+		color: var(--text-primary);
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+	}
+
+	.user-name i {
+		color: var(--accent-primary);
+	}
+
+	.tickets-count {
+		background: var(--accent-primary);
+		color: white;
+		padding: 0.25rem 0.75rem;
+		border-radius: 12px;
+		font-size: 0.875rem;
+		font-weight: 500;
+	}
+
+	.user-tickets-section .dc-table-container {
+		margin: 0;
+		border: none;
+		border-radius: 0;
+	}
+
+	.tickets-by-users-container {
+		margin-top: 1rem;
+	}
+
+	/* Estilos para modal de seleção de assinatura */
+	.signature-list {
+		max-height: 300px;
+		overflow-y: auto;
+		margin: 15px 0;
+	}
+
+	.signature-item {
+		border: 1px solid #ddd;
+		border-radius: 8px;
+		padding: 15px;
+		margin: 10px 0;
+		cursor: pointer;
+		transition: all 0.3s ease;
+		background-color: #f9f9f9;
+	}
+
+	.signature-item:hover {
+		background-color: #e3f2fd;
+		border-color: #2196f3;
+		transform: translateY(-2px);
+		box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+	}
+
+	.signature-item:active {
+		transform: translateY(0);
+	}
+
+	.signature-info strong {
+		color: #1976d2;
+		font-size: 16px;
+		display: block;
+		margin-bottom: 5px;
+	}
+
+	.signature-info p {
+		margin: 5px 0;
+		color: #666;
+		font-size: 14px;
+	}
+
+	.modal-footer {
+		display: flex;
+		justify-content: space-between;
+		gap: 10px;
+		margin-top: 20px;
+	}
+
+	.modal-footer .btn {
+		flex: 1;
+	}
+
+	/* Estilos para canvas de assinatura */
+	.signature-container {
+		border: 2px solid #ddd;
+		border-radius: 8px;
+		padding: 10px;
+		background-color: #fff;
+	}
+
+	.signature-canvas {
+		border: 1px solid #ccc;
+		border-radius: 4px;
+		cursor: crosshair;
+		background-color: #fff;
+		display: block;
+		margin: 0 auto;
+	}
+
+	.signature-controls {
+		margin-top: 10px;
+		text-align: center;
+	}
+
+	.signature-canvas:hover {
+		border-color: #2196f3;
+	}
+</style>
+
+{% call page_header('Tickets', 'Gerencie os chamados de suporte técnico', icon='fas fa-ticket-alt') %}
+<a class="btn btn-primary" href="{{ url_for('tickets.create_ticket') }}">
+	<i class="fas fa-plus"></i>
+	Abrir ticket
+</a>
+<button id="toggle-user-view" class="btn btn-secondary">
+	<i class="fas fa-users"></i>
+	<span id="view-mode-text">Separar por Usuários</span>
+</button>
+{% endcall %}
+
+{% call filter_bar() %}
+{{ status_pills('status', [
+	('', 'Todos', 'fas fa-list'),
+	('aberto', 'Aberto', 'fas fa-clock'),
+	('em_andamento', 'Em andamento', 'fas fa-play'),
+	('fechado', 'Fechado', 'fas fa-check'),
+	('cancelado', 'Cancelado', 'fas fa-ban'),
+], current_status) }}
+
+<div class="dc-filter-bar__row">
+	<div class="dc-filter-bar__group">
+		<label>Técnico</label>
+		<select name="assigned_to_id" class="form-select" data-dc-filter-field>
+			<option value="">Todos</option>
+			{% for u in users %}
+			<option value="{{ u.id }}" {{ 'selected' if request.args.get('assigned_to_id')|int==u.id else '' }}>{{ u.name }}</option>
+			{% endfor %}
+		</select>
+	</div>
+	{{ filter_text('q', 'Buscar', request.args.get('q',''), 'Título ou Cliente') }}
+	{{ filter_submit('Filtrar') }}
+</div>
+
+<div class="dc-filter-bar__row">
+	{{ filter_date('date_from', 'Data Inicial', request.args.get('date_from','')) }}
+	{{ filter_date('date_to', 'Data Final', request.args.get('date_to','')) }}
+	<div class="dc-filter-bar__group">
+		<label>&nbsp;</label>
+		<button type="button" id="clear-date-filters" class="btn btn-secondary btn-sm">
+			<i class="fas fa-times"></i>
+			Limpar Datas
+		</button>
+	</div>
+</div>
+
+<div class="dc-filter-bar__row">
+	{{ filter_checkbox('ps_pending', 'Somente tickets fechados com PS não impressa', current_filters.ps_pending, '1') }}
+</div>
+{% endcall %}
+
+<!-- Indicador de carregamento -->
+<div id="loading-indicator" class="loading-indicator" style="display: none;">
+	<div class="loading-spinner">
+		<i class="fas fa-spinner fa-spin"></i>
+		<span>Carregando...</span>
+	</div>
+</div>
+
+<!-- Container da tabela -->
+<div class="tickets-container">
+	<div class="dc-table-container">
+		<div class="dc-table-scroll">
+			<table class="dc-table">
+				<thead>
+					<tr>
+						<th>#</th>
+						<th>Título</th>
+						<th>Cliente</th>
+						<th data-col-priority="low">Serviço</th>
+						<th>Status</th>
+						<th data-col-priority="medium">Horas</th>
+						<th data-col-priority="medium">Valor</th>
+						<th>Ações</th>
+					</tr>
+				</thead>
+				<tbody>
+					{% for t in tickets %}
+					<tr>
+						<td>
+							<a class="font-medium text-primary hover:text-accent-primary"
+								href="{{ url_for('tickets.view_ticket', ticket_id=t.id) }}">#{{ t.id }}</a>
+						</td>
+						<td>
+							<div class="font-medium text-primary">{{ t.title }}</div>
+							{% if t.description %}
+							<div class="text-sm text-muted">{{ t.description[:50] }}{% if t.description|length > 50 %}...{%
+								endif %}</div>
+							{% endif %}
+						</td>
+						<td>{{ t.display_client_name() }}</td>
+						<td data-col-priority="low">{{ t.service.name if t.service else '-' }}</td>
+						<td>
+							<span class="status-badge status-{{ t.status.replace('_', '-') }}">
+								{{ t.status.replace('_', ' ').title() }}
+							</span>
+						</td>
+						<td data-col-priority="medium">{{ t.formatted_total_hours() }}</td>
+						<td data-col-priority="medium">
+							{% if t.status == 'fechado' %}
+							<span class="font-medium text-success">R$ {{ '%.2f'|format(t.total_cost or 0) }}</span>
+							{% else %}
+							<span class="text-muted">—</span>
+							{% endif %}
+						</td>
+						<td>
+							<div class="dc-table-actions">
+								{% if t.status != 'fechado' and t.status != 'cancelado' %}
+								{% if t.assigned_to_id == current_user.id %}
+								{# Usuário atribuído - pode iniciar, encerrar e fechar #}
+								{% if t.status == 'aberto' %}
+								<form class="inline" method="post"
+									action="{{ url_for('tickets.start_ticket', ticket_id=t.id) }}">
+									<button class="btn btn-sm btn-success">
+										<i class="fas fa-play"></i>
+										Iniciar
+									</button>
+								</form>
+								{% elif t.status == 'em_andamento' %}
+								<button class="btn btn-sm btn-warning" data-open-stop="{{ t.id }}">
+									<i class="fas fa-stop"></i>
+									Encerrar
+								</button>
+								{% endif %}
+								<button class="btn btn-sm btn-error" data-open-close="{{ t.id }}">
+									<i class="fas fa-times"></i>
+									Fechar
+								</button>
+								{% else %}
+								{# Outro usuário - pode assumir o ticket #}
+								<form class="inline" method="post"
+									action="{{ url_for('tickets.assume_ticket', ticket_id=t.id) }}">
+									<button class="btn btn-sm btn-accent"
+										onclick="return confirm('Deseja assumir este ticket?')">
+										<i class="fas fa-hand-paper"></i>
+										Assumir
+									</button>
+								</form>
+								{% endif %}
+								{% else %}
+								{# Mostrar botão Imprimir PS apenas se ticket fechado, tem cobrança e não tem flag "não
+								cobra atendimento" #}
+								{% if t.ps_printed %}
+								<div class="flex flex-col gap-1">
+									{% if t.resolved_ps_filename() %}
+									<a href="{{ url_for('tickets.serve_pdf', filename=t.resolved_ps_filename()) }}" target="_blank" rel="noopener"
+										class="status-badge status-fechado hover:opacity-90 transition-opacity"
+										title="Visualizar PS">
+										<i class="fas fa-file-pdf"></i>
+										PS: {{ t.ps_number }}
+									</a>
+									{% else %}
+									<span class="status-badge status-fechado">
+										<i class="fas fa-check"></i>
+										PS: {{ t.ps_number }}
+									</span>
+									{% endif %}
+								</div>
+								{% else %}
+								<button class="btn btn-sm btn-secondary hidden" data-open-print="{{ t.id }}"
+									data-ticket-id="{{ t.id }}">
+									<i class="fas fa-print"></i>
+									Imprimir PS
+								</button>
+								{% endif %}
+								{% endif %}
+							</div>
+						</td>
+					</tr>
+					<!-- Stop modal per row -->
+					<tr id="stop-modal-row-{{ t.id }}" class="hidden">
+						<td colspan="8" class="p-4" style="background: var(--bg-tertiary);">
+							<div class="bg-secondary rounded-lg shadow-lg p-6 max-w-xl">
+								<div class="flex items-center justify-between mb-4">
+									<h3 class="text-lg font-semibold text-primary">Encerrar sessão do ticket #{{ t.id }}
+									</h3>
+									<button data-close-stop="{{ t.id }}" class="btn btn-sm btn-secondary">
+										<i class="fas fa-times"></i>
+									</button>
+								</div>
+								<form method="post" action="{{ url_for('tickets.stop_ticket', ticket_id=t.id) }}"
+									class="space-y-4">
+									<div class="form-group">
+										<label class="form-label">Comentário (opcional)</label>
+										<input name="comment" class="form-input"
+											placeholder="Adicione um comentário sobre o trabalho realizado">
+									</div>
+
+									<!-- Campo de assinatura digital (oculto por padrão) -->
+									<div id="signature-field-{{ t.id }}" class="form-group hidden">
+										<label class="form-label">Assinatura Digital</label>
+										<div class="signature-container">
+											<canvas id="signature-canvas-{{ t.id }}" class="signature-canvas" width="400"
+												height="200"></canvas>
+											<div class="signature-controls">
+												<button type="button" class="btn btn-sm btn-secondary"
+													onclick="clearSignature({{ t.id }})">
+													<i class="fas fa-eraser"></i>
+													Limpar
+												</button>
+											</div>
+										</div>
+										<input type="hidden" name="signature_data" id="signature-data-{{ t.id }}">
+									</div>
+
+									<div class="flex items-center gap-3 justify-between">
+										<button type="button" class="btn btn-sm btn-info"
+											onclick="toggleSignatureField({{ t.id }})">
+											<i class="fas fa-signature"></i>
+											<span id="signature-toggle-text-{{ t.id }}">Adicionar Assinatura</span>
+										</button>
+										<div class="flex items-center gap-3">
+											<button type="button" data-close-stop="{{ t.id }}"
+												class="btn btn-secondary">Cancelar</button>
+											<button type="submit" class="btn btn-warning">
+												<i class="fas fa-stop"></i>
+												Encerrar sessão
+											</button>
+										</div>
+									</div>
+								</form>
+							</div>
+						</td>
+					</tr>
+					<!-- Close modal per row -->
+					<tr id="close-modal-row-{{ t.id }}" class="hidden">
+						<td colspan="8" class="p-4" style="background: var(--bg-tertiary);">
+							<div class="bg-secondary rounded-lg shadow-lg p-6 max-w-xl">
+								<div class="flex items-center justify-between mb-4">
+									<h3 class="text-lg font-semibold text-primary">Fechar ticket #{{ t.id }}</h3>
+									<button data-close-close="{{ t.id }}" class="btn btn-sm btn-secondary">
+										<i class="fas fa-times"></i>
+									</button>
+								</div>
+								<form method="post" action="{{ url_for('tickets.close_ticket', ticket_id=t.id) }}"
+									class="space-y-4">
+									<div class="form-group">
+										<label class="form-label">Valor manual (opcional)</label>
+										<input type="number" step="0.01" min="0" name="manual_total_cost" class="form-input"
+											placeholder="Ex.: 150.00">
+										<div class="form-help">Deixe em branco para usar o valor calculado automaticamente
+										</div>
+									</div>
+									<div class="flex items-center gap-3 justify-end">
+										<button type="button" data-close-close="{{ t.id }}"
+											class="btn btn-secondary">Cancelar</button>
+										<button type="submit" class="btn btn-error">
+											<i class="fas fa-times"></i>
+											Confirmar fechamento
+										</button>
+									</div>
+								</form>
+							</div>
+						</td>
+					</tr>
+					{% endfor %}
+					{% if not tickets %}
+					<tr>
+						<td colspan="8">
+							<div class="dc-table-empty">
+								<i class="fas fa-ticket-alt"></i>
+								<p>Nenhum ticket encontrado com os filtros atuais.</p>
+							</div>
+						</td>
+					</tr>
+					{% endif %}
+				</tbody>
+			</table>
+		</div>
+	</div>
+
+	<!-- Modais de Impressão de PS -->
+	{% for t in tickets %}
+	<div id="print-modal-{{ t.id }}" class="modal-overlay">
+		<div class="modal w-full max-w-3xl mx-4 sm:mx-6 lg:mx-auto">
+			<div class="modal-header">
+				<h3 class="modal-title">
+					<i class="fas fa-print mr-2"></i>
+					Imprimir PS do ticket #{{ t.id }}
+				</h3>
+				<button data-close-print="{{ t.id }}" class="btn btn-sm btn-secondary">
+					<i class="fas fa-times"></i>
+				</button>
+			</div>
+			<div class="modal-body">
+				<form class="space-y-4" onsubmit="return false;" data-print-form="{{ t.id }}">
+					<div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+						<div class="form-group">
+							<label class="form-label">Cliente</label>
+							<input type="text" value="{{ t.display_client_name() }}" class="form-input"
+								readonly data-field="client_name">
+						</div>
+						<div class="form-group">
+							<label class="form-label">Telefone</label>
+							<input type="text" value="" class="form-input" placeholder="(00)0000-0000"
+								data-field="phone">
+						</div>
+						<div class="form-group">
+							<label class="form-label">CNPJ/CPF</label>
+							<input type="text" value="" class="form-input"
+								data-field="client_social_revenue">
+						</div>
+						<div class="form-group">
+							<label class="form-label">Total (R$)</label>
+							<input type="number" step="0.01" min="0"
+								value="{{ '%.2f'|format(t.total_cost or 0) }}" class="form-input"
+								data-field="total_amount">
+						</div>
+						<div class="form-group md:col-span-2">
+							<label class="form-label">Descrição do serviço</label>
+							<textarea class="form-textarea" data-field="description_service"
+								rows="8">{{ t.title }}{% if t.description %} - {{ t.description }}{% endif %}</textarea>
+						</div>
+					</div>
+					<div class="flex items-center justify-end gap-3 mt-4">
+						<button type="button" data-close-print="{{ t.id }}"
+							class="btn btn-secondary">Cancelar</button>
+						<button type="button" class="btn btn-primary" data-submit-print="{{ t.id }}">
+							<i class="fas fa-print"></i>
+							Imprimir
+						</button>
+					</div>
+				</form>
+			</div>
+		</div>
+	</div>
+	{% endfor %}
+</div> <!-- Fechar tickets-container -->
+
+<!-- Controles de Paginação -->
+{% if has_pagination %}
+{{ render_pagination(current_page, total_pages, 'tickets.list_tickets', request.args.to_dict(), pagination.total if pagination else none, 'tickets') }}
+{% endif %}
+
+<script>
+	// Função para buscar assinaturas de um ticket
+	async function fetchTicketSignatures(ticketId) {
+		try {
+			const response = await fetch(`/api/signatures/${ticketId}`, {
+				method: 'GET',
+				headers: {
+					'Content-Type': 'application/json'
+				},
+				credentials: 'include'
+			});
+
+			if (response.ok) {
+				const data = await response.json();
+				return data.signatures || [];
+			} else {
+				console.error('Erro ao buscar assinaturas:', response.statusText);
+				return [];
+			}
+		} catch (error) {
+			console.error('Erro ao buscar assinaturas:', error);
+			return [];
+		}
+	}
+
+	// Função para mostrar modal de seleção de assinatura
+	function showSignatureSelectionModal(ticketId, signatures, callback) {
+		if (signatures.length === 0) {
+			// Não há assinaturas, continuar com impressão normal
+			callback(null);
+			return;
+		}
+
+		if (signatures.length === 1) {
+			// Apenas uma assinatura, usar automaticamente
+			callback(signatures[0].id);
+			return;
+		}
+
+		// Criar modal de seleção
+		const modalHtml = `
+			<div id="signature-selection-modal" class="modal-overlay active">
+				<div class="modal">
+					<div class="modal-header">
+						<h3 class="modal-title">Selecionar Assinatura</h3>
+						<button type="button" class="modal-close" onclick="closeSignatureModal()">&times;</button>
+					</div>
+					<div class="modal-body">
+						<p>Este ticket possui ${signatures.length} assinaturas digitais. Selecione qual usar na PS:</p>
+						<div class="signature-list">
+							${signatures.map((sig, index) => `
+								<div class="signature-item" onclick="selectSignature(${sig.id})">
+									<div class="signature-info">
+										<strong>Assinatura ${index + 1}</strong>
+										<p>Data: ${sig.created_at}</p>
+										<p>Descrição: ${sig.description}</p>
+									</div>
+								</div>
+							`).join('')}
+						</div>
+					</div>
+					<div class="modal-footer">
+						<button type="button" class="btn btn-secondary" onclick="closeSignatureModal()">Cancelar</button>
+						<button type="button" class="btn btn-primary" onclick="selectSignature(null)">Não usar assinatura</button>
+					</div>
+				</div>
+			</div>
+		`;
+
+		// Adicionar modal ao body
+		document.body.insertAdjacentHTML('beforeend', modalHtml);
+
+		// Armazenar callback para uso posterior
+		window.signatureSelectionCallback = callback;
+	}
+
+	// Função para selecionar assinatura
+	function selectSignature(signatureId) {
+		if (window.signatureSelectionCallback) {
+			window.signatureSelectionCallback(signatureId);
+		}
+		closeSignatureModal();
+	}
+
+	// Função para fechar modal de assinatura
+	function closeSignatureModal() {
+		const modal = document.getElementById('signature-selection-modal');
+		if (modal) {
+			modal.remove();
+		}
+		window.signatureSelectionCallback = null;
+	}
+
+	// Funções para canvas de assinatura
+	const signaturePads = {};
+
+	function initSignaturePad(ticketId) {
+		const canvas = document.getElementById(`signature-canvas-${ticketId}`);
+
+		if (!canvas) return;
+
+		const ctx = canvas.getContext('2d');
+		let isDrawing = false;
+		let lastX = 0;
+		let lastY = 0;
+
+		// Configurar canvas
+		ctx.strokeStyle = '#000';
+		ctx.lineWidth = 2;
+		ctx.lineCap = 'round';
+		ctx.lineJoin = 'round';
+
+		// Event listeners para mouse
+		canvas.addEventListener('mousedown', (e) => {
+			isDrawing = true;
+			const rect = canvas.getBoundingClientRect();
+			lastX = e.clientX - rect.left;
+			lastY = e.clientY - rect.top;
+		});
+
+		canvas.addEventListener('mousemove', (e) => {
+			if (!isDrawing) return;
+			const rect = canvas.getBoundingClientRect();
+			const currentX = e.clientX - rect.left;
+			const currentY = e.clientY - rect.top;
+
+			ctx.beginPath();
+			ctx.moveTo(lastX, lastY);
+			ctx.lineTo(currentX, currentY);
+			ctx.stroke();
+
+			lastX = currentX;
+			lastY = currentY;
+		});
+
+		canvas.addEventListener('mouseup', () => {
+			isDrawing = false;
+		});
+
+		canvas.addEventListener('mouseout', () => {
+			isDrawing = false;
+		});
+
+		// Event listeners para touch (mobile)
+		canvas.addEventListener('touchstart', (e) => {
+			e.preventDefault();
+			isDrawing = true;
+			const rect = canvas.getBoundingClientRect();
+			const touch = e.touches[0];
+			lastX = touch.clientX - rect.left;
+			lastY = touch.clientY - rect.top;
+		});
+
+		canvas.addEventListener('touchmove', (e) => {
+			e.preventDefault();
+			if (!isDrawing) return;
+			const rect = canvas.getBoundingClientRect();
+			const touch = e.touches[0];
+			const currentX = touch.clientX - rect.left;
+			const currentY = touch.clientY - rect.top;
+
+			ctx.beginPath();
+			ctx.moveTo(lastX, lastY);
+			ctx.lineTo(currentX, currentY);
+			ctx.stroke();
+
+			lastX = currentX;
+			lastY = currentY;
+		});
+
+		canvas.addEventListener('touchend', (e) => {
+			e.preventDefault();
+			isDrawing = false;
+		});
+
+		// Armazenar referência
+		signaturePads[ticketId] = {
+			canvas: canvas,
+			ctx: ctx
+		};
+	}
+
+	function clearSignature(ticketId) {
+		const pad = signaturePads[ticketId];
+		if (pad) {
+			pad.ctx.clearRect(0, 0, pad.canvas.width, pad.canvas.height);
+		}
+	}
+
+	function getSignatureData(ticketId) {
+		const pad = signaturePads[ticketId];
+		if (pad) {
+			return pad.canvas.toDataURL('image/png');
+		}
+		return null;
+	}
+
+	// Funções para alternar campo de assinatura
+	function toggleSignatureField(ticketId) {
+		const field = document.getElementById(`signature-field-${ticketId}`);
+		const toggleText = document.getElementById(`signature-toggle-text-${ticketId}`);
+		const signatureData = document.getElementById(`signature-data-${ticketId}`);
+
+		if (field.classList.contains('hidden')) {
+			// Mostrar campo
+			field.classList.remove('hidden');
+			toggleText.textContent = 'Ocultar Assinatura';
+
+			// Inicializar canvas se ainda não foi inicializado
+			if (!signaturePads[ticketId]) {
+				setTimeout(() => initSignaturePad(ticketId), 100);
+			}
+		} else {
+			// Ocultar campo
+			field.classList.add('hidden');
+			toggleText.textContent = 'Adicionar Assinatura';
+
+			// Limpar dados de assinatura
+			signatureData.value = '';
+			if (signaturePads[ticketId]) {
+				clearSignature(ticketId);
+			}
+		}
+	}
+
+	// Função para capturar assinatura antes do submit
+	function captureSignatureBeforeSubmit(ticketId) {
+		const signatureData = getSignatureData(ticketId);
+		const signatureInput = document.getElementById(`signature-data-${ticketId}`);
+
+		if (signatureData && signatureInput) {
+			signatureInput.value = signatureData;
+		}
+	}
+
+	document.addEventListener('DOMContentLoaded', function () {
+		const filterForm = document.querySelector('[data-dc-filter-form]');
+		const statusInput = filterForm ? filterForm.querySelector('[data-dc-status-input]') : null;
+		const assignedSelect = filterForm ? filterForm.querySelector('[name="assigned_to_id"]') : null;
+		const searchInput = filterForm ? filterForm.querySelector('[name="q"]') : null;
+		const dateFromInput = filterForm ? filterForm.querySelector('[name="date_from"]') : null;
+		const dateToInput = filterForm ? filterForm.querySelector('[name="date_to"]') : null;
+		const psPendingInput = filterForm ? filterForm.querySelector('[name="ps_pending"]') : null;
+
+		// Funções para gerenciar cookies (mantém os filtros ao navegar para fora e voltar)
+		function setCookie(name, value, days = 30) {
+			const expires = new Date();
+			expires.setTime(expires.getTime() + (days * 24 * 60 * 60 * 1000));
+			document.cookie = `${name}=${encodeURIComponent(value)};expires=${expires.toUTCString()};path=/`;
+		}
+
+		function getCookie(name) {
+			const nameEQ = name + "=";
+			const ca = document.cookie.split(';');
+			for (let i = 0; i < ca.length; i++) {
+				let c = ca[i];
+				while (c.charAt(0) === ' ') c = c.substring(1, c.length);
+				if (c.indexOf(nameEQ) === 0) return decodeURIComponent(c.substring(nameEQ.length, c.length));
+			}
+			return null;
+		}
+
+		function isPsPendingFilterActive() {
+			return psPendingInput ? psPendingInput.checked : false;
+		}
+
+		function appendSharedFilterParams(urlParams) {
+			const currentStatus = statusInput ? statusInput.value : getCookie('tickets_filter_status');
+			if (currentStatus) urlParams.set('status', currentStatus);
+
+			const currentTechnician = assignedSelect ? assignedSelect.value : getCookie('tickets_filter_technician');
+			if (currentTechnician) urlParams.set('assigned_to_id', currentTechnician);
+
+			const currentSearch = searchInput ? searchInput.value.trim() : getCookie('tickets_filter_search');
+			if (currentSearch) urlParams.set('q', currentSearch);
+
+			const currentDateFrom = dateFromInput ? dateFromInput.value : getCookie('tickets_filter_date_from');
+			if (currentDateFrom) urlParams.set('date_from', currentDateFrom);
+
+			const currentDateTo = dateToInput ? dateToInput.value : getCookie('tickets_filter_date_to');
+			if (currentDateTo) urlParams.set('date_to', currentDateTo);
+
+			if (isPsPendingFilterActive()) urlParams.set('ps_pending', '1');
+		}
+
+		function activateStatusButton(statusValue) {
+			if (statusInput) statusInput.value = statusValue;
+			document.querySelectorAll('[data-dc-status-value]').forEach(function (btn) {
+				btn.classList.toggle('active', btn.getAttribute('data-dc-status-value') === statusValue);
+			});
+		}
+
+		function saveFiltersToCookies() {
+			if (statusInput) setCookie('tickets_filter_status', statusInput.value);
+			if (assignedSelect) setCookie('tickets_filter_technician', assignedSelect.value);
+			if (searchInput) setCookie('tickets_filter_search', searchInput.value);
+			if (dateFromInput) setCookie('tickets_filter_date_from', dateFromInput.value);
+			if (dateToInput) setCookie('tickets_filter_date_to', dateToInput.value);
+			if (psPendingInput) setCookie('tickets_filter_ps_pending', psPendingInput.checked ? '1' : '');
+		}
+
+		function loadFiltersFromCookies() {
+			// Os valores já vêm renderizados pelo servidor (query string); os
+			// cookies só são usados como fallback quando não há filtro na URL.
+			if (!window.location.search) {
+				const savedStatus = getCookie('tickets_filter_status');
+				if (savedStatus) activateStatusButton(savedStatus);
+
+				const savedTechnician = getCookie('tickets_filter_technician');
+				if (savedTechnician && assignedSelect) assignedSelect.value = savedTechnician;
+
+				const savedSearch = getCookie('tickets_filter_search');
+				if (savedSearch && searchInput) searchInput.value = savedSearch;
+
+				const savedDateFrom = getCookie('tickets_filter_date_from');
+				if (savedDateFrom && dateFromInput) dateFromInput.value = savedDateFrom;
+
+				const savedDateTo = getCookie('tickets_filter_date_to');
+				if (savedDateTo && dateToInput) dateToInput.value = savedDateTo;
+			}
+		}
+
+		loadFiltersFromCookies();
+		if (isPsPendingFilterActive()) {
+			activateStatusButton('fechado');
+		}
+
+		// Checkbox de PS pendente força status "fechado" e filtra imediatamente
+		if (psPendingInput) {
+			psPendingInput.addEventListener('change', function () {
+				if (psPendingInput.checked) {
+					activateStatusButton('fechado');
+				}
+				saveFiltersToCookies();
+				submitFilters();
+			});
+		}
+
+		// Persistir filtros em cookie a cada alteração (sem reenviar automaticamente)
+		[statusInput, assignedSelect, searchInput, dateFromInput, dateToInput].forEach(function (el) {
+			if (!el) return;
+			el.addEventListener('change', saveFiltersToCookies);
+		});
+		document.querySelectorAll('[data-dc-status-value]').forEach(function (btn) {
+			btn.addEventListener('click', saveFiltersToCookies);
+		});
+
+		function submitFilters() {
+			if (isPsPendingFilterActive()) {
+				activateStatusButton('fechado');
+			}
+			saveFiltersToCookies();
+
+			if (isUserView) {
+				reloadUserView();
+			} else if (filterForm) {
+				filterForm.submit();
+			}
+		}
+		window.submitFiltersTickets = submitFilters;
+
+		// Permitir Enter no campo de busca
+		if (searchInput) {
+			searchInput.addEventListener('keypress', function (e) {
+				if (e.key === 'Enter') {
+					e.preventDefault();
+					saveFiltersToCookies();
+					submitFilters();
+				}
+			});
+		}
+
+		// Botão para limpar filtros de data
+		const clearDateFiltersBtn = document.getElementById('clear-date-filters');
+		if (clearDateFiltersBtn) {
+			clearDateFiltersBtn.addEventListener('click', function () {
+				if (dateFromInput) dateFromInput.value = '';
+				if (dateToInput) dateToInput.value = '';
+				saveFiltersToCookies();
+			});
+		}
+
+		// Verificar quais botões de impressão devem aparecer
+		async function checkPrintButtons() {
+			const printButtons = document.querySelectorAll('[data-ticket-id]');
+			for (const button of printButtons) {
+				// Só verificar botões que não estão visíveis (não foram impressos)
+				if (button.classList.contains('hidden')) {
+					const ticketId = button.getAttribute('data-ticket-id');
+					try {
+						const response = await fetch(`/tickets/${ticketId}/can-print`);
+						if (response.ok) {
+							const data = await response.json();
+							if (data.can_print) {
+								button.classList.remove('hidden');
+							} else {
+								button.classList.add('hidden');
+							}
+						}
+					} catch (e) {
+						console.log('Erro ao verificar se pode imprimir:', e);
+					}
+				}
+			}
+		}
+
+		// Executar verificação quando a página carregar
+		checkPrintButtons();
+
+		const psPdfBaseUrl = "{{ url_for('tickets.serve_pdf', filename='') }}";
+
+		function extractPdfFilename(json) {
+			if (json.pdf_file) return json.pdf_file;
+			if (json.file) {
+				const parts = String(json.file).split(/[/\\\\]/);
+				return parts[parts.length - 1] || null;
+			}
+			return null;
+		}
+
+		function openTicketPsPdf(filename) {
+			if (!filename) return false;
+			const pdfUrl = psPdfBaseUrl + encodeURIComponent(filename);
+			const pdfWindow = window.open(pdfUrl, '_blank');
+			if (!pdfWindow) {
+				alert('Não foi possível abrir o PDF. Verifique se o pop-up está bloqueado.');
+				return false;
+			}
+			return true;
+		}
+
+		async function fillPrintForm(id) {
+			const form = document.querySelector(`[data-print-form="${id}"]`);
+			if (!form) return;
+
+			// Buscar dados do cliente via API
+			try {
+				const response = await fetch(`/tickets/${id}/client-data`);
+				if (response.ok) {
+					const clientData = await response.json();
+
+					if (clientData && !clientData.error) {
+						const phoneEl = form.querySelector('[data-field="phone"]');
+						const docEl = form.querySelector('[data-field="client_social_revenue"]');
+
+						if (phoneEl && clientData.phone) {
+							phoneEl.value = clientData.phone;
+						}
+
+						if (docEl && clientData.document) {
+							docEl.value = clientData.document;
+						}
+					}
+				}
+			} catch (e) {
+				console.log('Erro ao buscar dados do cliente:', e);
+			}
+
+			// Buscar observações dos apontamentos
+			try {
+				const response = await fetch(`/tickets/${id}/observations`);
+				if (response.ok) {
+					const data = await response.json();
+					if (data.observations && data.observations.length > 0) {
+						const descEl = form.querySelector('[data-field="description_service"]');
+						if (descEl) {
+							let fullDesc = descEl.value;
+							if (fullDesc && !fullDesc.includes('Observações dos apontamentos:')) {
+								fullDesc += '\n\nObservações dos apontamentos:\n' + data.observations.map(obs => '• ' + obs).join('\n');
+								descEl.value = fullDesc;
+							}
+						}
+					}
+				}
+			} catch (e) {
+				console.log('Erro ao buscar observações:', e);
+			}
+		}
+		// Event listeners para modais — usando delegação de evento no
+		// container pai, para continuar funcionando mesmo depois que o
+		// conteúdo é substituído via AJAX (visão "Separar por Usuários").
+		const delegationRoot = document.querySelector('.tickets-container') || document;
+
+		async function submitPrintForm(id) {
+			const form = document.querySelector(`[data-print-form="${id}"]`);
+			if (!form) return;
+			const get = (sel) => {
+				const el = form.querySelector(sel);
+				return el ? el.value : '';
+			};
+			const clientName = get('[data-field="client_name"]') || '';
+
+			async function processPrintWithSignature(selectedSignatureId) {
+				const payload = {
+					"reprint": false,
+					"body": {
+						"ticket_title": "Ticket",
+						"ticket_number": id,
+						"client_name": clientName,
+						"client_social_revenue": get('[data-field="client_social_revenue"]'),
+						"description_service": get('[data-field="description_service"]'),
+						"total_amount": get('[data-field="total_amount"]'),
+						"selected_signature_id": selectedSignatureId
+					}
+				};
+				try {
+					const resp = await fetch("{{ url_for('service_provision_routes.print_ps') }}", { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+					const json = await resp.json();
+					if (resp.ok) {
+						const pdfFilename = extractPdfFilename(json);
+						if (pdfFilename) {
+							openTicketPsPdf(pdfFilename);
+						}
+						alert(json.message || 'PS gerada com sucesso.');
+						setTimeout(() => window.location.reload(), 1200);
+					}
+					else { alert(json.error || 'Falha ao imprimir'); }
+				} catch (e) { alert('Erro ao enviar impressão'); }
+			}
+
+			const signatures = await fetchTicketSignatures(id);
+			showSignatureSelectionModal(id, signatures, processPrintWithSignature);
+		}
+
+		delegationRoot.addEventListener('click', function (e) {
+			const openStop = e.target.closest('[data-open-stop]');
+			if (openStop) {
+				const row = document.getElementById('stop-modal-row-' + openStop.getAttribute('data-open-stop'));
+				if (row) { row.classList.remove('hidden'); row.classList.add('flex'); }
+				return;
+			}
+
+			const closeStop = e.target.closest('[data-close-stop]');
+			if (closeStop) {
+				const row = document.getElementById('stop-modal-row-' + closeStop.getAttribute('data-close-stop'));
+				if (row) { row.classList.add('hidden'); row.classList.remove('flex'); }
+				return;
+			}
+
+			const openClose = e.target.closest('[data-open-close]');
+			if (openClose) {
+				const row = document.getElementById('close-modal-row-' + openClose.getAttribute('data-open-close'));
+				if (row) { row.classList.remove('hidden'); row.classList.add('flex'); }
+				return;
+			}
+
+			const closeClose = e.target.closest('[data-close-close]');
+			if (closeClose) {
+				const row = document.getElementById('close-modal-row-' + closeClose.getAttribute('data-close-close'));
+				if (row) { row.classList.add('hidden'); row.classList.remove('flex'); }
+				return;
+			}
+
+			const openPrint = e.target.closest('[data-open-print]');
+			if (openPrint) {
+				const id = openPrint.getAttribute('data-open-print');
+				const modal = document.getElementById('print-modal-' + id);
+				if (modal) { modal.classList.add('active'); fillPrintForm(id); }
+				return;
+			}
+
+			const closePrint = e.target.closest('[data-close-print]');
+			if (closePrint) {
+				const modal = document.getElementById('print-modal-' + closePrint.getAttribute('data-close-print'));
+				if (modal) modal.classList.remove('active');
+				return;
+			}
+
+			const submitPrint = e.target.closest('[data-submit-print]');
+			if (submitPrint) {
+				submitPrintForm(submitPrint.getAttribute('data-submit-print'));
+				return;
+			}
+		});
+
+		// Sistema de alternância entre visualizações
+		let isUserView = false;
+		const toggleUserViewBtn = document.getElementById('toggle-user-view');
+		const viewModeText = document.getElementById('view-mode-text');
+		const ticketsContainer = document.querySelector('.tickets-container');
+
+		if (toggleUserViewBtn && viewModeText && ticketsContainer) {
+			toggleUserViewBtn.addEventListener('click', async function () {
+				// Mostrar loading
+				const loadingIndicator = document.getElementById('loading-indicator');
+				if (loadingIndicator) {
+					loadingIndicator.style.display = 'block';
+				}
+
+				try {
+					if (!isUserView) {
+						// Carregar visualização por usuários
+						const urlParams = new URLSearchParams();
+						appendSharedFilterParams(urlParams);
+
+						const response = await fetch('/tickets/api/by-users?' + urlParams.toString());
+						if (response.ok) {
+							const html = await response.text();
+							ticketsContainer.innerHTML = html;
+							viewModeText.textContent = 'Visualização Normal';
+							toggleUserViewBtn.classList.remove('btn-secondary');
+							toggleUserViewBtn.classList.add('btn-primary');
+							isUserView = true;
+						} else {
+							alert('Erro ao carregar visualização por usuários');
+						}
+					} else {
+						// Voltar para visualização normal
+						window.location.reload();
+					}
+				} catch (error) {
+					console.error('Erro ao alternar visualização:', error);
+					alert('Erro ao alternar visualização');
+				} finally {
+					// Esconder loading
+					if (loadingIndicator) {
+						loadingIndicator.style.display = 'none';
+					}
+				}
+			});
+		}
+
+		// Função para recarregar visualização por usuários com filtros atuais
+		async function reloadUserView() {
+			if (!isUserView) return;
+
+			// Mostrar loading
+			const loadingIndicator = document.getElementById('loading-indicator');
+			if (loadingIndicator) {
+				loadingIndicator.style.display = 'block';
+			}
+
+			try {
+				const urlParams = new URLSearchParams();
+				appendSharedFilterParams(urlParams);
+
+				const response = await fetch('/tickets/api/by-users?' + urlParams.toString());
+				if (response.ok) {
+					const html = await response.text();
+					const ticketsContainer = document.querySelector('.tickets-container');
+					if (ticketsContainer) {
+						ticketsContainer.innerHTML = html;
+					}
+				} else {
+					alert('Erro ao recarregar visualização por usuários');
+				}
+			} catch (error) {
+				console.error('Erro ao recarregar visualização por usuários:', error);
+				alert('Erro ao recarregar visualização por usuários');
+			} finally {
+				// Esconder loading
+				if (loadingIndicator) {
+					loadingIndicator.style.display = 'none';
+				}
+			}
+		}
+
+		// Event listeners para capturar assinatura antes do submit
+		document.querySelectorAll('form[action*="stop_ticket"]').forEach(function (form) {
+			form.addEventListener('submit', function (e) {
+				const ticketId = form.action.match(/\/tickets\/(\d+)\/stop/)[1];
+				captureSignatureBeforeSubmit(ticketId);
+			});
+		});
+
+
+	});
+
+</script>
+{% endblock %}

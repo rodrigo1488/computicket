@@ -1,0 +1,285 @@
+{% extends 'base.html' %}
+{% from 'macros/ui.html' import page_header, filter_bar, filter_select, pagination as render_pagination, empty_state %}
+{% block page_title %}👥 Clientes{% endblock %}
+{% block content %}
+
+{% call page_header('Clientes', 'Consulte e gerencie os clientes atendidos', icon='fas fa-users') %}
+<a class="btn btn-secondary" href="{{ url_for('clients.import_clients') }}">
+	<i class="fas fa-file-import"></i>
+	Importar
+</a>
+{% endcall %}
+
+{% call filter_bar() %}
+<div class="dc-filter-bar__row">
+	<div class="dc-filter-bar__group" style="grid-column: span 2;">
+		<label>Buscar</label>
+		<div class="relative">
+			<div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+				<i class="fas fa-search text-muted"></i>
+			</div>
+			<input id="live-search" type="text" name="q" value="{{ q or '' }}" data-dc-filter-field
+				placeholder="Nome, documento, telefone, email..." class="form-input pl-10 w-full">
+		</div>
+	</div>
+	{{ filter_select('contract_type', 'Tipo de contrato', contract_types, contract_type, 'Todos os contratos') }}
+	<div class="dc-filter-bar__group">
+		<label>&nbsp;</label>
+		<button type="submit" class="btn btn-primary w-full">
+			<i class="fas fa-filter"></i>
+			Filtrar
+		</button>
+	</div>
+</div>
+{% endcall %}
+
+<div class="dc-table-container">
+	<div class="dc-table-scroll">
+		<table class="dc-table">
+			<thead>
+				<tr>
+					<th>Cliente</th>
+					<th>Contato</th>
+					<th data-col-priority="low">Email</th>
+					<th data-col-priority="low">Contrato</th>
+					<th>Ações</th>
+				</tr>
+			</thead>
+			<tbody id="clients-body">
+				{% for c in clients %}
+				{% set _id = c.id if c.id is not none else c.get('id') %}
+				<tr>
+					<td>
+						<div class="flex items-center">
+							<div class="w-10 h-10 bg-primary/10 rounded-full flex items-center justify-center mr-3">
+								<i class="fas fa-user text-primary"></i>
+							</div>
+							<div>
+								<div class="dc-table-cell-primary">{{ c.name if c.name is defined else c.get('name') }}</div>
+								{% if c.document is defined and c.document or c.get('document') %}
+								<div class="dc-table-cell-muted">{{ c.document if c.document is defined else c.get('document') }}</div>
+								{% endif %}
+							</div>
+						</div>
+					</td>
+					<td>
+						<div class="flex items-center">
+							<i class="fas fa-phone text-muted mr-2"></i>
+							<span>{{ c.phone if c.phone is defined else c.get('phone') or '-' }}</span>
+						</div>
+					</td>
+					<td data-col-priority="low">
+						<div class="flex items-center">
+							<i class="fas fa-envelope text-muted mr-2"></i>
+							<span>{{ c.email if c.email is defined else c.get('email') or '-' }}</span>
+						</div>
+					</td>
+					<td data-col-priority="low">
+						{% set _contract = c.contract_type if c.contract_type is defined else c.get('contract_type') %}
+						{% if _contract %}
+						<span class="status-badge status-aberto">{{ _contract }}</span>
+						{% else %}
+						<span class="text-muted">-</span>
+						{% endif %}
+					</td>
+					<td>
+						<div class="dc-table-actions">
+							<button type="button" class="btn btn-sm btn-secondary" data-toggle="details"
+								data-target="row-{{ _id }}">
+								<i class="fas fa-eye"></i>
+								<span class="hidden xl:inline">Ver mais</span>
+							</button>
+							<a class="btn btn-sm btn-primary"
+								href="{{ url_for('clients.edit_client', client_id=_id) }}">
+								<i class="fas fa-edit"></i>
+								<span class="hidden xl:inline">Editar</span>
+							</a>
+						</div>
+					</td>
+				</tr>
+				<tr id="row-{{ _id }}" class="hidden bg-tertiary">
+					<td colspan="5" class="p-4">
+						<div class="grid grid-cols-1 md:grid-cols-4 gap-4 text-sm">
+							<div>
+								<span class="font-medium text-primary">Documento:</span>
+								<div class="text-muted">{{ c.document if c.document is defined else c.get('document') or
+									'-' }}</div>
+							</div>
+							<div>
+								<span class="font-medium text-primary">Endereço:</span>
+								<div class="text-muted">{{ c.address if c.address is defined else c.get('address') or
+									'-' }}</div>
+							</div>
+							<div>
+								<span class="font-medium text-primary">Número:</span>
+								<div class="text-muted">{{ c.address_number if c.address_number is defined else
+									c.get('address_number') or '-' }}</div>
+							</div>
+							<div>
+								<span class="font-medium text-primary">Tipo de contrato:</span>
+								<div class="text-muted">{{ c.contract_type if c.contract_type is defined else
+									c.get('contract_type') or '-' }}</div>
+							</div>
+
+							{% if c.notes is defined and c.notes or c.get('notes') %}
+							<div class="col-span-full mt-4 pt-4 border-t border-gray-200/10 dark:border-gray-700/50">
+								<span class="font-medium text-primary">Observações:</span>
+								<div class="text-muted mt-1 whitespace-pre-line">{{ c.notes if c.notes is defined else
+									c.get('notes') }}</div>
+							</div>
+							{% endif %}
+						</div>
+					</td>
+				</tr>
+				{% endfor %}
+				{% if not clients %}
+				<tr>
+					<td colspan="5">
+						<div class="dc-table-empty">
+							<i class="fas fa-users"></i>
+							<p>Nenhum cliente encontrado com os filtros atuais.</p>
+						</div>
+					</td>
+				</tr>
+				{% endif %}
+			</tbody>
+		</table>
+	</div>
+</div>
+
+{% if total is defined %}
+{{ render_pagination(page, total_pages, 'clients.list_clients', request.args.to_dict(), total, 'clientes') }}
+{% endif %}
+
+<script>
+	document.addEventListener('DOMContentLoaded', function () {
+		function attachToggles() {
+			document.querySelectorAll('[data-toggle="details"]').forEach(function (btn) {
+				btn.addEventListener('click', function () {
+					const id = btn.getAttribute('data-target');
+					const row = document.getElementById(id);
+					if (row) {
+						row.classList.toggle('hidden');
+						const icon = btn.querySelector('i');
+						if (row.classList.contains('hidden')) {
+							icon.className = 'fas fa-eye';
+						} else {
+							icon.className = 'fas fa-eye-slash';
+						}
+					}
+				});
+			});
+		}
+		attachToggles();
+
+		const input = document.getElementById('live-search');
+		let timer = null;
+		if (input) {
+			input.addEventListener('input', function () {
+				clearTimeout(timer);
+				timer = setTimeout(async function () {
+					const q = input.value.trim();
+					const resp = await fetch(`{{ url_for('clients.search_clients') }}?q=${encodeURIComponent(q)}&limit=50`);
+					const data = await resp.json();
+
+					const tbody = document.getElementById('clients-body');
+					if (!tbody) return;
+					tbody.innerHTML = '';
+					const editUrlTemplate = `{{ url_for('clients.edit_client', client_id=0) }}`;
+
+					if (data.length === 0) {
+						tbody.innerHTML = `
+							<tr>
+								<td colspan="5">
+									<div class="dc-table-empty">
+										<i class="fas fa-users"></i>
+										<p>Nenhum cliente encontrado.</p>
+									</div>
+								</td>
+							</tr>`;
+						return;
+					}
+
+					data.forEach(function (c) {
+						const id = c.id;
+						const tr = document.createElement('tr');
+						tr.innerHTML = `
+							<td>
+								<div class="flex items-center">
+									<div class="w-10 h-10 bg-primary/10 rounded-full flex items-center justify-center mr-3">
+										<i class="fas fa-user text-primary"></i>
+									</div>
+									<div>
+										<div class="dc-table-cell-primary">${c.name || ''}</div>
+										${c.document ? `<div class="dc-table-cell-muted">${c.document}</div>` : ''}
+									</div>
+								</div>
+							</td>
+							<td>
+								<div class="flex items-center">
+									<i class="fas fa-phone text-muted mr-2"></i>
+									<span>${c.phone || '-'}</span>
+								</div>
+							</td>
+							<td data-col-priority="low">
+								<div class="flex items-center">
+									<i class="fas fa-envelope text-muted mr-2"></i>
+									<span>${c.email || '-'}</span>
+								</div>
+							</td>
+							<td data-col-priority="low">
+								${c.contract_type ? `<span class="status-badge status-aberto">${c.contract_type}</span>` : '<span class="text-muted">-</span>'}
+							</td>
+							<td>
+								<div class="dc-table-actions">
+									<button type="button" class="btn btn-sm btn-secondary" data-toggle="details" data-target="row-${id}">
+										<i class="fas fa-eye"></i>
+										<span class="hidden xl:inline">Ver mais</span>
+									</button>
+									<a class="btn btn-sm btn-primary" href="${editUrlTemplate.replace('/0/', `/${id}/`)}">
+										<i class="fas fa-edit"></i>
+										<span class="hidden xl:inline">Editar</span>
+									</a>
+								</div>
+							</td>`;
+
+						const tr2 = document.createElement('tr');
+						tr2.id = `row-${id}`;
+						tr2.className = 'hidden bg-tertiary';
+						tr2.innerHTML = `
+							<td colspan="5" class="p-4">
+								<div class="grid grid-cols-1 md:grid-cols-4 gap-4 text-sm">
+									<div>
+										<span class="font-medium text-primary">Documento:</span>
+										<div class="text-muted">${c.document || '-'}</div>
+									</div>
+									<div>
+										<span class="font-medium text-primary">Endereço:</span>
+										<div class="text-muted">${c.address || '-'}</div>
+									</div>
+									<div>
+										<span class="font-medium text-primary">Número:</span>
+										<div class="text-muted">${c.address_number || '-'}</div>
+									</div>
+									<div>
+										<span class="font-medium text-primary">Tipo de contrato:</span>
+										<div class="text-muted">${c.contract_type || '-'}</div>
+									</div>
+									${c.notes ? `
+									<div class="col-span-full mt-4 pt-4 border-t border-gray-200/10 dark:border-gray-700/50">
+										<span class="font-medium text-primary">Observações:</span>
+										<div class="text-muted mt-1 whitespace-pre-line">${c.notes}</div>
+									</div>` : ''}
+								</div>
+							</td>`;
+						tbody.appendChild(tr);
+						tbody.appendChild(tr2);
+					});
+
+					attachToggles();
+				}, 300); // debounce 300ms
+			});
+		}
+	});
+</script>
+{% endblock %}

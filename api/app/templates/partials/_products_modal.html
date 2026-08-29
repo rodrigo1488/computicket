@@ -1,0 +1,484 @@
+<!-- Modal de Produtos (reutilizável) -->
+<div id="modal-produtos" class="hidden fixed inset-0 flex items-center justify-center p-4 sm:p-6"
+	style="z-index: 99990; background-color: rgba(0, 0, 0, 0.75); backdrop-filter: blur(4px);">
+	<div
+		class="relative w-full max-w-5xl rounded-xl shadow-2xl flex flex-col overflow-hidden border border-slate-700 bg-slate-950"
+		style="max-height: 90vh;">
+		<div class="px-5 py-3 border-b border-slate-700 flex items-center justify-between bg-slate-900 rounded-t-xl">
+			<h3 class="text-lg font-bold text-slate-100 flex items-center gap-2">
+				<i class="fas fa-boxes text-blue-400"></i>
+				Selecionar Produtos
+			</h3>
+			<button type="button" id="fechar-modal-produtos"
+				class="text-slate-400 hover:text-slate-100 transition-colors p-1 hover:bg-slate-700 rounded-lg">
+				<i class="fas fa-times"></i>
+			</button>
+		</div>
+		<div class="flex-1 flex flex-col overflow-hidden p-4 space-y-3 bg-slate-950">
+			<div class="flex gap-2">
+				<div class="flex-1 relative group">
+					<input id="busca-produtos" type="text"
+						class="w-full pl-9 pr-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all"
+						placeholder="Buscar por nome ou código...">
+					<span
+						class="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 group-focus-within:text-blue-400 transition-colors text-sm">
+						<i class="fas fa-search"></i>
+					</span>
+				</div>
+				<button type="button" id="btn-buscar-produtos"
+					class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-colors flex items-center gap-2 shadow-lg shadow-blue-900/20">
+					<i class="fas fa-search"></i>
+					<span class="hidden sm:inline">Buscar</span>
+				</button>
+			</div>
+			<div class="flex-1 overflow-hidden border border-slate-700 rounded-lg bg-slate-900 flex flex-col min-h-[240px]">
+				<div
+					class="bg-slate-900 border-b border-slate-700 px-4 py-2 grid grid-cols-12 gap-4 text-xs font-semibold text-slate-400 uppercase tracking-wider">
+					<div class="col-span-2">Código</div>
+					<div class="col-span-4">Produto</div>
+					<div class="col-span-1 text-center">UM</div>
+					<div class="col-span-2 text-right">Preço</div>
+					<div class="col-span-1 text-right">Estoque</div>
+					<div class="col-span-2 text-center">Qtd</div>
+				</div>
+				<div id="lista-produtos" class="overflow-y-auto flex-1 custom-scrollbar bg-slate-900">
+					<div id="container-produtos" class="divide-y divide-slate-700"></div>
+				</div>
+			</div>
+		</div>
+		<div
+			class="px-5 py-3 border-t border-slate-700 bg-slate-900 rounded-b-xl flex flex-wrap justify-between items-center gap-4">
+			<div class="flex items-center gap-3">
+				<div id="status-selecao" class="text-xs text-slate-400 font-medium">Nenhum produto selecionado</div>
+				<button type="button" id="btn-abrir-fora-estoque"
+					class="px-3 py-1.5 bg-amber-600/20 hover:bg-amber-600/30 text-amber-300 text-xs font-medium rounded-lg border border-amber-500/30 transition-all flex items-center gap-1.5 shadow-sm">
+					<i class="fas fa-plus-circle text-amber-400"></i>
+					<span>Produto Fora de Estoque</span>
+				</button>
+			</div>
+			<div class="flex items-center gap-2">
+				<button type="button" id="limpar-selecao"
+					class="px-3 py-1.5 text-xs text-slate-400 hover:text-slate-100 hover:bg-slate-800 rounded-lg transition-colors border border-transparent hover:border-slate-700">
+					Limpar
+				</button>
+				<button type="button" id="confirmar-produtos"
+					class="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-medium rounded-lg shadow-lg shadow-emerald-900/20 transition-all flex items-center gap-2">
+					<i class="fas fa-check"></i>
+					Confirmar
+				</button>
+			</div>
+		</div>
+	</div>
+</div>
+
+<!-- Modal Produto Fora de Estoque (com z-index prioritário e fundo sólido) -->
+<div id="modal-produto-fora-estoque" class="hidden fixed inset-0 flex items-center justify-center p-4 sm:p-6"
+	style="z-index: 999999; background-color: rgba(0, 0, 0, 0.85) !important; backdrop-filter: blur(6px);">
+	<div class="relative w-full max-w-lg rounded-xl shadow-2xl flex flex-col overflow-hidden text-slate-100"
+		style="background-color: #090d16 !important; border: 1px solid #334155 !important; opacity: 1 !important; z-index: 999999;">
+		<div class="px-5 py-3.5 flex items-center justify-between"
+			style="background-color: #0f172a !important; border-bottom: 1px solid #334155 !important;">
+			<h3 class="text-base font-bold flex items-center gap-2" style="color: #f59e0b !important;">
+				<i class="fas fa-box-open" style="color: #f59e0b !important;"></i>
+				Incluir Produto Fora de Estoque
+			</h3>
+			<button type="button" id="fechar-modal-fora-estoque"
+				class="transition-colors p-1.5 rounded-lg"
+				style="background-color: transparent; border: none; color: #94a3b8; cursor: pointer;">
+				<i class="fas fa-times"></i>
+			</button>
+		</div>
+		<form id="form-produto-fora-estoque" class="p-5 space-y-4 text-xs" style="background-color: #090d16 !important;">
+			<div>
+				<label class="block font-medium mb-1.5" style="color: #cbd5e1 !important;">Nome do Produto <span style="color: #f87171 !important;">*</span></label>
+				<input type="text" id="fora-estoque-nome" required
+					style="background-color: #0f172a !important; color: #f8fafc !important; border: 1px solid #334155 !important; border-radius: 0.5rem; padding: 0.5rem 0.75rem; width: 100%; font-size: 0.75rem;"
+					placeholder="Ex: Adaptador HDMI / Fonte">
+			</div>
+			<div class="grid grid-cols-2 gap-3">
+				<div>
+					<label class="block font-medium mb-1.5" style="color: #cbd5e1 !important;">Quantidade <span style="color: #f87171 !important;">*</span></label>
+					<input type="number" id="fora-estoque-qtd" min="1" step="1" value="1" required
+						style="background-color: #0f172a !important; color: #f8fafc !important; border: 1px solid #334155 !important; border-radius: 0.5rem; padding: 0.5rem 0.75rem; width: 100%; font-size: 0.75rem;">
+				</div>
+				<div>
+					<label class="block font-medium mb-1.5" style="color: #cbd5e1 !important;">Valor Unitário (R$) <span style="color: #f87171 !important;">*</span></label>
+					<input type="number" id="fora-estoque-valor" min="0.00" step="0.01" value="0.00" required
+						style="background-color: #0f172a !important; color: #f8fafc !important; border: 1px solid #334155 !important; border-radius: 0.5rem; padding: 0.5rem 0.75rem; width: 100%; font-size: 0.75rem;">
+				</div>
+			</div>
+			<div>
+				<label class="block font-medium mb-1.5" style="color: #cbd5e1 !important;">Cliente <span style="color: #f87171 !important;">*</span></label>
+				<select id="fora-estoque-cliente" required
+					style="background-color: #0f172a !important; color: #f8fafc !important; border: 1px solid #334155 !important; border-radius: 0.5rem; padding: 0.5rem 0.75rem; width: 100%; font-size: 0.75rem;">
+					<option value="" style="background-color: #0f172a !important; color: #f8fafc !important;">Carregando clientes...</option>
+				</select>
+			</div>
+			<button type="button" id="btn-add-outro-fora-estoque" onclick="window.ProductsPicker.addForaEstoqueItemToSelection()"
+				style="background-color: #0f172a !important; color: #f59e0b !important; border: 1px dashed #f59e0b !important; border-radius: 0.5rem; width: 100%; padding: 0.5rem; font-size: 0.75rem; font-weight: 600; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 0.5rem;">
+				<i class="fas fa-plus"></i>
+				<span>+ Adicionar Item à Lista</span>
+			</button>
+			<div class="p-3 rounded-lg flex justify-between items-center font-medium text-xs"
+				style="background-color: rgba(245, 158, 11, 0.1) !important; border: 1px solid rgba(245, 158, 11, 0.3) !important; color: #fcd34d !important;">
+				<span>Valor Total a Lançar:</span>
+				<span id="fora-estoque-total-display" class="text-sm font-bold" style="color: #f59e0b !important;">R$ 0,00</span>
+			</div>
+			<div class="pt-3 flex justify-end gap-2" style="border-top: 1px solid #1e293b !important;">
+				<button type="button" id="cancelar-fora-estoque"
+					style="background-color: #1e293b !important; color: #cbd5e1 !important; border: 1px solid #334155 !important; border-radius: 0.5rem; padding: 0.5rem 1rem; font-size: 0.75rem; font-weight: 500; cursor: pointer;">
+					Cancelar
+				</button>
+				<button type="submit" id="submit-fora-estoque"
+					style="background-color: #d97706 !important; color: #ffffff !important; border: 1px solid #f59e0b !important; border-radius: 0.5rem; padding: 0.5rem 1rem; font-size: 0.75rem; font-weight: 600; cursor: pointer; display: inline-flex; items-center: center; gap: 0.5rem;">
+					<i class="fas fa-plus"></i>
+					<span>Adicionar Produto</span>
+				</button>
+			</div>
+		</form>
+	</div>
+</div>
+
+<script>
+	window.ProductsPicker = (function () {
+		let selectedProducts = {};
+		let lastProducts = [];
+		let config = {};
+		let clientsLoaded = false;
+
+		const els = () => ({
+			modal: document.getElementById('modal-produtos'),
+			closeBtn: document.getElementById('fechar-modal-produtos'),
+			searchInput: document.getElementById('busca-produtos'),
+			searchBtn: document.getElementById('btn-buscar-produtos'),
+			container: document.getElementById('container-produtos'),
+			status: document.getElementById('status-selecao'),
+			clearBtn: document.getElementById('limpar-selecao'),
+			confirmBtn: document.getElementById('confirmar-produtos'),
+			btnAbrirForaEstoque: document.getElementById('btn-abrir-fora-estoque'),
+			modalForaEstoque: document.getElementById('modal-produto-fora-estoque'),
+			fecharForaEstoque: document.getElementById('fechar-modal-fora-estoque'),
+			cancelarForaEstoque: document.getElementById('cancelar-fora-estoque'),
+			formForaEstoque: document.getElementById('form-produto-fora-estoque'),
+			nomeForaEstoque: document.getElementById('fora-estoque-nome'),
+			qtdForaEstoque: document.getElementById('fora-estoque-qtd'),
+			valorForaEstoque: document.getElementById('fora-estoque-valor'),
+			clienteForaEstoque: document.getElementById('fora-estoque-cliente'),
+			totalDisplayForaEstoque: document.getElementById('fora-estoque-total-display'),
+			submitForaEstoque: document.getElementById('submit-fora-estoque'),
+		});
+
+		function renderSelectionStatus() {
+			const { status } = els();
+			if (!status) return;
+			const items = Object.values(selectedProducts);
+			const total = items.reduce((acc, it) => acc + (Number(it.preco || 0) * Number(it.quantidade || 0)), 0);
+			status.textContent = items.length > 0
+				? `${items.length} produto(s) selecionado(s) • Total: R$ ${total.toFixed(2)}`
+				: 'Nenhum produto selecionado';
+		}
+
+		function renderResumo(targetEl) {
+			if (!targetEl) return;
+			const items = Object.values(selectedProducts);
+			if (items.length === 0) {
+				targetEl.classList.add('hidden');
+				targetEl.innerHTML = '';
+				return;
+			}
+			const lines = items.map(it =>
+				`<div class="flex justify-between gap-2"><span class="truncate">${it.nome} (${it.unidademedida || ''}) x ${it.quantidade}</span><strong class="shrink-0">R$ ${(Number(it.preco) * Number(it.quantidade)).toFixed(2)}</strong></div>`
+			);
+			const total = items.reduce((acc, it) => acc + (Number(it.preco) * Number(it.quantidade)), 0);
+			targetEl.innerHTML = `<div class="space-y-1">${lines.join('')}<hr class="border-slate-700 my-2"><div class="flex justify-between font-medium"><span>Total dos produtos</span><strong>R$ ${total.toFixed(2)}</strong></div></div>`;
+			targetEl.classList.remove('hidden');
+		}
+
+		function renderProductsTable(products) {
+			const { container } = els();
+			if (!container) return;
+			if (!products || products.length === 0) {
+				container.innerHTML = '<div class="p-8 text-center text-slate-500 flex flex-col items-center"><i class="fas fa-box-open text-4xl mb-3 opacity-50"></i><p>Nenhum produto encontrado</p></div>';
+				return;
+			}
+			container.innerHTML = '';
+			products.forEach(p => {
+				const div = document.createElement('div');
+				div.className = 'px-4 py-2 grid grid-cols-12 gap-4 items-center hover:bg-slate-800/50 transition-colors border-l-2 border-transparent';
+				const sel = selectedProducts[p.id];
+				const qtdVal = sel ? sel.quantidade : '';
+				const hasStock = Number(p.estoque || 0) > 0;
+				const ignoreStock = !!config.ignoreStock;
+				const qtyDisabled = !ignoreStock && !hasStock;
+				div.innerHTML = `
+					<div class="col-span-2 font-mono text-xs text-blue-400 truncate">${p.codigo || ''}</div>
+					<div class="col-span-4 text-sm text-slate-300 truncate font-medium">${p.nome}</div>
+					<div class="col-span-1 text-center text-xs text-slate-500">${p.unidademedida || ''}</div>
+					<div class="col-span-2 text-right text-sm font-medium text-emerald-400">R$ ${Number(p.preco || 0).toFixed(2)}</div>
+					<div class="col-span-1 text-right text-xs font-bold ${hasStock ? 'text-blue-400' : 'text-red-400'}">${ignoreStock ? '—' : Number(p.estoque || 0).toFixed(2)}</div>
+					<div class="col-span-2 flex items-center justify-end">
+						<input type="number" min="0" step="1" value="${qtdVal}"
+							class="w-20 text-center text-xs py-1 bg-slate-900 border border-slate-700 rounded text-slate-100 ${qtyDisabled ? 'opacity-50 cursor-not-allowed' : ''}"
+							data-qty-for="${p.id}" placeholder="0" ${qtyDisabled ? 'disabled' : ''}>
+					</div>`;
+				container.appendChild(div);
+			});
+
+			container.querySelectorAll('[data-qty-for]').forEach(input => {
+				input.addEventListener('input', () => {
+					const id = Number(input.getAttribute('data-qty-for'));
+					const qtd = parseInt(input.value || '0', 10);
+					const row = input.closest('.grid');
+					if (qtd > 0) {
+						const p = products.find(x => x.id === id);
+						selectedProducts[id] = { ...p, quantidade: qtd };
+						row.classList.add('bg-blue-900/20', 'border-blue-500');
+					} else {
+						delete selectedProducts[id];
+						row.classList.remove('bg-blue-900/20', 'border-blue-500');
+					}
+					renderSelectionStatus();
+				});
+				const id = Number(input.getAttribute('data-qty-for'));
+				if (selectedProducts[id]) {
+					input.closest('.grid').classList.add('bg-blue-900/20', 'border-blue-500');
+				}
+			});
+		}
+
+		async function loadProducts(q) {
+			const { container } = els();
+			try {
+				const url = config.productsApiUrl + (q ? ('?q=' + encodeURIComponent(q)) : '');
+				const resp = await fetch(url);
+				const data = await resp.json();
+				if (!resp.ok) throw new Error(data.error || 'Falha ao buscar produtos');
+				lastProducts = data.products || [];
+				renderProductsTable(lastProducts);
+				renderSelectionStatus();
+			} catch (e) {
+				if (container) container.innerHTML = `<div class="p-4 text-center text-red-400">${e.message}</div>`;
+			}
+		}
+
+		async function loadClientsForForaEstoque() {
+			const { clienteForaEstoque } = els();
+			if (!clienteForaEstoque || clientsLoaded) return;
+			try {
+				clienteForaEstoque.innerHTML = '<option value="" style="background-color: #0f172a !important; color: #f8fafc !important;">Carregando clientes...</option>';
+				const resp = await fetch('/tickets/api/clients');
+				const data = await resp.json();
+				if (!resp.ok) throw new Error(data.error || 'Erro ao carregar clientes');
+				const clients = data.clients || [];
+				if (clients.length === 0) {
+					clienteForaEstoque.innerHTML = '<option value="" style="background-color: #0f172a !important; color: #f8fafc !important;">Nenhum cliente encontrado</option>';
+					return;
+				}
+				clienteForaEstoque.innerHTML = '<option value="" style="background-color: #0f172a !important; color: #f8fafc !important;">Selecione um cliente...</option>' +
+					clients.map(c => `<option value="${c.id}" style="background-color: #0f172a !important; color: #f8fafc !important;">${c.name}${c.document ? ' (' + c.document + ')' : ''}</option>`).join('');
+				clientsLoaded = true;
+			} catch (e) {
+				console.error('Erro ao buscar clientes:', e);
+				clienteForaEstoque.innerHTML = '<option value="" style="background-color: #0f172a !important; color: #f8fafc !important;">Erro ao carregar clientes</option>';
+			}
+		}
+
+		function calcForaEstoqueTotal() {
+			const { qtdForaEstoque, valorForaEstoque, totalDisplayForaEstoque } = els();
+			if (!qtdForaEstoque || !valorForaEstoque || !totalDisplayForaEstoque) return;
+			const qtd = parseFloat(qtdForaEstoque.value || '0');
+			const val = parseFloat(valorForaEstoque.value || '0');
+			const tot = (qtd > 0 && val >= 0) ? (qtd * val) : 0;
+			totalDisplayForaEstoque.textContent = `R$ ${tot.toFixed(2)}`;
+		}
+
+		function openOutofStockModal() {
+			const { modalForaEstoque, formForaEstoque } = els();
+			if (modalForaEstoque) {
+				if (modalForaEstoque.parentElement !== document.body) {
+					document.body.appendChild(modalForaEstoque);
+				}
+				modalForaEstoque.style.zIndex = '999999';
+				modalForaEstoque.classList.remove('hidden');
+			}
+			if (formForaEstoque) formForaEstoque.reset();
+			calcForaEstoqueTotal();
+			loadClientsForForaEstoque();
+		}
+
+		function closeOutofStockModal() {
+			const { modalForaEstoque } = els();
+			if (modalForaEstoque) modalForaEstoque.classList.add('hidden');
+		}
+
+		function submitOutofStock(e) {
+			e.preventDefault();
+			const { nomeForaEstoque, qtdForaEstoque, valorForaEstoque, clienteForaEstoque } = els();
+			
+			const product_name = nomeForaEstoque.value.trim();
+			const quantity = parseFloat(qtdForaEstoque.value || '1');
+			const unit_price = parseFloat(valorForaEstoque.value || '0');
+			const client_id = clienteForaEstoque.value;
+
+			if (!product_name) {
+				alert('Por favor, informe o nome do produto.');
+				return;
+			}
+			if (!client_id) {
+				alert('Por favor, selecione um cliente.');
+				return;
+			}
+
+			const customId = 'custom_' + Date.now() + '_' + Math.floor(Math.random() * 1000);
+			const customProduct = {
+				id: customId,
+				codigo: 'AVULSO',
+				nome: product_name,
+				unidademedida: 'UN',
+				preco: unit_price,
+				quantidade: quantity,
+				client_id: parseInt(client_id, 10),
+				estoque: 0,
+				is_custom: true
+			};
+
+			selectedProducts[customId] = customProduct;
+			renderSelectionStatus();
+			if (config.resumoElement) renderResumo(config.resumoElement);
+			if (config.closeResumoElement) renderResumo(config.closeResumoElement);
+
+			closeOutofStockModal();
+		}
+
+		function openModal() {
+			const { modal } = els();
+			if (modal) {
+				if (modal.parentElement !== document.body) {
+					document.body.appendChild(modal);
+				}
+				modal.style.zIndex = '99990';
+				modal.classList.remove('hidden');
+			}
+			loadProducts('');
+		}
+
+		function closeModal() {
+			const { modal } = els();
+			if (modal) modal.classList.add('hidden');
+		}
+
+		function setSelectedFromList(products) {
+			selectedProducts = {};
+			(products || []).forEach(p => {
+				selectedProducts[p.id] = { ...p, quantidade: p.quantidade };
+			});
+			renderSelectionStatus();
+			if (config.resumoElement) renderResumo(config.resumoElement);
+			if (config.closeResumoElement) renderResumo(config.closeResumoElement);
+		}
+
+		function getSelectedPayload() {
+			return Object.values(selectedProducts).map(p => ({
+				id: p.id,
+				quantidade: p.quantidade,
+				preco: p.preco,
+				nome: p.nome,
+				client_id: p.client_id,
+				is_custom: !!p.is_custom
+			}));
+		}
+
+		function bindEvents() {
+			const { closeBtn, searchBtn, searchInput, clearBtn, confirmBtn, btnAbrirForaEstoque, fecharForaEstoque, cancelarForaEstoque, formForaEstoque, qtdForaEstoque, valorForaEstoque } = els();
+			if (closeBtn) closeBtn.addEventListener('click', closeModal);
+			if (searchBtn) searchBtn.addEventListener('click', () => loadProducts(searchInput.value.trim()));
+			if (searchInput) searchInput.addEventListener('keypress', (e) => {
+				if (e.key === 'Enter') { e.preventDefault(); loadProducts(searchInput.value.trim()); }
+			});
+			if (clearBtn) clearBtn.addEventListener('click', () => {
+				selectedProducts = {};
+				renderSelectionStatus();
+				renderProductsTable(lastProducts);
+				if (config.resumoElement) renderResumo(config.resumoElement);
+				if (config.closeResumoElement) renderResumo(config.closeResumoElement);
+			});
+			if (confirmBtn) confirmBtn.addEventListener('click', async () => {
+				if (config.resumoElement) renderResumo(config.resumoElement);
+				if (config.closeResumoElement) renderResumo(config.closeResumoElement);
+				if (typeof config.onConfirm === 'function') {
+					await config.onConfirm(Object.values(selectedProducts), getSelectedPayload());
+				}
+				closeModal();
+			});
+			if (config.openButton) {
+				config.openButton.addEventListener('click', openModal);
+			}
+			if (config.closeOpenButton) {
+				config.closeOpenButton.addEventListener('click', openModal);
+			}
+
+			if (btnAbrirForaEstoque) btnAbrirForaEstoque.addEventListener('click', openOutofStockModal);
+			if (fecharForaEstoque) fecharForaEstoque.addEventListener('click', closeOutofStockModal);
+			if (cancelarForaEstoque) cancelarForaEstoque.addEventListener('click', closeOutofStockModal);
+			if (formForaEstoque) formForaEstoque.addEventListener('submit', submitOutofStock);
+			if (qtdForaEstoque) qtdForaEstoque.addEventListener('input', calcForaEstoqueTotal);
+			if (valorForaEstoque) valorForaEstoque.addEventListener('input', calcForaEstoqueTotal);
+		}
+
+		function addForaEstoqueItemToSelection() {
+			const { nomeForaEstoque, qtdForaEstoque, valorForaEstoque, clienteForaEstoque } = els();
+			const product_name = nomeForaEstoque ? nomeForaEstoque.value.trim() : '';
+			const quantity = parseFloat(qtdForaEstoque ? qtdForaEstoque.value : '1') || 1;
+			const unit_price = parseFloat(valorForaEstoque ? valorForaEstoque.value : '0') || 0;
+			const client_id = clienteForaEstoque ? clienteForaEstoque.value : '';
+
+			if (!product_name) {
+				alert('Por favor, informe o nome do produto.');
+				if (nomeForaEstoque) nomeForaEstoque.focus();
+				return;
+			}
+			if (!client_id) {
+				alert('Por favor, selecione um cliente.');
+				return;
+			}
+
+			const customId = 'custom_' + Date.now() + '_' + Math.floor(Math.random() * 1000);
+			const customProduct = {
+				id: customId,
+				codigo: 'AVULSO',
+				nome: product_name,
+				unidademedida: 'UN',
+				preco: unit_price,
+				quantidade: quantity,
+				client_id: parseInt(client_id, 10),
+				estoque: 0,
+				is_custom: true
+			};
+
+			selectedProducts[customId] = customProduct;
+			renderSelectionStatus();
+			if (config.resumoElement) renderResumo(config.resumoElement);
+			if (config.closeResumoElement) renderResumo(config.closeResumoElement);
+
+			if (nomeForaEstoque) nomeForaEstoque.value = '';
+			if (qtdForaEstoque) qtdForaEstoque.value = '1';
+			if (valorForaEstoque) valorForaEstoque.value = '0.00';
+			if (nomeForaEstoque) nomeForaEstoque.focus();
+			calcForaEstoqueTotal();
+		}
+
+		return {
+			init(options) {
+				config = options || {};
+				bindEvents();
+			},
+			open: openModal,
+			close: closeModal,
+			addForaEstoqueItemToSelection,
+			setSelectedFromList,
+			getSelectedPayload,
+			renderResumo,
+			getSelected: () => Object.values(selectedProducts),
+		};
+	})();
+</script>

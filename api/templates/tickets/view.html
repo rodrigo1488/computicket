@@ -1,0 +1,2931 @@
+{% extends 'base.html' %}
+{% block page_title %}🎫 Ticket #{{ ticket.id }}{% endblock %}
+{% block content %}
+
+<style>
+	/* Estilos para o seletor de usuários em apontamento em grupo */
+	.form-multiselect-style {
+		border: 1px solid #d1d5db;
+		border-radius: 0.375rem;
+		box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+		transition: border-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out;
+	}
+
+	.form-multiselect-style:focus {
+		border-color: #4f46e5;
+		box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.1);
+		outline: none;
+	}
+
+	/* Estilo para os itens do select múltiplo */
+	.form-multiselect-style option {
+		padding: 0.5rem 1rem;
+		cursor: pointer;
+		transition: background-color 0.2s ease-in-out;
+	}
+
+	.form-multiselect-style option:hover {
+		background-color: #f5f3ff;
+	}
+
+	/* Estilo para os itens selecionados */
+	.form-multiselect-style option:checked {
+		background-color: #eef2ff;
+		color: #4338ca;
+		font-weight: 500;
+	}
+
+	/* Estilo para o container do select múltiplo */
+	#group-users-container {
+		opacity: 0;
+		transform: translateY(-10px);
+		transition: opacity 0.2s ease-in-out, transform 0.2s ease-in-out;
+	}
+
+	#group-users-container.visible {
+		opacity: 1;
+		transform: translateY(0);
+	}
+
+	/* Melhorias visuais para o checkbox */
+	.form-checkbox {
+		border-color: #d1d5db;
+		transition: border-color 0.2s ease-in-out, background-color 0.2s ease-in-out;
+	}
+
+	.form-checkbox:checked {
+		background-color: #4f46e5;
+		border-color: #4f46e5;
+	}
+
+	/* Estilos para o botão de localização */
+	.location-icon-btn {
+		background: none;
+		border: none;
+		padding: 0.25rem;
+		border-radius: 0.375rem;
+		cursor: pointer;
+		transition: all 0.2s ease;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.location-icon-btn:hover {
+		background-color: rgba(59, 130, 246, 0.1);
+		transform: scale(1.1);
+	}
+
+	.location-icon-btn i {
+		font-size: 1rem;
+		transition: all 0.2s ease;
+	}
+
+	/* Estilos para o mini mapa */
+	.mini-map {
+		width: 100%;
+		height: 300px;
+		border-radius: 8px;
+		border: 1px solid #e5e7eb;
+		overflow: hidden;
+	}
+
+	.mini-map-container {
+		position: relative;
+		width: 100%;
+		height: 100%;
+	}
+
+	.map-info {
+		position: absolute;
+		top: 10px;
+		left: 10px;
+		background: rgba(255, 255, 255, 0.95);
+		padding: 8px 12px;
+		border-radius: 6px;
+		box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+		font-size: 12px;
+		z-index: 1000;
+	}
+
+	.map-controls {
+		position: absolute;
+		top: 10px;
+		right: 10px;
+		display: flex;
+		gap: 5px;
+		z-index: 1000;
+	}
+
+	.map-control-btn {
+		background: rgba(255, 255, 255, 0.95);
+		border: 1px solid #d1d5db;
+		padding: 6px 8px;
+		border-radius: 4px;
+		cursor: pointer;
+		font-size: 12px;
+		transition: background-color 0.2s;
+	}
+
+	.map-control-btn:hover {
+		background: rgba(255, 255, 255, 1);
+	}
+
+	/* Estilos para o modal maior */
+	.modal.max-w-2xl {
+		max-width: 42rem;
+	}
+
+	/* Responsividade do mapa */
+	@media (max-width: 640px) {
+		.mini-map {
+			height: 250px;
+		}
+
+		.map-info {
+			font-size: 11px;
+			padding: 6px 10px;
+		}
+
+		.map-control-btn {
+			padding: 4px 6px;
+			font-size: 11px;
+		}
+	}
+
+	/* Estilos para assinatura digital */
+	.signature-pad {
+		position: relative;
+		width: 100%;
+		height: 200px;
+		border: 1px solid #d1d5db;
+		border-radius: 8px;
+		background: white;
+		cursor: crosshair;
+	}
+
+	.signature-pad canvas {
+		border-radius: 8px;
+		width: 100%;
+		height: 100%;
+	}
+
+	.signature-pad:hover {
+		border-color: #3b82f6;
+	}
+
+	.signature-pad.drawing {
+		border-color: #3b82f6;
+		box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+	}
+
+	/* Estilos melhorados para o botão Cancelar PS */
+	.cancel-ps-btn {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		gap: 0.5rem;
+		padding: 0.75rem 1.5rem;
+		background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+		color: white;
+		border: none;
+		border-radius: 0.75rem;
+		font-size: 0.875rem;
+		font-weight: 600;
+		cursor: pointer;
+		transition: all 0.3s ease;
+		box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3);
+		position: relative;
+		overflow: hidden;
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+		width: 100%;
+	}
+
+	.cancel-ps-btn:hover {
+		background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%);
+		transform: translateY(-2px);
+		box-shadow: 0 8px 25px rgba(239, 68, 68, 0.5);
+	}
+
+	.cancel-ps-btn:active {
+		transform: translateY(0);
+		box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3);
+	}
+
+	.cancel-ps-btn:disabled {
+		opacity: 0.6;
+		cursor: not-allowed;
+		transform: none;
+		box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3);
+	}
+
+	.cancel-ps-btn i {
+		font-size: 1rem;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		width: 1.25rem;
+		height: 1.25rem;
+		background: rgba(255, 255, 255, 0.2);
+		border-radius: 50%;
+	}
+
+	/* Efeito de loading */
+	.cancel-ps-btn.loading {
+		pointer-events: none;
+	}
+
+	.cancel-ps-btn.loading i {
+		animation: spin 1s linear infinite;
+	}
+
+	@keyframes spin {
+		from {
+			transform: rotate(0deg);
+		}
+
+		to {
+			transform: rotate(360deg);
+		}
+	}
+
+	/* Efeito de brilho no hover */
+	.cancel-ps-btn::before {
+		content: '';
+		position: absolute;
+		top: 0;
+		left: -100%;
+		width: 100%;
+		height: 100%;
+		background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent);
+		transition: left 0.6s;
+	}
+
+	.cancel-ps-btn:hover::before {
+		left: 100%;
+	}
+
+	/* Efeito de pulso para chamar atenção */
+	.cancel-ps-btn {
+		animation: pulse-attention 2s infinite;
+	}
+
+	@keyframes pulse-attention {
+
+		0%,
+		100% {
+			box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3);
+		}
+
+		50% {
+			box-shadow: 0 4px 12px rgba(239, 68, 68, 0.6);
+		}
+	}
+</style>
+
+<!-- Cabeçalho do Ticket -->
+<div class="bg-secondary rounded-lg shadow-lg p-6 mb-6">
+	<div class="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4 mb-4">
+		<div class="flex-1">
+			<h1 class="text-xl lg:text-2xl font-bold text-primary mb-2 break-words">{{ ticket.title }}</h1>
+			<div class="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 text-sm text-muted">
+				<span>Ticket #{{ ticket.id }}</span>
+				<span class="status-badge status-{{ ticket.status.replace('_', '-') }}">
+					{{ ticket.status.replace('_', ' ').title() }}
+				</span>
+
+			</div>
+
+			<!-- Navegação de Tickets (Pai/Filhos) -->
+			{% if ticket.parent_id or ticket.children %}
+			<div class="mt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+				{% if ticket.parent_id %}
+				<a href="{{ url_for('tickets.view_ticket', ticket_id=ticket.parent_id) }}"
+					class="btn btn-primary w-full shadow-md">
+					<i class="fas fa-level-up-alt fa-rotate-90"></i>
+					<span>Ver Ticket Pai #{{ ticket.parent_id }}</span>
+				</a>
+				{% endif %}
+
+				{% for child in ticket.children %}
+				<a href="{{ url_for('tickets.view_ticket', ticket_id=child.id) }}"
+					class="btn btn-info text-white w-full shadow-md">
+					<i class="fas fa-level-down-alt fa-rotate-90"></i>
+					<span>Ver Continuação #{{ child.id }}</span>
+				</a>
+				{% endfor %}
+			</div>
+			{% endif %}
+		</div>
+	</div>
+	<div class="flex-shrink-0">
+		<a href="{{ url_for('tickets.list_tickets') }}" class="btn btn-secondary w-full sm:w-auto">
+			<i class="fas fa-arrow-left"></i>
+			<span class="hidden sm:inline">Voltar</span>
+		</a>
+	</div>
+</div>
+
+<!-- Informações do Ticket -->
+<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+	<div class="bg-tertiary rounded-lg p-4">
+		<h3 class="font-semibold text-primary mb-2 flex items-center">
+			<i class="fas fa-user mr-2"></i>
+			Cliente
+		</h3>
+		<p class="text-secondary break-words">{{ ticket.client.name if ticket.client else
+			ticket.external_client_name }}</p>
+	</div>
+
+	{% if ticket.solicitante %}
+	<div class="bg-tertiary rounded-lg p-4">
+		<h3 class="font-semibold text-primary mb-2 flex items-center">
+			<i class="fas fa-user-tie mr-2"></i>
+			Solicitante
+		</h3>
+		<p class="text-secondary break-words">{{ ticket.solicitante }}</p>
+	</div>
+	{% endif %}
+
+	<div class="bg-tertiary rounded-lg p-4">
+		<h3 class="font-semibold text-primary mb-2 flex items-center">
+			<i class="fas fa-cogs mr-2"></i>
+			Serviço
+		</h3>
+		<p class="text-secondary break-words">{{ ticket.service.name if ticket.service else '—' }}</p>
+	</div>
+
+	{% if contract_info %}
+	<div class="bg-tertiary rounded-lg p-4 sm:col-span-2 lg:col-span-1">
+		<h3 class="font-semibold text-primary mb-2 flex items-center">
+			<i class="fas fa-file-contract mr-2"></i>
+			Contrato
+		</h3>
+		<div class="flex flex-col sm:flex-row sm:items-center gap-2">
+			<p class="text-secondary break-words">{{ contract_info.contract_type or '—' }}</p>
+			{% if contract_info.no_charge %}
+			<span class="status-badge status-fechado self-start">
+				<i class="fas fa-gift"></i>
+				Não cobra
+			</span>
+			{% endif %}
+		</div>
+	</div>
+	{% endif %}
+</div>
+
+<!-- Informações Adicionais -->
+<div class="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+	<div class="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2">
+		<span class="font-medium text-primary">Criado em:</span>
+		<span class="text-secondary break-words">{{ ticket.created_at | brasilia_datetime }}</span>
+	</div>
+	{% if ticket.closed_at %}
+	<div class="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2">
+		<span class="font-medium text-primary">Fechado em:</span>
+		<span class="text-secondary break-words">{{ ticket.closed_at | brasilia_datetime }}</span>
+	</div>
+	{% endif %}
+	{% if ticket.in_progress_started_at %}
+	<div class="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2">
+		<span class="font-medium text-primary">Em andamento desde:</span>
+		<span class="text-secondary break-words">{{ ticket.in_progress_started_at | brasilia_datetime }}</span>
+	</div>
+	{% endif %}
+	{% if ticket.assigned_to_id %}
+	<div class="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2">
+		<span class="font-medium text-primary">Trabalhando:</span>
+		<span class="text-secondary break-words">
+			{{ ticket.assigned_to_user.name if ticket.assigned_to_user else 'Usuário não encontrado' }}
+			{% if ticket.assigned_to_id == current_user.id %}
+			<span class="text-success ml-1">(Você)</span>
+			{% endif %}
+		</span>
+	</div>
+	{% endif %}
+	{% if ticket.total_cost %}
+	<div class="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2">
+		<span class="font-medium text-success">Custo total:</span>
+		<span class="text-success font-semibold">R$ {{ '%.2f'|format(ticket.total_cost) }}</span>
+	</div>
+	{% endif %}
+</div>
+
+<!-- Descrição -->
+{% if ticket.description %}
+<div class="mt-4">
+	<h3 class="font-semibold text-primary mb-2">Descrição</h3>
+	<p class="text-secondary bg-tertiary rounded-lg p-4">{{ ticket.description }}</p>
+</div>
+{% endif %}
+
+{% if ticket.status not in ['fechado', 'cancelado'] %}
+<div class="mt-4">
+	<h3 class="font-semibold text-primary mb-2 flex items-center gap-2">
+		<i class="fas fa-boxes text-blue-400"></i>
+		Produtos
+	</h3>
+	<div class="bg-tertiary rounded-lg p-4 space-y-3">
+		<button type="button" id="abrir-modal-produtos-ticket" class="btn btn-secondary w-full sm:w-auto">
+			<i class="fas fa-plus"></i>
+			Incluir produtos
+		</button>
+		<div id="resumo-produtos-ticket" class="hidden bg-slate-900/50 border border-slate-700 rounded-lg p-3 text-sm text-slate-300"></div>
+		<p class="text-xs text-muted">Os produtos são salvos no ticket e geram pedido de faturamento ao fechar.</p>
+	</div>
+</div>
+{% elif ticket.products %}
+<div class="mt-4">
+	<h3 class="font-semibold text-primary mb-2 flex items-center gap-2">
+		<i class="fas fa-boxes text-blue-400"></i>
+		Produtos utilizados
+	</h3>
+	<div class="bg-tertiary rounded-lg p-4 text-sm space-y-2">
+		{% for p in ticket.products %}
+		<div class="flex justify-between gap-2 border-b border-slate-700/50 pb-2 last:border-0">
+			<span>{{ p.nome }} ({{ p.unidademedida or 'un' }}) x {{ p.quantidade|int if p.quantidade == p.quantidade|int else p.quantidade }}</span>
+			<strong>R$ {{ '%.2f'|format((p.preco or 0) * (p.quantidade or 0)) }}</strong>
+		</div>
+		{% endfor %}
+		<div class="flex justify-between font-semibold pt-2 border-t border-slate-700">
+			<span>Total produtos</span>
+			<span class="text-emerald-400">R$ {{ '%.2f'|format(ticket.products_total()) }}</span>
+		</div>
+		{% if ticket.dav_codigo %}
+		<div class="text-xs text-muted pt-1">Pedido de faturamento #{{ ticket.dav_codigo }}</div>
+		{% endif %}
+	</div>
+</div>
+{% endif %}
+</div>
+
+<!-- Ações do Ticket -->
+{% if ticket.status != 'fechado' and ticket.status != 'cancelado' %}
+<div class="bg-secondary rounded-lg shadow-lg p-6 mb-6">
+	<h2 class="text-lg font-semibold text-primary mb-4 flex items-center">
+		<i class="fas fa-play-circle mr-2"></i>
+		Ações do Ticket
+	</h2>
+	<div class="grid-actions">
+		{% if ticket.assigned_to_id == current_user.id %}
+		{# Usuário responsável - pode iniciar, encerrar e fechar #}
+		{% if ticket.status == 'aberto' %}
+		<form method="post" action="{{ url_for('tickets.start_ticket', ticket_id=ticket.id) }}"
+			class="sm:col-span-2 lg:col-span-1" id="start-ticket-form">
+			<button class="btn btn-success w-full" type="button" id="start-ticket-btn">
+				<i class="fas fa-play"></i>
+				<span class="hidden sm:inline">Iniciar Trabalho</span>
+				<span class="sm:hidden">Iniciar</span>
+			</button>
+			<div class="text-xs text-muted mt-2" id="location-status">
+				<i class="fas fa-map-marker-alt text-info"></i>
+				<span class="text-info">Localização será capturada automaticamente</span>
+			</div>
+		</form>
+		{% elif ticket.status == 'em_andamento' %}
+		<button id="open-stop-modal" class="btn btn-warning w-full sm:col-span-2 lg:col-span-1" type="button">
+			<i class="fas fa-stop"></i>
+			<span class="hidden sm:inline">Encerrar Sessão</span>
+			<span class="sm:hidden">Encerrar</span>
+		</button>
+		{% endif %}
+
+		<button id="open-time-modal" class="btn btn-primary w-full">
+			<i class="fas fa-clock"></i>
+			<span class="hidden sm:inline">Apontar Horas</span>
+			<span class="sm:hidden">Horas</span>
+		</button>
+
+		<button id="open-close-modal" class="btn btn-secondary w-full">
+			<i class="fas fa-times"></i>
+			<span class="hidden sm:inline">Fechar Ticket</span>
+			<span class="sm:hidden">Fechar</span>
+		</button>
+
+		{# Ações disponíveis para todos os usuários #}
+		{% if ticket.status != 'fechado' %}
+		<a href="{{ url_for('tickets.edit_ticket', ticket_id=ticket.id) }}" class="btn btn-info w-full">
+			<i class="fas fa-edit"></i>
+			<span class="hidden sm:inline">Editar Ticket</span>
+			<span class="sm:hidden">Editar</span>
+		</a>
+		{% endif %}
+
+		<button id="open-cancel-modal" class="btn btn-error w-full">
+			<i class="fas fa-ban"></i>
+			<span class="hidden sm:inline">Cancelar Ticket</span>
+			<span class="sm:hidden">Cancelar</span>
+		</button>
+		{% else %}
+		{# Outro usuário - pode assumir o ticket #}
+		<form method="post" action="{{ url_for('tickets.assume_ticket', ticket_id=ticket.id) }}"
+			class="sm:col-span-2 lg:col-span-1">
+			<button class="btn btn-accent w-full" type="submit" onclick="return confirm('Deseja assumir este ticket?')">
+				<i class="fas fa-hand-paper"></i>
+				<span class="hidden sm:inline">Assumir Ticket</span>
+				<span class="sm:hidden">Assumir</span>
+			</button>
+		</form>
+
+		<button id="open-time-modal" class="btn btn-primary w-full">
+			<i class="fas fa-clock"></i>
+			<span class="hidden sm:inline">Apontar Horas</span>
+			<span class="sm:hidden">Horas</span>
+		</button>
+
+		{# Ações disponíveis para todos os usuários #}
+		{% if ticket.status != 'fechado' %}
+		<a href="{{ url_for('tickets.edit_ticket', ticket_id=ticket.id) }}" class="btn btn-info w-full">
+			<i class="fas fa-edit"></i>
+			<span class="hidden sm:inline">Editar Ticket</span>
+			<span class="sm:hidden">Editar</span>
+		</a>
+		{% endif %}
+		{% endif %}
+	</div>
+</div>
+{% endif %}
+
+<!-- Ações para Tickets Fechados -->
+{% if ticket.status == 'fechado' %}
+<div class="bg-secondary rounded-lg shadow-lg p-6 mb-6">
+	<h2 class="text-lg font-semibold text-primary mb-4 flex items-center">
+		<i class="fas fa-check-circle mr-2"></i>
+		Ticket Fechado
+	</h2>
+	<div class="grid-actions">
+		{% if ticket.closed_at %}
+		{% if current_user.has_role('admin') %}
+		<button id="open-reopen-modal" class="btn btn-warning w-full modal-open" data-modal="reopen-modal">
+			<i class="fas fa-undo"></i>
+			<span class="hidden sm:inline">Reabrir Ticket</span>
+			<span class="sm:hidden">Reabrir</span>
+		</button>
+		{% endif %}
+
+		{% else %}
+		<div class="text-muted text-sm">
+			<i class="fas fa-info-circle mr-1"></i>
+			Data de fechamento não disponível
+		</div>
+		{% endif %}
+
+		<a href="{{ url_for('tickets.list_tickets') }}" class="btn btn-secondary w-full">
+			<i class="fas fa-list"></i>
+			<span class="hidden sm:inline">Ver Outros Tickets</span>
+			<span class="sm:hidden">Lista</span>
+		</a>
+
+		{% if ticket.ps_printed and ps_pdf_filename %}
+		<a href="{{ url_for('tickets.serve_pdf', filename=ps_pdf_filename) }}" target="_blank" rel="noopener"
+			class="btn btn-info w-full">
+			<i class="fas fa-file-pdf"></i>
+			<span class="hidden sm:inline">Visualizar PS{% if ticket.ps_number %} ({{ ticket.ps_number }}){% endif %}</span>
+			<span class="sm:hidden">Ver PS</span>
+		</a>
+		{% elif ticket.ps_printed and ticket.ps_number %}
+		<div class="flex items-center justify-center px-3 py-2 rounded-lg bg-tertiary text-sm text-muted w-full">
+			<i class="fas fa-check-circle text-success mr-2"></i>
+			PS: {{ ticket.ps_number }}
+		</div>
+		{% endif %}
+
+		{# Botão Cancelar PS - apenas para admins e tickets com PS impressa #}
+		{% if current_user.has_role('admin') and ticket.ps_printed and ticket.ps_number and ticket.total_cost > 0 %}
+		<button class="cancel-ps-btn" data-ticket-id="{{ ticket.id }}" data-ps-number="{{ ticket.ps_number }}"
+			data-total-cost="{{ ticket.total_cost }}" title="Cancelar PS">
+			<i class="fas fa-times"></i>
+			Cancelar PS
+		</button>
+		{% endif %}
+
+		<a href="{{ url_for('tickets.continue_ticket', ticket_id=ticket.id) }}"
+			class="btn btn-primary w-full sm:col-span-2 lg:col-span-1">
+			<i class="fas fa-plus"></i>
+			<span class="hidden sm:inline">Continuar Atendimento</span>
+			<span class="sm:hidden">Continuar</span>
+		</a>
+
+	</div>
+</div>
+
+<!-- Modal de Cancelamento de PS - DENTRO DA CONDIÇÃO -->
+<div id="cancel-ps-modal" class="modal-overlay">
+	<div class="modal w-full max-w-2xl mx-4 sm:mx-6 lg:mx-auto">
+		<div class="modal-header">
+			<h3 class="modal-title">
+				<i class="fas fa-times-circle mr-2"></i>
+				Cancelar PS
+			</h3>
+			<button id="close-cancel-ps-modal" class="btn btn-sm btn-secondary">
+				<i class="fas fa-times"></i>
+			</button>
+		</div>
+
+		<div class="modal-body">
+			<div class="bg-error/10 border border-error/20 rounded-lg p-4 mb-4">
+				<div class="flex items-start">
+					<i class="fas fa-exclamation-triangle text-error mr-2 mt-0.5"></i>
+					<div>
+						<p class="text-sm text-error/90 font-medium mb-2">
+							<strong>⚠️ ATENÇÃO: Esta ação é IRREVERSÍVEL!</strong>
+						</p>
+						<p class="text-sm text-error/80 mb-2">
+							Você está prestes a cancelar a PS do ticket:
+						</p>
+						<div id="ps-details" class="text-sm text-error/80">
+							<!-- Detalhes da PS serão preenchidos via JavaScript -->
+						</div>
+					</div>
+				</div>
+			</div>
+
+			<div class="bg-warning/10 border border-warning/20 rounded-lg p-4 mb-4">
+				<div class="flex items-start">
+					<i class="fas fa-info-circle text-warning mr-2 mt-0.5"></i>
+					<div>
+						<p class="text-sm text-warning/90 font-medium mb-2">
+							Esta ação irá:
+						</p>
+						<ul class="text-sm text-warning/80 space-y-1">
+							<li>• Zerar o valor do ticket no sistema</li>
+							<li>• Excluir a PS do SQL Server</li>
+							<li>• Remover o registro financeiro do PostgreSQL</li>
+						</ul>
+					</div>
+				</div>
+			</div>
+
+			<div class="flex flex-col sm:flex-row items-center gap-3 justify-end">
+				<button type="button" id="cancel-ps-cancel" class="btn btn-secondary w-full sm:w-auto">Cancelar</button>
+				<button type="button" id="confirm-cancel-ps" class="btn btn-error w-full sm:w-auto">
+					<i class="fas fa-times-circle"></i>
+					Confirmar Cancelamento
+				</button>
+			</div>
+		</div>
+	</div>
+</div>
+
+<!-- Modal de Reabertura - DENTRO DA CONDIÇÃO -->
+<div id="reopen-modal" class="modal-overlay">
+	<div class="modal w-full max-w-lg mx-4 sm:mx-6 lg:mx-auto">
+		<div class="modal-header">
+			<h3 class="modal-title">
+				<i class="fas fa-undo mr-2"></i>
+				Reabrir Ticket
+			</h3>
+			<button id="close-reopen-modal" class="btn btn-sm btn-secondary modal-close">
+				<i class="fas fa-times"></i>
+			</button>
+		</div>
+
+		<div class="modal-body">
+			<div class="bg-warning/10 border border-warning/20 rounded-lg p-4 mb-4">
+				<div class="flex items-start">
+					<i class="fas fa-exclamation-triangle text-warning mr-2 mt-0.5"></i>
+					<div>
+						<p class="text-sm text-warning/90 font-medium mb-2">
+							Atenção: Reabertura de Ticket
+						</p>
+						<p class="text-sm text-warning/80">
+							Este ticket será reaberto e voltará ao status "Aberto".
+							O motivo da reabertura será registrado no histórico do ticket.
+						</p>
+					</div>
+				</div>
+			</div>
+
+			<form method="post" action="{{ url_for('tickets.reopen_ticket', ticket_id=ticket.id) }}" class="space-y-4"
+				id="reopen-form">
+				<div>
+					<label for="reopen_reason" class="block text-sm font-medium text-primary mb-2">
+						Motivo da Reabertura (opcional)
+					</label>
+					<textarea name="reopen_reason" id="reopen_reason" class="form-textarea" rows="3"
+						placeholder="Descreva o motivo da reabertura do ticket..."></textarea>
+				</div>
+
+				<div class="flex flex-col sm:flex-row items-center gap-3 justify-end">
+					<button type="button" id="cancel-reopen"
+						class="btn btn-secondary w-full sm:w-auto">Cancelar</button>
+					<button type="submit" class="btn btn-warning w-full sm:w-auto">
+						<i class="fas fa-undo"></i>
+						Confirmar Reabertura
+					</button>
+				</div>
+			</form>
+		</div>
+	</div>
+</div>
+{% endif %}
+
+<!-- Histórico de Horas -->
+<div class="bg-secondary rounded-lg shadow-lg p-6 mb-6">
+	<div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-4">
+		<h2 class="text-lg font-semibold text-primary flex items-center">
+			<i class="fas fa-clock mr-2"></i>
+			Histórico de Horas
+		</h2>
+		<div class="text-sm text-muted">
+			Total: <span class="font-semibold text-primary">{{ ticket.formatted_total_hours() }}</span>
+		</div>
+	</div>
+
+	{% if ticket.time_entries %}
+	<div class="space-y-3">
+		{% for e in ticket.time_entries %}
+		<div class="bg-tertiary rounded-lg p-4">
+			<div class="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+				<div class="flex-1">
+					<div class="flex flex-col sm:flex-row sm:items-center gap-2 mb-2">
+						<span class="text-sm text-muted">{{ e.created_at | brasilia_datetime }}</span>
+						<span class="status-badge status-em-andamento self-start">{{ e.formatted_hours() }}</span>
+					</div>
+
+					<!-- Datas de início e fim -->
+					<div class="flex flex-col sm:flex-row gap-2 mb-2 text-xs text-muted">
+						<div class="flex items-center gap-1">
+							<i class="fas fa-play text-success"></i>
+							<span>Início: {{ e.formatted_start_time() }}</span>
+						</div>
+						<div class="flex items-center gap-1">
+							<i class="fas fa-stop text-error"></i>
+							<span>Fim: {{ e.formatted_end_time() }}</span>
+						</div>
+					</div>
+
+					<!-- Localização -->
+					{% if e.has_location() %}
+					<div class="flex items-center gap-2 mb-2">
+						<button type="button" class="location-icon-btn" data-location-modal="{{ e.id }}"
+							title="Ver localização">
+							<i class="fas fa-map-marker-alt text-info hover:text-info/80"></i>
+						</button>
+						<span class="text-xs text-muted">Localização registrada</span>
+					</div>
+					{% endif %}
+
+					{% if e.comment %}
+					<p class="text-secondary text-sm break-words">{{ e.comment }}</p>
+					{% endif %}
+				</div>
+				<div class="flex flex-col sm:flex-row sm:items-center gap-2">
+					<div class="text-sm text-muted flex items-center">
+						<i class="fas fa-user mr-1"></i>
+						<span class="break-words">{{ e.user.name }}</span>
+					</div>
+					{% if ticket.status != 'fechado' %}
+					<div class="flex gap-1">
+						<a href="{{ url_for('tickets.edit_time_entry', ticket_id=ticket.id, entry_id=e.id) }}"
+							class="btn btn-sm btn-info" title="Editar apontamento">
+							<i class="fas fa-edit"></i>
+						</a>
+						<button class="btn btn-sm btn-danger delete-time-entry" data-entry-id="{{ e.id }}"
+							title="Excluir apontamento">
+							<i class="fas fa-trash"></i>
+						</button>
+					</div>
+					{% endif %}
+				</div>
+			</div>
+		</div>
+		{% endfor %}
+	</div>
+	{% else %}
+	<div class="empty-state">
+		<i class="fas fa-clock"></i>
+		<h3>Nenhum apontamento registrado</h3>
+		<p>Inicie o trabalho ou registre horas manualmente para começar o controle de tempo.</p>
+	</div>
+	{% endif %}
+</div>
+
+{% if ticket.status != 'fechado' and ticket.status != 'cancelado' %}
+<!-- Modal de Apontamento de Horas -->
+<div id="time-modal" class="modal-overlay">
+	<div class="modal w-full max-w-lg md:max-w-2xl mx-4 sm:mx-6 lg:mx-auto">
+		<div class="modal-header">
+			<h3 class="modal-title">
+				<i class="fas fa-clock mr-2"></i>
+				Apontar Horas
+			</h3>
+			<button id="close-time-modal" class="btn btn-sm btn-secondary">
+				<i class="fas fa-times"></i>
+			</button>
+		</div>
+		<form id="time-entry-form" method="post" action="{{ url_for('tickets.add_time', ticket_id=ticket.id) }}"
+			class="space-y-4">
+			<!-- Data e Horários -->
+			<div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+				<div class="form-group">
+					<label class="form-label">Data *</label>
+					<input type="date" id="work-date" required class="form-input" value="">
+				</div>
+				<div class="form-group">
+					<label class="form-label">Hora de Início *</label>
+					<input type="time" id="start-time" required class="form-input" value="">
+				</div>
+				<div class="form-group">
+					<label class="form-label">Hora de Fim *</label>
+					<input type="time" id="end-time" required class="form-input" value="">
+				</div>
+			</div>
+
+			<!-- Campos ocultos para enviar datetime completo -->
+			<input type="hidden" name="start_time" id="hidden-start-time">
+			<input type="hidden" name="end_time" id="hidden-end-time">
+
+			<!-- Campos ocultos individuais como fallback -->
+			<input type="hidden" name="work_date" id="hidden-work-date">
+			<input type="hidden" name="start_time_individual" id="hidden-start-time-individual">
+			<input type="hidden" name="end_time_individual" id="hidden-end-time-individual">
+
+			<div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+				<!-- Duração calculada -->
+				<div class="bg-info/10 border border-info/20 rounded-lg p-3 flex items-center justify-center">
+					<div class="flex items-center gap-2">
+						<i class="fas fa-clock text-info"></i>
+						<span class="text-sm font-medium text-info">Duração:</span>
+						<span id="duration-display" class="text-sm font-bold text-info">0h 0min</span>
+					</div>
+				</div>
+
+				<!-- Apontamento em Grupo Checkbox -->
+				<div class="p-3 bg-gray-50 rounded-lg border border-gray-200 flex items-center">
+					<label class="flex items-center cursor-pointer w-full">
+						<input type="checkbox" id="group-time-entry" name="is_group_entry"
+							class="form-checkbox h-5 w-5 text-primary-600 rounded border-gray-300 focus:ring-primary-500">
+						<span class="ml-2 text-gray-700 font-medium">Apontamento em Grupo</span>
+					</label>
+				</div>
+			</div>
+
+			<!-- Apontamento em Grupo Seletor (quando visível) -->
+			<div id="group-users-container" class="mt-3 hidden transition-all duration-200 ease-in-out">
+				<label class="block text-sm font-medium text-gray-700 mb-1">Selecione os participantes:</label>
+				<div class="relative">
+					<select id="group-users" name="group_users" multiple
+						class="form-select block w-full rounded-md border-gray-300 shadow-sm focus:border-primary-500 focus:ring focus:ring-primary-200 focus:ring-opacity-50 h-auto min-h-[100px] py-2">
+						{% for user in users if user.id != current_user.id and user.status == '1' %}
+						<option value="{{ user.id }}" class="py-2 px-3 hover:bg-primary-50">
+							<div class="flex items-center">
+								<span class="inline-block h-2 w-2 rounded-full bg-green-500 mr-2"></span>
+								<span class="font-medium text-gray-800">{{ user.name }}</span>
+								<span class="text-gray-500 text-sm ml-2">{{ user.email }}</span>
+							</div>
+						</option>
+						{% endfor %}
+					</select>
+				</div>
+				<p class="mt-1 text-xs text-gray-500">Segure Ctrl (ou Cmd no Mac) para selecionar múltiplos usuários</p>
+			</div>
+
+			<!-- Geolocalização (Oculta no computador/desktop) -->
+			<div class="form-group md:hidden">
+				<label class="form-label">Localização</label>
+				<div class="space-y-2">
+					<button type="button" class="btn btn-outline btn-sm w-full" data-capture-location>
+						<i class="fas fa-map-marker-alt"></i>
+						Capturar Localização Atual
+					</button>
+					<div class="text-xs text-muted" data-location-status>
+						<i class="fas fa-map-marker-alt text-warning"></i>
+						<span class="text-warning">Localização não capturada</span>
+					</div>
+				</div>
+			</div>
+
+			<div class="form-group">
+				<label class="form-label">Comentário</label>
+				<textarea name="comment" class="form-textarea" rows="3"
+					placeholder="Descreva o trabalho realizado..."></textarea>
+			</div>
+
+			<!-- Assinatura Digital (Oculta no computador/desktop) -->
+			<div class="form-group md:hidden">
+				<label class="form-label">
+					<i class="fas fa-signature mr-2"></i>
+					Assinatura Digital
+				</label>
+				<div class="border-2 border-dashed border-gray-300 rounded-lg p-4 bg-gray-50">
+					<div id="signature-pad-time" class="signature-pad">
+						<canvas id="signature-canvas-time" width="400" height="200"></canvas>
+					</div>
+					<div class="flex justify-between items-center mt-3">
+						<button type="button" id="clear-signature-time" class="btn btn-sm btn-secondary">
+							<i class="fas fa-eraser mr-1"></i>
+							Limpar
+						</button>
+						<span class="text-xs text-muted">Assine na área acima</span>
+					</div>
+				</div>
+				<input type="hidden" name="signature_data" id="signature-data-time">
+			</div>
+
+			<div class="flex flex-col sm:flex-row items-center gap-3 justify-end">
+				<button type="button" id="cancel-time" class="btn btn-secondary w-full sm:w-auto">Cancelar</button>
+				<button type="button" id="submit-time" class="btn btn-primary w-full sm:w-auto">
+					<i class="fas fa-save"></i>
+					Registrar Horas
+				</button>
+			</div>
+		</form>
+	</div>
+</div>
+
+{% if ticket.status != 'fechado' and ticket.status != 'cancelado' %}
+<!-- Modal Encerrar Sessão -->
+<div id="stop-modal" class="modal-overlay">
+	<div class="modal w-full max-w-lg mx-4 sm:mx-6 lg:mx-auto">
+		<div class="modal-header">
+			<h3 class="modal-title">
+				<i class="fas fa-stop mr-2"></i>
+				Encerrar Sessão
+			</h3>
+			<button id="close-stop-modal" class="btn btn-sm btn-secondary">
+				<i class="fas fa-times"></i>
+			</button>
+		</div>
+		<form method="post" action="{{ url_for('tickets.stop_ticket', ticket_id=ticket.id) }}" class="space-y-4"
+			id="stop-ticket-form">
+			<div class="bg-warning/10 border border-warning/20 rounded-lg p-4">
+				<div class="flex items-start">
+					<i class="fas fa-info-circle text-warning mr-2 mt-0.5"></i>
+					<p class="text-sm text-warning/90">
+						Ao encerrar, criaremos um apontamento com o período desde o início em andamento até agora.
+					</p>
+				</div>
+			</div>
+
+			<!-- Status de Geolocalização -->
+			<div class="form-group">
+				<label class="form-label">Localização</label>
+				<div class="text-xs text-muted" id="stop-location-status">
+					<i class="fas fa-map-marker-alt text-info"></i>
+					<span class="text-info">Localização será capturada automaticamente</span>
+				</div>
+			</div>
+
+			<div class="form-group">
+				<label class="form-label">Comentário (opcional)</label>
+				<textarea name="comment" class="form-textarea" rows="3"
+					placeholder="Descreva o trabalho realizado nesta sessão..."></textarea>
+			</div>
+
+			<!-- Campo de assinatura digital (oculto por padrão) -->
+			<div id="signature-field-stop" class="form-group hidden">
+				<label class="form-label">
+					<i class="fas fa-signature mr-2"></i>
+					Assinatura Digital
+				</label>
+				<div class="border-2 border-dashed border-gray-300 rounded-lg p-4 bg-gray-50">
+					<div id="signature-pad-stop-toggle" class="signature-pad">
+						<canvas id="signature-canvas-stop-toggle" width="400" height="200"></canvas>
+					</div>
+					<div class="flex justify-between items-center mt-3">
+						<button type="button" id="clear-signature-stop-toggle" class="btn btn-sm btn-secondary">
+							<i class="fas fa-eraser mr-1"></i>
+							Limpar
+						</button>
+						<span class="text-xs text-muted">Assine na área acima</span>
+					</div>
+				</div>
+				<input type="hidden" name="signature_data" id="signature-data-stop-toggle">
+			</div>
+
+			<div class="flex flex-col sm:flex-row items-center gap-3 justify-between">
+				<button type="button" class="btn btn-sm btn-info" onclick="toggleSignatureFieldStop()">
+					<i class="fas fa-signature"></i>
+					<span id="signature-toggle-text-stop">Adicionar Assinatura</span>
+				</button>
+				<div class="flex flex-col sm:flex-row items-center gap-3">
+					<button type="button" id="cancel-stop" class="btn btn-secondary w-full sm:w-auto">Cancelar</button>
+					<button type="button" id="stop-ticket-btn" class="btn btn-warning w-full sm:w-auto">
+						<i class="fas fa-stop"></i>
+						Encerrar Sessão
+					</button>
+				</div>
+			</div>
+		</form>
+	</div>
+</div>
+{% endif %}
+
+<!-- Modal de Fechamento -->
+<div id="close-modal" class="modal-overlay">
+	<div class="modal w-full max-w-2xl mx-4 sm:mx-6 lg:mx-auto">
+		<div class="modal-header">
+			<h3 class="modal-title">
+				<i class="fas fa-times mr-2"></i>
+				Fechar Ticket
+			</h3>
+			<button id="close-close-modal" class="btn btn-sm btn-secondary">
+				<i class="fas fa-times"></i>
+			</button>
+		</div>
+
+		<!-- Resumo do Ticket -->
+		<div class="bg-tertiary rounded-lg p-4 mb-6">
+			<h4 class="font-semibold text-primary mb-3">Resumo do Ticket</h4>
+			<div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+				<div>
+					<span class="font-medium text-primary">Cliente:</span>
+					<span class="text-secondary">{{ ticket.client.name if ticket.client else ticket.external_client_name
+						}}</span>
+				</div>
+				{% if ticket.solicitante %}
+				<div>
+					<span class="font-medium text-primary">Solicitante:</span>
+					<span class="text-secondary">{{ ticket.solicitante }}</span>
+				</div>
+				{% endif %}
+				<div>
+					<span class="font-medium text-primary">Serviço:</span>
+					<span class="text-secondary">{{ ticket.service.name if ticket.service else '—' }}</span>
+				</div>
+				{% if contract_info %}
+				<div>
+					<span class="font-medium text-primary">Contrato:</span>
+					<div class="flex items-center gap-2">
+						<span class="text-secondary">{{ contract_info.contract_type or '—' }}</span>
+						{% if contract_info.no_charge %}
+						<span class="status-badge status-fechado">
+							<i class="fas fa-gift"></i>
+							Não cobra
+						</span>
+						{% endif %}
+					</div>
+				</div>
+				{% endif %}
+				<div>
+					<span class="font-medium text-primary">Horas total:</span>
+					<span class="text-secondary">{{ ticket.formatted_total_hours() }}</span>
+				</div>
+				{% if ticket.service %}
+				<div>
+					<span class="font-medium text-primary">Valor hora:</span>
+					<span class="text-secondary">R$ {{ '%.2f'|format(ticket.service.hourly_rate or 0) }}</span>
+				</div>
+				{% endif %}
+			</div>
+		</div>
+
+		<!-- Cálculo do Valor Total -->
+		<div id="cost-calculation-container"
+			class="bg-success/10 border border-success/20 rounded-lg p-4 mb-6 {% if not should_show_costs %}hidden{% endif %}">
+			<h4 class="font-semibold text-primary mb-3 flex items-center">
+				<i class="fas fa-calculator mr-2"></i>
+				Valor Total do Atendimento
+			</h4>
+			<div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+				<div class="text-center">
+					<div class="text-2xl font-bold text-success">{{ ticket.formatted_total_hours() }}</div>
+					<div class="text-muted">Horas Apontadas</div>
+				</div>
+				<div class="text-center">
+					<div class="text-2xl font-bold text-primary">
+						R$ {{ '%.2f'|format(ticket.service.hourly_rate or 0) }}
+					</div>
+					<div class="text-muted">Valor por Hora</div>
+				</div>
+				<div class="text-center">
+					<div class="text-3xl font-bold text-success">
+						R$ {{ '%.2f'|format((ticket.total_hours() * (ticket.service.hourly_rate or 0))) }}
+					</div>
+					<div class="text-muted">Valor Total</div>
+				</div>
+			</div>
+			{% if ticket.service and ticket.service.hourly_rate %}
+			<div class="mt-3 text-xs text-muted text-center">
+				Cálculo: {{ ticket.total_hours() }}h × R$ {{ '%.2f'|format(ticket.service.hourly_rate) }} = R$ {{
+				'%.2f'|format((ticket.total_hours() * ticket.service.hourly_rate)) }}
+			</div>
+			{% else %}
+			<div class="mt-3 text-xs text-warning text-center">
+				<i class="fas fa-exclamation-triangle mr-1"></i>
+				Serviço sem valor por hora definido
+			</div>
+			{% endif %}
+		</div>
+		<!-- Informação de contrato (Isento) -->
+		<div id="no-charge-info-container"
+			class="bg-info/10 border border-info/20 rounded-lg p-4 mb-6 {% if should_show_costs %}hidden{% endif %}">
+			<h4 class="font-semibold text-primary mb-3 flex items-center">
+				<i class="fas fa-handshake mr-2"></i>
+				Atendimento Contemplado por Contrato
+			</h4>
+			<div class="text-center">
+				<div class="text-2xl font-bold text-info mb-2">
+					<i class="fas fa-gift"></i>
+					Sem Cobrança
+				</div>
+				<div class="text-muted mb-3">
+					Este atendimento está contemplado pelo contrato do cliente
+				</div>
+
+				<button type="button" id="toggle-force-charge" class="btn btn-xs btn-outline-info">
+					<i class="fas fa-exchange-alt mr-1"></i>
+					Alterar para COBRAR este atendimento
+				</button>
+
+				{% if contract_info and contract_info.contract_type %}
+				<div class="text-xs text-muted mt-3">
+					Tipo de contrato: {{ contract_info.contract_type }}
+				</div>
+				{% endif %}
+			</div>
+		</div>
+
+		<div id="close-ticket-form" class="space-y-4">
+			<input type="hidden" id="force_charge_input" value="0">
+
+			<div id="manual-cost-container" class="form-group {% if not should_show_costs %}hidden{% endif %}">
+				<label class="form-label">Valor manual (opcional)</label>
+				<input type="number" step="0.01" min="0" name="manual_total_cost" id="manual_total_cost"
+					class="form-input"
+					placeholder="R$ {{ '%.2f'|format((ticket.total_hours() * (ticket.service.hourly_rate or 0))) }}">
+				<div class="form-help">
+					Deixe em branco para usar o valor calculado automaticamente:
+					<strong>R$ {{ '%.2f'|format((ticket.total_hours() * (ticket.service.hourly_rate or 0))) }}</strong>
+				</div>
+			</div>
+
+			<div class="bg-tertiary rounded-lg p-4 space-y-3">
+				<label class="form-label">Produtos (opcional)</label>
+				<button type="button" id="abrir-modal-produtos-fechamento" class="btn btn-secondary w-full sm:w-auto">
+					<i class="fas fa-boxes"></i>
+					Editar produtos antes de fechar
+				</button>
+				<div id="resumo-produtos-fechamento" class="hidden bg-slate-900/50 border border-slate-700 rounded-lg p-3 text-sm text-slate-300"></div>
+			</div>
+
+			<div id="force-charge-warning" class="hidden bg-warning/10 border border-warning/20 rounded-lg p-3 mb-4">
+				<div class="flex items-center text-warning text-xs">
+					<i class="fas fa-exclamation-triangle mr-2"></i>
+					<span>Atenção: Você está forçando a cobrança deste atendimento isento por contrato.</span>
+					<button type="button" id="reset-force-charge"
+						class="ml-auto text-primary hover:underline font-bold">
+						Desfazer
+					</button>
+				</div>
+			</div>
+
+			{% if not ticket.time_entries %}
+			<div class="bg-error/10 border border-error/20 rounded-lg p-4">
+				<div class="flex items-start">
+					<i class="fas fa-exclamation-triangle text-error mr-2 mt-0.5"></i>
+					<p class="text-sm text-error/90">
+						<strong>Atenção:</strong> Para fechar o ticket, é necessário pelo menos um apontamento de horas.
+					</p>
+				</div>
+			</div>
+			{% endif %}
+
+			<!-- WhatsApp Notification -->
+			<div class="bg-primary/5 border border-primary/20 rounded-lg p-4 mb-4">
+				<div class="flex items-center mb-3">
+					<input type="checkbox" name="send_whatsapp" id="send_whatsapp" class="form-checkbox h-5 w-5 text-success rounded border-gray-300 focus:ring-success" onchange="toggleWhatsappTemplate()">
+					<label for="send_whatsapp" class="ml-2 block text-sm font-medium text-primary cursor-pointer">
+						<i class="fab fa-whatsapp text-success mr-1"></i>
+						Enviar mensagem automática via WhatsApp
+					</label>
+				</div>
+				<div id="whatsapp-template-container" class="hidden space-y-2 mt-3">
+					<div class="form-group mb-3">
+						<label for="whatsapp_number" class="form-label text-xs">Número do WhatsApp (DDD + Número)</label>
+						<input type="text" name="whatsapp_number" id="whatsapp_number" class="form-input text-sm" 
+							placeholder="Ex: 11999999999" 
+							value="{{ client_phone or '' }}">
+					</div>
+					<label class="form-label text-xs">Mensagem do Usuário (será salva para futuros fechamentos)</label>
+					<textarea name="whatsapp_message" id="whatsapp_message" class="form-textarea text-sm" rows="4" placeholder="Olá {cliente}, seu atendimento de código #{ticket_id} foi finalizado com o valor de R$ {valor}.">{% if current_user.whatsapp_message_template %}{{ current_user.whatsapp_message_template }}{% else %}Olá {cliente}, seu atendimento de código #{ticket_id} foi finalizado com o valor de R$ {valor}.{% endif %}</textarea>
+					<div class="text-[10px] text-muted">
+						Tags disponíveis: <code class="bg-secondary px-1 rounded">{cliente}</code>, <code class="bg-secondary px-1 rounded">{ticket_id}</code>, <code class="bg-secondary px-1 rounded">{valor}</code>
+					</div>
+				</div>
+			</div>
+
+			<script>
+				function toggleWhatsappTemplate() {
+					const checkbox = document.getElementById('send_whatsapp');
+					const container = document.getElementById('whatsapp-template-container');
+					if (checkbox.checked) {
+						container.classList.remove('hidden');
+					} else {
+						container.classList.add('hidden');
+					}
+				}
+			</script>
+
+			<div class="flex flex-col sm:flex-row items-center gap-3 justify-end">
+				<button type="button" id="cancel-close" class="btn btn-secondary w-full sm:w-auto">Cancelar</button>
+				<button type="button" id="confirm-close-ticket" class="btn btn-error w-full sm:w-auto" {% if not ticket.time_entries %}disabled{% endif %}>
+					<i class="fas fa-times"></i>
+					Confirmar Fechamento
+				</button>
+			</div>
+		</div>
+	</div>
+</div>
+
+<!-- Modal de Cancelamento -->
+<div id="cancel-modal" class="modal-overlay">
+	<div class="modal w-full max-w-lg mx-4 sm:mx-6 lg:mx-auto">
+		<div class="modal-header">
+			<h3 class="modal-title">
+				<i class="fas fa-ban mr-2"></i>
+				Cancelar Ticket
+			</h3>
+			<button id="close-cancel-modal" class="btn btn-sm btn-secondary">
+				<i class="fas fa-times"></i>
+			</button>
+		</div>
+
+		<div class="modal-body">
+			<div class="bg-warning/10 border border-warning/20 rounded-lg p-4 mb-4">
+				<div class="flex items-start">
+					<i class="fas fa-exclamation-triangle text-warning mr-2 mt-0.5"></i>
+					<div>
+						<p class="text-sm text-warning/90 font-medium mb-2">
+							<strong>Atenção:</strong> Esta ação não pode ser desfeita!
+						</p>
+						<ul class="text-sm text-warning/80 space-y-1">
+							<li>• O ticket será marcado como <strong>cancelado</strong></li>
+							<li>• Todos os apontamentos de horas serão <strong>removidos permanentemente</strong></li>
+							<li>• Esta ação só é permitida em tickets que não foram fechados</li>
+						</ul>
+					</div>
+				</div>
+			</div>
+
+			{% if ticket.time_entries %}
+			<div class="bg-info/10 border border-info/20 rounded-lg p-4 mb-4">
+				<div class="flex items-center">
+					<i class="fas fa-info-circle text-info mr-2"></i>
+					<p class="text-sm text-info/90">
+						<strong>Apontamentos encontrados:</strong> {{ ticket.time_entries|length }}
+						(Total: {{ ticket.formatted_total_hours() }})
+					</p>
+				</div>
+			</div>
+			{% endif %}
+
+			<form method="post" action="{{ url_for('tickets.cancel_ticket', ticket_id=ticket.id) }}" class="space-y-4">
+				<div class="form-group">
+					<label class="form-label">Motivo do cancelamento (opcional)</label>
+					<textarea name="cancel_reason" class="form-textarea" rows="3"
+						placeholder="Descreva o motivo do cancelamento..."></textarea>
+				</div>
+
+				<div class="flex flex-col sm:flex-row items-center gap-3 justify-end">
+					<button type="button" id="cancel-cancel"
+						class="btn btn-secondary w-full sm:w-auto">Cancelar</button>
+					<button type="submit" class="btn btn-warning w-full sm:w-auto">
+						<i class="fas fa-ban"></i>
+						Confirmar Cancelamento
+					</button>
+				</div>
+			</form>
+		</div>
+	</div>
+</div>
+
+
+
+<script>
+	document.addEventListener('DOMContentLoaded', function () {
+		// Controle do campo de apontamento em grupo com animação
+		const groupTimeEntryCheckbox = document.getElementById('group-time-entry');
+		const groupUsersContainer = document.getElementById('group-users-container');
+		const groupUsersSelect = document.getElementById('group-users');
+
+		if (groupTimeEntryCheckbox && groupUsersContainer) {
+			// Adiciona classe de transição quando o container for mostrado pela primeira vez
+			setTimeout(() => {
+				groupUsersContainer.style.transition = 'all 0.3s ease-in-out';
+			}, 10);
+
+			// Adiciona classe de estilização para o select múltiplo
+			if (groupUsersSelect) {
+				groupUsersSelect.classList.add('form-multiselect-style');
+			}
+
+			// Mostra/esconde o container com animação
+			groupTimeEntryCheckbox.addEventListener('change', function () {
+				if (this.checked) {
+					groupUsersContainer.classList.remove('hidden');
+					// Força o navegador a reconhecer a mudança de display: none para block
+					setTimeout(() => {
+						groupUsersContainer.style.opacity = '0';
+						groupUsersContainer.style.transform = 'translateY(-10px)';
+
+						setTimeout(() => {
+							groupUsersContainer.style.opacity = '1';
+							groupUsersContainer.style.transform = 'translateY(0)';
+						}, 10);
+					}, 10);
+				} else {
+					groupUsersContainer.style.opacity = '0';
+					groupUsersContainer.style.transform = 'translateY(-10px)';
+
+					setTimeout(() => {
+						groupUsersContainer.classList.add('hidden');
+					}, 300);
+				}
+			});
+		}
+		// Função auxiliar para abrir modal
+		function openModal(modalId) {
+			const modal = document.getElementById(modalId);
+			if (modal) {
+				modal.classList.add('active');
+			}
+		}
+
+		// Função auxiliar para fechar modal
+		function closeModal(modalId) {
+			const modal = document.getElementById(modalId);
+			if (modal) {
+				modal.classList.remove('active');
+			}
+		}
+
+		// Modal de apontamento de horas
+		const timeModal = document.getElementById('time-modal');
+		const openTimeBtn = document.getElementById('open-time-modal');
+		console.log('Time modal:', timeModal);
+		console.log('Open time btn:', openTimeBtn);
+		if (openTimeBtn) {
+			openTimeBtn.addEventListener('click', () => {
+				console.log('Opening time modal');
+				openModal('time-modal');
+			});
+		}
+		document.getElementById('close-time-modal').addEventListener('click', () => closeModal('time-modal'));
+		document.getElementById('cancel-time').addEventListener('click', () => closeModal('time-modal'));
+		timeModal.addEventListener('click', (e) => {
+			if (e.target === timeModal) closeModal('time-modal');
+		});
+
+		// Modal de encerrar sessão
+		const stopModal = document.getElementById('stop-modal');
+		const openStopBtn = document.getElementById('open-stop-modal');
+		if (openStopBtn) {
+			openStopBtn.addEventListener('click', () => openModal('stop-modal'));
+		}
+		document.getElementById('close-stop-modal').addEventListener('click', () => closeModal('stop-modal'));
+		document.getElementById('cancel-stop').addEventListener('click', () => closeModal('stop-modal'));
+		stopModal.addEventListener('click', (e) => {
+			if (e.target === stopModal) closeModal('stop-modal');
+		});
+
+		// Modal de fechamento
+		const closeModalEl = document.getElementById('close-modal');
+		const openCloseBtn = document.getElementById('open-close-modal');
+		if (openCloseBtn) {
+			openCloseBtn.addEventListener('click', () => openModal('close-modal'));
+		}
+		document.getElementById('close-close-modal').addEventListener('click', () => closeModal('close-modal'));
+		document.getElementById('cancel-close').addEventListener('click', () => closeModal('close-modal'));
+		closeModalEl.addEventListener('click', (e) => {
+			if (e.target === closeModalEl) closeModal('close-modal');
+		});
+
+		// Modal de cancelamento
+		const cancelModalEl = document.getElementById('cancel-modal');
+		const openCancelBtn = document.getElementById('open-cancel-modal');
+		if (openCancelBtn) {
+			openCancelBtn.addEventListener('click', () => openModal('cancel-modal'));
+		}
+		document.getElementById('close-cancel-modal').addEventListener('click', () => closeModal('cancel-modal'));
+		document.getElementById('cancel-cancel').addEventListener('click', () => closeModal('cancel-modal'));
+		cancelModalEl.addEventListener('click', (e) => {
+			if (e.target === cancelModalEl) closeModal('cancel-modal');
+		});
+
+		// Modal de reabertura - usando ModalManager global
+		// O botão de cancelar ainda precisa de evento específico
+		if (document.getElementById('cancel-reopen')) {
+			document.getElementById('cancel-reopen').addEventListener('click', () => {
+				if (window.modalManager) {
+					window.modalManager.close(document.getElementById('reopen-modal'));
+				}
+			});
+		}
+
+
+		// Função para definir valores padrão inteligentes
+		function setSmartDefaults() {
+			const workDateInput = document.getElementById('work-date');
+			const startTimeInput = document.getElementById('start-time');
+			const endTimeInput = document.getElementById('end-time');
+
+			if (workDateInput && startTimeInput && endTimeInput) {
+				const now = new Date();
+				const year = now.getFullYear();
+				const month = String(now.getMonth() + 1).padStart(2, '0');
+				const day = String(now.getDate()).padStart(2, '0');
+
+				// Definir apenas a data como hoje
+				workDateInput.value = `${year}-${month}-${day}`;
+
+				// Limpar os campos de horário para permitir entrada manual
+				startTimeInput.value = '';
+				endTimeInput.value = '';
+
+				// Limpar a exibição de duração
+				const durationDisplay = document.getElementById('duration-display');
+				if (durationDisplay) {
+					durationDisplay.textContent = '0h 0min';
+				}
+			}
+		}
+
+		// Função para calcular duração
+		function calculateDuration() {
+			const workDate = document.getElementById('work-date').value;
+			const startTime = document.getElementById('start-time').value;
+			const endTime = document.getElementById('end-time').value;
+			const durationDisplay = document.getElementById('duration-display');
+
+			console.log('calculateDuration called with:', { workDate, startTime, endTime });
+
+			// Verificar se todos os campos estão preenchidos
+			if (!workDate || !startTime || !endTime) {
+				if (durationDisplay) {
+					durationDisplay.textContent = 'Preencha todos os campos';
+				}
+				// Limpar campos hidden se não há dados suficientes
+				const hiddenStartTime = document.getElementById('hidden-start-time');
+				const hiddenEndTime = document.getElementById('hidden-end-time');
+				if (hiddenStartTime) hiddenStartTime.value = '';
+				if (hiddenEndTime) hiddenEndTime.value = '';
+				return;
+			}
+
+			try {
+				const startDateTime = new Date(`${workDate}T${startTime}`);
+				const endDateTime = new Date(`${workDate}T${endTime}`);
+
+				console.log('Calculating duration:');
+				console.log('startDateTime:', startDateTime);
+				console.log('endDateTime:', endDateTime);
+
+				// Verificar se as datas são válidas
+				if (isNaN(startDateTime.getTime()) || isNaN(endDateTime.getTime())) {
+					if (durationDisplay) {
+						durationDisplay.textContent = 'Horários inválidos';
+					}
+					return;
+				}
+
+				if (endDateTime > startDateTime) {
+					const diffMs = endDateTime - startDateTime;
+					const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+					const diffMinutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
+
+					console.log('Duration calculation:');
+					console.log('diffMs:', diffMs);
+					console.log('diffHours:', diffHours);
+					console.log('diffMinutes:', diffMinutes);
+
+					if (durationDisplay) {
+						durationDisplay.textContent = `${diffHours}h ${diffMinutes}min`;
+					}
+
+					// Atualizar campos ocultos
+					const hiddenStartTime = document.getElementById('hidden-start-time');
+					const hiddenEndTime = document.getElementById('hidden-end-time');
+					const hiddenWorkDate = document.getElementById('hidden-work-date');
+					const hiddenStartTimeIndividual = document.getElementById('hidden-start-time-individual');
+					const hiddenEndTimeIndividual = document.getElementById('hidden-end-time-individual');
+
+					const startDateTimeValue = `${workDate}T${startTime}`;
+					const endDateTimeValue = `${workDate}T${endTime}`;
+
+					console.log('Setting hidden fields:');
+					console.log('Start:', startDateTimeValue);
+					console.log('End:', endDateTimeValue);
+
+					// Campos principais (datetime completo)
+					if (hiddenStartTime) hiddenStartTime.value = startDateTimeValue;
+					if (hiddenEndTime) hiddenEndTime.value = endDateTimeValue;
+
+					// Campos individuais (fallback)
+					if (hiddenWorkDate) hiddenWorkDate.value = workDate;
+					if (hiddenStartTimeIndividual) hiddenStartTimeIndividual.value = startTime;
+					if (hiddenEndTimeIndividual) hiddenEndTimeIndividual.value = endTime;
+				} else {
+					if (durationDisplay) {
+						durationDisplay.textContent = 'Horário de fim deve ser maior que o de início';
+					}
+					// Limpar campos hidden se horário inválido
+					const hiddenStartTime = document.getElementById('hidden-start-time');
+					const hiddenEndTime = document.getElementById('hidden-end-time');
+					if (hiddenStartTime) hiddenStartTime.value = '';
+					if (hiddenEndTime) hiddenEndTime.value = '';
+				}
+			} catch (error) {
+				console.error('Error in calculateDuration:', error);
+				if (durationDisplay) {
+					durationDisplay.textContent = 'Erro no cálculo';
+				}
+			}
+		}
+
+		// Event listeners para calcular duração em tempo real
+		document.addEventListener('DOMContentLoaded', function () {
+			const workDateInput = document.getElementById('work-date');
+			const startTimeInput = document.getElementById('start-time');
+			const endTimeInput = document.getElementById('end-time');
+
+			if (workDateInput && startTimeInput && endTimeInput) {
+				workDateInput.addEventListener('change', calculateDuration);
+				startTimeInput.addEventListener('change', calculateDuration);
+				endTimeInput.addEventListener('input', calculateDuration);
+			}
+
+			// Formulário encontrado (para debug)
+			const timeForm = document.getElementById('time-entry-form');
+			if (timeForm) {
+				console.log('Time form found');
+			} else {
+				console.log('Time form NOT found!');
+			}
+		});
+
+		// Inicializar valores padrão quando o modal for aberto
+		document.getElementById('open-time-modal').addEventListener('click', function () {
+			setTimeout(setSmartDefaults, 100);
+		});
+
+		// Botão de envio definitivo
+		const submitBtn = document.getElementById('submit-time');
+		if (submitBtn) {
+			submitBtn.addEventListener('click', function () {
+				console.log('Submit button clicked');
+
+				// Verificar se os campos estão preenchidos
+				const workDate = document.getElementById('work-date').value;
+				const startTime = document.getElementById('start-time').value;
+				const endTime = document.getElementById('end-time').value;
+
+				if (!workDate || !startTime || !endTime) {
+					alert('Por favor, preencha todos os campos obrigatórios.');
+					return;
+				}
+
+				// Forçar cálculo
+				calculateDuration();
+
+				// Verificar campos hidden
+				const hiddenStartTime = document.getElementById('hidden-start-time').value;
+				const hiddenEndTime = document.getElementById('hidden-end-time').value;
+
+				console.log('Hidden fields:');
+				console.log('hiddenStartTime:', hiddenStartTime);
+				console.log('hiddenEndTime:', hiddenEndTime);
+
+				if (!hiddenStartTime || !hiddenEndTime) {
+					alert('Erro: Campos de horário não foram preenchidos corretamente. Tente novamente.');
+					return;
+				}
+
+				// Submeter o formulário
+				const form = document.getElementById('time-entry-form');
+				if (form) {
+					console.log('Submitting form');
+					form.submit();
+				} else {
+					console.log('Form not found!');
+				}
+			});
+		}
+
+		// Event listener para botão de deletar apontamento
+		document.addEventListener('click', function (e) {
+			if (e.target.closest('.delete-time-entry')) {
+				const button = e.target.closest('.delete-time-entry');
+				const entryId = button.getAttribute('data-entry-id');
+				deleteTimeEntry(entryId);
+			}
+		});
+
+		// Função para deletar apontamento
+		async function deleteTimeEntry(entryId) {
+			console.log('deleteTimeEntry called with entryId:', entryId);
+
+			if (confirm('Tem certeza que deseja excluir este apontamento? Esta ação não pode ser desfeita.')) {
+				console.log('User confirmed deletion');
+
+				try {
+					// Mostrar loading no botão
+					const deleteBtn = event.target.closest('button');
+					const originalHTML = deleteBtn.innerHTML;
+					deleteBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+					deleteBtn.disabled = true;
+
+					console.log('Making request to:', `/tickets/{{ ticket.id }}/time-entry/${entryId}/delete`);
+
+					// Fazer a requisição AJAX
+					const response = await fetch(`/tickets/{{ ticket.id }}/time-entry/${entryId}/delete`, {
+						method: 'POST',
+						headers: {
+							'Content-Type': 'application/json',
+							'X-Requested-With': 'XMLHttpRequest'
+						}
+					});
+
+					console.log('Response status:', response.status);
+					console.log('Response ok:', response.ok);
+
+					if (response.ok) {
+						// Sucesso - recarregar a página para mostrar as mudanças
+						console.log('Deletion successful, reloading page');
+						window.location.reload();
+					} else {
+						// Erro
+						const errorData = await response.json();
+						console.log('Error data:', errorData);
+						alert('Erro ao excluir apontamento: ' + (errorData.message || 'Erro desconhecido'));
+
+						// Restaurar botão
+						deleteBtn.innerHTML = originalHTML;
+						deleteBtn.disabled = false;
+					}
+
+				} catch (error) {
+					console.error('Erro ao excluir apontamento:', error);
+					alert('Erro ao excluir apontamento. Tente novamente.');
+
+					// Restaurar botão
+					const deleteBtn = event.target.closest('button');
+					deleteBtn.innerHTML = '<i class="fas fa-trash"></i>';
+					deleteBtn.disabled = false;
+				}
+			} else {
+				console.log('User cancelled deletion');
+			}
+		}
+	});
+</script>
+
+<script>
+	// Variáveis globais para o modal de cancelamento de PS
+	window.currentTicketId = null;
+	window.currentPsNumber = null;
+	window.currentTotalCost = null;
+
+	// Script de cancelamento de PS carregado
+	console.log('=== SCRIPT CARREGADO ===');
+
+	// Verificar se o botão existe quando a página carrega
+	document.addEventListener('DOMContentLoaded', function () {
+		console.log('=== DOMContentLoaded EXECUTADO ===');
+		console.log('Script carregado com sucesso!');
+
+		// Debug das condições para exibir o botão
+		console.log('=== DEBUG BOTÃO CANCELAR PS ===');
+		console.log('Ticket data:', {
+			id: '{{ ticket.id }}',
+			ps_printed: {{ 'true' if ticket.ps_printed else 'false' }},
+		ps_number: '{{ ticket.ps_number or "" }}',
+		total_cost: {{ ticket.total_cost or 0 }},
+		status: '{{ ticket.status }}'
+		});
+	const cancelPsBtn = document.querySelector('.cancel-ps-btn');
+
+	if (cancelPsBtn) {
+		// Event listener para o botão cancelar PS
+		cancelPsBtn.addEventListener('click', function (e) {
+			e.preventDefault();
+
+			const ticketId = this.getAttribute('data-ticket-id');
+			const psNumber = this.getAttribute('data-ps-number');
+			const totalCost = parseFloat(this.getAttribute('data-total-cost'));
+
+			// Abrir modal de cancelamento
+			if (window.modalManager) {
+				openCancelPSModal(ticketId, psNumber, totalCost);
+			} else {
+				alert('Erro: ModalManager não encontrado!');
+			}
+		});
+	}
+
+
+
+	// Event listeners para o modal de cancelamento de PS
+	const cancelPsModal = document.getElementById('cancel-ps-modal');
+	const closeCancelPsModal = document.getElementById('close-cancel-ps-modal');
+	const cancelPsCancel = document.getElementById('cancel-ps-cancel');
+	const confirmCancelPs = document.getElementById('confirm-cancel-ps');
+
+	if (closeCancelPsModal) {
+		closeCancelPsModal.addEventListener('click', () => window.modalManager.close(document.getElementById('cancel-ps-modal')));
+	}
+
+	if (cancelPsCancel) {
+		cancelPsCancel.addEventListener('click', () => window.modalManager.close(document.getElementById('cancel-ps-modal')));
+	}
+
+	if (confirmCancelPs) {
+		confirmCancelPs.addEventListener('click', () => {
+			if (window.currentTicketId) {
+				cancelPS(window.currentTicketId);
+			}
+		});
+	}
+
+	if (cancelPsModal) {
+		cancelPsModal.addEventListener('click', (e) => {
+			if (e.target === cancelPsModal) window.modalManager.close(cancelPsModal);
+		});
+	}
+});
+
+	// Função para abrir o modal de cancelamento de PS
+	function openCancelPSModal(ticketId, psNumber, totalCost) {
+		console.log('Opening cancel PS modal:', { ticketId, psNumber, totalCost });
+
+		// Armazenar dados globais
+		window.currentTicketId = ticketId;
+		window.currentPsNumber = psNumber;
+		window.currentTotalCost = totalCost;
+
+		// Preencher detalhes da PS no modal
+		const psDetails = document.getElementById('ps-details');
+		if (psDetails) {
+			psDetails.innerHTML = `
+			<div class="bg-white/10 rounded p-3">
+				<div><strong>Ticket:</strong> #${ticketId}</div>
+				<div><strong>PS:</strong> ${psNumber}</div>
+				<div><strong>Valor:</strong> R$ ${totalCost.toFixed(2)}</div>
+			</div>
+		`;
+		}
+
+		// Abrir modal usando o sistema global
+		window.modalManager.open('cancel-ps-modal');
+	}
+
+	// Função para executar o cancelamento
+	async function cancelPS(ticketId) {
+		const confirmButton = document.getElementById('confirm-cancel-ps');
+		const originalText = confirmButton.innerHTML;
+
+		// Mostrar loading no botão de confirmação
+		confirmButton.classList.add('loading');
+		confirmButton.innerHTML = '<i class="fas fa-spinner fa-spin"></i>Cancelando...';
+		confirmButton.disabled = true;
+
+		// Fechar modal usando o sistema global
+		window.modalManager.close(document.getElementById('cancel-ps-modal'));
+
+		try {
+			console.log('Sending cancel PS request for ticket:', ticketId);
+
+			const response = await fetch(`/tickets/${ticketId}/cancel-ps`, {
+				method: 'POST',
+				headers: {
+					'Content-Type': 'application/json',
+				}
+			});
+
+			const data = await response.json();
+			console.log('Cancel PS response:', data);
+
+			if (data.success) {
+				// Sucesso - mostrar alerta e recarregar
+				alert(`✅ ${data.message}\n\nA página será recarregada.`);
+				window.location.reload();
+			} else {
+				// Erro - mostrar alerta e restaurar botão
+				alert(`❌ Erro: ${data.error}\n\n${data.details || ''}`);
+				confirmButton.classList.remove('loading');
+				confirmButton.innerHTML = originalText;
+				confirmButton.disabled = false;
+			}
+		} catch (error) {
+			console.error('Erro ao cancelar PS:', error);
+			alert(`❌ Erro de conexão: ${error.message}`);
+			confirmButton.classList.remove('loading');
+			confirmButton.innerHTML = originalText;
+			confirmButton.disabled = false;
+		}
+	}
+</script>
+
+{% endif %}
+
+<!-- Script para Cancelar PS -->
+<script>
+	// Variáveis globais para o modal de cancelamento de PS
+	window.currentPsNumber = null;
+	window.currentTotalCost = null;
+
+	// Verificar se o botão existe quando a página carrega
+	document.addEventListener('DOMContentLoaded', function () {
+		const cancelPsBtn = document.querySelector('.cancel-ps-btn');
+
+		if (cancelPsBtn) {
+			// Event listener para o botão cancelar PS
+			cancelPsBtn.addEventListener('click', function (e) {
+				e.preventDefault();
+
+				const ticketId = this.getAttribute('data-ticket-id');
+				const psNumber = this.getAttribute('data-ps-number');
+				const totalCost = parseFloat(this.getAttribute('data-total-cost'));
+
+				// Abrir modal de cancelamento
+				if (window.modalManager) {
+					openCancelPSModal(ticketId, psNumber, totalCost);
+				} else {
+					alert('Erro: ModalManager não encontrado!');
+				}
+			});
+		}
+
+		// Event listeners para o modal de cancelamento de PS
+		const cancelPsModal = document.getElementById('cancel-ps-modal');
+		const closeCancelPsModal = document.getElementById('close-cancel-ps-modal');
+		const cancelPsCancel = document.getElementById('cancel-ps-cancel');
+		const confirmCancelPs = document.getElementById('confirm-cancel-ps');
+
+		if (closeCancelPsModal) {
+			closeCancelPsModal.addEventListener('click', () => window.modalManager.close(document.getElementById('cancel-ps-modal')));
+		}
+
+		if (cancelPsCancel) {
+			cancelPsCancel.addEventListener('click', () => window.modalManager.close(document.getElementById('cancel-ps-modal')));
+		}
+
+		if (confirmCancelPs) {
+			confirmCancelPs.addEventListener('click', () => {
+				if (window.currentTicketId) {
+					cancelPS(window.currentTicketId);
+				}
+			});
+		}
+
+		if (cancelPsModal) {
+			cancelPsModal.addEventListener('click', (e) => {
+				if (e.target === cancelPsModal) window.modalManager.close(cancelPsModal);
+			});
+		}
+	});
+
+	// Função para abrir o modal de cancelamento de PS
+	function openCancelPSModal(ticketId, psNumber, totalCost) {
+		// Armazenar dados globais
+		window.currentTicketId = ticketId;
+		window.currentPsNumber = psNumber;
+		window.currentTotalCost = totalCost;
+
+		// Verificar se o modal existe
+		const modal = document.getElementById('cancel-ps-modal');
+
+		// Preencher detalhes da PS no modal
+		const psDetails = document.getElementById('ps-details');
+
+		if (psDetails) {
+			psDetails.innerHTML = `
+			<div class="bg-white/10 rounded p-3">
+				<div><strong>Ticket:</strong> #${ticketId}</div>
+				<div><strong>PS:</strong> ${psNumber}</div>
+				<div><strong>Valor:</strong> R$ ${totalCost.toFixed(2)}</div>
+			</div>
+		`;
+		}
+
+		// Abrir modal usando o sistema global
+		if (window.modalManager) {
+			window.modalManager.open('cancel-ps-modal');
+
+			// Verificar se modal foi aberto
+			setTimeout(() => {
+				const modalAfter = document.getElementById('cancel-ps-modal');
+
+				// Se modal não abriu, tentar método alternativo
+				if (!modalAfter?.classList.contains('active')) {
+					modalAfter.style.display = 'flex';
+					modalAfter.classList.add('active');
+				}
+			}, 100);
+		} else {
+			// Método alternativo sem ModalManager
+			if (modal) {
+				modal.style.display = 'flex';
+				modal.classList.add('active');
+			}
+		}
+	}
+
+	// Função para executar o cancelamento
+	async function cancelPS(ticketId) {
+		const confirmButton = document.getElementById('confirm-cancel-ps');
+		const originalText = confirmButton.innerHTML;
+
+		// Mostrar loading no botão de confirmação
+		confirmButton.classList.add('loading');
+		confirmButton.innerHTML = '<i class="fas fa-spinner fa-spin"></i>Cancelando...';
+		confirmButton.disabled = true;
+
+		// Fechar modal usando o sistema global
+		window.modalManager.close(document.getElementById('cancel-ps-modal'));
+
+		try {
+			const response = await fetch(`/tickets/${ticketId}/cancel-ps`, {
+				method: 'POST',
+				headers: {
+					'Content-Type': 'application/json',
+				}
+			});
+
+			const data = await response.json();
+
+			if (data.success) {
+				// Sucesso - mostrar alerta e recarregar
+				alert(`✅ ${data.message}\n\nA página será recarregada.`);
+				window.location.reload();
+			} else {
+				// Erro - mostrar alerta e restaurar botão
+				alert(`❌ Erro: ${data.error}\n\n${data.details || ''}`);
+				confirmButton.classList.remove('loading');
+				confirmButton.innerHTML = originalText;
+				confirmButton.disabled = false;
+			}
+		} catch (error) {
+			console.error('Erro ao cancelar PS:', error);
+			alert(`❌ Erro de conexão: ${error.message}`);
+			confirmButton.classList.remove('loading');
+			confirmButton.innerHTML = originalText;
+			confirmButton.disabled = false;
+		}
+	}
+
+	// ===== MODAL DE LOCALIZAÇÃO =====
+	// Dados das localizações dos apontamentos
+	const locationData = {
+	{% for e in ticket.time_entries %}
+	{% if e.has_location() %}
+	{ { e.id } }: {
+		latitude: { { e.latitude } },
+		longitude: { { e.longitude } },
+		address: "{{ e.address or '' }}",
+			accuracy: { { e.accuracy or 0 } },
+		formatted_location: "{{ e.formatted_location() }}",
+			google_maps_url: "{{ e.get_google_maps_url() }}",
+				start_time: "{{ e.formatted_start_time() }}",
+					end_time: "{{ e.formatted_end_time() }}",
+						hours: "{{ e.formatted_hours() }}",
+							user: "{{ e.user.name }}",
+								comment: "{{ e.comment or '' }}"
+	},
+	{% endif %}
+	{% endfor %}
+	};
+
+	// Função para abrir modal de localização
+	function openLocationModal(entryId) {
+		const data = locationData[entryId];
+		if (!data) {
+			console.error('Dados de localização não encontrados para entry:', entryId);
+			return;
+		}
+
+		const modal = document.getElementById('location-modal');
+		const detailsContainer = document.getElementById('location-details');
+
+		// Preencher detalhes da localização com mini mapa
+		detailsContainer.innerHTML = `
+		<!-- Mini Mapa -->
+		<div class="mini-map-container">
+			<div id="mini-map-${entryId}" class="mini-map"></div>
+			<div class="map-info">
+				<i class="fas fa-map-marker-alt text-info mr-1"></i>
+				<span class="font-medium">${data.address || 'Coordenadas: ' + data.latitude.toFixed(4) + ', ' + data.longitude.toFixed(4)}</span>
+			</div>
+			<div class="map-controls">
+				<button class="map-control-btn" onclick="copyLocationData(${entryId})" title="Copiar coordenadas">
+					<i class="fas fa-copy"></i>
+				</button>
+				${data.google_maps_url ? `
+				<a href="${data.google_maps_url}" target="_blank" class="map-control-btn" title="Abrir no Google Maps">
+					<i class="fas fa-external-link-alt"></i>
+				</a>
+				` : ''}
+			</div>
+		</div>
+		
+		<!-- Informações da Localização -->
+		<div class="bg-info/10 border border-info/20 rounded-lg p-4">
+			<div class="flex items-center gap-2 mb-3">
+				<i class="fas fa-map-marker-alt text-info"></i>
+				<span class="font-semibold text-info">Informações da Localização</span>
+			</div>
+			
+			<div class="space-y-2 text-sm">
+				<div class="flex justify-between">
+					<span class="text-muted">Endereço:</span>
+					<span class="font-medium">${data.address || 'Não disponível'}</span>
+				</div>
+				<div class="flex justify-between">
+					<span class="text-muted">Coordenadas:</span>
+					<span class="font-mono text-xs">${data.latitude.toFixed(6)}, ${data.longitude.toFixed(6)}</span>
+				</div>
+				<div class="flex justify-between">
+					<span class="text-muted">Precisão:</span>
+					<span class="font-medium">${data.accuracy ? data.accuracy.toFixed(0) + 'm' : 'N/A'}</span>
+				</div>
+			</div>
+		</div>
+		
+		<!-- Detalhes do Apontamento -->
+		<div class="bg-secondary/50 rounded-lg p-4">
+			<div class="flex items-center gap-2 mb-3">
+				<i class="fas fa-clock text-primary"></i>
+				<span class="font-semibold text-primary">Detalhes do Apontamento</span>
+			</div>
+			
+			<div class="space-y-2 text-sm">
+				<div class="flex justify-between">
+					<span class="text-muted">Técnico:</span>
+					<span class="font-medium">${data.user}</span>
+				</div>
+				<div class="flex justify-between">
+					<span class="text-muted">Período:</span>
+					<span class="font-medium">${data.start_time} - ${data.end_time}</span>
+				</div>
+				<div class="flex justify-between">
+					<span class="text-muted">Duração:</span>
+					<span class="font-medium text-success">${data.hours}</span>
+				</div>
+				${data.comment ? `
+				<div class="mt-2">
+					<span class="text-muted text-xs">Comentário:</span>
+					<p class="text-sm mt-1 p-2 bg-tertiary rounded">${data.comment}</p>
+				</div>
+				` : ''}
+			</div>
+		</div>
+		
+		<!-- Botões de Ação -->
+		<div class="flex gap-2">
+			${data.google_maps_url ? `
+			<a href="${data.google_maps_url}" target="_blank" class="btn btn-info flex-1">
+				<i class="fas fa-external-link-alt mr-2"></i>
+				Abrir no Google Maps
+			</a>
+			` : ''}
+			<button type="button" onclick="copyLocationData(${entryId})" class="btn btn-outline flex-1">
+				<i class="fas fa-copy mr-2"></i>
+				Copiar Coordenadas
+			</button>
+		</div>
+	`;
+
+		// Abrir modal
+		openModal('location-modal');
+
+		// Inicializar o mini mapa após o modal abrir
+		setTimeout(() => {
+			initializeMiniMap(entryId, data.latitude, data.longitude, data.address);
+		}, 100);
+	}
+
+	// Função para inicializar o mini mapa
+	function initializeMiniMap(entryId, latitude, longitude, address) {
+		const mapContainer = document.getElementById(`mini-map-${entryId}`);
+		if (!mapContainer) {
+			console.error('Container do mapa não encontrado:', `mini-map-${entryId}`);
+			return;
+		}
+
+		// Criar iframe do OpenStreetMap
+		const mapUrl = `https://www.openstreetmap.org/export/embed.html?bbox=${longitude - 0.001},${latitude - 0.001},${longitude + 0.001},${latitude + 0.001}&layer=mapnik&marker=${latitude},${longitude}`;
+
+		mapContainer.innerHTML = `
+		<iframe 
+			src="${mapUrl}" 
+			width="100%" 
+			height="100%" 
+			style="border: none; border-radius: 8px;"
+			loading="lazy"
+			title="Mapa da localização do apontamento"
+		></iframe>
+	`;
+
+		console.log('🗺️ Mini mapa inicializado para entry:', entryId);
+	}
+
+	// Função para copiar dados da localização
+	function copyLocationData(entryId) {
+		const data = locationData[entryId];
+		if (!data) return;
+
+		const text = `Coordenadas: ${data.latitude}, ${data.longitude}\nEndereço: ${data.address || 'Não disponível'}\nPrecisão: ${data.accuracy ? data.accuracy.toFixed(0) + 'm' : 'N/A'}`;
+
+		navigator.clipboard.writeText(text).then(() => {
+			// Mostrar feedback visual
+			const button = event.target.closest('button');
+			const originalText = button.innerHTML;
+			button.innerHTML = '<i class="fas fa-check mr-2"></i>Copiado!';
+			button.classList.add('btn-success');
+			button.classList.remove('btn-outline');
+
+			setTimeout(() => {
+				button.innerHTML = originalText;
+				button.classList.remove('btn-success');
+				button.classList.add('btn-outline');
+			}, 2000);
+		}).catch(err => {
+			console.error('Erro ao copiar:', err);
+			alert('Erro ao copiar dados da localização');
+		});
+	}
+
+	// ===== CAPTURA AUTOMÁTICA DE LOCALIZAÇÃO =====
+	// Função para encerrar ticket com captura automática de localização
+	async function stopTicketWithLocation() {
+		console.log('🛑 stopTicketWithLocation chamada');
+
+		const stopBtn = document.getElementById('stop-ticket-btn');
+		const locationStatus = document.getElementById('stop-location-status');
+		const form = document.getElementById('stop-ticket-form');
+
+		console.log('Elementos encontrados:', {
+			stopBtn: !!stopBtn,
+			locationStatus: !!locationStatus,
+			form: !!form,
+			geolocationManager: !!window.geolocationManager
+		});
+
+		if (!stopBtn || !locationStatus || !form) {
+			console.error('❌ Elementos necessários não encontrados');
+			return;
+		}
+
+		// Desabilitar botão e mostrar loading
+		const originalText = stopBtn.innerHTML;
+		stopBtn.disabled = true;
+		stopBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Obtendo localização...';
+
+		// Atualizar status com instruções
+		locationStatus.innerHTML = `
+		<i class="fas fa-spinner fa-spin text-info"></i>
+		<span class="text-info">Solicitando permissão de localização...</span>
+		<br><small class="text-muted">Permita o acesso à localização quando solicitado pelo navegador</small>
+	`;
+
+		// Verificar se geolocationManager está disponível
+		if (!window.geolocationManager) {
+			console.warn('⚠️ GeolocationManager não disponível, encerrando sem localização');
+			locationStatus.innerHTML = `
+			<i class="fas fa-exclamation-triangle text-warning"></i>
+			<span class="text-warning">GeolocationManager não disponível - encerrando sem localização</span>
+		`;
+
+			// Aguardar um pouco e submeter sem localização
+			setTimeout(() => {
+				// Capturar assinatura se estiver visível
+				if (signaturePadStopToggle && !document.getElementById('signature-field-stop').classList.contains('hidden')) {
+					signaturePadStopToggle.saveSignature();
+				}
+
+				form.submit();
+			}, 1000);
+			return;
+		}
+
+		try {
+			// Capturar localização automaticamente
+			const location = await window.geolocationManager.getCurrentLocation();
+
+			// Adicionar dados de localização ao formulário
+			window.geolocationManager.addLocationToForm(form);
+
+			// Atualizar status de sucesso
+			locationStatus.innerHTML = `
+			<i class="fas fa-check text-success"></i>
+			<span class="text-success">Localização capturada: ${location.address || 'Coordenadas obtidas'}</span>
+		`;
+
+			// Atualizar botão para encerrar
+			stopBtn.innerHTML = '<i class="fas fa-stop"></i> Encerrando...';
+
+			// Aguardar um pouco para mostrar o feedback
+			setTimeout(() => {
+				// Capturar assinatura se estiver visível
+				if (signaturePadStopToggle && !document.getElementById('signature-field-stop').classList.contains('hidden')) {
+					signaturePadStopToggle.saveSignature();
+				}
+
+				// Submeter o formulário
+				form.submit();
+			}, 1000);
+
+		} catch (error) {
+			console.error('Erro ao capturar localização:', error);
+
+			// Mostrar erro específico
+			let errorIcon = 'fas fa-exclamation-triangle';
+			let errorText = 'Erro na localização';
+			let showHttpsWarning = false;
+
+			if (error.message.includes('Permissão')) {
+				errorIcon = 'fas fa-ban';
+				errorText = 'Permissão negada - encerrando sem localização';
+				showHttpsWarning = true;
+			} else if (error.message.includes('indisponível')) {
+				errorIcon = 'fas fa-map-marker-slash';
+				errorText = 'GPS indisponível - encerrando sem localização';
+			} else if (error.message.includes('Tempo limite')) {
+				errorIcon = 'fas fa-clock';
+				errorText = 'Timeout - encerrando sem localização';
+				showHttpsWarning = true;
+			} else if (error.message.includes('HTTPS')) {
+				errorIcon = 'fas fa-lock';
+				errorText = 'HTTPS necessário para geolocalização';
+				showHttpsWarning = true;
+			}
+
+			// Atualizar status de erro
+			let warningMessage = '';
+			if (showHttpsWarning) {
+				if (error.message.includes('Permissão')) {
+					warningMessage = '<br><small class="text-muted">💡 Dica: Clique no ícone de localização na barra de endereços para permitir</small>';
+				} else if (error.message.includes('Tempo limite')) {
+					warningMessage = '<br><small class="text-muted">💡 Dica: Verifique se permitiu o acesso à localização</small>';
+				} else if (error.message.includes('HTTPS')) {
+					warningMessage = '<br><small class="text-muted">💡 Dica: Use HTTPS para capturar localização automaticamente</small>';
+				}
+			}
+
+			locationStatus.innerHTML = `
+			<i class="${errorIcon} text-warning"></i>
+			<span class="text-warning">${errorText}</span>
+			${warningMessage}
+		`;
+
+			// Atualizar botão para encerrar mesmo sem localização
+			stopBtn.innerHTML = '<i class="fas fa-stop"></i> Encerrar sem localização';
+			stopBtn.disabled = false;
+			let stopSubmitted = false;
+			const submitStopForm = () => {
+				if (stopSubmitted) return;
+				stopSubmitted = true;
+
+				const signatureField = document.getElementById('signature-field-stop');
+				if (signatureField && !signatureField.classList.contains('hidden') && signaturePadStopToggle) {
+					if (signaturePadStopToggle.isEmpty()) {
+						stopSubmitted = false;
+						alert('Por favor, forneça sua assinatura digital antes de encerrar a sessão.');
+						return;
+					}
+					signaturePadStopToggle.saveSignature();
+				}
+
+				if (form.requestSubmit) {
+					form.requestSubmit();
+				} else {
+					form.submit();
+				}
+			};
+			stopBtn.onclick = submitStopForm;
+
+			// Fallback automático para não travar
+			setTimeout(submitStopForm, 2000);
+		}
+	}
+
+	// Função para iniciar ticket com captura automática de localização
+	async function startTicketWithLocation() {
+		console.log('🚀 startTicketWithLocation chamada');
+
+		const startBtn = document.getElementById('start-ticket-btn');
+		const locationStatus = document.getElementById('location-status');
+		const form = document.getElementById('start-ticket-form');
+
+		console.log('Elementos encontrados:', {
+			startBtn: !!startBtn,
+			locationStatus: !!locationStatus,
+			form: !!form,
+			geolocationManager: !!window.geolocationManager
+		});
+
+		if (!startBtn || !locationStatus || !form) {
+			console.error('❌ Elementos necessários não encontrados');
+			return;
+		}
+
+		// Desabilitar botão e mostrar loading
+		const originalText = startBtn.innerHTML;
+		startBtn.disabled = true;
+		startBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Obtendo localização...';
+
+		// Atualizar status com instruções
+		locationStatus.innerHTML = `
+		<i class="fas fa-spinner fa-spin text-info"></i>
+		<span class="text-info">Solicitando permissão de localização...</span>
+		<br><small class="text-muted">Permita o acesso à localização quando solicitado pelo navegador</small>
+	`;
+
+		// Verificar se geolocationManager está disponível
+		if (!window.geolocationManager) {
+			console.warn('⚠️ GeolocationManager não disponível, iniciando sem localização');
+			locationStatus.innerHTML = `
+			<i class="fas fa-exclamation-triangle text-warning"></i>
+			<span class="text-warning">GeolocationManager não disponível - iniciando sem localização</span>
+		`;
+
+			// Aguardar um pouco e submeter sem localização
+			setTimeout(() => {
+				form.submit();
+			}, 1000);
+			return;
+		}
+
+		try {
+			// Capturar localização automaticamente
+			const location = await window.geolocationManager.getCurrentLocation();
+
+			// Adicionar dados de localização ao formulário
+			window.geolocationManager.addLocationToForm(form);
+
+			// Atualizar status de sucesso
+			locationStatus.innerHTML = `
+			<i class="fas fa-check text-success"></i>
+			<span class="text-success">Localização capturada: ${location.address || 'Coordenadas obtidas'}</span>
+		`;
+
+			// Atualizar botão para iniciar
+			startBtn.innerHTML = '<i class="fas fa-play"></i> Iniciando...';
+
+			// Aguardar um pouco para mostrar o feedback
+			setTimeout(() => {
+				// Submeter o formulário
+				form.submit();
+			}, 1000);
+
+		} catch (error) {
+			console.error('Erro ao capturar localização:', error);
+
+			// Mostrar erro específico
+			let errorIcon = 'fas fa-exclamation-triangle';
+			let errorText = 'Erro na localização';
+			let showHttpsWarning = false;
+
+			if (error.message.includes('Permissão')) {
+				errorIcon = 'fas fa-ban';
+				errorText = 'Permissão negada - iniciando sem localização';
+				showHttpsWarning = true;
+			} else if (error.message.includes('indisponível')) {
+				errorIcon = 'fas fa-map-marker-slash';
+				errorText = 'GPS indisponível - iniciando sem localização';
+			} else if (error.message.includes('Tempo limite')) {
+				errorIcon = 'fas fa-clock';
+				errorText = 'Timeout - iniciando sem localização';
+				showHttpsWarning = true;
+			} else if (error.message.includes('HTTPS')) {
+				errorIcon = 'fas fa-lock';
+				errorText = 'HTTPS necessário para geolocalização';
+				showHttpsWarning = true;
+			}
+
+			// Atualizar status de erro
+			let warningMessage = '';
+			if (showHttpsWarning) {
+				if (error.message.includes('Permissão')) {
+					warningMessage = '<br><small class="text-muted">💡 Dica: Clique no ícone de localização na barra de endereços para permitir</small>';
+				} else if (error.message.includes('Tempo limite')) {
+					warningMessage = '<br><small class="text-muted">💡 Dica: Verifique se permitiu o acesso à localização</small>';
+				} else if (error.message.includes('HTTPS')) {
+					warningMessage = '<br><small class="text-muted">💡 Dica: Use HTTPS para capturar localização automaticamente</small>';
+				}
+			}
+
+			locationStatus.innerHTML = `
+			<i class="${errorIcon} text-warning"></i>
+			<span class="text-warning">${errorText}</span>
+			${warningMessage}
+		`;
+
+			// Atualizar botão para iniciar mesmo sem localização
+			startBtn.innerHTML = '<i class="fas fa-play"></i> Iniciar sem localização';
+			startBtn.disabled = false;
+			let startSubmitted = false;
+			const submitStartForm = () => {
+				if (startSubmitted) return;
+				startSubmitted = true;
+				if (form.requestSubmit) {
+					form.requestSubmit();
+				} else {
+					form.submit();
+				}
+			};
+			startBtn.onclick = submitStartForm;
+
+			// Fallback automático para não travar
+			setTimeout(submitStartForm, 2000);
+		}
+	}
+
+	// Event listeners para o modal de localização
+	document.addEventListener('DOMContentLoaded', function () {
+		console.log('🔧 Configurando event listeners...');
+
+		// Botão de iniciar ticket com captura automática
+		const startTicketBtn = document.getElementById('start-ticket-btn');
+		console.log('Botão de iniciar encontrado:', !!startTicketBtn);
+
+		if (startTicketBtn) {
+			startTicketBtn.addEventListener('click', function (e) {
+				console.log('🎯 Botão de iniciar clicado!');
+				e.preventDefault();
+				startTicketWithLocation();
+			});
+			console.log('✅ Event listener adicionado ao botão de iniciar');
+		} else {
+			console.error('❌ Botão de iniciar não encontrado!');
+		}
+
+		// Botão de encerrar ticket com captura automática
+		const stopTicketBtn = document.getElementById('stop-ticket-btn');
+		console.log('Botão de encerrar encontrado:', !!stopTicketBtn);
+
+		if (stopTicketBtn) {
+			stopTicketBtn.addEventListener('click', function (e) {
+				console.log('🛑 Botão de encerrar clicado!');
+				e.preventDefault();
+				stopTicketWithLocation();
+			});
+			console.log('✅ Event listener adicionado ao botão de encerrar');
+		} else {
+			console.error('❌ Botão de encerrar não encontrado!');
+		}
+
+		// Botões de localização
+		document.addEventListener('click', function (e) {
+			if (e.target.closest('.location-icon-btn')) {
+				const entryId = e.target.closest('.location-icon-btn').getAttribute('data-location-modal');
+				openLocationModal(parseInt(entryId));
+			}
+		});
+
+		// Fechar modal de localização
+		const closeLocationModal = document.getElementById('close-location-modal');
+		const closeLocationModalBtn = document.getElementById('close-location-modal-btn');
+		const locationModal = document.getElementById('location-modal');
+
+		if (closeLocationModal) {
+			closeLocationModal.addEventListener('click', () => closeModal('location-modal'));
+		}
+
+		if (closeLocationModalBtn) {
+			closeLocationModalBtn.addEventListener('click', () => closeModal('location-modal'));
+		}
+
+		if (locationModal) {
+			locationModal.addEventListener('click', (e) => {
+				if (e.target === locationModal) closeModal('location-modal');
+			});
+		}
+
+		// ===== FUNCIONALIDADE DE ASSINATURA DIGITAL =====
+
+		// Variáveis globais para assinaturas
+		let signaturePadTime = null;
+		let signaturePadStop = null;
+		let signaturePadStopToggle = null;
+
+		// Classe para gerenciar assinatura digital
+		class SignaturePad {
+			constructor(canvasId, hiddenInputId, clearButtonId) {
+				this.canvas = document.getElementById(canvasId);
+				this.hiddenInput = document.getElementById(hiddenInputId);
+				this.clearButton = document.getElementById(clearButtonId);
+
+				if (!this.canvas) {
+					console.error(`Canvas não encontrado: ${canvasId}`);
+					return;
+				}
+
+				if (!this.hiddenInput) {
+					console.error(`Input hidden não encontrado: ${hiddenInputId}`);
+					return;
+				}
+
+				this.ctx = this.canvas.getContext('2d');
+				this.isDrawing = false;
+				this.lastX = 0;
+				this.lastY = 0;
+
+				this.init();
+			}
+
+			init() {
+				// Verificar se os elementos existem
+				if (!this.canvas || !this.ctx || !this.hiddenInput) {
+					console.error('Elementos necessários não encontrados para inicializar SignaturePad');
+					return;
+				}
+
+				// Configurar canvas
+				this.ctx.strokeStyle = '#000000';
+				this.ctx.lineWidth = 2;
+				this.ctx.lineCap = 'round';
+				this.ctx.lineJoin = 'round';
+
+				// Event listeners para desenho
+				this.canvas.addEventListener('mousedown', (e) => this.startDrawing(e));
+				this.canvas.addEventListener('mousemove', (e) => this.draw(e));
+				this.canvas.addEventListener('mouseup', () => this.stopDrawing());
+				this.canvas.addEventListener('mouseout', () => this.stopDrawing());
+
+				// Event listeners para touch (dispositivos móveis)
+				this.canvas.addEventListener('touchstart', (e) => this.startDrawing(e));
+				this.canvas.addEventListener('touchmove', (e) => this.draw(e));
+				this.canvas.addEventListener('touchend', () => this.stopDrawing());
+
+				// Botão de limpar
+				if (this.clearButton) {
+					this.clearButton.addEventListener('click', () => this.clear());
+				}
+
+				// Adicionar classe de hover
+				this.canvas.addEventListener('mouseenter', () => {
+					this.canvas.parentElement.classList.add('hover');
+				});
+
+				this.canvas.addEventListener('mouseleave', () => {
+					this.canvas.parentElement.classList.remove('hover');
+				});
+			}
+
+			startDrawing(e) {
+				this.isDrawing = true;
+				this.canvas.parentElement.classList.add('drawing');
+
+				const rect = this.canvas.getBoundingClientRect();
+				const scaleX = this.canvas.width / rect.width;
+				const scaleY = this.canvas.height / rect.height;
+
+				if (e.type === 'mousedown') {
+					this.lastX = (e.clientX - rect.left) * scaleX;
+					this.lastY = (e.clientY - rect.top) * scaleY;
+				} else if (e.type === 'touchstart') {
+					e.preventDefault();
+					const touch = e.touches[0];
+					this.lastX = (touch.clientX - rect.left) * scaleX;
+					this.lastY = (touch.clientY - rect.top) * scaleY;
+				}
+			}
+
+			draw(e) {
+				if (!this.isDrawing) return;
+
+				const rect = this.canvas.getBoundingClientRect();
+				const scaleX = this.canvas.width / rect.width;
+				const scaleY = this.canvas.height / rect.height;
+
+				let currentX, currentY;
+
+				if (e.type === 'mousemove') {
+					currentX = (e.clientX - rect.left) * scaleX;
+					currentY = (e.clientY - rect.top) * scaleY;
+				} else if (e.type === 'touchmove') {
+					e.preventDefault();
+					const touch = e.touches[0];
+					currentX = (touch.clientX - rect.left) * scaleX;
+					currentY = (touch.clientY - rect.top) * scaleY;
+				}
+
+				this.ctx.beginPath();
+				this.ctx.moveTo(this.lastX, this.lastY);
+				this.ctx.lineTo(currentX, currentY);
+				this.ctx.stroke();
+
+				this.lastX = currentX;
+				this.lastY = currentY;
+
+				// Salvar assinatura no campo hidden
+				this.saveSignature();
+			}
+
+			stopDrawing() {
+				this.isDrawing = false;
+				this.canvas.parentElement.classList.remove('drawing');
+			}
+
+			clear() {
+				if (!this.ctx || !this.canvas || !this.hiddenInput) {
+					console.error('Elementos não encontrados para limpar assinatura');
+					return;
+				}
+				this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+				this.hiddenInput.value = '';
+			}
+
+			saveSignature() {
+				if (!this.canvas || !this.hiddenInput) {
+					console.error('Elementos não encontrados para salvar assinatura');
+					return;
+				}
+				const dataURL = this.canvas.toDataURL('image/png');
+				this.hiddenInput.value = dataURL;
+			}
+
+			isEmpty() {
+				if (!this.ctx || !this.canvas) {
+					console.error('Elementos não encontrados para verificar se assinatura está vazia');
+					return true;
+				}
+				const imageData = this.ctx.getImageData(0, 0, this.canvas.width, this.canvas.height);
+				const data = imageData.data;
+
+				for (let i = 0; i < data.length; i += 4) {
+					if (data[i + 3] !== 0) { // Se há pixels não transparentes
+						return false;
+					}
+				}
+				return true;
+			}
+		}
+
+		// Função para alternar campo de assinatura no modal de encerramento
+		function toggleSignatureFieldStop() {
+			const field = document.getElementById('signature-field-stop');
+			const toggleText = document.getElementById('signature-toggle-text-stop');
+			const signatureData = document.getElementById('signature-data-stop-toggle');
+
+			if (!field || !toggleText || !signatureData) {
+				console.error('Elementos do campo de assinatura não encontrados');
+				return;
+			}
+
+			if (field.classList.contains('hidden')) {
+				// Mostrar campo
+				field.classList.remove('hidden');
+				toggleText.textContent = 'Ocultar Assinatura';
+
+				// Inicializar canvas se ainda não foi inicializado
+				if (!signaturePadStopToggle) {
+					setTimeout(() => {
+						const canvas = document.getElementById('signature-canvas-stop-toggle');
+						const hiddenInput = document.getElementById('signature-data-stop-toggle');
+						const clearButton = document.getElementById('clear-signature-stop-toggle');
+
+						if (canvas && hiddenInput && clearButton) {
+							signaturePadStopToggle = new SignaturePad('signature-canvas-stop-toggle', 'signature-data-stop-toggle', 'clear-signature-stop-toggle');
+						} else {
+							console.error('Elementos do canvas de assinatura não encontrados');
+						}
+					}, 100);
+				}
+			} else {
+				// Ocultar campo
+				field.classList.add('hidden');
+				toggleText.textContent = 'Adicionar Assinatura';
+
+				// Limpar dados de assinatura
+				signatureData.value = '';
+				if (signaturePadStopToggle) {
+					signaturePadStopToggle.clear();
+				}
+			}
+		}
+
+		// Tornar a função globalmente acessível
+		window.toggleSignatureFieldStop = toggleSignatureFieldStop;
+
+		// Modal de apontamento de horas
+		const timeModal = document.getElementById('time-modal');
+		if (timeModal) {
+			timeModal.addEventListener('click', function (e) {
+				if (e.target === timeModal) {
+					closeModal('time-modal');
+				}
+			});
+
+			// Inicializar assinatura quando modal abrir
+			document.getElementById('open-time-modal')?.addEventListener('click', function () {
+				setTimeout(() => {
+					if (!signaturePadTime) {
+						signaturePadTime = new SignaturePad('signature-canvas-time', 'signature-data-time', 'clear-signature-time');
+					}
+				}, 100);
+			});
+		}
+
+		// Modal de encerramento de sessão
+		const stopModal = document.getElementById('stop-modal');
+		if (stopModal) {
+			stopModal.addEventListener('click', function (e) {
+				if (e.target === stopModal) {
+					closeModal('stop-modal');
+				}
+			});
+
+			// Inicializar assinatura quando modal abrir
+			document.getElementById('open-stop-modal')?.addEventListener('click', function () {
+				setTimeout(() => {
+					if (!signaturePadStop) {
+						signaturePadStop = new SignaturePad('signature-canvas-stop', 'signature-data-stop', 'clear-signature-stop');
+					}
+				}, 100);
+			});
+		}
+
+		// Validação de assinatura antes de enviar formulários (apenas se visível)
+		const timeForm = document.getElementById('time-entry-form');
+		if (timeForm) {
+			timeForm.addEventListener('submit', function (e) {
+				const signatureField = document.getElementById('signature-canvas-time')?.closest('.form-group');
+				const isSignatureVisible = signatureField && !signatureField.classList.contains('md:hidden') && getComputedStyle(signatureField).display !== 'none';
+				if (isSignatureVisible && signaturePadTime && signaturePadTime.isEmpty()) {
+					e.preventDefault();
+					alert('Por favor, forneça sua assinatura digital antes de registrar as horas.');
+					return false;
+				}
+			});
+		}
+
+		const stopForm = document.getElementById('stop-ticket-form');
+		if (stopForm) {
+			stopForm.addEventListener('submit', function (e) {
+				// Verificar se há assinatura no campo toggle (se estiver visível)
+				const signatureField = document.getElementById('signature-field-stop');
+				if (!signatureField.classList.contains('hidden') && signaturePadStopToggle && signaturePadStopToggle.isEmpty()) {
+					e.preventDefault();
+					alert('Por favor, forneça sua assinatura digital antes de encerrar a sessão.');
+					return false;
+				}
+			});
+		}
+
+		console.log('✅ Funcionalidade de assinatura digital carregada');
+	});
+
+	// ===== FUNCIONALIDADE DE OVERRIDE DE COBRANÇA NO FECHAMENTO =====
+	document.addEventListener('DOMContentLoaded', function () {
+		const toggleBtn = document.getElementById('toggle-force-charge');
+		const resetBtn = document.getElementById('reset-force-charge');
+		const forceChargeInput = document.getElementById('force_charge_input');
+		const costContainer = document.getElementById('cost-calculation-container');
+		const noChargeInfo = document.getElementById('no-charge-info-container');
+		const manualCostContainer = document.getElementById('manual-cost-container');
+		const forceWarning = document.getElementById('force-charge-warning');
+
+		if (toggleBtn) {
+			toggleBtn.addEventListener('click', function () {
+				// Ativar cobrança forçada
+				forceChargeInput.value = "1";
+				costContainer.classList.remove('hidden');
+				manualCostContainer.classList.remove('hidden');
+				noChargeInfo.classList.add('hidden');
+				forceWarning.classList.remove('hidden');
+			});
+		}
+
+		if (resetBtn) {
+			resetBtn.addEventListener('click', function () {
+				// Resetar para isenção automática
+				forceChargeInput.value = "0";
+				costContainer.classList.add('hidden');
+				manualCostContainer.classList.add('hidden');
+				noChargeInfo.classList.remove('hidden');
+				forceWarning.classList.add('hidden');
+			});
+		}
+	});
+
+</script>
+
+{% include 'partials/_products_modal.html' %}
+
+<script>
+	// ===== PRODUTOS DO TICKET =====
+	document.addEventListener('DOMContentLoaded', async function () {
+		const ticketId = {{ ticket.id }};
+		const resumoTicket = document.getElementById('resumo-produtos-ticket');
+		const resumoFechamento = document.getElementById('resumo-produtos-fechamento');
+		const confirmCloseBtn = document.getElementById('confirm-close-ticket');
+
+		async function saveTicketProducts(payload) {
+			const resp = await fetch(`/tickets/${ticketId}/produtos`, {
+				method: 'PUT',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ produtos: payload }),
+			});
+			const data = await resp.json();
+			if (!resp.ok) throw new Error(data.error || 'Falha ao salvar produtos');
+			return data;
+		}
+
+		async function loadTicketProducts() {
+			try {
+				const resp = await fetch(`/tickets/${ticketId}/produtos`);
+				const data = await resp.json();
+				if (!resp.ok) return;
+				if (window.ProductsPicker) {
+					window.ProductsPicker.setSelectedFromList(data.products || []);
+				}
+			} catch (e) {
+				console.error('Erro ao carregar produtos:', e);
+			}
+		}
+
+		if (window.ProductsPicker) {
+			window.ProductsPicker.init({
+				productsApiUrl: '{{ url_for("tickets.search_ticket_products") }}',
+				resumoElement: resumoTicket,
+				closeResumoElement: resumoFechamento,
+				openButton: document.getElementById('abrir-modal-produtos-ticket'),
+				closeOpenButton: document.getElementById('abrir-modal-produtos-fechamento'),
+				onConfirm: async (selected, payload) => {
+					if (payload.length === 0) {
+						await saveTicketProducts([]);
+						return;
+					}
+					await saveTicketProducts(payload);
+				},
+			});
+			await loadTicketProducts();
+		}
+
+		if (confirmCloseBtn) {
+			confirmCloseBtn.addEventListener('click', async function () {
+				if (confirmCloseBtn.disabled) return;
+				confirmCloseBtn.disabled = true;
+				const originalText = confirmCloseBtn.innerHTML;
+				confirmCloseBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Fechando...';
+
+				const manualInput = document.getElementById('manual_total_cost');
+				const manualVal = manualInput && manualInput.value !== '' ? parseFloat(manualInput.value) : null;
+				const payload = {
+					force_charge: document.getElementById('force_charge_input')?.value === '1',
+					manual_total_cost: manualVal,
+					send_whatsapp: document.getElementById('send_whatsapp')?.checked || false,
+					whatsapp_number: document.getElementById('whatsapp_number')?.value || '',
+					whatsapp_message: document.getElementById('whatsapp_message')?.value || '',
+					produtos: window.ProductsPicker ? window.ProductsPicker.getSelectedPayload() : [],
+				};
+
+				try {
+					const resp = await fetch(`/tickets/${ticketId}/processar-fechamento`, {
+						method: 'POST',
+						headers: { 'Content-Type': 'application/json' },
+						body: JSON.stringify(payload),
+					});
+					const data = await resp.json();
+					if (!resp.ok) {
+						alert(data.error || 'Erro ao fechar ticket');
+						confirmCloseBtn.disabled = false;
+						confirmCloseBtn.innerHTML = originalText;
+						return;
+					}
+					let msg = data.message || 'Ticket fechado.';
+					if (data.whatsapp_status) msg += '\n' + data.whatsapp_status;
+					alert(msg);
+					window.location.reload();
+				} catch (e) {
+					alert('Erro ao fechar ticket. Tente novamente.');
+					confirmCloseBtn.disabled = false;
+					confirmCloseBtn.innerHTML = originalText;
+				}
+			});
+		}
+	});
+
+</script>
+
+<!-- Modal de Localização -->
+<div id="location-modal" class="modal-overlay">
+	<div class="modal w-full max-w-2xl mx-4 sm:mx-6 lg:mx-auto">
+		<div class="modal-header">
+			<h3 class="modal-title">
+				<i class="fas fa-map-marker-alt mr-2"></i>
+				Localização do Apontamento
+			</h3>
+			<button id="close-location-modal" class="btn btn-sm btn-secondary">
+				<i class="fas fa-times"></i>
+			</button>
+		</div>
+		<div class="modal-body">
+			<div id="location-details" class="space-y-4">
+				<!-- Conteúdo será preenchido via JavaScript -->
+			</div>
+		</div>
+		<div class="modal-footer">
+			<button type="button" id="close-location-modal-btn" class="btn btn-primary w-full">
+				<i class="fas fa-times mr-2"></i>
+				Fechar
+			</button>
+		</div>
+	</div>
+</div>
+
+{% endblock %}

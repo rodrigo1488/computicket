@@ -1,0 +1,217 @@
+{% extends 'base.html' %}
+{% block page_title %}🖥️ {{ system.name }}{% endblock %}
+{% block content %}
+
+<div class="bg-secondary rounded-lg shadow-lg p-6 mb-6">
+	<div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 mb-6">
+		<div class="flex-1">
+			<h1 class="text-2xl lg:text-3xl font-bold text-primary mb-2">
+				🖥️ {{ system.name }}
+			</h1>
+			<div class="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 text-sm text-muted">
+				{% if system.version %}
+				<span>Versão {{ system.version }}</span>
+				{% endif %}
+				{% if system.company %}
+				<span>{{ system.company }}</span>
+				{% endif %}
+				<span class="status-badge status-{{ 'success' if system.is_active else 'secondary' }}">
+					{{ 'Ativo' if system.is_active else 'Inativo' }}
+				</span>
+			</div>
+		</div>
+		<div class="flex-shrink-0">
+			<div class="flex gap-2">
+				<a href="{{ url_for('plans.edit_system', system_id=system.id) }}" class="btn btn-warning">
+					<i class="fas fa-edit mr-2"></i>
+					Editar
+				</a>
+				<a href="{{ url_for('plans.create_plan', system_id=system.id) }}" class="btn btn-primary">
+					<i class="fas fa-plus mr-2"></i>
+					Novo Plano
+				</a>
+			</div>
+		</div>
+	</div>
+
+	<!-- Informações do Sistema -->
+	<div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+		<div class="bg-tertiary rounded-lg p-4">
+			<h3 class="font-semibold text-primary mb-2 flex items-center">
+				<i class="fas fa-list mr-2"></i>
+				Planos
+			</h3>
+			<div class="text-2xl font-bold text-primary">{{ system.get_total_plans() }}</div>
+			<div class="text-sm text-secondary">{{ system.get_active_plans_count() }} ativos</div>
+		</div>
+		
+		<div class="bg-tertiary rounded-lg p-4">
+			<h3 class="font-semibold text-primary mb-2 flex items-center">
+				<i class="fas fa-calendar mr-2"></i>
+				Criado em
+			</h3>
+			<div class="text-sm text-secondary">{{ system.created_at | brasilia_datetime('%d/%m/%Y') }}</div>
+			<div class="text-xs text-muted">{{ system.created_at | brasilia_datetime('%H:%M') }}</div>
+		</div>
+		
+		<div class="bg-tertiary rounded-lg p-4">
+			<h3 class="font-semibold text-primary mb-2 flex items-center">
+				<i class="fas fa-clock mr-2"></i>
+				Última Atualização
+			</h3>
+			<div class="text-sm text-secondary">{{ system.updated_at | brasilia_datetime('%d/%m/%Y') }}</div>
+			<div class="text-xs text-muted">{{ system.updated_at | brasilia_datetime('%H:%M') }}</div>
+		</div>
+	</div>
+
+	<!-- Descrição -->
+	{% if system.description %}
+	<div class="bg-tertiary rounded-lg p-4 mb-6">
+		<h3 class="font-semibold text-primary mb-2">Descrição</h3>
+		<p class="text-secondary">{{ system.description }}</p>
+	</div>
+	{% endif %}
+</div>
+
+<!-- Planos do Sistema -->
+<div class="bg-secondary rounded-lg shadow-lg p-6">
+	<div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
+		<h2 class="text-xl font-semibold text-primary">
+			<i class="fas fa-list mr-2"></i>
+			Planos de Suporte
+		</h2>
+		<div class="flex gap-2">
+			<a href="{{ url_for('plans.list_plans', system_id=system.id) }}" class="btn btn-outline btn-sm">
+				<i class="fas fa-list mr-1"></i>
+				Ver Todos
+			</a>
+			<a href="{{ url_for('plans.create_plan', system_id=system.id) }}" class="btn btn-primary btn-sm">
+				<i class="fas fa-plus mr-1"></i>
+				Novo Plano
+			</a>
+		</div>
+	</div>
+
+	{% if system.plans %}
+	<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+		{% for plan in system.plans %}
+		<div class="bg-tertiary rounded-lg p-4 hover:shadow-md transition-shadow">
+			<div class="flex items-start justify-between mb-3">
+				<div class="flex-1">
+					<h3 class="font-semibold text-primary mb-1">{{ plan.name }}</h3>
+					{% if plan.is_featured %}
+					<span class="status-badge status-warning text-xs">
+						<i class="fas fa-star mr-1"></i>
+						Destaque
+					</span>
+					{% endif %}
+				</div>
+				<div class="flex-shrink-0">
+					<span class="status-badge status-{{ 'success' if plan.is_active else 'secondary' }}">
+						{{ 'Ativo' if plan.is_active else 'Inativo' }}
+					</span>
+				</div>
+			</div>
+			
+			{% if plan.description %}
+			<p class="text-sm text-secondary mb-3 line-clamp-2">{{ plan.description }}</p>
+			{% endif %}
+			
+			<!-- Informações do Plano -->
+			<div class="space-y-2 mb-3">
+				<div class="flex justify-between text-sm">
+					<span class="text-muted">Horas mensais:</span>
+					<span class="font-medium text-primary">{{ plan.monthly_hours }}h</span>
+				</div>
+				<div class="flex justify-between text-sm">
+					<span class="text-muted">Valor mensal:</span>
+					<span class="font-medium text-success">{{ plan.get_formatted_monthly_value() }}</span>
+				</div>
+				<div class="flex justify-between text-sm">
+					<span class="text-muted">Hora adicional:</span>
+					<span class="font-medium text-info">{{ plan.get_formatted_additional_hour_rate() }}</span>
+				</div>
+				<div class="flex justify-between text-sm">
+					<span class="text-muted">Prioridade:</span>
+					<span class="status-badge status-{{ plan.get_priority_color() }} text-xs">
+						{{ plan.get_priority_text() }}
+					</span>
+				</div>
+			</div>
+			
+			<!-- Tipos de Suporte -->
+			<div class="mb-3">
+				<div class="text-xs text-muted mb-1">Tipos de suporte:</div>
+				<div class="flex flex-wrap gap-1">
+					{% for support_type in plan.get_support_types() %}
+					<span class="status-badge status-info text-xs">{{ support_type }}</span>
+					{% endfor %}
+					{% if plan.support_included %}
+					<span class="status-badge status-success text-xs"><i class="fas fa-headset mr-1"></i>Suporte incluso</span>
+					{% else %}
+					<span class="status-badge status-secondary text-xs">Sem suporte</span>
+					{% endif %}
+				</div>
+			</div>
+			
+			<!-- SLA -->
+			<div class="text-xs text-muted mb-3">
+				<i class="fas fa-clock mr-1"></i>
+				{{ plan.get_sla_text() }}
+			</div>
+			
+			<div class="flex gap-2">
+				<a href="{{ url_for('plans.view_plan', plan_id=plan.id) }}" class="btn btn-sm btn-info flex-1">
+					<i class="fas fa-eye mr-1"></i>
+					Ver
+				</a>
+				<a href="{{ url_for('plans.edit_plan', plan_id=plan.id) }}" class="btn btn-sm btn-warning flex-1">
+					<i class="fas fa-edit mr-1"></i>
+					Editar
+				</a>
+			</div>
+		</div>
+		{% endfor %}
+	</div>
+	{% else %}
+	<div class="empty-state">
+		<i class="fas fa-list text-4xl text-muted mb-4"></i>
+		<h3 class="text-lg font-semibold text-primary mb-2">Nenhum plano cadastrado</h3>
+		<p class="text-secondary mb-4">Crie o primeiro plano de suporte para este sistema.</p>
+		<a href="{{ url_for('plans.create_plan', system_id=system.id) }}" class="btn btn-primary">
+			<i class="fas fa-plus mr-2"></i>
+			Criar Primeiro Plano
+		</a>
+	</div>
+	{% endif %}
+</div>
+
+<!-- Ações -->
+<div class="flex flex-col sm:flex-row items-center gap-3 justify-between mt-6">
+	<a href="{{ url_for('plans.list_systems') }}" class="btn btn-secondary">
+		<i class="fas fa-arrow-left mr-2"></i>
+		Voltar para Sistemas
+	</a>
+	
+	<div class="flex gap-2">
+		<a href="{{ url_for('plans.edit_system', system_id=system.id) }}" class="btn btn-warning">
+			<i class="fas fa-edit mr-2"></i>
+			Editar Sistema
+		</a>
+		<a href="{{ url_for('plans.create_plan', system_id=system.id) }}" class="btn btn-primary">
+			<i class="fas fa-plus mr-2"></i>
+			Novo Plano
+		</a>
+	</div>
+</div>
+
+<style>
+.line-clamp-2 {
+	display: -webkit-box;
+	-webkit-line-clamp: 2;
+	-webkit-box-orient: vertical;
+	overflow: hidden;
+}
+</style>
+
+{% endblock %}

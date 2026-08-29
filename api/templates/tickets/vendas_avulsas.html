@@ -1,0 +1,299 @@
+{% extends "base.html" %}
+
+{% block title %}Histórico de Vendas Avulsas - Computicket{% endblock %}
+
+{% block content %}
+<div class="container mx-auto px-4 py-6 max-w-7xl">
+    <!-- Cabeçalho -->
+    <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-6">
+        <div>
+            <h1 class="text-2xl font-bold text-slate-100 flex items-center gap-2">
+                <i class="fas fa-history text-amber-400"></i>
+                Histórico de Vendas Avulsas
+            </h1>
+            <p class="text-xs text-slate-400 mt-1">
+                Acompanhe, reimprima comprovantes/duplicatas ou cancele vendas avulsas de produtos fora de estoque.
+            </p>
+        </div>
+        <div>
+            <button type="button" onclick="openStandaloneForaEstoqueModal(event)"
+                style="background-color: #d97706 !important; color: #ffffff !important; border: 1px solid #f59e0b !important; border-radius: 0.5rem; padding: 0.5rem 1rem; font-size: 0.75rem; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 0.5rem;"
+                class="shadow-lg transition">
+                <i class="fas fa-plus text-white"></i>
+                <span style="color: #ffffff !important;">+ Nova Venda Avulsa</span>
+            </button>
+        </div>
+    </div>
+
+    <!-- Cards de Resumo (KPIs) -->
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+        <div class="rounded-xl p-4 shadow-sm border" style="background-color: #0d1322 !important; border-color: #1e293b !important; color: #f8fafc !important;">
+            <div class="flex items-center justify-between text-slate-400 text-xs mb-1">
+                <span>Total de Vendas</span>
+                <i class="fas fa-shopping-bag text-slate-400"></i>
+            </div>
+            <div id="kpi-total-vendas" class="text-xl font-bold text-white">0</div>
+        </div>
+        <div class="rounded-xl p-4 shadow-sm border" style="background-color: #0d1322 !important; border-color: #1e293b !important; color: #f8fafc !important;">
+            <div class="flex items-center justify-between text-slate-400 text-xs mb-1">
+                <span>Valor Total Lançado</span>
+                <i class="fas fa-dollar-sign text-emerald-400"></i>
+            </div>
+            <div id="kpi-total-valor" class="text-xl font-bold text-emerald-400">R$ 0,00</div>
+        </div>
+        <div class="rounded-xl p-4 shadow-sm border" style="background-color: #0d1322 !important; border-color: #1e293b !important; color: #f8fafc !important;">
+            <div class="flex items-center justify-between text-slate-400 text-xs mb-1">
+                <span>Vendas Ativas</span>
+                <i class="fas fa-check-circle text-blue-400"></i>
+            </div>
+            <div id="kpi-vendas-ativas" class="text-xl font-bold text-blue-400">0</div>
+        </div>
+        <div class="rounded-xl p-4 shadow-sm border" style="background-color: #0d1322 !important; border-color: #1e293b !important; color: #f8fafc !important;">
+            <div class="flex items-center justify-between text-slate-400 text-xs mb-1">
+                <span>Vendas Canceladas</span>
+                <i class="fas fa-times-circle text-rose-400"></i>
+            </div>
+            <div id="kpi-vendas-canceladas" class="text-xl font-bold text-rose-400">0</div>
+        </div>
+    </div>
+
+    <!-- Barra de Filtros e Busca -->
+    <div class="rounded-xl p-4 mb-6 flex flex-col sm:flex-row items-center justify-between gap-3 border"
+        style="background-color: #0d1322 !important; border-color: #1e293b !important;">
+        <div class="relative w-full sm:w-80">
+            <i class="fas fa-search absolute left-3 top-3 text-slate-400 text-xs" style="color: #94a3b8 !important;"></i>
+            <input type="text" id="search-input" oninput="filterSales()" placeholder="Buscar por produto, cliente ou vendedor..."
+                style="background-color: #161f32 !important; color: #ffffff !important; border: 1px solid #334155 !important; border-radius: 0.5rem; padding: 0.5rem 0.75rem 0.5rem 2.25rem; font-size: 0.75rem; width: 100%;">
+        </div>
+        <div class="flex items-center gap-3 w-full sm:w-auto justify-end">
+            <label class="text-xs font-medium" style="color: #cbd5e1 !important;">Status:</label>
+            <select id="status-filter" onchange="filterSales()"
+                style="background-color: #161f32 !important; color: #ffffff !important; border: 1px solid #334155 !important; border-radius: 0.5rem; padding: 0.5rem 0.75rem; font-size: 0.75rem;">
+                <option value="ALL" style="background-color: #0d1322 !important; color: #ffffff !important;">Todos os Status</option>
+                <option value="A" style="background-color: #0d1322 !important; color: #ffffff !important;">Ativas</option>
+                <option value="C" style="background-color: #0d1322 !important; color: #ffffff !important;">Canceladas</option>
+            </select>
+            <button type="button" onclick="loadSalesHistory()" title="Atualizar lista"
+                style="background-color: #1e293b !important; color: #cbd5e1 !important; border: 1px solid #334155 !important; border-radius: 0.5rem; padding: 0.5rem 0.75rem; font-size: 0.75rem; cursor: pointer;">
+                <i class="fas fa-sync-alt"></i>
+            </button>
+        </div>
+    </div>
+
+    <!-- Tabela de Histórico -->
+    <div class="rounded-xl shadow-xl overflow-hidden border" style="background-color: #0d1322 !important; border-color: #1e293b !important;">
+        <div class="overflow-x-auto">
+            <table class="w-full text-xs text-left border-collapse">
+                <thead class="font-semibold uppercase tracking-wider text-[11px]" style="background-color: #080d1a !important; color: #94a3b8 !important; border-bottom: 1px solid #1e293b !important;">
+                    <tr>
+                        <th class="p-3"># ID / Data</th>
+                        <th class="p-3">Cliente</th>
+                        <th class="p-3">Produto</th>
+                        <th class="p-3 text-center">Qtd x Valor UN</th>
+                        <th class="p-3 text-right">Valor Total</th>
+                        <th class="p-3 text-center">Vendedor</th>
+                        <th class="p-3 text-center">Status</th>
+                        <th class="p-3 text-center">Ações</th>
+                    </tr>
+                </thead>
+                <tbody id="sales-table-body" class="divide-y text-slate-200" style="border-color: #1e293b !important;">
+                    <tr>
+                        <td colspan="8" class="text-center py-8 text-slate-500">
+                            <i class="fas fa-spinner fa-spin mr-2"></i> Carregando histórico de vendas...
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<script>
+    let allSalesList = [];
+
+    document.addEventListener('DOMContentLoaded', () => {
+        loadSalesHistory();
+    });
+
+    async function loadSalesHistory() {
+        const tbody = document.getElementById('sales-table-body');
+        if (tbody) {
+            tbody.innerHTML = `
+                <tr>
+                    <td colspan="8" class="text-center py-8 text-slate-500">
+                        <i class="fas fa-spinner fa-spin mr-2"></i> Carregando histórico de vendas...
+                    </td>
+                </tr>
+            `;
+        }
+
+        try {
+            const resp = await fetch('/tickets/api/vendas-avulsas-list');
+            const data = await resp.json();
+            if (data.success && data.sales) {
+                allSalesList = data.sales;
+                updateKPIs(allSalesList);
+                filterSales();
+            } else {
+                tbody.innerHTML = `
+                    <tr>
+                        <td colspan="8" class="text-center py-8 text-rose-400">
+                            <i class="fas fa-exclamation-triangle mr-2"></i> Erro ao carregar vendas.
+                        </td>
+                    </tr>
+                `;
+            }
+        } catch (err) {
+            console.error('Erro ao carregar vendas:', err);
+            tbody.innerHTML = `
+                <tr>
+                    <td colspan="8" class="text-center py-8 text-rose-400">
+                        <i class="fas fa-exclamation-circle mr-2"></i> Erro de conexão com o servidor.
+                    </td>
+                </tr>
+            `;
+        }
+    }
+
+    function updateKPIs(sales) {
+        const totalCount = sales.length;
+        const totalValue = sales.filter(s => s.status !== 'C').reduce((acc, s) => acc + (s.total_price || 0), 0);
+        const activeCount = sales.filter(s => s.status !== 'C').length;
+        const cancelCount = sales.filter(s => s.status === 'C').length;
+
+        document.getElementById('kpi-total-vendas').textContent = totalCount;
+        document.getElementById('kpi-total-valor').textContent = totalValue.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+        document.getElementById('kpi-vendas-ativas').textContent = activeCount;
+        document.getElementById('kpi-vendas-canceladas').textContent = cancelCount;
+    }
+
+    function filterSales() {
+        const q = (document.getElementById('search-input')?.value || '').toLowerCase().trim();
+        const statusFilter = document.getElementById('status-filter')?.value || 'ALL';
+
+        const filtered = allSalesList.filter(s => {
+            const matchStatus = statusFilter === 'ALL' || s.status === statusFilter;
+            const matchSearch = !q ||
+                (s.product_name || '').toLowerCase().includes(q) ||
+                (s.client_name || '').toLowerCase().includes(q) ||
+                (s.seller_name || '').toLowerCase().includes(q) ||
+                (String(s.id)).includes(q);
+            return matchStatus && matchSearch;
+        });
+
+        renderSalesTable(filtered);
+    }
+
+    function renderSalesTable(sales) {
+        const tbody = document.getElementById('sales-table-body');
+        if (!tbody) return;
+
+        if (sales.length === 0) {
+            tbody.innerHTML = `
+                <tr>
+                    <td colspan="8" class="text-center py-10 text-slate-500">
+                        <i class="fas fa-inbox text-2xl mb-2 block"></i>
+                        Nenhuma venda avulsa encontrada.
+                    </td>
+                </tr>
+            `;
+            return;
+        }
+
+        tbody.innerHTML = sales.map(s => {
+            const isCanceled = s.status === 'C';
+            const statusBadge = isCanceled
+                ? `<span class="bg-rose-500/10 text-rose-400 border border-rose-500/30 px-2 py-0.5 rounded text-[10px] font-semibold" title="Motivo: ${escapeJsString(s.cancel_reason || 'Não informado')}">CANCELADA</span>`
+                : `<span class="bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 px-2 py-0.5 rounded text-[10px] font-semibold">ATIVA</span>`;
+
+            const printBtn = s.finance_id
+                ? `<button type="button" onclick="printSale(${s.finance_id})" title="Gerar / Visualizar PDF da Duplicata"
+                        class="bg-amber-600/20 hover:bg-amber-600 text-amber-300 hover:text-white border border-amber-500/40 px-2.5 py-1 rounded transition text-[11px] font-medium cursor-pointer">
+                        <i class="fas fa-file-pdf mr-1"></i> Visualizar PDF
+                   </button>`
+                : `<span class="text-slate-600 text-[10px]">Indisponível</span>`;
+
+            const cancelBtn = !isCanceled
+                ? `<button type="button" onclick="cancelSale(${s.id}, '${escapeJsString(s.product_name)}')" title="Cancelar esta venda"
+                        class="bg-rose-600/20 hover:bg-rose-600 text-rose-300 hover:text-white border border-rose-500/40 px-2.5 py-1 rounded transition text-[11px] font-medium cursor-pointer ml-1">
+                        <i class="fas fa-ban mr-1"></i> Cancelar
+                   </button>`
+                : `<div class="text-slate-500 text-[10px] italic">
+                     <div>Cancelado por <b>${s.canceled_by_name || s.seller_name || 'Usuário'}</b> em ${s.canceled_at || ''}</div>
+                     ${s.cancel_reason ? `<div class="text-rose-400/80 font-normal">Motivo: "${s.cancel_reason}"</div>` : ''}
+                   </div>`;
+
+            return `
+                <tr class="hover:bg-slate-800/40 transition">
+                    <td class="p-3 font-mono">
+                        <span class="text-amber-400 font-semibold">#${s.id}</span>
+                        <div class="text-[10px] text-slate-500">${s.created_at || ''}</div>
+                    </td>
+                    <td class="p-3 font-medium text-slate-200">
+                        ${s.client_name || 'Não informado'}
+                    </td>
+                    <td class="p-3 font-medium text-white">
+                        ${s.product_name}
+                    </td>
+                    <td class="p-3 text-center text-slate-300">
+                        ${s.quantity} x R$ ${(s.unit_price || 0).toFixed(2)}
+                    </td>
+                    <td class="p-3 text-right font-bold text-amber-400">
+                        R$ ${(s.total_price || 0).toFixed(2)}
+                    </td>
+                    <td class="p-3 text-center text-slate-300">
+                        <i class="fas fa-user-tie text-slate-500 mr-1"></i> ${s.seller_name || 'Vendedor'}
+                    </td>
+                    <td class="p-3 text-center">
+                        ${statusBadge}
+                    </td>
+                    <td class="p-3 text-center space-x-1 whitespace-nowrap">
+                        ${printBtn}
+                        ${cancelBtn}
+                    </td>
+                </tr>
+            `;
+        }).join('');
+    }
+
+    function printSale(financeId) {
+        if (!financeId) return;
+        window.open(`/tickets/api/venda-avulsa/imprimir?ids=${financeId}`, '_blank');
+    }
+
+    async function cancelSale(saleId, productName) {
+        const reason = prompt(`Por favor, informe a justificativa/motivo do cancelamento da venda #${saleId} (${productName}):`);
+        if (reason === null) {
+            return;
+        }
+
+        const trimmedReason = reason.trim();
+        if (!trimmedReason) {
+            alert('É obrigatório informar uma justificativa para realizar o cancelamento.');
+            return;
+        }
+
+        try {
+            const resp = await fetch(`/tickets/api/vendas-avulsas/${saleId}/cancel`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ reason: trimmedReason })
+            });
+            const data = await resp.json();
+            if (!resp.ok || !data.success) {
+                throw new Error(data.error || 'Erro ao cancelar venda.');
+            }
+
+            alert(data.message || 'Venda cancelada com sucesso!');
+            loadSalesHistory();
+        } catch (err) {
+            alert(err.message || 'Erro ao cancelar venda.');
+        }
+    }
+
+    function escapeJsString(str) {
+        if (!str) return '';
+        return str.replace(/'/g, "\\'").replace(/"/g, '\\"');
+    }
+</script>
+{% endblock %}

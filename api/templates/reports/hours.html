@@ -1,0 +1,171 @@
+{% extends 'base.html' %}
+{% block page_title %}📊 Relatório de Horas{% endblock %}
+{% block content %}
+
+<div class="bg-secondary rounded-lg shadow-lg p-6 mb-6">
+	<div class="flex items-start justify-between mb-4">
+		<div>
+			<h1 class="text-2xl font-bold text-primary mb-2">Relatório de Horas</h1>
+			<p class="text-muted">Analise o tempo trabalhado por usuário e cliente</p>
+		</div>
+	</div>
+</div>
+
+<div class="bg-secondary rounded-lg shadow-lg p-6 mb-6">
+	<h2 class="text-lg font-semibold text-primary mb-4 flex items-center">
+		<i class="fas fa-filter mr-2"></i>
+		Filtros
+	</h2>
+	<form method="get" class="grid grid-cols-1 md:grid-cols-5 gap-4">
+		<div class="form-group">
+			<label class="form-label">Usuário</label>
+			<select name="user_id" class="form-select">
+				<option value="">Todos</option>
+				{% for id, u in users.items() %}
+				<option value="{{ id }}" {{ 'selected' if request.args.get('user_id')|int == id else '' }}>{{ u.name }}</option>
+				{% endfor %}
+			</select>
+		</div>
+		<div class="form-group">
+			<label class="form-label">Cliente</label>
+			<select name="client_id" class="form-select">
+				<option value="">Todos</option>
+				{% for c in clients %}
+				<option value="{{ c.id }}" {{ 'selected' if request.args.get('client_id')|int == c.id else '' }}>{{ c.name }}</option>
+				{% endfor %}
+			</select>
+		</div>
+		<div class="form-group">
+			<label class="form-label">Data Início</label>
+			<input type="datetime-local" name="start" value="{{ request.args.get('start', '') }}" class="form-input datetime-mask" placeholder="DD/MM/AAAA HH:MM">
+		</div>
+		<div class="form-group">
+			<label class="form-label">Data Fim</label>
+			<input type="datetime-local" name="end" value="{{ request.args.get('end', '') }}" class="form-input datetime-mask" placeholder="DD/MM/AAAA HH:MM">
+		</div>
+		<div class="form-group flex items-end">
+			<button type="submit" class="btn btn-primary w-full">
+				<i class="fas fa-search"></i>
+				Filtrar
+			</button>
+		</div>
+	</form>
+</div>
+<div class="bg-secondary rounded-lg shadow-lg p-6">
+	<h2 class="text-lg font-semibold text-primary mb-4 flex items-center">
+		<i class="fas fa-chart-bar mr-2"></i>
+		Resumo de Horas
+	</h2>
+	
+	{% if summary %}
+	<div class="table-container">
+		<table class="table">
+			<thead>
+				<tr>
+					<th>Usuário</th>
+					<th>Total de Horas</th>
+				</tr>
+			</thead>
+			<tbody>
+				{% for row in summary %}
+				<tr>
+					<td>
+						<div class="flex items-center">
+							<i class="fas fa-user text-primary mr-2"></i>
+							<span class="font-medium text-primary">
+								{{ users.get(row.user_id).name if users.get(row.user_id) else 'Usuário não encontrado' }}
+							</span>
+						</div>
+					</td>
+					<td>
+						<div class="flex items-center">
+							<i class="fas fa-clock text-success mr-2"></i>
+							<span class="font-medium text-success text-lg">
+								{% set hours = row.total_hours or 0 %}
+								{% if hours < 1 %}
+									{{ (hours * 60)|int }}min
+								{% else %}
+									{{ hours|int }}h {{ ((hours - hours|int) * 60)|int }}m
+								{% endif %}
+							</span>
+						</div>
+					</td>
+				</tr>
+				{% endfor %}
+			</tbody>
+		</table>
+	</div>
+	
+	<div class="mt-6 p-4 bg-tertiary rounded-lg">
+		<div class="flex items-center justify-between">
+			<div>
+				<h3 class="font-semibold text-primary mb-1">Total Geral</h3>
+				<p class="text-muted">Soma de todas as horas trabalhadas</p>
+			</div>
+			<div class="text-right">
+				<div class="text-2xl font-bold text-success">
+					{% set total_hours = summary|sum(attribute='total_hours') or 0 %}
+					{% if total_hours < 1 %}
+						{{ (total_hours * 60)|int }}min
+					{% else %}
+						{{ total_hours|int }}h {{ ((total_hours - total_hours|int) * 60)|int }}m
+					{% endif %}
+				</div>
+			</div>
+		</div>
+	</div>
+	{% else %}
+	<div class="empty-state">
+		<i class="fas fa-chart-bar"></i>
+		<h3>Nenhum dado encontrado</h3>
+		<p>Não há registros de horas para os filtros selecionados.</p>
+		<a href="{{ url_for('reports.hours') }}" class="btn btn-primary">
+			<i class="fas fa-refresh"></i>
+			Limpar Filtros
+		</a>
+	</div>
+	{% endif %}
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+	// Máscaras de data e hora
+	function initDateTimeMasks() {
+		const datetimeInputs = document.querySelectorAll('.datetime-mask');
+		
+		datetimeInputs.forEach(input => {
+			// Definir valor padrão se estiver vazio
+			if (!input.value) {
+				const now = new Date();
+				const year = now.getFullYear();
+				const month = String(now.getMonth() + 1).padStart(2, '0');
+				const day = String(now.getDate()).padStart(2, '0');
+				const hours = String(now.getHours()).padStart(2, '0');
+				const minutes = String(now.getMinutes()).padStart(2, '0');
+				
+				input.value = `${year}-${month}-${day}T${hours}:${minutes}`;
+			}
+			
+			// Adicionar validação de data
+			input.addEventListener('change', function() {
+				const startInput = document.querySelector('input[name="start"]');
+				const endInput = document.querySelector('input[name="end"]');
+				
+				if (startInput && endInput && startInput.value && endInput.value) {
+					const start = new Date(startInput.value);
+					const end = new Date(endInput.value);
+					
+					if (end <= start) {
+						alert('A data/hora de fim deve ser posterior à data/hora de início.');
+						endInput.focus();
+					}
+				}
+			});
+		});
+	}
+	
+	// Inicializar máscaras
+	initDateTimeMasks();
+});
+</script>
+{% endblock %}

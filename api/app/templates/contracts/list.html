@@ -1,0 +1,337 @@
+{% extends 'base.html' %}
+{% from 'macros/ui.html' import page_header, filter_bar, filter_select, filter_text, filter_submit, empty_state %}
+{% block page_title %}📋 Contratos{% endblock %}
+{% block content %}
+
+{% call page_header('Contratos', 'Cada contrato agrupa clientes e serviços. Use "Gerenciar" para ver todos os detalhes.', icon='fas fa-file-contract') %}
+{% if current_user.has_role('admin') %}
+{% if contracts %}
+<button id="open-bulk-edit" class="btn btn-secondary">
+	<i class="fas fa-edit"></i>
+	Edição em Massa
+</button>
+{% endif %}
+<a href="{{ url_for('contracts.create_contract') }}" class="btn btn-primary">
+	<i class="fas fa-plus"></i>
+	Novo Contrato
+</a>
+{% endif %}
+{% endcall %}
+
+{% call filter_bar() %}
+<div class="dc-filter-bar__row">
+	{{ filter_select('status', 'Status', [('ativo', 'Ativo'), ('vencendo', 'Vencendo'), ('vencido', 'Vencido')], status_filter, 'Todos') }}
+	{{ filter_text('q', 'Buscar', search_term, 'Nome do contrato ou cliente') }}
+	{{ filter_submit('Buscar') }}
+</div>
+{% endcall %}
+
+{% if contracts %}
+<div class="dc-table-container">
+	<div class="dc-table-scroll">
+		<table class="dc-table">
+			<thead>
+				<tr>
+					<th>Contrato</th>
+					<th data-col-priority="medium">Clientes</th>
+					<th data-col-priority="low">Serviços</th>
+					<th>Status</th>
+					<th>Ações</th>
+				</tr>
+			</thead>
+			<tbody>
+				{% for contract in contracts %}
+				{% set stats = contract_stats.get(contract.name) %}
+				<tr>
+					<td>
+						<span class="dc-table-cell-primary">{{ contract.name }}</span>
+					</td>
+					<td data-col-priority="medium">
+						{% if stats %}
+						<i class="fas fa-users text-muted mr-1"></i>{{ stats.total }}
+						{% else %}
+						<span class="text-muted">-</span>
+						{% endif %}
+					</td>
+					<td data-col-priority="low">
+						{% if contract.services %}
+						<details>
+							<summary class="text-sm text-muted" style="cursor: pointer;">{{ contract.services|length }} serviço(s)</summary>
+							<div class="flex flex-wrap gap-2 mt-2">
+								{% for service in contract.services %}
+								<span class="bg-tertiary rounded-lg px-2 py-1 text-sm flex items-center gap-2">
+									<span class="text-primary">{{ service.name }}</span>
+									<span class="text-muted text-xs">R$ {{ '%.2f'|format(service.hourly_rate) }}/h</span>
+									{% if current_user.has_role('admin') %}
+									<form method="post" action="{{ url_for('contracts.unlink_service_from_contract', contract_name=contract.name, service_id=service.id) }}" class="inline">
+										<button type="submit" class="btn btn-error btn-xs" title="Remover serviço do contrato"
+												onclick="return confirm('Deseja remover este serviço do contrato?')">
+											<i class="fas fa-times"></i>
+										</button>
+									</form>
+									{% endif %}
+								</span>
+								{% endfor %}
+							</div>
+						</details>
+						{% else %}
+						<span class="text-muted">Nenhum</span>
+						{% endif %}
+					</td>
+					<td>
+						{% if stats and stats.vencidos > 0 %}
+						<span class="status-badge status-vencido">{{ stats.vencidos }} vencido(s)</span>
+						{% endif %}
+						{% if stats and stats.vencendo > 0 %}
+						<span class="status-badge status-em-andamento">{{ stats.vencendo }} vencendo</span>
+						{% endif %}
+						{% if not stats or (stats.vencidos == 0 and stats.vencendo == 0) %}
+						<span class="status-badge status-fechado">Ativo</span>
+						{% endif %}
+					</td>
+					<td>
+						<div class="dc-table-actions">
+							<button onclick="viewContractClients('{{ contract.name }}')" class="btn btn-secondary btn-sm">
+								<i class="fas fa-users"></i>
+								<span class="hidden xl:inline">Ver Clientes</span>
+							</button>
+							{% if current_user.has_role('admin') %}
+							<a href="{{ url_for('contracts.manage_contract', contract_name=contract.name) }}" class="btn btn-primary btn-sm">
+								<i class="fas fa-cog"></i>
+								<span class="hidden xl:inline">Gerenciar</span>
+							</a>
+							{% endif %}
+						</div>
+					</td>
+				</tr>
+				{% endfor %}
+			</tbody>
+		</table>
+	</div>
+</div>
+{% else %}
+{% if search_term or status_filter %}
+{{ empty_state('fas fa-file-contract', 'Nenhum contrato encontrado', 'Nenhum contrato corresponde aos filtros atuais.', url_for('contracts.list_contracts'), 'Ver todos os contratos', 'fas fa-list') }}
+{% else %}
+{{ empty_state('fas fa-file-contract', 'Nenhum contrato cadastrado', 'Não há contratos cadastrados no PostgreSQL.') }}
+{% endif %}
+{% endif %}
+
+<!-- Modal de edição em massa -->
+{% if current_user.has_role('admin') and contracts %}
+<div id="bulk-edit-modal" class="modal-overlay hidden">
+	<div class="modal">
+		<div class="modal-header">
+			<h3 class="modal-title">Edição em Massa de Serviços</h3>
+			<button id="close-bulk-edit" class="modal-close">
+				<i class="fas fa-times"></i>
+			</button>
+		</div>
+		<div class="modal-body">
+			<p class="text-sm text-muted mb-4">Marque os serviços de cada contrato e clique em "Salvar" no contrato alterado.</p>
+			<div class="space-y-4">
+				{% for contract in contracts %}
+				<div class="rounded-lg p-4" style="border: 1px solid var(--border-color);">
+					<div class="flex items-center justify-between mb-3">
+						<h4 class="font-medium text-primary">{{ contract.name }}</h4>
+					</div>
+					<form method="post" action="{{ url_for('contracts.update_contract_services', contract_name=contract.name) }}">
+						<div class="grid grid-cols-1 md:grid-cols-2 gap-2 mb-3">
+							{% for service in all_services %}
+							{% set is_linked = service.id in contract.services|map(attribute='id')|list %}
+							<label class="flex items-center space-x-2">
+								<input type="checkbox" name="service_ids" value="{{ service.id }}"
+									{% if is_linked %}checked{% endif %}
+									class="form-checkbox">
+								<span class="text-sm">{{ service.name }} — R$ {{ '%.2f'|format(service.hourly_rate) }}/h</span>
+							</label>
+							{% endfor %}
+						</div>
+						<button type="submit" class="btn btn-primary btn-sm">
+							<i class="fas fa-save"></i>
+							Salvar
+						</button>
+					</form>
+				</div>
+				{% endfor %}
+			</div>
+		</div>
+	</div>
+</div>
+{% endif %}
+
+<!-- Modal de clientes do contrato -->
+<div id="clients-modal" class="modal-overlay hidden">
+	<div class="modal">
+		<div class="modal-header">
+			<h3 class="modal-title" id="clients-modal-title">Clientes do Contrato</h3>
+			<button id="close-clients-modal" class="modal-close">
+				<i class="fas fa-times"></i>
+			</button>
+		</div>
+		<div class="modal-body">
+			<div id="clients-loading" class="text-center py-8 hidden">
+				<i class="fas fa-spinner fa-spin text-2xl text-primary mb-2"></i>
+				<p class="text-muted">Carregando clientes...</p>
+			</div>
+			<div id="clients-error" class="text-center py-8 hidden">
+				<i class="fas fa-exclamation-triangle text-2xl text-error mb-2"></i>
+				<p class="text-error" id="clients-error-message">Erro ao carregar clientes</p>
+			</div>
+			<div id="clients-content" class="hidden">
+				<div class="mb-4">
+					<span class="text-sm text-muted" id="clients-count">0 cliente(s) encontrado(s)</span>
+				</div>
+				<div id="clients-list" class="space-y-3 max-h-96 overflow-y-auto">
+					<!-- Lista de clientes será inserida aqui -->
+				</div>
+			</div>
+		</div>
+	</div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+	// Modal de edição em massa
+	const openBulkEdit = document.getElementById('open-bulk-edit');
+	const closeBulkEdit = document.getElementById('close-bulk-edit');
+	const bulkEditModal = document.getElementById('bulk-edit-modal');
+
+	if (openBulkEdit && closeBulkEdit && bulkEditModal) {
+		openBulkEdit.addEventListener('click', function() {
+			bulkEditModal.classList.remove('hidden');
+			bulkEditModal.classList.add('active');
+		});
+
+		closeBulkEdit.addEventListener('click', function() {
+			bulkEditModal.classList.add('hidden');
+			bulkEditModal.classList.remove('active');
+		});
+
+		bulkEditModal.addEventListener('click', function(e) {
+			if (e.target === bulkEditModal) {
+				bulkEditModal.classList.add('hidden');
+				bulkEditModal.classList.remove('active');
+			}
+		});
+	}
+
+	// Modal de clientes
+	const clientsModal = document.getElementById('clients-modal');
+	const closeClientsModal = document.getElementById('close-clients-modal');
+
+	if (closeClientsModal && clientsModal) {
+		closeClientsModal.addEventListener('click', function() {
+			clientsModal.classList.add('hidden');
+			clientsModal.classList.remove('active');
+		});
+
+		clientsModal.addEventListener('click', function(e) {
+			if (e.target === clientsModal) {
+				clientsModal.classList.add('hidden');
+				clientsModal.classList.remove('active');
+			}
+		});
+	}
+});
+
+// Visualizar clientes de um contrato (modal AJAX)
+function viewContractClients(contractName) {
+	const modal = document.getElementById('clients-modal');
+	const title = document.getElementById('clients-modal-title');
+	const loading = document.getElementById('clients-loading');
+	const error = document.getElementById('clients-error');
+	const content = document.getElementById('clients-content');
+	const count = document.getElementById('clients-count');
+	const list = document.getElementById('clients-list');
+
+	title.textContent = `Clientes do Contrato: ${contractName}`;
+
+	modal.classList.remove('hidden');
+	modal.classList.add('active');
+	loading.classList.remove('hidden');
+	error.classList.add('hidden');
+	content.classList.add('hidden');
+
+	fetch(`/contratos/${encodeURIComponent(contractName)}/clients`, {
+		credentials: 'include'
+	})
+	.then(response => response.json())
+	.then(data => {
+		loading.classList.add('hidden');
+
+		if (data.success) {
+			count.textContent = `${data.total} cliente(s) encontrado(s)`;
+			list.innerHTML = '';
+
+			if (data.clients && data.clients.length > 0) {
+				data.clients.forEach(client => {
+					const clientCard = document.createElement('div');
+					clientCard.className = 'bg-tertiary rounded-lg p-3';
+
+					const details = client.contract_details;
+					let statusBadge = '';
+					let detailsHtml = '';
+
+					if (details) {
+						const badges = {
+							'vencido': '<span class="inline-block bg-red-100 text-red-700 text-xs px-2 py-1 rounded-full font-medium">Vencido</span>',
+							'vencendo': `<span class="inline-block bg-yellow-100 text-yellow-700 text-xs px-2 py-1 rounded-full font-medium">Vence em ${details.days_to_expire}d</span>`,
+							'cancelado': '<span class="inline-block bg-secondary-100 text-gray-500 text-xs px-2 py-1 rounded-full font-medium">Cancelado</span>',
+							'ativo': '<span class="inline-block bg-green-100 text-green-700 text-xs px-2 py-1 rounded-full font-medium">Ativo</span>'
+						};
+						statusBadge = badges[details.display_status] || '';
+
+						const valueText = (details.value !== null && details.value !== undefined)
+							? `R$ ${details.value.toFixed(2).replace('.', ',')}` : '—';
+						detailsHtml = `
+							<div class="grid grid-cols-2 md:grid-cols-4 gap-2 mt-2 text-xs" style="border-top: 1px solid var(--border-color); padding-top: 0.5rem;">
+								<div><span class="text-muted block">Produto</span><span class="text-primary font-medium">${details.product || '—'}</span></div>
+								<div><span class="text-muted block">Contratação</span><span class="text-primary font-medium">${details.start_date_br || '—'}</span></div>
+								<div><span class="text-muted block">Vencimento</span><span class="text-primary font-medium">${details.end_date_br || '—'}</span></div>
+								<div><span class="text-muted block">Valor</span><span class="text-primary font-medium">${valueText}</span></div>
+							</div>
+						`;
+					}
+
+					const contactParts = [];
+					if (client.document) contactParts.push(client.document);
+					if (client.phone) contactParts.push(client.phone);
+					if (client.email) contactParts.push(client.email);
+
+					clientCard.innerHTML = `
+						<div class="flex items-center justify-between gap-2 flex-wrap">
+							<span class="font-medium text-primary">${client.name || 'Nome não informado'}</span>
+							${statusBadge}
+						</div>
+						${contactParts.length ? `<div class="text-sm text-muted mt-1">${contactParts.join(' · ')}</div>` : ''}
+						${detailsHtml}
+					`;
+
+					list.appendChild(clientCard);
+				});
+			} else {
+				list.innerHTML = `
+					<div class="text-center py-8 text-muted">
+						<i class="fas fa-users text-4xl mb-2"></i>
+						<p>Nenhum cliente vinculado a este contrato.</p>
+					</div>
+				`;
+			}
+
+			content.classList.remove('hidden');
+		} else {
+			document.getElementById('clients-error-message').textContent = data.error || 'Erro desconhecido';
+			error.classList.remove('hidden');
+		}
+	})
+	.catch(err => {
+		loading.classList.add('hidden');
+		document.getElementById('clients-error-message').textContent = 'Erro de conexão';
+		error.classList.remove('hidden');
+		console.error('Erro ao buscar clientes:', err);
+	});
+}
+</script>
+
+{% endblock %}

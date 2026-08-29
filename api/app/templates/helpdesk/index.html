@@ -1,0 +1,1721 @@
+{% extends "base.html" %}
+
+{% block head %}
+    {{ super() }}
+    <!-- Bootstrap CSS apenas para o help desk -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+{% endblock %}
+
+{% block content %}
+<style>
+    .helpdesk-container {
+        height: 100vh;
+        overflow: hidden;
+        background: var(--bg-primary);
+        display: flex;
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        position: relative;
+        position: fixed;
+        top: 0;
+        left: 280px;
+        right: 0;
+        bottom: 0;
+        width: calc(100% - 280px);
+    }
+    
+    .helpdesk-sidebar {
+        background: var(--bg-secondary);
+        border-right: 2px solid var(--accent-primary);
+        height: 100%;
+        overflow-y: auto;
+        width: 400px;
+        flex-shrink: 0;
+        position: relative;
+        z-index: 10;
+        display: flex;
+        flex-direction: column;
+    }
+    
+    .helpdesk-sidebar-header {
+        background: var(--accent-primary);
+        color: white;
+        padding: 1.5rem 1rem;
+        text-align: center;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+    }
+    
+    .helpdesk-sidebar-header h5 {
+        margin: 0;
+        font-weight: 600;
+        font-size: 1.1rem;
+    }
+    
+    .helpdesk-tabs {
+        display: flex;
+        background: var(--bg-secondary);
+        border-bottom: 1px solid var(--border-color);
+        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+    }
+    
+    .helpdesk-tab {
+        flex: 1;
+        padding: 1rem 0.75rem;
+        text-align: center;
+        border: none;
+        background: transparent;
+        cursor: pointer;
+        transition: all 0.3s ease;
+        position: relative;
+        font-weight: 500;
+        font-size: 0.9rem;
+        color: var(--text-secondary);
+    }
+    
+    .helpdesk-tab.active {
+        background: var(--accent-primary);
+        color: white;
+        box-shadow: 0 2px 8px rgba(59, 130, 246, 0.3);
+    }
+    
+    .helpdesk-tab:hover:not(.active) {
+        background: var(--bg-tertiary);
+    }
+    
+    .tab .badge {
+        position: absolute;
+        top: 5px;
+        right: 8px;
+        font-size: 0.65rem;
+        padding: 0.25rem 0.5rem;
+        border-radius: 10px;
+    }
+    
+    .conversation-list {
+        padding: 0;
+        margin: 0;
+        background: var(--bg-secondary);
+        flex: 1;
+        overflow-y: auto;
+        display: flex;
+        flex-direction: column;
+    }
+    
+    .conversation-item {
+        padding: 1rem;
+        border-bottom: 1px solid var(--border-color);
+        cursor: pointer;
+        transition: all 0.3s ease;
+        position: relative;
+    }
+    
+    .conversation-item:hover {
+        background: var(--bg-tertiary);
+        transform: translateX(2px);
+    }
+    
+    .conversation-item.active {
+        background: var(--accent-light);
+        border-left: 4px solid var(--accent-primary);
+        box-shadow: 0 2px 8px rgba(59, 130, 246, 0.2);
+    }
+    
+    .conversation-avatar {
+        width: 45px;
+        height: 45px;
+        border-radius: 50%;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: white;
+        font-weight: bold;
+        font-size: 1.1rem;
+        box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);
+    }
+    
+    .conversation-info {
+        flex: 1;
+        margin-left: 0.75rem;
+    }
+    
+    .conversation-name {
+        font-weight: 600;
+        margin-bottom: 0.25rem;
+        color: var(--text-primary);
+        font-size: 0.95rem;
+    }
+    
+    .conversation-preview {
+        font-size: 0.8rem;
+        color: var(--text-secondary);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        line-height: 1.3;
+    }
+    
+    .conversation-time {
+        font-size: 0.7rem;
+        color: var(--text-muted);
+        font-weight: 500;
+    }
+    
+    .chat-area {
+        background: var(--bg-primary);
+        display: flex;
+        flex-direction: column;
+        height: 100vh;
+        width: 68%;
+        overflow: hidden;
+        position: fixed;
+        top: 0;
+        right: 0;
+        z-index: 1;
+        border-left: 2px solid var(--accent-primary);
+    }
+    
+    .chat-welcome {
+        flex: 1;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+        color: var(--text-secondary);
+        background: var(--bg-secondary);
+        position: relative;
+        z-index: 1;
+    }
+    
+    .chat-welcome i {
+        font-size: 5rem;
+        margin-bottom: 1.5rem;
+        opacity: 0.4;
+        color: var(--accent-primary);
+    }
+    
+    .chat-welcome h4 {
+        color: var(--text-primary);
+        font-weight: 600;
+        margin-bottom: 0.5rem;
+    }
+    
+    .chat-welcome p {
+        color: var(--text-secondary);
+        font-size: 1rem;
+    }
+    
+    .chat-container {
+        display: none;
+        flex-direction: column;
+        height: 100%;
+        background: var(--bg-secondary);
+        position: relative;
+        overflow: hidden;
+        flex: 1;
+        border-left: 1px solid var(--border-color);
+        z-index: 1;
+    }
+    
+    .chat-header {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        padding: 1.25rem 1.5rem;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        position: relative;
+        z-index: 2;
+    }
+    
+    .chat-header h6 {
+        margin: 0;
+        font-weight: 600;
+        font-size: 1.1rem;
+    }
+    
+    .chat-header small {
+        opacity: 0.9;
+        font-size: 0.8rem;
+    }
+    
+    .chat-header .btn {
+        border-radius: 8px;
+        padding: 0.5rem 0.75rem;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: all 0.3s ease;
+        white-space: nowrap;
+        font-size: 0.875rem;
+    }
+    
+    .chat-header .btn:hover {
+        background: rgba(255,255,255,0.2);
+        transform: scale(1.1);
+    }
+    
+    /* CSS simples para forçar layout horizontal dos botões */
+    .chat-header .d-flex.gap-2 {
+        display: flex !important;
+        flex-direction: row !important;
+        align-items: center !important;
+        gap: 0.5rem !important;
+        flex-wrap: nowrap !important;
+    }
+    
+    .chat-header .d-flex.gap-2 .btn {
+        display: inline-block !important;
+        margin: 0 !important;
+        float: none !important;
+    }
+    
+    
+    
+    
+    
+    
+    
+    
+    .chat-messages {
+        flex: 1;
+        overflow-y: auto;
+        padding: 1.5rem;
+        padding-bottom: 120px;
+        background: var(--bg-primary);
+        background-attachment: fixed;
+        scroll-behavior: smooth;
+    }
+    
+    .message {
+        margin-bottom: 1.25rem;
+        animation: fadeInUp 0.3s ease;
+    }
+    
+    @keyframes fadeInUp {
+        from {
+            opacity: 0;
+            transform: translateY(10px);
+        }
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+    
+    .message.agent {
+        text-align: right;
+    }
+    
+    .message.client {
+        text-align: left;
+    }
+    
+    .message.system {
+        text-align: center;
+    }
+    
+    .message-content {
+        display: inline-block;
+        max-width: 75%;
+        padding: 0.875rem 1.25rem;
+        border-radius: 20px;
+        word-wrap: break-word;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        position: relative;
+    }
+    
+    .message.agent .message-content {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        border-bottom-right-radius: 5px;
+    }
+    
+    .message.client .message-content {
+        background: var(--bg-secondary);
+        border: 1px solid var(--border-color);
+        color: var(--text-primary);
+        border-bottom-left-radius: 5px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    }
+    
+    .message.system .message-content {
+        background: var(--accent-light);
+        color: var(--accent-primary);
+        font-size: 0.9rem;
+        border-radius: 15px;
+        font-weight: 500;
+    }
+    
+    .message-time {
+        font-size: 0.7rem;
+        color: rgba(255,255,255,0.8);
+        margin-top: 0.25rem;
+        text-align: right;
+    }
+    
+    .message.client .message-time {
+        color: var(--text-muted);
+        text-align: left;
+    }
+    
+    .message.system .message-time {
+        color: var(--accent-primary);
+        text-align: center;
+    }
+    
+    .chat-input {
+        position: absolute;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        padding: 1.5rem;
+        background: var(--bg-secondary);
+        border-top: 1px solid var(--border-color);
+        box-shadow: 0 -2px 10px rgba(0,0,0,0.1);
+        z-index: 3;
+    }
+    
+    .input-group {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        max-width: 100%;
+    }
+    
+    .input-group .form-control {
+        flex: 1;
+        border-radius: 25px;
+        border: 2px solid var(--border-color);
+        padding: 0.75rem 1.25rem;
+        font-size: 0.95rem;
+        transition: all 0.3s ease;
+        background: var(--bg-tertiary);
+        color: var(--text-primary);
+        min-width: 0;
+    }
+    
+    .input-group .form-control:focus {
+        border-color: var(--accent-primary);
+        box-shadow: 0 0 0 0.2rem rgba(59, 130, 246, 0.25);
+        background: var(--bg-secondary);
+    }
+    
+    .input-group .btn {
+        border-radius: 50%;
+        width: 45px;
+        height: 45px;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        border: none;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: all 0.3s ease;
+        box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);
+        flex-shrink: 0;
+    }
+    
+    .input-group .btn:hover {
+        transform: scale(1.05);
+        box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+    }
+    
+    .input-group .btn:active {
+        transform: scale(0.95);
+    }
+    
+    .empty-state {
+        text-align: center;
+        padding: 3rem 2rem;
+        color: var(--text-secondary);
+    }
+    
+    .empty-state i {
+        font-size: 4rem;
+        margin-bottom: 1.5rem;
+        opacity: 0.4;
+        color: var(--accent-primary);
+    }
+    
+    .empty-state p {
+        font-size: 1rem;
+        margin: 0;
+        font-weight: 500;
+        color: var(--text-secondary);
+    }
+    
+    /* Scrollbar personalizada */
+    .chat-messages::-webkit-scrollbar {
+        width: 6px;
+    }
+    
+    .chat-messages::-webkit-scrollbar-track {
+        background: var(--bg-tertiary);
+        border-radius: 3px;
+    }
+    
+    .chat-messages::-webkit-scrollbar-thumb {
+        background: var(--text-muted);
+        border-radius: 3px;
+    }
+    
+    .chat-messages::-webkit-scrollbar-thumb:hover {
+        background: var(--text-secondary);
+    }
+    
+    .helpdesk-sidebar::-webkit-scrollbar {
+        width: 4px;
+    }
+    
+    .helpdesk-sidebar::-webkit-scrollbar-track {
+        background: var(--bg-tertiary);
+    }
+    
+    .helpdesk-sidebar::-webkit-scrollbar-thumb {
+        background: var(--text-muted);
+        border-radius: 2px;
+    }
+    
+    /* Footer da sidebar */
+    .sidebar-footer {
+        padding: 1rem;
+        border-top: 1px solid var(--border-color);
+        background: var(--bg-secondary);
+        margin-top: auto;
+    }
+    
+    .sidebar-footer .btn {
+        border-radius: 8px;
+        font-weight: 500;
+        transition: all 0.3s ease;
+    }
+    
+    .sidebar-footer .btn:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    }
+    
+    /* Card flutuante de notificação */
+    .floating-notification {
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        background: var(--bg-primary);
+        border: 2px solid var(--accent-primary);
+        border-radius: 12px;
+        box-shadow: 0 8px 32px rgba(0,0,0,0.2);
+        z-index: 10000;
+        min-width: 320px;
+        max-width: 400px;
+        animation: slideInRight 0.5s ease-out;
+    }
+    
+    .notification-content {
+        display: flex;
+        align-items: center;
+        padding: 1rem;
+        gap: 1rem;
+    }
+    
+    .notification-icon {
+        background: var(--accent-primary);
+        color: white;
+        width: 40px;
+        height: 40px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.2rem;
+        animation: pulse 2s infinite;
+    }
+    
+    .notification-text {
+        flex: 1;
+    }
+    
+    .notification-text h6 {
+        color: var(--accent-primary);
+        font-weight: 600;
+        margin: 0;
+    }
+    
+    .notification-text p {
+        color: var(--text-secondary);
+        font-size: 0.9rem;
+        margin: 0;
+    }
+    
+    .notification-close {
+        background: none;
+        border: none;
+        color: var(--text-muted);
+        font-size: 1.1rem;
+        cursor: pointer;
+        padding: 0.25rem;
+        border-radius: 4px;
+        transition: all 0.3s ease;
+    }
+    
+    .notification-close:hover {
+        background: var(--bg-tertiary);
+        color: var(--text-primary);
+    }
+    
+    @keyframes slideInRight {
+        from {
+            transform: translateX(100%);
+            opacity: 0;
+        }
+        to {
+            transform: translateX(0);
+            opacity: 1;
+        }
+    }
+    
+    @keyframes pulse {
+        0% {
+            transform: scale(1);
+            opacity: 1;
+        }
+        50% {
+            transform: scale(1.1);
+            opacity: 0.8;
+        }
+        100% {
+            transform: scale(1);
+            opacity: 1;
+        }
+    }
+    
+    /* Responsividade */
+    @media (max-width: 768px) {
+        .helpdesk-container {
+            height: calc(100vh - 100px);
+            border-radius: 10px;
+        }
+        
+        .chat-messages {
+            padding: 1rem;
+        }
+        
+        .message-content {
+            max-width: 85%;
+            padding: 0.75rem 1rem;
+        }
+        
+        .chat-input {
+            padding: 1rem;
+        }
+        
+        .input-group .form-control {
+            padding: 0.625rem 1rem;
+        }
+        
+        .input-group .btn {
+            width: 40px;
+            height: 40px;
+        }
+        
+        .chat-header .d-flex {
+            flex-direction: row !important;
+            flex-wrap: nowrap !important;
+            gap: 0.5rem !important;
+        }
+        
+        .chat-header .btn {
+            padding: 0.375rem 0.5rem;
+            font-size: 0.75rem;
+            display: inline-flex !important;
+            flex-shrink: 0 !important;
+        }
+        
+        .chat-header > .d-flex:last-child {
+            flex-direction: row !important;
+            display: flex !important;
+            align-items: center !important;
+            justify-content: flex-end !important;
+        }
+    }
+    
+    
+    /* Modal de chats encerrados */
+    .closed-chats-list {
+        max-height: 400px;
+        overflow-y: auto;
+    }
+    
+    .closed-chat-item {
+        padding: 1rem;
+        border: 1px solid var(--border-color);
+        border-radius: 8px;
+        margin-bottom: 0.75rem;
+        cursor: pointer;
+        transition: all 0.3s ease;
+        background: var(--bg-secondary);
+    }
+    
+    .closed-chat-item:hover {
+        background: var(--bg-tertiary);
+        border-color: var(--accent-primary);
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+    }
+    
+    .closed-chat-item .avatar {
+        width: 40px;
+        height: 40px;
+        background: var(--accent-primary);
+        color: white;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1rem;
+    }
+    
+    .closed-chat-item h6 {
+        color: var(--text-primary);
+        font-weight: 600;
+        margin: 0;
+    }
+    
+    .closed-chat-item p {
+        color: var(--text-secondary);
+        margin: 0;
+        font-size: 0.875rem;
+    }
+    
+    .closed-chat-item small {
+        color: var(--text-muted);
+        font-size: 0.75rem;
+    }
+    
+    .closed-chat-item .badge {
+        font-size: 0.7rem;
+    }
+    
+    /* Modal de mensagens do chat encerrado */
+    .chat-session-info {
+        background: var(--bg-secondary) !important;
+        border: 1px solid var(--border-color);
+    }
+    
+    .closed-chat-messages {
+        max-height: 500px;
+        overflow-y: auto;
+        border: 1px solid var(--border-color);
+        border-radius: 8px;
+        padding: 1rem;
+        background: var(--bg-primary);
+    }
+    
+    .message-item {
+        margin-bottom: 1rem;
+        display: flex;
+        flex-direction: column;
+    }
+    
+    .message-item.message-client {
+        align-items: flex-start;
+    }
+    
+    .message-item.message-agent {
+        align-items: flex-end;
+    }
+    
+    .message-item.message-system {
+        align-items: center;
+    }
+    
+    .message-content {
+        max-width: 70%;
+        padding: 0.75rem 1rem;
+        border-radius: 12px;
+        position: relative;
+    }
+    
+    .message-client .message-content {
+        background: var(--bg-secondary);
+        border: 1px solid var(--border-color);
+        color: var(--text-primary);
+    }
+    
+    .message-agent .message-content {
+        background: var(--accent-primary);
+        color: white;
+    }
+    
+    .message-system .message-content {
+        background: var(--bg-tertiary);
+        border: 1px solid var(--border-color);
+        color: var(--text-secondary);
+        font-style: italic;
+        text-align: center;
+        max-width: 90%;
+    }
+    
+    .message-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 0.25rem;
+        font-size: 0.75rem;
+        opacity: 0.8;
+    }
+    
+    .message-sender {
+        font-weight: 600;
+    }
+    
+    .message-time {
+        font-size: 0.7rem;
+    }
+    
+    .message-text {
+        line-height: 1.4;
+        word-wrap: break-word;
+    }
+    
+    .message-client .message-sender,
+    .message-client .message-time {
+        color: var(--text-secondary);
+    }
+    
+    .message-agent .message-sender,
+    .message-agent .message-time {
+        color: rgba(255, 255, 255, 0.9);
+    }
+    
+    .message-system .message-sender,
+    .message-system .message-time {
+        color: var(--text-muted);
+    }
+    
+    /* Scrollbar personalizada */
+    .closed-chat-messages::-webkit-scrollbar {
+        width: 6px;
+    }
+    
+    .closed-chat-messages::-webkit-scrollbar-track {
+        background: var(--bg-secondary);
+        border-radius: 3px;
+    }
+    
+    .closed-chat-messages::-webkit-scrollbar-thumb {
+        background: var(--accent-primary);
+        border-radius: 3px;
+    }
+    
+    .closed-chat-messages::-webkit-scrollbar-thumb:hover {
+        background: var(--accent-secondary);
+    }
+    
+    /* Garantir que os modais apareçam no centro */
+    .modal {
+        z-index: 10000 !important;
+    }
+    
+    .modal-backdrop {
+        z-index: 9999 !important;
+    }
+    
+    .modal-dialog {
+        margin: 1.75rem auto !important;
+        max-width: 90% !important;
+    }
+    
+    .modal-dialog-centered {
+        display: flex !important;
+        align-items: center !important;
+        min-height: calc(100% - 3.5rem) !important;
+    }
+    
+    .modal-content {
+        border: none !important;
+        border-radius: 12px !important;
+        box-shadow: 0 10px 30px rgba(0,0,0,0.3) !important;
+    }
+    
+    .modal-header {
+        border-bottom: 1px solid var(--border-color) !important;
+        background: var(--bg-secondary) !important;
+    }
+    
+    .modal-body {
+        background: var(--bg-primary) !important;
+        color: var(--text-primary) !important;
+    }
+    
+    .modal-footer {
+        border-top: 1px solid var(--border-color) !important;
+        background: var(--bg-secondary) !important;
+    }
+    
+    .modal-title {
+        color: var(--text-primary) !important;
+    }
+    
+    .btn-close {
+        filter: var(--bs-btn-close-white-filter) !important;
+    }
+</style>
+
+<div class="helpdesk-container">
+    <!-- Sidebar -->
+    <div class="helpdesk-sidebar">
+                            <div class="helpdesk-sidebar-header">
+                                <h5 class="mb-0">Conversas</h5>
+                                <button class="btn btn-sm btn-outline-light" onclick="showFloatingNotification('Teste: Cliente João está aguardando atendimento')">
+                                    <i class="fas fa-bell"></i> Testar
+                                </button>
+                            </div>
+                            
+                            <!-- Tabs -->
+                            <div class="helpdesk-tabs">
+                                <button class="helpdesk-tab active" onclick="switchTab('waiting')">
+                                    Em Espera
+                                    <span class="badge bg-warning" id="waiting-count">0</span>
+                                </button>
+                                <button class="helpdesk-tab" onclick="switchTab('attending')">
+                                    Atendendo
+                                    <span class="badge bg-success" id="attending-count">0</span>
+                                </button>
+                            </div>
+                            
+                            <!-- Lista de conversas -->
+                            <div class="conversation-list" id="conversation-list">
+                                <!-- Em Espera -->
+                                <div id="waiting-conversations">
+                                    {% for session in waiting_sessions %}
+                                        <div class="conversation-item" onclick="selectConversation({{ session.id }}, 'waiting')" data-session-id="{{ session.id }}">
+                                            <div class="d-flex align-items-center">
+                                                <div class="conversation-avatar">
+                                                    {{ session.client_name[0].upper() }}
+                                                </div>
+                                                <div class="conversation-info">
+                                                    <div class="conversation-name">{{ session.client_name }}</div>
+                                                    <div class="conversation-preview">{{ session.title }}</div>
+                                                    <div class="conversation-time">{{ session.formatted_created_at() }}</div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    {% endfor %}
+                                    
+                                    {% if not waiting_sessions %}
+                                        <div class="empty-state">
+                                            <i class="fas fa-inbox"></i>
+                                            <p>Nenhuma conversa em espera</p>
+                                        </div>
+                                    {% endif %}
+                                </div>
+                                
+                                <!-- Atendendo -->
+                                <div id="attending-conversations" style="display: none;">
+                                    {% for session in active_sessions %}
+                                        <div class="conversation-item" onclick="selectConversation({{ session.id }}, 'attending')" data-session-id="{{ session.id }}">
+                                            <div class="d-flex align-items-center">
+                                                <div class="conversation-avatar">
+                                                    {{ session.client_name[0].upper() }}
+                                                </div>
+                                                <div class="conversation-info">
+                                                    <div class="conversation-name">{{ session.client_name }}</div>
+                                                    <div class="conversation-preview">{{ session.title }}</div>
+                                                    <div class="conversation-time">{{ session.formatted_assigned_at() }}</div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    {% endfor %}
+                                    
+                                    {% if not active_sessions %}
+                                        <div class="empty-state">
+                                            <i class="fas fa-comments"></i>
+                                            <p>Nenhuma conversa sendo atendida</p>
+                                        </div>
+                                    {% endif %}
+                                </div>
+                            </div>
+                            
+                            <!-- Botão para chats encerrados -->
+                            <div class="sidebar-footer">
+                                <a href="{{ url_for('helpdesk.closed_chats') }}" class="btn btn-outline-primary w-100">
+                                    <i class="fas fa-history me-2"></i>
+                                    Chats Encerrados
+                                </a>
+                            </div>
+                        </div>
+    </div>
+    
+    <!-- Área do chat -->
+    <div class="chat-area">
+                            <!-- Tela de boas-vindas -->
+                            <div class="chat-welcome" id="chat-welcome">
+                                <div>
+                                    <i class="fas fa-comments"></i>
+                                    <h4>Selecione uma conversa</h4>
+                                    <p>Escolha uma conversa na lista ao lado</p>
+                                </div>
+                            </div>
+                            
+                            <!-- Chat ativo -->
+                            <div class="chat-container" id="chat-container">
+                                <div class="chat-header">
+                                    <div class="d-flex align-items-center">
+                                        <div class="conversation-avatar me-3" id="chat-avatar">
+                                            <i class="fas fa-user"></i>
+                                        </div>
+                                        <div>
+                                            <h6 class="mb-0" id="chat-client-name">Cliente</h6>
+                                            <small id="chat-pg-name" class="d-block text-muted">Nome no sistema</small>
+                                            <small id="chat-company" class="d-block">Empresa</small>
+                                            <small id="chat-status">Status</small>
+                                        </div>
+                                    </div>
+                                    <div class="d-flex align-items-center gap-2">
+                                        <button class="btn btn-sm btn-outline-light" onclick="openTicket()" title="Abrir Ticket">
+                                            <i class="fas fa-ticket-alt me-1"></i>Abrir Ticket
+                                        </button>
+                                        <button class="btn btn-sm btn-outline-light" onclick="refreshChat()" title="Atualizar">
+                                            <i class="fas fa-sync-alt"></i>
+                                        </button>
+                                        <button class="btn btn-sm btn-outline-light" onclick="endConversation()" title="Encerrar Conversa">
+                                            <i class="fas fa-phone-slash"></i>
+                                        </button>
+                                        <button class="btn btn-sm btn-outline-light" onclick="closeChat()" title="Fechar">
+                                            <i class="fas fa-times"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                                
+                                <div class="chat-messages" id="chat-messages">
+                                    <!-- Mensagens serão carregadas aqui -->
+                                </div>
+                                
+                                <div class="chat-input">
+                                    <div class="input-group">
+                                        <input type="text" class="form-control" id="message-input" placeholder="Digite sua mensagem..." autocomplete="off">
+                                        <button class="btn btn-primary" type="button" id="send-button" title="Enviar mensagem">
+                                            <i class="fas fa-paper-plane"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+        </div>
+    </div>
+</div>
+
+<!-- Card flutuante de notificação -->
+<div id="floatingNotification" class="floating-notification" style="display: none;">
+    <div class="notification-content">
+        <div class="notification-icon">
+            <i class="fas fa-bell"></i>
+        </div>
+        <div class="notification-text">
+            <h6 class="mb-1">Novo Chamado!</h6>
+            <p class="mb-0" id="notificationMessage">Um novo cliente está aguardando atendimento</p>
+        </div>
+        <button class="notification-close" onclick="closeNotification()">
+            <i class="fas fa-times"></i>
+        </button>
+    </div>
+</div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/3.1.3/socket.io.js"></script>
+<script>
+// Variáveis globais
+let currentSessionId = null;
+let currentTab = 'waiting';
+let socket = null;
+let lastMessageId = 0;
+let hasNewChatNotification = false;
+
+// Funções para controlar o card flutuante de notificação
+function showFloatingNotification(message = 'Um novo cliente está aguardando atendimento') {
+    const notification = document.getElementById('floatingNotification');
+    const messageElement = document.getElementById('notificationMessage');
+    
+    if (notification && messageElement) {
+        messageElement.textContent = message;
+        notification.style.display = 'block';
+        
+        // Auto-esconder após 5 segundos
+        setTimeout(() => {
+            closeNotification();
+        }, 5000);
+    }
+}
+
+function closeNotification() {
+    const notification = document.getElementById('floatingNotification');
+    if (notification) {
+        notification.style.display = 'none';
+    }
+}
+
+// Inicializar WebSocket
+function initSocket() {
+    socket = io();
+    
+    socket.on('connect', function() {
+        console.log('Conectado ao WebSocket');
+    });
+    
+    socket.on('connected', function(data) {
+        console.log('Confirmação de conexão:', data);
+    });
+    
+    socket.on('test_response', function(data) {
+        console.log('Resposta do teste:', data);
+        alert('WebSocket funcionando! ' + data.message);
+    });
+    
+    socket.on('message_sent', function(data) {
+        console.log('Mensagem enviada com sucesso:', data);
+    });
+    
+    socket.on('new_message', function(data) {
+        addMessage(data);
+    });
+    
+    socket.on('conversation_ended', function(data) {
+        console.log('Conversa encerrada:', data);
+        // Atualizar lista de conversas
+        refreshSessions();
+        // Se for a conversa atual, fechar o chat
+        if (data.session_id == currentSessionId) {
+            setTimeout(() => {
+                closeChat();
+            }, 1000);
+        }
+    });
+    
+    socket.on('conversation_status_changed', function(data) {
+        console.log('Status da conversa alterado:', data);
+        // Atualizar lista de conversas
+        refreshSessions();
+    });
+    
+    socket.on('error', function(data) {
+        console.error('Erro WebSocket:', data);
+    });
+}
+
+// Trocar entre abas
+function switchTab(tab) {
+    currentTab = tab;
+    
+    // Atualizar botões das abas
+    document.querySelectorAll('.helpdesk-tab').forEach(btn => btn.classList.remove('active'));
+    event.target.classList.add('active');
+    
+    // Mostrar/ocultar conversas
+    document.getElementById('waiting-conversations').style.display = tab === 'waiting' ? 'block' : 'none';
+    document.getElementById('attending-conversations').style.display = tab === 'attending' ? 'block' : 'none';
+    
+    // Limpar seleção
+    clearSelection();
+}
+
+// Selecionar conversa
+function selectConversation(sessionId, type) {
+    console.log('Selecionando conversa:', sessionId, 'tipo:', type);
+    
+    // Remover seleção anterior
+    clearSelection();
+    
+    // Adicionar seleção atual
+    const conversationItem = document.querySelector(`[data-session-id="${sessionId}"]`);
+    if (conversationItem) {
+        conversationItem.classList.add('active');
+    }
+    
+    currentSessionId = sessionId;
+    
+    // Se for uma conversa em espera, assumir automaticamente
+    if (type === 'waiting') {
+        assumeSession(sessionId);
+    } else {
+        // Se já está sendo atendida, abrir o chat
+        openChat(sessionId);
+    }
+}
+
+// Limpar seleção
+function clearSelection() {
+    document.querySelectorAll('.conversation-item').forEach(item => {
+        item.classList.remove('active');
+    });
+}
+
+// Assumir sessão
+function assumeSession(sessionId) {
+    fetch(`/helpdesk/agent/chat/${sessionId}`, {
+        method: 'GET'
+    })
+    .then(response => {
+        if (response.ok) {
+            // Atualizar lista e abrir chat
+            refreshSessions();
+            openChat(sessionId);
+        }
+    })
+    .catch(error => {
+        console.error('Erro ao assumir sessão:', error);
+        alert('Erro ao assumir sessão. Tente novamente.');
+    });
+}
+
+// Abrir chat
+function openChat(sessionId) {
+    // Esconder welcome
+    document.getElementById('chat-welcome').style.display = 'none';
+    
+    // Mostrar chat
+    document.getElementById('chat-container').style.display = 'flex';
+    
+    // Atualizar header do chat
+    updateChatHeader(sessionId);
+    
+    // Carregar mensagens
+    loadMessages(sessionId);
+    
+    // Conectar ao WebSocket
+    if (socket) {
+        socket.emit('join_chat', {
+            session_id: sessionId,
+            user_type: 'agent'
+        });
+        console.log('Entrando na sala do chat:', sessionId);
+    }
+    
+    // Iniciar polling como fallback
+    startPolling();
+}
+
+// Atualizar header do chat
+function updateChatHeader(sessionId) {
+    // Buscar informações da sessão
+    fetch(`/helpdesk/api/session/${sessionId}`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                const session = data.session;
+                document.getElementById('chat-client-name').textContent = session.client_name;
+                document.getElementById('chat-pg-name').textContent = session.pg_client_name || 'Nome não encontrado';
+                document.getElementById('chat-company').textContent = session.company_name || 'Empresa não informada';
+                document.getElementById('chat-status').textContent = session.status === 'active' ? 'Atendendo' : 'Em espera';
+                
+                // Atualizar avatar
+                const avatar = document.getElementById('chat-avatar');
+                avatar.textContent = session.client_name[0].toUpperCase();
+            }
+        })
+        .catch(error => {
+            console.error('Erro ao carregar informações da sessão:', error);
+        });
+}
+
+// Atualizar chat
+function refreshChat() {
+    if (currentSessionId) {
+        // Usar função mais eficiente para atualizar apenas mensagens novas
+        loadNewMessages(currentSessionId);
+        updateChatHeader(currentSessionId);
+    }
+}
+
+// Carregar apenas mensagens novas (mais eficiente)
+function loadNewMessages(sessionId) {
+    fetch(`/helpdesk/api/chat/${sessionId}/messages/since?since=${lastMessageId}`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.success && data.messages) {
+                const messagesContainer = document.getElementById('chat-messages');
+                
+                data.messages.forEach(message => {
+                    if (message.id > lastMessageId) {
+                        lastMessageId = message.id;
+                        addMessage(message);
+                    }
+                });
+                
+                // Scroll suave para o final se houver mensagens novas
+                if (data.messages.length > 0) {
+                    setTimeout(() => {
+                        messagesContainer.scrollTop = messagesContainer.scrollHeight;
+                    }, 100);
+                }
+            }
+        })
+        .catch(error => {
+            console.error('Erro ao carregar mensagens novas:', error);
+        });
+}
+
+// Carregar mensagens
+function loadMessages(sessionId) {
+    fetch(`/helpdesk/api/chat/${sessionId}/messages`)
+        .then(response => response.json())
+        .then(data => {
+            const messagesContainer = document.getElementById('chat-messages');
+            messagesContainer.innerHTML = '';
+            
+            // Verificar se data é um array ou se tem propriedade messages
+            const messages = Array.isArray(data) ? data : (data.messages || []);
+            
+            messages.forEach(message => {
+                // Atualizar lastMessageId
+                if (message.id > lastMessageId) {
+                    lastMessageId = message.id;
+                }
+                addMessage(message);
+            });
+            
+            
+            // Scroll suave para o final
+            setTimeout(() => {
+                messagesContainer.scrollTop = messagesContainer.scrollHeight;
+            }, 100);
+        })
+        .catch(error => {
+            console.error('Erro ao carregar mensagens:', error);
+        });
+}
+
+// Adicionar mensagem
+function addMessage(message) {
+    const messagesContainer = document.getElementById('chat-messages');
+    
+    // Verificar se a mensagem já existe (evitar duplicação por ID)
+    if (message.id) {
+        const existingMessage = messagesContainer.querySelector(`[data-message-id="${message.id}"]`);
+        if (existingMessage) {
+            return; // Não adicionar se já existe
+        }
+        
+        // Se é uma mensagem real (não temporária), verificar se há mensagem temporária para substituir
+        if (!message.id.toString().startsWith('temp-')) {
+            // Procurar mensagem temporária com mesmo texto
+            const tempMessages = messagesContainer.querySelectorAll('[data-message-id^="temp-"]');
+            for (let tempMsg of tempMessages) {
+                const tempText = tempMsg.querySelector('.message-content').textContent.trim();
+                if (tempText.includes(message.message)) {
+                    tempMsg.remove(); // Remove a mensagem temporária
+                    break;
+                }
+            }
+        }
+    }
+    
+    const messageDiv = document.createElement('div');
+    
+    let messageClass = 'system';
+    if (message.is_from_agent) {
+        messageClass = 'agent';
+    } else if (message.is_from_client) {
+        messageClass = 'client';
+    }
+    
+    // Formatar tempo
+    let timeDisplay = message.time;
+    if (typeof message.time === 'string' && message.time.includes('T')) {
+        const date = new Date(message.time);
+        timeDisplay = date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+    }
+    
+    messageDiv.className = `message ${messageClass}`;
+    messageDiv.setAttribute('data-message-id', message.id || 'temp-' + Date.now());
+    messageDiv.innerHTML = `
+        <div class="message-content">
+            ${message.message}
+            <div class="message-time">${timeDisplay}</div>
+        </div>
+    `;
+    
+    messagesContainer.appendChild(messageDiv);
+    // Scroll suave para o final
+    setTimeout(() => {
+        messagesContainer.scrollTop = messagesContainer.scrollHeight;
+    }, 100);
+}
+
+// Enviar mensagem
+function sendMessage() {
+    const messageInput = document.getElementById('message-input');
+    const sendButton = document.getElementById('send-button');
+    const message = messageInput.value.trim();
+    
+    if (!message || !currentSessionId) return;
+    
+    // Desabilitar botão e input temporariamente
+    sendButton.disabled = true;
+    messageInput.disabled = true;
+    sendButton.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+    
+    // Adicionar mensagem imediatamente (otimista) com ID temporário
+    const tempId = 'temp-' + Date.now() + '-' + Math.random();
+    addMessage({
+        id: tempId,
+        message: message,
+        is_from_agent: true,
+        is_from_client: false,
+        is_system_message: false,
+        time: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+    });
+    
+    // Limpar input
+    messageInput.value = '';
+    
+    // Salvar no banco de dados
+    fetch(`/helpdesk/api/chat/${currentSessionId}/send`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            message: message
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            console.log('Mensagem salva no banco:', data.message);
+        } else {
+            console.error('Erro ao salvar mensagem:', data.error);
+        }
+    })
+    .catch(error => {
+        console.error('Erro ao salvar mensagem:', error);
+    });
+    
+    // Enviar via WebSocket
+    if (socket) {
+        socket.emit('send_message', {
+            session_id: currentSessionId,
+            message: message,
+            user_type: 'agent'
+        });
+        console.log('Enviando mensagem via WebSocket:', message);
+    }
+    
+    // Reabilitar após um tempo
+    setTimeout(() => {
+        sendButton.disabled = false;
+        messageInput.disabled = false;
+        sendButton.innerHTML = '<i class="fas fa-paper-plane"></i>';
+        messageInput.focus();
+    }, 1000);
+}
+
+// Encerrar conversa
+function endConversation() {
+    if (!currentSessionId) return;
+    
+    if (confirm('Tem certeza que deseja encerrar esta conversa? Esta ação não pode ser desfeita.')) {
+        // Mostrar loading no botão
+        const endButton = event.target.closest('button');
+        const originalContent = endButton.innerHTML;
+        endButton.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+        endButton.disabled = true;
+        
+        fetch(`/helpdesk/api/chat/${currentSessionId}/close`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            }
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                // Adicionar mensagem de encerramento localmente
+                addMessage({
+                    message: "Atendimento finalizado. Obrigado por entrar em contato!",
+                    is_from_agent: false,
+                    is_from_client: false,
+                    is_system_message: true,
+                    time: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+                });
+                
+                // Enviar via WebSocket para o cliente
+                if (socket) {
+                    socket.emit('end_conversation', {
+                        session_id: currentSessionId,
+                        message: "Atendimento finalizado. Obrigado por entrar em contato!"
+                    });
+                }
+                
+                // Atualizar lista de conversas
+                refreshSessions();
+                
+                // Fechar chat após um delay para mostrar a mensagem
+                setTimeout(() => {
+                    closeChat();
+                }, 2000);
+                
+            } else {
+                alert('Erro ao encerrar conversa: ' + (data.error || 'Erro desconhecido'));
+            }
+        })
+        .catch(error => {
+            console.error('Erro ao encerrar conversa:', error);
+            alert('Erro ao encerrar conversa. Tente novamente.');
+        })
+        .finally(() => {
+            // Restaurar botão
+            endButton.innerHTML = originalContent;
+            endButton.disabled = false;
+        });
+    }
+}
+
+// Fechar chat
+function closeChat() {
+    // Parar polling
+    stopPolling();
+    
+    document.getElementById('chat-welcome').style.display = 'flex';
+    document.getElementById('chat-container').style.display = 'none';
+    clearSelection();
+    currentSessionId = null;
+}
+
+// Abrir ticket com informações do chat
+function openTicket() {
+    if (!currentSessionId) {
+        alert('Nenhuma conversa selecionada');
+        return;
+    }
+    
+    // Buscar informações da sessão atual
+    fetch(`/helpdesk/api/session/${currentSessionId}`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                const session = data.session;
+                
+                // Construir URL com parâmetros
+                const params = new URLSearchParams({
+                    title: session.title || '',
+                    description: session.description || '',
+                    client_name: session.client_name || '',
+                    pg_client_name: session.pg_client_name || '',
+                    company_name: session.company_name || '',
+                    client_email: session.client_email || ''
+                });
+                
+                // Redirecionar para página de criação de ticket
+                window.open(`/tickets/novo?${params.toString()}`, '_blank');
+            } else {
+                alert('Erro ao obter informações da sessão');
+            }
+        })
+        .catch(error => {
+            console.error('Erro ao buscar informações da sessão:', error);
+            alert('Erro ao abrir ticket');
+        });
+}
+
+// Atualizar sessões
+function refreshSessions() {
+    // Atualizar contadores
+    fetch('/helpdesk/api/sessions/waiting')
+        .then(response => response.json())
+        .then(sessions => {
+            const previousCount = parseInt(document.getElementById('waiting-count').textContent) || 0;
+            const currentCount = sessions.length;
+            
+            // Se há mais sessões que antes, mostrar notificação
+            if (currentCount > previousCount && previousCount > 0) {
+                const newSession = sessions[sessions.length - 1]; // Última sessão (mais recente)
+                const message = `Cliente "${newSession.client_name}" está aguardando atendimento`;
+                showFloatingNotification(message);
+            }
+            
+            document.getElementById('waiting-count').textContent = currentCount;
+            updateConversationsList('waiting-conversations', sessions, 'waiting');
+        })
+        .catch(error => console.error('Erro ao carregar sessões em espera:', error));
+    
+    fetch('/helpdesk/api/sessions/active')
+        .then(response => response.json())
+        .then(sessions => {
+            document.getElementById('attending-count').textContent = sessions.length;
+            updateConversationsList('attending-conversations', sessions, 'attending');
+        })
+        .catch(error => console.error('Erro ao carregar sessões ativas:', error));
+}
+
+// Atualizar lista de conversas
+function updateConversationsList(containerId, sessions, type) {
+    const container = document.getElementById(containerId);
+    
+    if (sessions.length === 0) {
+        container.innerHTML = `
+            <div class="empty-state">
+                <i class="fas fa-${type === 'waiting' ? 'inbox' : 'comments'}"></i>
+                <p>Nenhuma conversa ${type === 'waiting' ? 'em espera' : 'sendo atendida'}</p>
+            </div>
+        `;
+        return;
+    }
+    
+    container.innerHTML = sessions.map(session => `
+        <div class="conversation-item" onclick="selectConversation(${session.id}, '${type}')" data-session-id="${session.id}">
+            <div class="d-flex align-items-center">
+                <div class="conversation-avatar">
+                    ${session.client_name[0].toUpperCase()}
+                </div>
+                <div class="conversation-info">
+                    <div class="conversation-name">${session.client_name}</div>
+                    <div class="conversation-preview">${session.title}</div>
+                    <div class="conversation-time">${type === 'attending' ? session.assigned_at : session.created_at}</div>
+                </div>
+            </div>
+        </div>
+    `).join('');
+}
+
+// Função de teste WebSocket
+function testWebSocket() {
+    if (socket) {
+        socket.emit('test_message', {
+            message: 'Teste do WebSocket',
+            timestamp: new Date().toISOString()
+        });
+        console.log('Teste WebSocket enviado');
+    } else {
+        alert('WebSocket não inicializado!');
+    }
+}
+
+// Polling como fallback para mensagens em tempo real
+let pollingInterval = null;
+
+function startPolling() {
+    if (pollingInterval) {
+        clearInterval(pollingInterval);
+    }
+    
+    pollingInterval = setInterval(() => {
+        if (currentSessionId) {
+            checkNewMessages();
+        }
+    }, 2000); // Verificar a cada 2 segundos
+}
+
+function stopPolling() {
+    if (pollingInterval) {
+        clearInterval(pollingInterval);
+        pollingInterval = null;
+    }
+}
+
+function checkNewMessages() {
+    if (!currentSessionId) return;
+    
+    fetch(`/helpdesk/api/chat/${currentSessionId}/messages/since?since=${lastMessageId}`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.success && data.messages) {
+                data.messages.forEach(message => {
+                    if (message.id > lastMessageId) {
+                        addMessage(message);
+                        lastMessageId = message.id;
+                    }
+                });
+            }
+        })
+        .catch(error => {
+            console.error('Erro ao verificar mensagens:', error);
+        });
+}
+
+// Sistema de auto refresh
+let refreshInterval = null;
+
+function startAutoRefresh() {
+    if (refreshInterval) {
+        clearInterval(refreshInterval);
+    }
+    
+    refreshInterval = setInterval(() => {
+        refreshSessions();
+        // Se há uma sessão ativa, atualizar mensagens também
+        if (currentSessionId) {
+            refreshChat();
+        }
+    }, 500); // Verificar a cada 0.5 segundos
+    
+    // Mostrar indicador de status
+    showStatusIndicator('Sistema de helpdesk ativo');
+}
+
+function stopAutoRefresh() {
+    if (refreshInterval) {
+        clearInterval(refreshInterval);
+        refreshInterval = null;
+    }
+}
+
+function showStatusIndicator(message) {
+    // Remover indicador anterior se existir
+    const existingIndicator = document.getElementById('helpdeskStatusIndicator');
+    if (existingIndicator) {
+        existingIndicator.remove();
+    }
+    
+    // Criar novo indicador
+    const indicator = document.createElement('div');
+    indicator.id = 'helpdeskStatusIndicator';
+    indicator.className = 'alert alert-info alert-dismissible fade show';
+    indicator.style.cssText = 'position: fixed; top: 10px; right: 10px; z-index: 9999; max-width: 300px;';
+    indicator.innerHTML = `
+        <i class="fas fa-sync-alt fa-spin me-2"></i>${message}
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    `;
+    
+    document.body.appendChild(indicator);
+    
+    // Remover automaticamente após 3 segundos
+    setTimeout(() => {
+        if (indicator.parentNode) {
+            indicator.remove();
+        }
+    }, 3000);
+}
+
+// Inicializar
+document.addEventListener('DOMContentLoaded', function() {
+    initSocket();
+    
+    // Configurar eventos de envio
+    document.getElementById('send-button').onclick = sendMessage;
+    document.getElementById('message-input').onkeypress = function(e) {
+        if (e.key === 'Enter') {
+            sendMessage();
+        }
+    };
+    
+    // Inicializar contadores
+    document.getElementById('waiting-count').textContent = {{ waiting_sessions|length }};
+    document.getElementById('attending-count').textContent = {{ active_sessions|length }};
+    
+    // Auto refresh mais frequente
+    startAutoRefresh();
+    
+    // Parar refresh quando sair da página
+    window.addEventListener('beforeunload', function() {
+        stopAutoRefresh();
+    });
+});
+</script>
+
+
+
+<!-- Bootstrap JS apenas para o help desk -->
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+
+{% endblock %}

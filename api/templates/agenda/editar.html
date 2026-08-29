@@ -1,0 +1,400 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="editar-agendamento-container">
+    <div class="editar-agendamento-header">
+        <div class="header-content">
+            <h1><i class="fas fa-edit"></i> Editar Agendamento</h1>
+            <p>Atualize as informações do agendamento</p>
+        </div>
+        <div class="header-actions">
+            <a href="{{ url_for('agenda.visualizar', appointment_id=appointment.id) }}" class="btn btn-secondary">
+                <i class="fas fa-eye"></i> Visualizar
+            </a>
+            <a href="{{ url_for('agenda.index') }}" class="btn btn-secondary">
+                <i class="fas fa-arrow-left"></i> Voltar para Agenda
+            </a>
+        </div>
+    </div>
+
+    <div class="editar-agendamento-form">
+        <form id="formEditarAgendamento">
+            <div class="form-section">
+                <h3><i class="fas fa-info-circle"></i> Informações Básicas</h3>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="titulo">Título *</label>
+                        <input type="text" id="titulo" name="title" required value="{{ appointment.title }}" placeholder="Ex: Manutenção do servidor">
+                    </div>
+                    <div class="form-group">
+                        <label for="dataHora">Data e Hora *</label>
+                        <input type="datetime-local" id="dataHora" name="appointment_date" required value="{{ appointment.appointment_date.strftime('%Y-%m-%dT%H:%M') }}">
+                    </div>
+                </div>
+                
+                <div class="form-group">
+                    <label for="descricao">Descrição</label>
+                    <textarea id="descricao" name="description" rows="4" placeholder="Descreva os detalhes do agendamento...">{{ appointment.description }}</textarea>
+                </div>
+            </div>
+
+            <div class="form-section">
+                <h3><i class="fas fa-users"></i> Participantes</h3>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="cliente">Cliente *</label>
+                        <select id="cliente" name="client_id" required>
+                            <option value="">Selecione um cliente</option>
+                            {% for client in clients %}
+                            <option value="{{ client.id }}" {% if client.id == appointment.client_id %}selected{% endif %}>{{ client.name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="usuario">Usuário Responsável *</label>
+                        <select id="usuario" name="user_id" required>
+                            <option value="">Selecione um usuário</option>
+                            {% for user in users %}
+                            <option value="{{ user.id }}" {% if user.id == appointment.user_id %}selected{% endif %}>{{ user.name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                </div>
+            </div>
+
+            <div class="form-section">
+                <h3><i class="fas fa-cogs"></i> Serviço</h3>
+                <div class="form-group">
+                    <label for="servico">Serviço</label>
+                    <select id="servico" name="service_id">
+                        <option value="">Selecione um serviço (opcional)</option>
+                        {% for service in services %}
+                        <option value="{{ service.id }}" {% if service.id == appointment.service_id %}selected{% endif %}>{{ service.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </div>
+
+            <div class="form-actions">
+                <button type="button" class="btn btn-secondary" onclick="voltar()">
+                    <i class="fas fa-times"></i> Cancelar
+                </button>
+                <button type="submit" class="btn btn-primary">
+                    <i class="fas fa-save"></i> Salvar Alterações
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<style>
+.editar-agendamento-container {
+    padding: 1rem;
+    max-width: 800px;
+    margin: 0 auto;
+}
+
+.editar-agendamento-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 2rem;
+    padding: 1.5rem;
+    background: var(--bg-secondary);
+    border-radius: 12px;
+    box-shadow: var(--neumorphism-shadow);
+}
+
+.header-content h1 {
+    color: var(--text-primary);
+    margin-bottom: 0.5rem;
+    font-size: 1.8rem;
+}
+
+.header-content p {
+    color: var(--text-secondary);
+    margin: 0;
+}
+
+.header-actions {
+    display: flex;
+    gap: 1rem;
+}
+
+.editar-agendamento-form {
+    background: var(--bg-secondary);
+    border-radius: 12px;
+    padding: 2rem;
+    box-shadow: var(--neumorphism-shadow);
+}
+
+.form-section {
+    margin-bottom: 2rem;
+    padding-bottom: 2rem;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.form-section:last-child {
+    border-bottom: none;
+    margin-bottom: 0;
+}
+
+.form-section h3 {
+    color: var(--text-primary);
+    margin-bottom: 1.5rem;
+    font-size: 1.2rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.form-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1.5rem;
+    margin-bottom: 1.5rem;
+}
+
+.form-group {
+    display: flex;
+    flex-direction: column;
+}
+
+.form-group label {
+    margin-bottom: 0.5rem;
+    font-weight: 500;
+    color: var(--text-primary);
+}
+
+.form-group input,
+.form-group select,
+.form-group textarea {
+    padding: 0.75rem;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    font-size: 0.9rem;
+    transition: all 0.3s ease;
+}
+
+.form-group input:focus,
+.form-group select:focus,
+.form-group textarea:focus {
+    outline: none;
+    border-color: var(--accent-primary);
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+.form-group textarea {
+    resize: vertical;
+    min-height: 100px;
+}
+
+.form-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 1rem;
+    margin-top: 2rem;
+    padding-top: 2rem;
+    border-top: 1px solid var(--border-color);
+}
+
+/* Responsividade */
+@media (max-width: 768px) {
+    .editar-agendamento-header {
+        flex-direction: column;
+        gap: 1rem;
+        text-align: center;
+    }
+    
+    .header-actions {
+        flex-direction: column;
+        width: 100%;
+    }
+    
+    .form-row {
+        grid-template-columns: 1fr;
+    }
+    
+    .form-actions {
+        flex-direction: column;
+    }
+    
+    .editar-agendamento-container {
+        padding: 0.5rem;
+    }
+    
+    .editar-agendamento-form {
+        padding: 1rem;
+    }
+}
+
+/* Validação de formulário */
+.form-group input:invalid,
+.form-group select:invalid {
+    border-color: var(--error);
+}
+
+.form-group input:valid,
+.form-group select:valid {
+    border-color: var(--success);
+}
+
+/* Loading state */
+.btn.loading {
+    position: relative;
+    color: transparent;
+}
+
+.btn.loading::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 20px;
+    height: 20px;
+    border: 2px solid transparent;
+    border-top: 2px solid currentColor;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    0% { transform: translate(-50%, -50%) rotate(0deg); }
+    100% { transform: translate(-50%, -50%) rotate(360deg); }
+}
+</style>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Definir data mínima como hoje
+    const hoje = new Date();
+    const dataMinima = hoje.toISOString().slice(0, 16);
+    document.getElementById('dataHora').min = dataMinima;
+    
+    // Configurar formulário
+    configurarFormulario();
+});
+
+function configurarFormulario() {
+    const form = document.getElementById('formEditarAgendamento');
+    
+    form.addEventListener('submit', function(e) {
+        e.preventDefault();
+        
+        const submitBtn = form.querySelector('button[type="submit"]');
+        submitBtn.classList.add('loading');
+        submitBtn.disabled = true;
+        
+        const formData = new FormData(form);
+        const data = Object.fromEntries(formData);
+        
+        // Converter data para formato ISO
+        if (data.appointment_date) {
+            const date = new Date(data.appointment_date);
+            data.appointment_date = date.toISOString();
+        }
+        
+        // Enviar dados
+        fetch(`/agenda/{{ appointment.id }}/editar`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(data)
+        })
+        .then(response => response.json())
+        .then(result => {
+            if (result.success) {
+                // Sucesso
+                mostrarNotificacao('Agendamento atualizado com sucesso!', 'success');
+                setTimeout(() => {
+                    window.location.href = '/agenda';
+                }, 1500);
+            } else {
+                // Erro
+                mostrarNotificacao(result.error || 'Erro ao atualizar agendamento', 'error');
+                submitBtn.classList.remove('loading');
+                submitBtn.disabled = false;
+            }
+        })
+        .catch(error => {
+            console.error('Erro:', error);
+            mostrarNotificacao('Erro ao atualizar agendamento', 'error');
+            submitBtn.classList.remove('loading');
+            submitBtn.disabled = false;
+        });
+    });
+}
+
+function voltar() {
+    window.location.href = '/agenda';
+}
+
+function mostrarNotificacao(mensagem, tipo) {
+    // Criar elemento de notificação
+    const notificacao = document.createElement('div');
+    notificacao.className = `notificacao notificacao-${tipo}`;
+    notificacao.innerHTML = `
+        <i class="fas fa-${tipo === 'success' ? 'check-circle' : 'exclamation-circle'}"></i>
+        <span>${mensagem}</span>
+    `;
+    
+    // Adicionar estilos
+    notificacao.style.cssText = `
+        position: fixed;
+        top: 80px;
+        right: 20px;
+        background: ${tipo === 'success' ? '#10b981' : '#ef4444'};
+        color: white;
+        padding: 1rem 1.5rem;
+        border-radius: 8px;
+        box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+        z-index: 10001;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        animation: slideInRight 0.3s ease;
+    `;
+    
+    document.body.appendChild(notificacao);
+    
+    // Remover após 5 segundos
+    setTimeout(() => {
+        notificacao.style.animation = 'slideOutRight 0.3s ease';
+        setTimeout(() => {
+            document.body.removeChild(notificacao);
+        }, 300);
+    }, 5000);
+}
+
+// Adicionar animações CSS
+const style = document.createElement('style');
+style.textContent = `
+    @keyframes slideInRight {
+        from {
+            transform: translateX(100%);
+            opacity: 0;
+        }
+        to {
+            transform: translateX(0);
+            opacity: 1;
+        }
+    }
+    
+    @keyframes slideOutRight {
+        from {
+            transform: translateX(0);
+            opacity: 1;
+        }
+        to {
+            transform: translateX(100%);
+            opacity: 0;
+        }
+    }
+`;
+document.head.appendChild(style);
+</script>
+{% endblock %}

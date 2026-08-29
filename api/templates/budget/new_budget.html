@@ -1,0 +1,256 @@
+{% extends 'base.html' %}
+{% block page_title %}📋 Nova Proposta com Anexo{% endblock %}
+{% block content %}
+
+<!-- Cabeçalho -->
+<div class="mb-6">
+	<div class="flex items-center justify-between gap-3 flex-wrap">
+		<div>
+			<div class="text-sm text-muted mb-1">
+				<a href="{{ url_for('budget.index') }}" class="text-muted">Orçamentos</a>
+				<i class="fas fa-chevron-right mx-1 text-xs"></i>
+				Nova Proposta com Anexo
+			</div>
+			<h1 class="text-2xl font-bold text-primary">Nova Proposta com Anexo</h1>
+			<p class="text-muted text-sm">Cadastro simples de proposta com arquivo anexado. Para montar itens e valores, use o <a href="{{ url_for('budget.builder') }}">builder</a>.</p>
+		</div>
+		<a href="{{ url_for('budget.index') }}" class="btn btn-outline">
+			<i class="fas fa-arrow-left"></i>
+			Voltar
+		</a>
+	</div>
+</div>
+
+<!-- Formulário -->
+<div style="max-width: 720px;">
+	<div class="bg-secondary rounded-lg shadow-lg p-6">
+		<form method="POST" enctype="multipart/form-data" id="budget-form">
+			<div class="mb-3">
+				<label for="title" class="form-label">Título *</label>
+				<input type="text"
+					   id="title"
+					   name="title"
+					   class="form-input w-full"
+					   placeholder="Ex: Orçamento para manutenção de servidor"
+					   required>
+				<small class="form-help">O título deve ser único no sistema.</small>
+			</div>
+
+			<div class="mb-3">
+				<label for="status" class="form-label">Status</label>
+				<select id="status" name="status" class="form-select w-full">
+					<option value="draft">Rascunho</option>
+					<option value="sent">Enviado</option>
+					<option value="approved">Aprovado</option>
+					<option value="rejected">Rejeitado</option>
+				</select>
+			</div>
+
+			<div class="mb-3">
+				<label class="form-label">Cliente (opcional)</label>
+				<div class="flex gap-4 flex-wrap mb-2">
+					<label class="flex items-center">
+						<input type="radio" name="client_type" value="none" checked class="mr-2">
+						<span class="text-sm">Sem cliente</span>
+					</label>
+					<label class="flex items-center">
+						<input type="radio" name="client_type" value="internal" class="mr-2">
+						<span class="text-sm">Cliente interno</span>
+					</label>
+					<label class="flex items-center">
+						<input type="radio" name="client_type" value="external" class="mr-2">
+						<span class="text-sm">Cliente externo</span>
+					</label>
+				</div>
+
+				<div id="internal-client-selection" class="hidden">
+					<select id="client_id" name="client_id" class="form-select w-full">
+						<option value="">Selecione um cliente interno</option>
+						{% for client in internal_clients %}
+						<option value="{{ client.id }}">{{ client.name }}</option>
+						{% endfor %}
+					</select>
+				</div>
+
+				<div id="external-client-selection" class="hidden">
+					<select id="external_client_id" name="external_client_id" class="form-select w-full">
+						<option value="">Selecione um cliente externo</option>
+						{% for client in external_clients %}
+						<option value="{{ client.id }}">{{ client.name }}</option>
+						{% endfor %}
+					</select>
+				</div>
+			</div>
+
+			<div class="mb-3">
+				<label for="description" class="form-label">Descrição</label>
+				<textarea id="description"
+						  name="description"
+						  class="form-textarea w-full"
+						  rows="4"
+						  placeholder="Descreva os detalhes do orçamento, serviços incluídos, prazos, etc."></textarea>
+			</div>
+
+			<div class="mb-1">
+				<label for="file" class="form-label">Anexar Arquivo</label>
+				<div class="border-2 border-dashed border-border-color rounded-lg p-6 text-center hover:border-primary transition-colors">
+					<input type="file"
+						   id="file"
+						   name="file"
+						   class="hidden"
+						   accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.jpg,.jpeg,.png,.gif,.zip,.rar,.7z">
+					<div id="file-drop-zone">
+						<i class="fas fa-cloud-upload-alt text-3xl text-muted mb-2"></i>
+						<p class="text-muted mb-1">Clique para selecionar um arquivo ou arraste aqui</p>
+						<p class="text-xs text-muted">PDF, DOC, XLS, PPT, TXT, imagens ou arquivos compactados · máximo 10MB</p>
+					</div>
+					<div id="file-selected" class="hidden">
+						<i class="fas fa-file text-3xl text-primary mb-2"></i>
+						<p class="text-primary font-medium mb-1" id="file-name"></p>
+						<p class="text-sm text-muted" id="file-size"></p>
+						<button type="button" class="btn btn-sm btn-secondary mt-2" onclick="clearFile()">
+							<i class="fas fa-times"></i>
+							Remover
+						</button>
+					</div>
+				</div>
+			</div>
+		</form>
+
+		<!-- Botões de Ação -->
+		<div class="flex justify-end gap-2 pt-4 mt-4" style="border-top: 1px solid var(--border-color);">
+			<a href="{{ url_for('budget.index') }}" class="btn btn-secondary">
+				Cancelar
+			</a>
+			<button type="submit" form="budget-form" class="btn btn-primary">
+				<i class="fas fa-save"></i>
+				Salvar Orçamento
+			</button>
+		</div>
+	</div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+	const fileInput = document.getElementById('file');
+	const fileDropZone = document.getElementById('file-drop-zone');
+	const fileSelected = document.getElementById('file-selected');
+	const fileName = document.getElementById('file-name');
+	const fileSize = document.getElementById('file-size');
+	
+	// Cliente type radio buttons
+	const clientTypeRadios = document.querySelectorAll('input[name="client_type"]');
+	const internalClientDiv = document.getElementById('internal-client-selection');
+	const externalClientDiv = document.getElementById('external-client-selection');
+	
+	// File upload handling
+	fileDropZone.addEventListener('click', () => fileInput.click());
+	
+	fileInput.addEventListener('change', handleFileSelect);
+	
+	// Drag and drop
+	fileDropZone.addEventListener('dragover', (e) => {
+		e.preventDefault();
+		fileDropZone.classList.add('border-primary', 'bg-primary/5');
+	});
+	
+	fileDropZone.addEventListener('dragleave', (e) => {
+		e.preventDefault();
+		fileDropZone.classList.remove('border-primary', 'bg-primary/5');
+	});
+	
+	fileDropZone.addEventListener('drop', (e) => {
+		e.preventDefault();
+		fileDropZone.classList.remove('border-primary', 'bg-primary/5');
+		
+		const files = e.dataTransfer.files;
+		if (files.length > 0) {
+			fileInput.files = files;
+			handleFileSelect();
+		}
+	});
+	
+	// Client type handling
+	clientTypeRadios.forEach(radio => {
+		radio.addEventListener('change', function() {
+			internalClientDiv.classList.add('hidden');
+			externalClientDiv.classList.add('hidden');
+			
+			if (this.value === 'internal') {
+				internalClientDiv.classList.remove('hidden');
+			} else if (this.value === 'external') {
+				externalClientDiv.classList.remove('hidden');
+			}
+		});
+	});
+	
+	// Form validation
+	document.getElementById('budget-form').addEventListener('submit', function(e) {
+		const title = document.getElementById('title').value.trim();
+		
+		if (!title) {
+			e.preventDefault();
+			alert('Título é obrigatório!');
+			document.getElementById('title').focus();
+			return;
+		}
+		
+		// Confirmação antes de salvar
+		if (!confirm('Tem certeza que deseja salvar este orçamento?')) {
+			e.preventDefault();
+		}
+	});
+	
+	// Auto-focus no primeiro campo
+	document.getElementById('title').focus();
+});
+
+function handleFileSelect() {
+	const fileInput = document.getElementById('file');
+	const file = fileInput.files[0];
+	
+	if (file) {
+		// Verificar tamanho (10MB)
+		if (file.size > 10 * 1024 * 1024) {
+			alert('Arquivo muito grande! Tamanho máximo permitido: 10MB');
+			fileInput.value = '';
+			return;
+		}
+		
+		// Verificar tipo de arquivo
+		const allowedTypes = ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'txt', 'jpg', 'jpeg', 'png', 'gif', 'zip', 'rar', '7z'];
+		const fileExt = file.name.split('.').pop().toLowerCase();
+		
+		if (!allowedTypes.includes(fileExt)) {
+			alert('Tipo de arquivo não permitido!');
+			fileInput.value = '';
+			return;
+		}
+		
+		// Mostrar informações do arquivo
+		document.getElementById('file-name').textContent = file.name;
+		document.getElementById('file-size').textContent = formatFileSize(file.size);
+		
+		document.getElementById('file-drop-zone').classList.add('hidden');
+		document.getElementById('file-selected').classList.remove('hidden');
+	}
+}
+
+function clearFile() {
+	document.getElementById('file').value = '';
+	document.getElementById('file-drop-zone').classList.remove('hidden');
+	document.getElementById('file-selected').classList.add('hidden');
+}
+
+function formatFileSize(bytes) {
+	if (bytes === 0) return '0 Bytes';
+	
+	const k = 1024;
+	const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+	const i = Math.floor(Math.log(bytes) / Math.log(k));
+	
+	return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+}
+</script>
+
+{% endblock %}

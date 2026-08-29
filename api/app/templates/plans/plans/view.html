@@ -1,0 +1,91 @@
+{% extends 'base.html' %}
+{% block page_title %}📋 Plano - {{ plan.name }}{% endblock %}
+{% block content %}
+
+<div class="bg-secondary rounded-lg shadow-lg p-6 mb-6">
+	<div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 mb-6">
+		<div class="flex-1">
+			<h1 class="text-2xl lg:text-3xl font-bold text-primary mb-2">
+				📋 {{ plan.name }}
+			</h1>
+			<div class="text-sm text-muted">Sistema: {{ plan.system.name }}</div>
+		</div>
+		<div class="flex-shrink-0 flex gap-2">
+			<a href="{{ url_for('plans.edit_plan', plan_id=plan.id) }}" class="btn btn-warning">
+				<i class="fas fa-edit mr-2"></i> Editar
+			</a>
+			<a href="{{ url_for('plans.list_plans', system_id=plan.system_id) }}" class="btn btn-secondary">
+				<i class="fas fa-arrow-left mr-2"></i> Voltar
+			</a>
+		</div>
+	</div>
+
+	<div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+		<div class="bg-tertiary rounded-lg p-4">
+			<div class="text-sm text-muted mb-1">Horas mensais</div>
+			<div class="text-2xl font-bold text-primary">{{ plan.monthly_hours }}h</div>
+		</div>
+		<div class="bg-tertiary rounded-lg p-4">
+			<div class="text-sm text-muted mb-1">Valor mensal</div>
+			<div class="text-2xl font-bold text-success">{{ plan.get_formatted_monthly_value() }}</div>
+		</div>
+		<div class="bg-tertiary rounded-lg p-4">
+			<div class="text-sm text-muted mb-1">Hora adicional</div>
+			<div class="text-2xl font-bold text-info">{{ plan.get_formatted_additional_hour_rate() }}</div>
+		</div>
+	</div>
+</div>
+
+<div class="bg-secondary rounded-lg shadow-lg p-6">
+	{% if plan.description %}
+	<div class="mb-6">
+		<h3 class="text-lg font-semibold text-primary mb-2">Descrição</h3>
+		<p class="text-secondary">{{ plan.description }}</p>
+	</div>
+	{% endif %}
+
+	<div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+		<div class="bg-tertiary rounded-lg p-4">
+			<h3 class="text-lg font-semibold text-primary mb-3">SLA</h3>
+			<div class="text-secondary">{{ plan.get_sla_text() }}</div>
+		</div>
+		<div class="bg-tertiary rounded-lg p-4">
+			<h3 class="text-lg font-semibold text-primary mb-3">Prioridade</h3>
+			<span class="status-badge status-{{ plan.get_priority_color() }}">{{ plan.get_priority_text() }}</span>
+		</div>
+		<div class="bg-tertiary rounded-lg p-4 md:col-span-2">
+			<h3 class="text-lg font-semibold text-primary mb-3">Tipos de suporte</h3>
+			<div class="flex flex-wrap gap-2">
+				{% for s in plan.get_support_types() %}
+				<span class="status-badge status-info">{{ s }}</span>
+				{% endfor %}
+			</div>
+		</div>
+		<div class="bg-tertiary rounded-lg p-4 md:col-span-2">
+			<h3 class="text-lg font-semibold text-primary mb-3">Adicionais</h3>
+			{% if additionals and additionals|length > 0 %}
+			<table class="table w-full">
+				<thead>
+					<tr>
+						<th class="text-left">Descrição</th>
+						<th class="text-right">Valor (R$)</th>
+					</tr>
+				</thead>
+				<tbody>
+					{% for a in additionals %}
+					<tr>
+						<td class="text-secondary">{{ a.description }}</td>
+						<td class="text-right font-semibold text-primary">R$ {{ '%.2f' % (a.value or 0) }}</td>
+					</tr>
+					{% endfor %}
+				</tbody>
+			</table>
+			{% else %}
+			<p class="text-muted">Nenhum adicional cadastrado para este plano.</p>
+			{% endif %}
+		</div>
+	</div>
+</div>
+
+{% endblock %}
+

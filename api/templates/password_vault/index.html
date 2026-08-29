@@ -1,0 +1,353 @@
+{% extends 'base.html' %}
+{% block page_title %}🔐 Cofre de Senhas{% endblock %}
+{% block content %}
+
+<div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
+	<div>
+		<h1 class="text-2xl font-bold text-primary flex items-center">
+			<i class="fas fa-lock mr-3"></i>
+			Cofre de Senhas
+		</h1>
+		<p class="text-muted mt-1">Gerencie as credenciais de acesso às máquinas dos clientes</p>
+	</div>
+</div>
+
+<!-- Campo de Busca e Filtros -->
+<div class="bg-secondary rounded-lg shadow-lg p-6 mb-6">
+	<div class="flex flex-col gap-4">
+		<div class="flex flex-col sm:flex-row gap-4">
+			<div class="flex-1">
+				<form method="GET" action="{{ url_for('password_vault.index') }}" class="flex gap-2">
+					<div class="flex-1 relative">
+						<input type="text" 
+							   name="q" 
+							   value="{{ search_term or '' }}"
+							   placeholder="Buscar por nome, telefone ou documento..."
+							   class="form-input pl-10">
+						<i class="fas fa-search absolute left-3 top-1/2 transform -translate-y-1/2 text-muted"></i>
+					</div>
+					<button type="submit" class="btn btn-primary">
+						<i class="fas fa-search mr-2"></i>Buscar
+					</button>
+					{% if search_term or filter_with_passwords %}
+					<a href="{{ url_for('password_vault.index') }}" class="btn btn-secondary">
+						<i class="fas fa-times mr-2"></i>Limpar
+					</a>
+					{% endif %}
+				</form>
+			</div>
+		</div>
+		
+		<!-- Filtros -->
+		<div class="flex flex-col sm:flex-row items-start sm:items-center gap-4 pt-4 border-t border-border-color">
+			<div class="flex items-center gap-2">
+				<input type="checkbox" 
+					   id="filter-with-passwords" 
+					   name="with_passwords" 
+					   value="true"
+					   {% if filter_with_passwords %}checked{% endif %}
+					   onchange="togglePasswordFilter(this.checked)"
+					   class="form-checkbox">
+				<label for="filter-with-passwords" class="text-sm font-medium text-primary cursor-pointer">
+					<i class="fas fa-key mr-1"></i>
+					Mostrar apenas clientes com senhas salvas
+				</label>
+			</div>
+			
+			{% if filter_with_passwords %}
+			<div class="flex items-center gap-2 text-sm text-success">
+				<i class="fas fa-filter mr-1"></i>
+				<span>Filtro ativo: {{ pagination.total if pagination else clients|length }} cliente{{ 's' if (pagination.total if pagination else clients|length) != 1 else '' }} com senhas</span>
+			</div>
+			{% endif %}
+		</div>
+	</div>
+	
+	{% if search_term %}
+	<div class="mt-4 p-3 bg-info/10 border border-info/20 rounded-lg">
+		<div class="flex items-center">
+			<i class="fas fa-info-circle text-info mr-2"></i>
+			<span class="text-sm text-info">
+				Mostrando resultados para: <strong>"{{ search_term }}"</strong>
+			</span>
+		</div>
+	</div>
+	{% endif %}
+</div>
+
+<!-- Estatísticas Gerais -->
+<div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+	<div class="bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl shadow-lg p-4 text-white">
+		<div class="flex items-center justify-between">
+			<div>
+				<p class="text-blue-100 text-sm font-medium">Total de Clientes</p>
+				<p class="text-2xl font-bold">{{ pagination.total if pagination else clients|length }}</p>
+			</div>
+			<div class="w-10 h-10 bg-white/20 rounded-full flex items-center justify-center">
+				<i class="fas fa-users text-white text-lg"></i>
+			</div>
+		</div>
+	</div>
+	
+	<div class="bg-gradient-to-br from-green-500 to-green-600 rounded-xl shadow-lg p-4 text-white">
+		<div class="flex items-center justify-between">
+			<div>
+				<p class="text-green-100 text-sm font-medium">Total de Senhas</p>
+				<p class="text-2xl font-bold">{{ client_stats.values()|sum }}</p>
+			</div>
+			<div class="w-10 h-10 bg-white/20 rounded-full flex items-center justify-center">
+				<i class="fas fa-key text-white text-lg"></i>
+			</div>
+		</div>
+	</div>
+	
+	<div class="bg-gradient-to-br from-purple-500 to-purple-600 rounded-xl shadow-lg p-4 text-white">
+		<div class="flex items-center justify-between">
+			<div>
+				<p class="text-purple-100 text-sm font-medium">Clientes com Senhas</p>
+				<p class="text-2xl font-bold">{{ client_stats.values()|select('>', 0)|list|length }}</p>
+			</div>
+			<div class="w-10 h-10 bg-white/20 rounded-full flex items-center justify-center">
+				<i class="fas fa-shield-alt text-white text-lg"></i>
+			</div>
+		</div>
+	</div>
+</div>
+
+<!-- Lista de Clientes -->
+<div class="bg-secondary rounded-lg shadow-lg p-6">
+	<div class="flex items-center justify-between mb-6">
+		<h2 class="text-lg font-semibold text-primary flex items-center">
+			<i class="fas fa-list mr-2"></i>
+			Clientes
+		</h2>
+		<div class="text-sm text-muted">
+			{% if pagination and pagination.pages > 1 %}
+				Mostrando {{ pagination.page }} de {{ pagination.pages }} página{{ 's' if pagination.pages != 1 else '' }}
+				({{ pagination.total }} cliente{{ 's' if pagination.total != 1 else '' }})
+			{% elif search_term %}
+				{{ clients|length }} resultado{{ 's' if clients|length != 1 else '' }} encontrado{{ 's' if clients|length != 1 else '' }}
+			{% else %}
+				{{ clients|length }} cliente{{ 's' if clients|length != 1 else '' }}
+			{% endif %}
+		</div>
+	</div>
+	
+	{% if clients %}
+	<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+		{% for client in clients %}
+		<div class="bg-tertiary rounded-lg p-4 border border-border-color hover:border-primary/30 transition-all duration-300 transform hover:scale-105 cursor-pointer"
+			 onclick="window.location.href='{{ url_for('password_vault.client_passwords', client_id=client.id) }}'">
+			<div class="flex items-start justify-between mb-3">
+				<div class="flex-1">
+					<div class="flex items-center gap-2 mb-1">
+						<h3 class="font-semibold text-primary">{{ client.name }}</h3>
+						{% if client.is_external %}
+						<span class="px-2 py-1 text-xs font-medium rounded-full bg-info/10 text-info">
+							<i class="fas fa-database mr-1"></i>Externo
+						</span>
+						{% else %}
+						<span class="px-2 py-1 text-xs font-medium rounded-full bg-secondary/20 text-muted">
+							<i class="fas fa-home mr-1"></i>Interno
+						</span>
+						{% endif %}
+					</div>
+					{% if client.phone %}
+					<p class="text-sm text-muted mb-1">
+						<i class="fas fa-phone mr-1"></i>{{ client.phone }}
+					</p>
+					{% endif %}
+					{% if client.document %}
+					<p class="text-sm text-muted">
+						<i class="fas fa-id-card mr-1"></i>{{ client.document }}
+					</p>
+					{% endif %}
+				</div>
+				<div class="text-right">
+					<div class="w-8 h-8 bg-primary/10 rounded-full flex items-center justify-center">
+						<i class="fas fa-chevron-right text-primary text-sm"></i>
+					</div>
+				</div>
+			</div>
+			
+			<div class="flex items-center justify-between">
+				<div class="flex items-center">
+					<i class="fas fa-key text-muted mr-2"></i>
+					<span class="text-sm text-muted">
+						{{ client_stats.get(client.id, 0) }} senha{{ 's' if client_stats.get(client.id, 0) != 1 else '' }}
+					</span>
+				</div>
+				{% if client_stats.get(client.id, 0) > 0 %}
+				<span class="px-2 py-1 text-xs font-medium rounded-full bg-success/10 text-success">
+					<i class="fas fa-check mr-1"></i>Configurado
+				</span>
+				{% else %}
+				<span class="px-2 py-1 text-xs font-medium rounded-full bg-muted/20 text-muted">
+					<i class="fas fa-plus mr-1"></i>Vazio
+				</span>
+				{% endif %}
+			</div>
+		</div>
+		{% endfor %}
+	</div>
+	
+	<!-- Controles de Paginação -->
+	{% if pagination and pagination.pages > 1 %}
+	<div class="mt-6 pt-6 border-t border-border-color">
+		<div class="flex flex-col sm:flex-row items-center justify-between gap-4">
+			<!-- Informações da página -->
+			<div class="text-sm text-muted">
+				Mostrando {{ ((pagination.page - 1) * pagination.per_page) + 1 }} a 
+				{{ pagination.page * pagination.per_page if pagination.page * pagination.per_page < pagination.total else pagination.total }} 
+				de {{ pagination.total }} cliente{{ 's' if pagination.total != 1 else '' }}
+			</div>
+			
+			<!-- Controles de navegação -->
+			<div class="flex items-center gap-2">
+				<!-- Primeira página -->
+				{% if pagination.has_prev %}
+				<a href="{{ url_for('password_vault.index', page=1, per_page=request.args.get('per_page', 12), q=request.args.get('q', ''), with_passwords=request.args.get('with_passwords', '')) }}" 
+				   class="btn btn-sm btn-secondary" title="Primeira página">
+					<i class="fas fa-angle-double-left"></i>
+				</a>
+				{% else %}
+				<button class="btn btn-sm btn-secondary" disabled title="Primeira página">
+					<i class="fas fa-angle-double-left"></i>
+				</button>
+				{% endif %}
+				
+				<!-- Página anterior -->
+				{% if pagination.has_prev %}
+				<a href="{{ url_for('password_vault.index', page=pagination.prev_num, per_page=request.args.get('per_page', 12), q=request.args.get('q', ''), with_passwords=request.args.get('with_passwords', '')) }}" 
+				   class="btn btn-sm btn-secondary" title="Página anterior">
+					<i class="fas fa-angle-left"></i>
+				</a>
+				{% else %}
+				<button class="btn btn-sm btn-secondary" disabled title="Página anterior">
+					<i class="fas fa-angle-left"></i>
+				</button>
+				{% endif %}
+				
+				<!-- Páginas numeradas -->
+				<div class="flex items-center gap-1">
+					{% for page_num in pagination.iter_pages(left_edge=1, right_edge=1, left_current=1, right_current=2) %}
+						{% if page_num %}
+							{% if page_num != pagination.page %}
+							<a href="{{ url_for('password_vault.index', page=page_num, per_page=request.args.get('per_page', 12), q=request.args.get('q', ''), with_passwords=request.args.get('with_passwords', '')) }}" 
+							   class="btn btn-sm btn-outline">{{ page_num }}</a>
+							{% else %}
+							<button class="btn btn-sm btn-primary">{{ page_num }}</button>
+							{% endif %}
+						{% else %}
+						<span class="px-2 text-muted">...</span>
+						{% endif %}
+					{% endfor %}
+				</div>
+				
+				<!-- Próxima página -->
+				{% if pagination.has_next %}
+				<a href="{{ url_for('password_vault.index', page=pagination.next_num, per_page=request.args.get('per_page', 12), q=request.args.get('q', ''), with_passwords=request.args.get('with_passwords', '')) }}" 
+				   class="btn btn-sm btn-secondary" title="Próxima página">
+					<i class="fas fa-angle-right"></i>
+				</a>
+				{% else %}
+				<button class="btn btn-sm btn-secondary" disabled title="Próxima página">
+					<i class="fas fa-angle-right"></i>
+				</button>
+				{% endif %}
+				
+				<!-- Última página -->
+				{% if pagination.has_next %}
+				<a href="{{ url_for('password_vault.index', page=pagination.pages, per_page=request.args.get('per_page', 12), q=request.args.get('q', ''), with_passwords=request.args.get('with_passwords', '')) }}" 
+				   class="btn btn-sm btn-secondary" title="Última página">
+					<i class="fas fa-angle-double-right"></i>
+				</a>
+				{% else %}
+				<button class="btn btn-sm btn-secondary" disabled title="Última página">
+					<i class="fas fa-angle-double-right"></i>
+				</button>
+				{% endif %}
+			</div>
+			
+			<!-- Seletor de itens por página -->
+			<div class="flex items-center gap-2">
+				<label class="text-sm text-muted">Itens por página:</label>
+				<select id="per-page-selector" class="form-select text-sm" onchange="changePerPage(this.value)">
+					<option value="6" {% if request.args.get('per_page', 12)|int == 6 %}selected{% endif %}>6</option>
+					<option value="12" {% if request.args.get('per_page', 12)|int == 12 %}selected{% endif %}>12</option>
+					<option value="24" {% if request.args.get('per_page', 12)|int == 24 %}selected{% endif %}>24</option>
+					<option value="48" {% if request.args.get('per_page', 12)|int == 48 %}selected{% endif %}>48</option>
+				</select>
+			</div>
+		</div>
+	</div>
+	{% endif %}
+	{% else %}
+	<div class="text-center text-muted p-12">
+		{% if search_term %}
+			<i class="fas fa-search text-6xl mb-6 opacity-50"></i>
+			<p class="text-xl font-medium mb-2">Nenhum resultado encontrado</p>
+			<p class="text-sm mb-4">Não foram encontrados clientes para: <strong>"{{ search_term }}"</strong></p>
+			<a href="{{ url_for('password_vault.index') }}" class="btn btn-primary">
+				<i class="fas fa-list mr-2"></i>Ver Todos os Clientes
+			</a>
+		{% else %}
+			<i class="fas fa-users text-6xl mb-6 opacity-50"></i>
+			<p class="text-xl font-medium mb-2">Nenhum cliente encontrado</p>
+			<p class="text-sm">Não há clientes cadastrados no sistema</p>
+		{% endif %}
+	</div>
+	{% endif %}
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+	const searchInput = document.querySelector('input[name="q"]');
+	const searchForm = document.querySelector('form[method="GET"]');
+	
+	// Auto-focus no campo de busca
+	if (searchInput) {
+		searchInput.focus();
+	}
+	
+	// Atalho de teclado para limpar busca
+	document.addEventListener('keydown', function(e) {
+		if (e.key === 'Escape' && searchInput && searchInput.value) {
+			window.location.href = '{{ url_for("password_vault.index") }}';
+		}
+	});
+	
+	// Destacar termo de busca nos resultados
+	const searchTerm = '{{ search_term or "" }}';
+	if (searchTerm) {
+		const clientNames = document.querySelectorAll('.font-semibold.text-primary');
+		clientNames.forEach(element => {
+			const text = element.textContent;
+			const regex = new RegExp(`(${searchTerm})`, 'gi');
+			element.innerHTML = text.replace(regex, '<mark class="bg-yellow-200 text-yellow-800 px-1 rounded">$1</mark>');
+		});
+	}
+});
+
+// Função para alterar itens por página
+function changePerPage(perPage) {
+	const url = new URL(window.location);
+	url.searchParams.set('per_page', perPage);
+	url.searchParams.set('page', 1); // Voltar para primeira página
+	window.location.href = url.toString();
+}
+
+// Função para alternar filtro de clientes com senhas
+function togglePasswordFilter(checked) {
+	const url = new URL(window.location);
+	if (checked) {
+		url.searchParams.set('with_passwords', 'true');
+	} else {
+		url.searchParams.delete('with_passwords');
+	}
+	url.searchParams.set('page', 1); // Voltar para primeira página
+	window.location.href = url.toString();
+}
+</script>
+
+{% endblock %}

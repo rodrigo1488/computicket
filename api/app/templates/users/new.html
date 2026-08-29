@@ -1,0 +1,194 @@
+{% extends 'base.html' %}
+{% block page_title %}{% if user %}✏️ Editar Usuário{% else %}👤 Novo Usuário{% endif %}{% endblock %}
+{% block content %}
+
+<div class="bg-secondary rounded-lg shadow-lg p-6 mb-6">
+	<div class="flex items-start justify-between mb-4">
+		<div>
+			<h1 class="text-2xl font-bold text-primary mb-2">
+				{% if user %}Editar Usuário{% else %}Novo Usuário{% endif %}
+			</h1>
+			<p class="text-muted">
+				{% if user %}Atualize as informações do usuário {{ user.name }}{% else %}Crie um novo usuário no sistema{% endif %}
+			</p>
+		</div>
+		<a href="{{ url_for('users.list_users') }}" class="btn btn-secondary">
+			<i class="fas fa-arrow-left"></i>
+			Voltar
+		</a>
+	</div>
+</div>
+
+<div class="bg-secondary rounded-lg shadow-lg p-6">
+	<form method="post" class="space-y-6">
+		<div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+			<!-- Nome -->
+			<div class="form-group">
+				<label for="name" class="form-label">
+					<i class="fas fa-user mr-2"></i>
+					Nome Completo
+				</label>
+				<input 
+					type="text" 
+					id="name" 
+					name="name" 
+					value="{% if user %}{{ user.name }}{% endif %}"
+					required 
+					class="form-input"
+					placeholder="Digite o nome completo"
+				>
+			</div>
+
+			<!-- Email -->
+			<div class="form-group">
+				<label for="email" class="form-label">
+					<i class="fas fa-envelope mr-2"></i>
+					Email
+				</label>
+				<input 
+					type="email" 
+					id="email" 
+					name="email" 
+					value="{% if user %}{{ user.email }}{% endif %}"
+					required 
+					class="form-input"
+					placeholder="usuario@exemplo.com"
+				>
+			</div>
+
+			<!-- Função -->
+			<div class="form-group">
+				<label for="role" class="form-label">
+					<i class="fas fa-user-tag mr-2"></i>
+					Função
+				</label>
+				<select id="role" name="role" class="form-select" required>
+					<option value="admin" {% if user and user.role == 'admin' %}selected{% endif %}>
+						👑 Administrador
+					</option>
+					<option value="tecnico" {% if not user or user.role == 'tecnico' %}selected{% endif %}>
+						🔧 Técnico
+					</option>
+					<option value="viewer" {% if user and user.role == 'viewer' %}selected{% endif %}>
+						👁️ Visualizador
+					</option>
+				</select>
+			</div>
+
+			<!-- Equipe -->
+			<div class="form-group">
+				<label for="team" class="form-label">
+					<i class="fas fa-users mr-2"></i>
+					Equipe
+				</label>
+				<select id="team" name="team" class="form-select" required>
+					<option value="Equipe 1" {% if not user or user.team == 'Equipe 1' %}selected{% endif %}>
+						👥 Equipe 1
+					</option>
+					<option value="Equipe 2" {% if user and user.team == 'Equipe 2' %}selected{% endif %}>
+						👥 Equipe 2
+					</option>
+					<option value="Fora Rotação" {% if user and user.team == 'Fora Rotação' %}selected{% endif %}>
+						🚫 Fora Rotação
+					</option>
+				</select>
+			</div>
+
+			<!-- Senha -->
+			<div class="form-group">
+				<label for="password" class="form-label">
+					<i class="fas fa-lock mr-2"></i>
+					{% if user %}Nova Senha{% else %}Senha{% endif %}
+					{% if user %}<span class="text-sm text-muted">(deixe em branco para manter a atual)</span>{% endif %}
+				</label>
+				<input 
+					type="password" 
+					id="password" 
+					name="password" 
+					{% if not user %}required{% endif %}
+					class="form-input"
+					placeholder="{% if user %}Digite uma nova senha (opcional){% else %}Digite a senha{% endif %}"
+				>
+			</div>
+		</div>
+
+		{% if user %}
+		<!-- Informações do usuário -->
+		<div class="bg-tertiary rounded-lg p-4 mb-6">
+			<h3 class="text-lg font-semibold text-primary mb-3 flex items-center">
+				<i class="fas fa-info-circle mr-2"></i>
+				Informações do Usuário
+			</h3>
+			<div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+				<div>
+					<span class="text-muted">ID:</span>
+					<span class="font-medium text-primary">{{ user.id }}</span>
+				</div>
+				<div>
+					<span class="text-muted">Função Atual:</span>
+					<span class="font-medium text-primary">
+						{% if user.role == 'admin' %}
+							👑 Administrador
+						{% elif user.role == 'tecnico' %}
+							🔧 Técnico
+						{% else %}
+							👁️ {{ user.role|title }}
+						{% endif %}
+					</span>
+				</div>
+				<div>
+					<span class="text-muted">Equipe Atual:</span>
+					<span class="font-medium text-primary">
+						{% if user.team == 'Equipe 1' %}
+							👥 Equipe 1
+						{% elif user.team == 'Equipe 2' %}
+							👥 Equipe 2
+						{% else %}
+							🚫 Fora Rotação
+						{% endif %}
+					</span>
+				</div>
+				<div>
+					<span class="text-muted">Tickets Abertos:</span>
+					<span class="font-medium text-primary">{{ user.opened_tickets|length }}</span>
+				</div>
+				<div>
+					<span class="text-muted">Tickets Atribuídos:</span>
+					<span class="font-medium text-primary">{{ user.assigned_tickets|length }}</span>
+				</div>
+			</div>
+		</div>
+		{% endif %}
+
+		<!-- Botões de ação -->
+		<div class="flex items-center gap-4 justify-end">
+			<a href="{{ url_for('users.list_users') }}" class="btn btn-secondary">
+				<i class="fas fa-times"></i>
+				Cancelar
+			</a>
+			<button type="submit" class="btn btn-primary">
+				<i class="fas fa-save"></i>
+				{% if user %}Salvar Alterações{% else %}Criar Usuário{% endif %}
+			</button>
+		</div>
+	</form>
+</div>
+
+{% if user %}
+<!-- Aviso sobre mudança de senha -->
+<div class="bg-warning/10 border border-warning/20 rounded-lg p-4 mt-6">
+	<div class="flex items-start">
+		<i class="fas fa-exclamation-triangle text-warning mr-2 mt-0.5"></i>
+		<div>
+			<p class="text-sm text-warning/90 font-medium mb-1">Importante:</p>
+			<p class="text-sm text-warning/90">
+				• Deixe o campo "Nova Senha" em branco se não quiser alterar a senha atual<br>
+				• Apenas administradores podem alterar funções de outros usuários<br>
+				• Alterações na função afetam as permissões do usuário no sistema
+			</p>
+		</div>
+	</div>
+</div>
+{% endif %}
+
+{% endblock %}

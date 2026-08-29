@@ -1,0 +1,557 @@
+{% extends 'base.html' %}
+{% block page_title %}📋 {{ budget.title }}{% endblock %}
+{% block content %}
+<style>
+.rich-text-content { line-height: 1.6; word-break: break-word; }
+.rich-text-content ul { list-style: disc; padding-left: 1.4em; margin: 0.35em 0; }
+.rich-text-content ol { list-style: decimal; padding-left: 1.4em; margin: 0.35em 0; }
+.rich-text-content li { margin: 0.2em 0; }
+</style>
+
+<!-- Cabeçalho -->
+<div class="mb-6">
+	<div class="flex items-center justify-between gap-3 flex-wrap">
+		<div>
+			<div class="text-sm text-muted mb-1">
+				<a href="{{ url_for('budget.index') }}" class="text-muted">Orçamentos</a>
+				<i class="fas fa-chevron-right mx-1 text-xs"></i>
+				Detalhes
+			</div>
+			<h1 class="text-2xl font-bold text-primary">{{ budget.title }}</h1>
+		</div>
+		<div class="flex gap-2 flex-wrap">
+			<button type="button" class="btn btn-secondary" onclick="copyPublicLink(this)">
+				<i class="fas fa-link"></i>
+				{{ 'Copiar Link Público' if budget.public_token else 'Gerar Link Público' }}
+			</button>
+			{% if budget.public_token %}
+			<button type="button" class="btn btn-outline" onclick="revokePublicLink()" title="Revogar link público">
+				<i class="fas fa-unlink"></i>
+			</button>
+			{% endif %}
+			<a href="{{ url_for('budget.export_pdf', budget_id=budget.id) }}" class="btn btn-secondary">
+				<i class="fas fa-file-pdf"></i>
+				PDF
+			</a>
+			<a href="{{ url_for('budget.builder', budget_id=budget.id) }}"
+			   class="btn btn-primary budget-edit-link"
+			   data-budget-id="{{ budget.id }}">
+				<i class="fas fa-edit"></i>
+				Editar no Builder
+			</a>
+			<button type="button" class="btn btn-error" onclick="confirmDelete()" title="Excluir orçamento">
+				<i class="fas fa-trash"></i>
+			</button>
+		</div>
+	</div>
+</div>
+
+<!-- Resumo -->
+<div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+	<div class="bg-secondary rounded-lg shadow p-4 text-center">
+		<div class="text-xl font-bold {% if budget.status == 'approved' %}text-green-700{% elif budget.status == 'rejected' %}text-red-700{% else %}text-primary{% endif %}">
+			{{ budget.get_status_text() }}
+		</div>
+		<div class="text-sm text-muted">Status</div>
+	</div>
+	<div class="bg-secondary rounded-lg shadow p-4 text-center">
+		<div class="text-xl font-bold text-primary">
+			{% if budget.items %}{{ format_brl(budget.total) }}{% else %}—{% endif %}
+		</div>
+		<div class="text-sm text-muted">Valor Total</div>
+	</div>
+	<div class="bg-secondary rounded-lg shadow p-4 text-center">
+		<div class="text-xl font-bold {% if budget.valid_until and budget.is_expired %}text-red-700{% else %}text-primary{% endif %}">
+			{% if budget.valid_until %}{{ budget.valid_until.strftime('%d/%m/%Y') }}{% else %}—{% endif %}
+		</div>
+		<div class="text-sm text-muted">Válido até{% if budget.valid_until and budget.is_expired %} (vencido){% endif %}</div>
+	</div>
+	<div class="bg-secondary rounded-lg shadow p-4 text-center">
+		<div class="text-xl font-bold text-primary">
+			{% if budget.responded_at %}{{ budget.responded_at.strftime('%d/%m/%Y') }}{% elif budget.public_token %}Aguardando{% else %}—{% endif %}
+		</div>
+		<div class="text-sm text-muted">Resposta do Cliente</div>
+	</div>
+</div>
+
+<!-- Abas -->
+<div class="flex gap-4 mb-4 flex-wrap" style="border-bottom: 1px solid var(--border-color);">
+	<button type="button" class="tab-button active" data-tab="tab-items">
+		<i class="fas fa-list mr-2"></i>
+		Itens ({{ budget.items|length if budget.items else 0 }})
+	</button>
+	<button type="button" class="tab-button" data-tab="tab-client">
+		<i class="fas fa-user mr-2"></i>
+		Cliente
+	</button>
+	{% if budget.has_file() %}
+	<button type="button" class="tab-button" data-tab="tab-file">
+		<i class="fas fa-paperclip mr-2"></i>
+		Anexo
+	</button>
+	{% endif %}
+	<button type="button" class="tab-button" data-tab="tab-history">
+		<i class="fas fa-history mr-2"></i>
+		Histórico
+	</button>
+	<button type="button" class="tab-button" data-tab="tab-internal">
+		<i class="fas fa-lock text-amber-400 mr-2"></i>
+		Obs. Internas
+	</button>
+</div>
+
+<!-- Aba: Itens -->
+<div id="tab-items" class="tab-content active">
+	{% if budget.description %}
+	<div class="bg-secondary rounded-lg shadow-lg p-6 mb-6">
+		<h2 class="text-lg font-semibold text-primary mb-2">Descrição</h2>
+		<div class="text-muted rich-text-content leading-relaxed">{{ budget.description|rich_html }}</div>
+	</div>
+	{% endif %}
+
+	{% if budget.items %}
+	<div class="bg-secondary rounded-lg shadow-lg p-6">
+		<h2 class="text-lg font-semibold text-primary mb-4">Itens do Orçamento</h2>
+		<div class="overflow-x-auto">
+			<table class="w-full text-sm">
+				<thead>
+					<tr class="text-left text-muted" style="border-bottom: 1px solid var(--border-color);">
+						<th class="py-2 pr-2">#</th>
+						<th class="py-2 pr-2" style="width:80px">Tipo</th>
+						<th class="py-2 pr-2">Descrição</th>
+						<th class="py-2 pr-2 text-right">Qtd</th>
+						<th class="py-2 pr-2 text-right">Valor Unit.</th>
+						<th class="py-2 text-right">Total</th>
+					</tr>
+				</thead>
+				<tbody>
+					{% for item in budget.items %}
+					<tr style="border-bottom: 1px solid var(--border-color);">
+						<td class="py-2 pr-2 text-muted">{{ loop.index }}</td>
+						<td class="py-2 pr-2">
+							<span class="text-xs px-2 py-0.5 rounded-full
+								{% if item.item_type == 'product' %}bg-blue-900/30 text-blue-300
+								{% elif item.item_type == 'service' %}bg-amber-900/30 text-amber-300
+								{% else %}bg-slate-700 text-slate-400{% endif %}">
+								{{ item.type_label }}
+							</span>
+							{% if item.is_recurring %}
+							<span class="text-xs px-2 py-0.5 rounded-full bg-emerald-900/30 text-emerald-300 mt-1 inline-block">
+								{{ item.recurrence_label }}
+							</span>
+							{% endif %}
+						</td>
+						<td class="py-2 pr-2 text-primary rich-text-content">
+							{{ item.description|rich_html }}
+							{% if item.codigo %}<span class="text-xs text-muted block">Cód: {{ item.codigo }}</span>{% endif %}
+						</td>
+						<td class="py-2 pr-2 text-right">{{ '%g'|format(item.quantity or 0) }}{% if item.unit_of_measure %} {{ item.unit_of_measure }}{% endif %}</td>
+						<td class="py-2 pr-2 text-right">{{ format_brl(item.unit_price or 0) }}</td>
+						<td class="py-2 text-right font-medium text-primary">
+							{{ format_brl(item.total) }}
+							{% if item.is_recurring %}
+							<span class="block text-xs text-muted font-normal">
+								{% if item.recurrence_period == 'quarterly' %}/trim.
+								{% elif item.recurrence_period == 'yearly' %}/ano
+								{% else %}/mês{% endif %}
+							</span>
+							{% endif %}
+						</td>
+					</tr>
+					{% if item.observations %}
+					<tr style="border-bottom: 1px solid var(--border-color);">
+						<td></td>
+						<td colspan="5" class="pb-3 text-xs text-muted rich-text-content">
+							<i class="fas fa-sticky-note mr-1 opacity-60"></i>{{ item.observations|rich_html }}
+						</td>
+					</tr>
+					{% endif %}
+					{% endfor %}
+				</tbody>
+			</table>
+		</div>
+		<div class="flex justify-end mt-4">
+			<div style="min-width:240px" class="space-y-1 text-sm">
+				<div class="flex justify-between">
+					<span class="text-muted">Subtotal (único)</span>
+					<span class="text-primary">{{ format_brl(budget.subtotal) }}</span>
+				</div>
+				{% set recurring = budget.recurring_totals_by_period %}
+				{% if recurring.get('monthly') %}
+				<div class="flex justify-between">
+					<span class="text-muted">Recorrente (mensal)</span>
+					<span class="text-primary">{{ format_brl(recurring.monthly) }} <span class="text-xs text-muted">/mês</span></span>
+				</div>
+				{% endif %}
+				{% if recurring.get('quarterly') %}
+				<div class="flex justify-between">
+					<span class="text-muted">Recorrente (trimestral)</span>
+					<span class="text-primary">{{ format_brl(recurring.quarterly) }} <span class="text-xs text-muted">/trim.</span></span>
+				</div>
+				{% endif %}
+				{% if recurring.get('yearly') %}
+				<div class="flex justify-between">
+					<span class="text-muted">Recorrente (anual)</span>
+					<span class="text-primary">{{ format_brl(recurring.yearly) }} <span class="text-xs text-muted">/ano</span></span>
+				</div>
+				{% endif %}
+				{% if budget.discount %}
+				<div class="flex justify-between">
+					<span class="text-muted">Desconto</span>
+					<span class="text-primary">- {{ format_brl(budget.discount) }}</span>
+				</div>
+				{% endif %}
+				<div class="flex justify-between pt-2" style="border-top: 1px solid var(--border-color);">
+					<span class="font-semibold text-primary">TOTAL (único)</span>
+					<span class="font-bold text-primary text-lg">{{ format_brl(budget.total) }}</span>
+				</div>
+			</div>
+		</div>
+		{% if budget.payment_terms %}
+		<div class="mt-4 bg-tertiary rounded-lg p-4">
+			<h3 class="text-sm font-medium text-primary mb-1"><i class="fas fa-handshake mr-1"></i>Condições e observações</h3>
+			<div class="text-muted text-sm rich-text-content">{{ budget.payment_terms|rich_html }}</div>
+		</div>
+		{% endif %}
+		{% if budget.status == 'approved' and budget.signature_file_path %}
+		<div class="mt-4 bg-tertiary rounded-lg p-4">
+			<h3 class="text-sm font-medium text-primary mb-3"><i class="fas fa-signature mr-1"></i>Assinatura do Cliente</h3>
+			<div class="text-center">
+				<img src="{{ url_for('budget.budget_signature_image', budget_id=budget.id) }}"
+					alt="Assinatura" class="mx-auto" style="max-width:100%;max-height:140px;background:#fff;border-radius:8px;padding:8px">
+				{% if budget.signer_name %}
+				<p class="text-sm font-medium text-primary mt-2">{{ budget.signer_name }}</p>
+				{% endif %}
+				{% if budget.signature_timestamp %}
+				<p class="text-xs text-muted mt-1">Assinado em {{ budget.signature_timestamp.strftime('%d/%m/%Y às %H:%M') }}</p>
+				{% endif %}
+			</div>
+		</div>
+		{% endif %}
+	</div>
+	{% else %}
+	<div class="bg-secondary rounded-lg shadow-lg p-6 text-center text-muted">
+		<i class="fas fa-inbox text-4xl mb-2"></i>
+		<p>Este orçamento não possui itens. Adicione itens pelo builder.</p>
+		<a href="{{ url_for('budget.builder', budget_id=budget.id) }}"
+		   class="btn btn-primary btn-sm mt-3 budget-edit-link"
+		   data-budget-id="{{ budget.id }}">
+			<i class="fas fa-edit"></i>
+			Abrir no Builder
+		</a>
+	</div>
+	{% endif %}
+</div>
+
+<!-- Aba: Cliente -->
+<div id="tab-client" class="tab-content">
+	<div class="bg-secondary rounded-lg shadow-lg p-6">
+		{% if budget.get_client_name() != "Sem cliente" %}
+		<div class="flex items-center gap-2 flex-wrap mb-3">
+			<span class="text-lg font-semibold text-primary">{{ budget.get_client_name() }}</span>
+			{% if budget.is_external_client() %}
+			<span class="inline-block bg-blue-100 text-blue-800 text-xs px-2 py-1 rounded-full font-medium">Cliente Externo (ERP)</span>
+			{% else %}
+			<span class="inline-block bg-secondary-100 text-gray-500 text-xs px-2 py-1 rounded-full font-medium">Cliente Interno</span>
+			{% endif %}
+		</div>
+		{% if not budget.is_external_client() and budget.client %}
+		<div class="text-sm text-muted">
+			{% if budget.client.document %}<i class="fas fa-id-card mr-1"></i>{{ budget.client.document }}{% endif %}
+			{% if budget.client.document and budget.client.phone %}&nbsp;·&nbsp;{% endif %}
+			{% if budget.client.phone %}<i class="fas fa-phone mr-1"></i>{{ budget.client.phone }}{% endif %}
+		</div>
+		{% endif %}
+		{% else %}
+		<div class="text-center py-8 text-muted">
+			<i class="fas fa-user-slash text-4xl mb-2"></i>
+			<p>Nenhum cliente vinculado a este orçamento.</p>
+		</div>
+		{% endif %}
+	</div>
+</div>
+
+{% if budget.has_file() %}
+<!-- Aba: Anexo -->
+<div id="tab-file" class="tab-content">
+	<div class="bg-secondary rounded-lg shadow-lg p-6">
+		<div class="flex items-center justify-between gap-3 flex-wrap">
+			<div class="flex items-center gap-3">
+				<i class="{{ budget.get_file_icon() }} text-3xl text-primary"></i>
+				<div>
+					<div class="font-medium text-primary">{{ budget.original_filename }}</div>
+					<div class="text-sm text-muted">
+						{% if budget.file_size %}{{ "%.1f"|format(budget.file_size / 1024) }} KB{% endif %}
+						{% if budget.file_size and budget.file_type %}&nbsp;·&nbsp;{% endif %}
+						{% if budget.file_type %}{{ budget.file_type }}{% endif %}
+					</div>
+				</div>
+			</div>
+			<a href="{{ url_for('budget.download_file', budget_id=budget.id) }}" class="btn btn-primary">
+				<i class="fas fa-download"></i>
+				Download
+			</a>
+		</div>
+	</div>
+</div>
+{% endif %}
+
+<!-- Aba: Histórico -->
+<div id="tab-history" class="tab-content">
+	<div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+		<div class="bg-secondary rounded-lg shadow-lg p-6">
+			<h2 class="text-lg font-semibold text-primary mb-4">Linha do Tempo</h2>
+			<div class="space-y-4">
+				<div class="flex items-start gap-3">
+					<div class="w-10 h-10 bg-green-100 rounded-full flex items-center justify-center">
+						<i class="fas fa-plus text-green-600 text-sm"></i>
+					</div>
+					<div>
+						<p class="text-sm font-medium text-primary">Criado</p>
+						<p class="text-xs text-muted">{{ budget.created_at.strftime('%d/%m/%Y %H:%M') }} por {{ budget.created_by.name }}</p>
+					</div>
+				</div>
+				{% if budget.updated_at != budget.created_at %}
+				<div class="flex items-start gap-3">
+					<div class="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center">
+						<i class="fas fa-edit text-blue-600 text-sm"></i>
+					</div>
+					<div>
+						<p class="text-sm font-medium text-primary">Atualizado</p>
+						<p class="text-xs text-muted">{{ budget.updated_at.strftime('%d/%m/%Y %H:%M') }}</p>
+					</div>
+				</div>
+				{% endif %}
+				{% if budget.responded_at %}
+				<div class="flex items-start gap-3">
+					<div class="w-10 h-10 bg-purple-100 rounded-full flex items-center justify-center">
+						<i class="fas fa-reply text-purple-600 text-sm"></i>
+					</div>
+					<div>
+						<p class="text-sm font-medium text-primary">Respondido pelo cliente</p>
+						<p class="text-xs text-muted">{{ budget.responded_at.strftime('%d/%m/%Y %H:%M') }}</p>
+					</div>
+				</div>
+				{% endif %}
+			</div>
+		</div>
+
+		<div class="bg-secondary rounded-lg shadow-lg p-6">
+			<h2 class="text-lg font-semibold text-primary mb-4">Informações Técnicas</h2>
+			<div class="space-y-2">
+				<div class="flex items-center justify-between p-3 bg-tertiary rounded-lg">
+					<span class="text-sm text-muted">ID do Orçamento</span>
+					<span class="text-sm font-mono font-medium text-primary">#{{ budget.id }}</span>
+				</div>
+				{% if budget.valid_until %}
+				<div class="flex items-center justify-between p-3 bg-tertiary rounded-lg">
+					<span class="text-sm text-muted">Válido até</span>
+					<span class="text-sm font-medium {% if budget.is_expired %}text-red-700{% else %}text-primary{% endif %}">{{ budget.valid_until.strftime('%d/%m/%Y') }}{% if budget.is_expired %} (vencido){% endif %}</span>
+				</div>
+				{% endif %}
+				<div class="flex items-center justify-between p-3 bg-tertiary rounded-lg">
+					<span class="text-sm text-muted">Link público</span>
+					{% if budget.public_token %}
+					<span class="inline-block bg-green-100 text-green-700 text-xs px-2 py-1 rounded-full font-medium">Ativo</span>
+					{% else %}
+					<span class="text-sm text-muted">Não gerado</span>
+					{% endif %}
+				</div>
+				<div class="flex items-center justify-between p-3 bg-tertiary rounded-lg">
+					<span class="text-sm text-muted">Arquivo anexado</span>
+					{% if budget.has_file() %}
+					<span class="inline-block bg-blue-100 text-blue-800 text-xs px-2 py-1 rounded-full font-medium">Sim</span>
+					{% else %}
+					<span class="text-sm text-muted">Não</span>
+					{% endif %}
+				</div>
+			</div>
+		</div>
+	</div>
+</div>
+
+<!-- Aba: Observações Internas (somente empresa) -->
+<div id="tab-internal" class="tab-content">
+	<div class="bg-secondary rounded-lg shadow-lg p-6 border border-amber-700/30">
+		<div class="flex items-start justify-between gap-3 flex-wrap mb-4">
+			<div>
+				<h2 class="text-lg font-semibold text-primary">
+					<i class="fas fa-lock text-amber-400 mr-2"></i>Observações Internas
+				</h2>
+				<p class="text-xs text-amber-400/90 mt-1">
+					<i class="fas fa-eye-slash mr-1"></i>Não visível ao cliente, PDF ou link público.
+				</p>
+			</div>
+			<a href="{{ url_for('budget.builder', budget_id=budget.id) }}"
+			   class="btn btn-outline btn-sm budget-edit-link"
+			   data-budget-id="{{ budget.id }}">
+				<i class="fas fa-edit"></i> Editar no Builder
+			</a>
+		</div>
+		{% if budget.internal_notes %}
+		<div class="rich-text-content text-muted leading-relaxed">{{ budget.internal_notes|rich_html }}</div>
+		{% else %}
+		<div class="text-center py-8 text-muted">
+			<i class="fas fa-lock text-3xl mb-2 opacity-40"></i>
+			<p>Nenhuma observação interna registrada.</p>
+		</div>
+		{% endif %}
+	</div>
+</div>
+
+<!-- Modal de Confirmação de Exclusão -->
+<div id="deleteModal" class="modal-overlay">
+	<div class="modal-container">
+		<div class="modal-content">
+			<div class="modal-header">
+				<h3 class="modal-title">Confirmar Exclusão</h3>
+				<button type="button" class="modal-close" onclick="closeDeleteModal()">
+					<i class="fas fa-times"></i>
+				</button>
+			</div>
+			<div class="modal-body">
+				<p>Tem certeza que deseja excluir o orçamento <strong>{{ budget.title }}</strong>?</p>
+				<p class="text-danger text-sm">Esta ação não pode ser desfeita.</p>
+				{% if budget.has_file() %}
+				<p class="text-warning text-sm">O arquivo anexado também será removido permanentemente.</p>
+				{% endif %}
+			</div>
+			<div class="modal-footer">
+				<button type="button" class="btn btn-secondary" onclick="closeDeleteModal()">Cancelar</button>
+				<form method="POST" action="{{ url_for('budget.delete_budget', budget_id=budget.id) }}" style="display: inline;">
+					<button type="submit" class="btn btn-danger">Excluir</button>
+				</form>
+			</div>
+		</div>
+	</div>
+</div>
+
+<script>
+function confirmDelete() {
+	const modal = document.getElementById('deleteModal');
+	modal.classList.add('active');
+}
+
+function closeDeleteModal() {
+	const modal = document.getElementById('deleteModal');
+	modal.classList.remove('active');
+}
+
+// Copia texto com fallback para páginas HTTP (navigator.clipboard exige HTTPS)
+async function copyTextToClipboard(text) {
+	if (navigator.clipboard && window.isSecureContext) {
+		await navigator.clipboard.writeText(text);
+		return true;
+	}
+	const textarea = document.createElement('textarea');
+	textarea.value = text;
+	textarea.style.position = 'fixed';
+	textarea.style.opacity = '0';
+	document.body.appendChild(textarea);
+	textarea.focus();
+	textarea.select();
+	let ok = false;
+	try {
+		ok = document.execCommand('copy');
+	} catch (err) {
+		ok = false;
+	}
+	document.body.removeChild(textarea);
+	if (!ok) {
+		window.prompt('Copie o link abaixo (Ctrl+C):', text);
+	}
+	return true;
+}
+
+async function copyPublicLink(btn) {
+	try {
+		const response = await fetch("{{ url_for('budget.share_budget', budget_id=budget.id) }}", {
+			method: 'POST',
+			headers: {'Content-Type': 'application/json'},
+			body: JSON.stringify({action: 'generate'}),
+			credentials: 'include',
+		});
+		const data = await response.json();
+		if (data.success && data.public_url) {
+			await copyTextToClipboard(data.public_url);
+			const original = btn.innerHTML;
+			btn.innerHTML = '<i class="fas fa-check"></i> Link copiado!';
+			setTimeout(() => { btn.innerHTML = original; }, 2500);
+		} else {
+			alert(data.error || 'Erro ao gerar link público.');
+		}
+	} catch (err) {
+		alert('Erro: ' + err.message);
+	}
+}
+
+async function revokePublicLink() {
+	if (!confirm('Revogar o link público? Quem tiver o link não conseguirá mais acessar.')) return;
+	const response = await fetch("{{ url_for('budget.share_budget', budget_id=budget.id) }}", {
+		method: 'POST',
+		headers: {'Content-Type': 'application/json'},
+		body: JSON.stringify({action: 'revoke'}),
+		credentials: 'include',
+	});
+	const data = await response.json();
+	if (data.success) {
+		window.location.reload();
+	} else {
+		alert(data.error || 'Erro ao revogar link.');
+	}
+}
+
+const VIEW_CURRENT_USER_ID = {{ current_user.id|int }};
+const VIEW_EDITORS_URL = "{{ url_for('budget.builder_editors', budget_id=budget.id) }}";
+
+async function handleViewBudgetEditClick(event) {
+	const link = event.currentTarget;
+	const href = link.getAttribute('href');
+	if (!href) return;
+	event.preventDefault();
+	try {
+		const response = await fetch(VIEW_EDITORS_URL, {
+			credentials: 'include',
+			headers: { 'Accept': 'application/json' },
+		});
+		const data = await response.json().catch(function() { return {}; });
+		const editors = (data && data.editors) || [];
+		const others = editors.filter(function(e) { return Number(e.id) !== VIEW_CURRENT_USER_ID; });
+		if (others.length) {
+			const names = others.map(function(e) { return e.name; }).filter(Boolean).join(', ');
+			const msg = (names || 'Outra pessoa') +
+				(others.length === 1 ? ' está' : ' estão') +
+				' editando este orçamento agora.\n\nEntrar mesmo assim?';
+			if (!confirm(msg)) return;
+		}
+		window.location.href = href;
+	} catch (err) {
+		window.location.href = href;
+	}
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+	// Abas
+	document.querySelectorAll('.tab-button').forEach(button => {
+		button.addEventListener('click', function() {
+			document.querySelectorAll('.tab-button').forEach(b => b.classList.remove('active'));
+			document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+			this.classList.add('active');
+			document.getElementById(this.dataset.tab).classList.add('active');
+		});
+	});
+
+	// Fechar modal clicando fora dele
+	document.getElementById('deleteModal').addEventListener('click', function(e) {
+		if (e.target === this) {
+			closeDeleteModal();
+		}
+	});
+
+	document.querySelectorAll('.budget-edit-link').forEach(function(link) {
+		link.addEventListener('click', handleViewBudgetEditClick);
+	});
+});
+</script>
+
+{% endblock %}

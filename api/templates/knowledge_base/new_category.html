@@ -1,0 +1,189 @@
+{% extends "base.html" %}
+
+{% block title %}Nova Categoria - Banco de Conhecimentos{% endblock %}
+
+{% block content %}
+<div class="container mx-auto px-4 py-8">
+	<!-- Cabeçalho -->
+	<div class="mb-8">
+		<div class="flex items-center gap-4">
+			<a href="{{ url_for('knowledge_base.index') }}" class="btn btn-secondary">
+				<i class="fas fa-arrow-left mr-2"></i>Voltar
+			</a>
+			<div>
+				<h1 class="text-3xl font-bold text-primary mb-2">
+					<i class="fas fa-folder-plus mr-3"></i>Nova Categoria
+				</h1>
+				<p class="text-muted">Crie uma nova categoria para organizar seus conhecimentos</p>
+			</div>
+		</div>
+	</div>
+
+	<!-- Formulário -->
+	<div class="max-w-4xl mx-auto">
+		<div class="bg-secondary rounded-lg shadow-lg p-8">
+			<form method="POST" class="space-y-8" id="category-form">
+				<!-- Nome da Categoria -->
+				<div class="form-group">
+					<label for="name" class="form-label">
+						<i class="fas fa-tag mr-2"></i>Nome da Categoria *
+					</label>
+					<input type="text" 
+						   id="name" 
+						   name="name" 
+						   class="form-input" 
+						   placeholder="Ex: Manuais Técnicos, Procedimentos, FAQ"
+						   required>
+					<small class="form-help">Nome único para identificar a categoria</small>
+				</div>
+
+				<!-- Descrição -->
+				<div class="form-group">
+					<label for="description" class="form-label">
+						<i class="fas fa-info-circle mr-2"></i>Descrição
+					</label>
+					<textarea id="description" 
+							  name="description" 
+							  class="form-textarea" 
+							  rows="3" 
+							  placeholder="Descreva o propósito desta categoria (opcional)"></textarea>
+					<small class="form-help">Breve descrição do que esta categoria contém</small>
+				</div>
+
+				<!-- Ícone e Cor -->
+				<div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+					<!-- Ícone -->
+					<div class="form-group">
+						<label for="icon" class="form-label">
+							<i class="fas fa-palette mr-2"></i>Ícone
+						</label>
+						<div class="relative">
+							<input type="text" 
+								   id="icon" 
+								   name="icon" 
+								   class="form-input pr-10" 
+								   value="fas fa-folder"
+								   placeholder="fas fa-folder">
+							<div class="absolute right-3 top-1/2 transform -translate-y-1/2">
+								<i id="icon-preview" class="fas fa-folder text-primary"></i>
+							</div>
+						</div>
+						<small class="form-help">Classe do ícone FontAwesome (ex: fas fa-folder)</small>
+					</div>
+
+					<!-- Cor -->
+					<div class="form-group">
+						<label for="color" class="form-label">
+							<i class="fas fa-paint-brush mr-2"></i>Cor
+						</label>
+						<div class="flex gap-3">
+							<input type="color" 
+								   id="color" 
+								   name="color" 
+								   class="w-12 h-10 rounded border border-border-color" 
+								   value="#3B82F6">
+							<input type="text" 
+								   id="color-text" 
+								   class="form-input flex-1" 
+								   value="#3B82F6"
+								   placeholder="#3B82F6">
+						</div>
+						<small class="form-help">Cor que representará esta categoria</small>
+					</div>
+				</div>
+
+				<!-- Preview da Categoria -->
+				<div class="form-group">
+					<label class="form-label">Preview</label>
+					<div class="bg-primary/5 rounded-lg p-4 border-2 border-dashed border-border-color">
+						<div class="flex items-center gap-3">
+							<div id="preview-icon" class="w-12 h-12 rounded-lg flex items-center justify-center" 
+								 style="background-color: #3B82F620; color: #3B82F6">
+								<i class="fas fa-folder text-xl"></i>
+							</div>
+							<div>
+								<h3 id="preview-name" class="font-bold text-lg">Nome da Categoria</h3>
+								<p id="preview-description" class="text-sm text-muted">Descrição da categoria</p>
+							</div>
+						</div>
+					</div>
+				</div>
+			</form>
+		</div>
+
+		<!-- Botões de Ação -->
+		<div class="flex flex-col sm:flex-row gap-3 justify-end pt-8 border-t border-border-color mt-8">
+			<a href="{{ url_for('knowledge_base.index') }}" class="btn btn-secondary w-full sm:w-auto">
+				<i class="fas fa-times mr-2"></i>Cancelar
+			</a>
+			<button type="submit" form="category-form" class="btn btn-primary w-full sm:w-auto">
+				<i class="fas fa-save mr-2"></i>Criar Categoria
+			</button>
+		</div>
+	</div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+	const form = document.querySelector('form');
+	const nameInput = document.getElementById('name');
+	const descriptionInput = document.getElementById('description');
+	const iconInput = document.getElementById('icon');
+	const colorInput = document.getElementById('color');
+	const colorTextInput = document.getElementById('color-text');
+	
+	const previewName = document.getElementById('preview-name');
+	const previewDescription = document.getElementById('preview-description');
+	const previewIcon = document.getElementById('preview-icon');
+	const iconPreview = document.getElementById('icon-preview');
+
+	// Atualizar preview em tempo real
+	function updatePreview() {
+		const name = nameInput.value || 'Nome da Categoria';
+		const description = descriptionInput.value || 'Descrição da categoria';
+		const icon = iconInput.value || 'fas fa-folder';
+		const color = colorInput.value;
+
+		previewName.textContent = name;
+		previewDescription.textContent = description;
+		previewIcon.style.backgroundColor = color + '20';
+		previewIcon.style.color = color;
+		iconPreview.className = icon;
+	}
+
+	// Event listeners
+	nameInput.addEventListener('input', updatePreview);
+	descriptionInput.addEventListener('input', updatePreview);
+	iconInput.addEventListener('input', updatePreview);
+	colorInput.addEventListener('input', function() {
+		colorTextInput.value = this.value;
+		updatePreview();
+	});
+	colorTextInput.addEventListener('input', function() {
+		if (this.value.match(/^#[0-9A-F]{6}$/i)) {
+			colorInput.value = this.value;
+			updatePreview();
+		}
+	});
+
+	// Validação do formulário
+	form.addEventListener('submit', function(e) {
+		const name = nameInput.value.trim();
+		
+		if (!name) {
+			e.preventDefault();
+			alert('Nome da categoria é obrigatório!');
+			nameInput.focus();
+			return;
+		}
+
+		if (!confirm('Tem certeza que deseja criar esta categoria?')) {
+			e.preventDefault();
+		}
+	});
+
+	// Auto-focus no primeiro campo
+	nameInput.focus();
+});
+</script>
+{% endblock %}

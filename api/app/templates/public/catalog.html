@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="pt-br" data-theme="dark">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Catálogo de Sistemas e Planos - Compumais</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+    body { background: #0b1220; color: #e5e7eb; }
+    .catalog-container { width: 90vw; max-width: 90vw; margin: 0 auto; padding: 2.5rem 2rem; }
+    .catalog-header { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: 2rem; padding: 1.25rem 1.5rem; background: linear-gradient(135deg, rgba(34,211,238,.12), rgba(59,130,246,.12)); border: 1px solid #1f2a44; border-radius: 1rem; box-shadow: 0 10px 30px -15px rgba(0,0,0,.6); }
+    .brand { display: flex; align-items: center; gap: 1.25rem; }
+    .brand img { height: 72px; filter: drop-shadow(0 6px 18px rgba(34,211,238,.35)); }
+    @media (min-width: 1024px) { .brand img { height: 120px; } }
+    .brand h1 { font-size: 1.75rem; font-weight: 900; color: #f8fafc; letter-spacing: .3px; }
+    @media (min-width: 1280px) { .brand h1 { font-size: 2rem; } }
+    .brand-sub { font-size: .95rem; color: #93c5fd; font-weight: 600; }
+    .systems-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 1.25rem; }
+    .system-card { position: relative; background: #0f172a; border: 1px solid #1f2a44; border-radius: .9rem; padding: 1.25rem; cursor: pointer; transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease; overflow: hidden; }
+    .system-card::before { content: ""; position: absolute; inset: 0; background: linear-gradient(120deg, rgba(34,211,238,.18), rgba(59,130,246,.18)); opacity: 0; transition: opacity .2s ease; }
+    .system-card:hover { transform: translateY(-3px); box-shadow: 0 6px 12px -10px rgba(0,0,0,.35); border-color: #334155; }
+    .system-card:hover::before { opacity: .3; }
+    .system-top { display: flex; align-items: center; gap: .75rem; margin-bottom: .5rem; }
+    .system-logo { width: 56px; height: 56px; border-radius: .8rem; background: #0b1220; display: flex; align-items: center; justify-content: center; border: 2px solid #1f2a44; overflow: hidden; box-shadow: inset 0 0 0 1px rgba(59,130,246,.25); }
+    .system-logo img { width: 100%; height: 100%; object-fit: cover; }
+    .system-name { font-weight: 800; color: #e5e7eb; }
+    .system-desc { font-size: .95rem; color: #94a3b8; min-height: 2.5em; }
+    .system-meta { margin-top: .5rem; font-size: .85rem; color: #94a3b8; display: flex; align-items: center; gap: .5rem; }
+    .section-title { margin: 2rem 0 1rem; font-weight: 800; color: #f1f5f9; display: flex; align-items: center; gap: .5rem; }
+    .plans-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 1.25rem; }
+    .plan-card { background: #0f172a; border: 1px solid #1f2a44; border-radius: .75rem; padding: 1.25rem; display: flex; flex-direction: column; gap: .5rem; }
+    .plan-header { display: flex; align-items: center; justify-content: space-between; }
+    .plan-name { font-weight: 800; color: #e5e7eb; }
+    .badge { font-size: .7rem; padding: .25rem .5rem; border-radius: .5rem; color: #0b1220; background: #22d3ee; font-weight: 700; }
+    .plan-desc { font-size: .95rem; color: #94a3b8; min-height: 2.5em; }
+    .plan-features { display: grid; grid-template-columns: 1fr 1fr; gap: .5rem; color: #cbd5e1; font-size: .9rem; }
+    .plan-price { margin-top: .5rem; font-weight: 800; color: #f1f5f9; }
+    .footer-note { margin-top: 2rem; font-size: .9rem; color: #94a3b8; text-align: center; }
+    .logo-watermark { position: fixed; right: 28px; bottom: 28px; display: flex; align-items: center; gap: .6rem; opacity: 1; background: rgba(15,23,42,.9); border: 1px solid #1f2a44; padding: .6rem .9rem; border-radius: .9rem; box-shadow: 0 12px 40px -16px rgba(0,0,0,.85); backdrop-filter: blur(6px); }
+    .logo-watermark img { height: 56px; filter: drop-shadow(0 4px 14px rgba(34,211,238,.35)); }
+    .logo-watermark span { color: #e2e8f0; font-weight: 800; letter-spacing: .3px; }
+
+    /* 4 cards por linha em desktops */
+    @media (min-width: 1024px) {
+        .systems-grid { grid-template-columns: repeat(4, 1fr); }
+        .plans-grid { grid-template-columns: repeat(4, 1fr); }
+    }
+    </style>
+</head>
+<body>
+    <div class="catalog-container">
+        <div class="catalog-header">
+            <div class="brand">
+                <img src="/image/logo2.png" alt="Compumais">
+                <h1>Catálogo de Sistemas e Planos</h1>
+            </div>
+        </div>
+
+        <h2 class="section-title"><i class="fas fa-cubes"></i> Nossos Sistemas</h2>
+        <div id="systems" class="systems-grid">
+            {% for s in systems %}
+            <div class="system-card" onclick="goToSystem({{ s.id }})">
+                <div class="system-top">
+                    <div class="system-logo">
+                        {% if s.logo_url %}
+                        <img src="{{ s.logo_url }}" alt="{{ s.name }}">
+                        {% else %}
+                        <i class="fas fa-cube" style="color:#6b7280"></i>
+                        {% endif %}
+                    </div>
+                    <div class="system-name">{{ s.name }}</div>
+                </div>
+                <div class="system-desc">{{ s.description or 'Solução corporativa' }}</div>
+                <div class="system-meta">
+                    <i class="fas fa-layer-group"></i>
+                    {{ s.get_active_plans()|length }} planos ativos
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+
+        <div id="plans-section" style="display:none">
+            <h2 class="section-title" id="plans-title"><i class="fas fa-layer-group"></i> Planos</h2>
+            <div id="plans" class="plans-grid"></div>
+        </div>
+
+        <div class="footer-note">
+            Esta é uma página apenas de visualização destinada a clientes.
+        </div>
+    </div>
+
+    
+
+    <script>
+    const catalogBase = "{{ url_for('catalog.catalog_index') }}"; // e.g., "/catalogo/"
+    function goToSystem(systemId) {
+        const base = "{{ url_for('catalog.catalog_index') }}"; // e.g., "/catalogo/"
+        window.location.href = `${base}sistema/${systemId}`;
+    }
+
+    async function loadPlans(systemId, systemName) {
+        const plansTitle = document.getElementById('plans-title');
+        plansTitle.innerHTML = `<i class=\"fas fa-layer-group\"></i> Planos para ${systemName}`;
+        const plansContainer = document.getElementById('plans');
+        const section = document.getElementById('plans-section');
+        plansContainer.innerHTML = `
+            <div style="grid-column:1/-1; text-align:center; color:var(--text-muted,#6b7280)">
+                <i class="fas fa-spinner fa-spin"></i> Carregando planos...
+            </div>`;
+        section.style.display = 'block';
+
+        try {
+            const resp = await fetch(`${catalogBase}api/plans?system_id=${systemId}`);
+            const data = await resp.json();
+            if (!Array.isArray(data)) throw new Error('Resposta inesperada');
+
+            if (data.length === 0) {
+                plansContainer.innerHTML = `<div style="grid-column:1/-1; text-align:center; color:var(--text-muted,#6b7280)">Nenhum plano ativo para este sistema.</div>`;
+                return;
+            }
+
+            plansContainer.innerHTML = data.map(p => {
+                const features = [
+                    p.includes_remote_support ? 'Suporte remoto' : null,
+                    p.includes_on_site_support ? 'Suporte on-site' : null,
+                    p.includes_phone_support ? 'Atendimento por telefone' : null,
+                    p.includes_email_support ? 'Atendimento por e-mail' : null,
+                    p.support_included ? 'Suporte incluso' : null,
+                    p.response_time_hours ? `Resposta: ${p.response_time_hours}h` : null,
+                    p.resolution_time_hours ? `Resolução: ${p.resolution_time_hours}h` : null,
+                    p.monthly_hours ? `${p.monthly_hours}h/mês inclusas` : null,
+                ].filter(Boolean);
+
+                const price = (p.monthly_value ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+                const setup = (p.setup_fee ?? 0) > 0 ? ` | Adesão: ${(p.setup_fee).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}` : '';
+
+                return `
+                <div class="plan-card">
+                    <div class="plan-header">
+                        <div class="plan-name">${p.name}</div>
+                        ${p.is_featured ? '<span class="badge">Destaque</span>' : ''}
+                    </div>
+                    <div class="plan-desc">${p.description ?? ''}</div>
+                    <div class="plan-features">
+                        ${features.map(f => `<div><i class=\"fas fa-check-circle\" style=\"color:#10b981\"></i> ${f}</div>`).join('')}
+                    </div>
+                    <div class="plan-price">${price}${setup}</div>
+                </div>`;
+            }).join('');
+        } catch (e) {
+            plansContainer.innerHTML = `<div style="grid-column:1/-1; text-align:center; color:#ef4444">Erro ao carregar planos.</div>`;
+        }
+    }
+    </script>
+</body>
+</html>
+
+

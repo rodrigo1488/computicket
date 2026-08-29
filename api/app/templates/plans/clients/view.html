@@ -1,0 +1,54 @@
+{% extends 'base.html' %}
+{% block page_title %}📄 Plano do Cliente{% endblock %}
+{% block content %}
+
+<div class="bg-secondary rounded-lg shadow-lg p-6 mb-6">
+	<div class="flex items-center justify-between">
+		<h1 class="text-2xl font-bold text-primary">{{ client_plan.client.name }} - {{ client_plan.plan.name }}</h1>
+		<a href="{{ url_for('plans.edit_client_plan', client_plan_id=client_plan.id) }}" class="btn btn-warning"><i class="fas fa-edit mr-2"></i>Editar</a>
+	</div>
+</div>
+
+<div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+	<div class="bg-tertiary rounded-lg p-4">
+		<div class="text-sm text-muted mb-1">Período</div>
+		<div class="text-primary">{{ client_plan.start_date.strftime('%d/%m/%Y') }} - {{ client_plan.end_date.strftime('%d/%m/%Y') }}</div>
+	</div>
+	<div class="bg-tertiary rounded-lg p-4">
+		<div class="text-sm text-muted mb-1">Horas mensais</div>
+		<div class="text-primary">{{ client_plan.get_effective_monthly_hours() }}h</div>
+	</div>
+	<div class="bg-tertiary rounded-lg p-4">
+		<div class="text-sm text-muted mb-1">Status</div>
+		<span class="status-badge status-{{ client_plan.get_status_color() }}">{{ client_plan.get_status_text() }}</span>
+	</div>
+</div>
+
+{% if usage_records %}
+<div class="bg-secondary rounded-lg shadow-lg p-6 mt-6">
+	<h3 class="text-lg font-semibold text-primary mb-3">Uso recente</h3>
+	<div class="overflow-x-auto">
+		<table class="w-full">
+			<thead>
+				<tr class="border-b border-gray-200">
+					<th class="text-left py-3 px-4">Mês/Ano</th>
+					<th class="text-left py-3 px-4">Horas</th>
+					<th class="text-left py-3 px-4">Ticket</th>
+				</tr>
+			</thead>
+			<tbody>
+				{% for u in usage_records %}
+				<tr class="border-b border-gray-100">
+					<td class="py-3 px-4">{{ u.get_month_year_display() }}</td>
+					<td class="py-3 px-4">{{ '%.2f'|format(u.hours_used) }}h</td>
+					<td class="py-3 px-4">{{ u.ticket_id or '—' }}</td>
+				</tr>
+				{% endfor %}
+			</tbody>
+		</table>
+	</div>
+</div>
+{% endif %}
+
+{% endblock %}
+

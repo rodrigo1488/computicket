@@ -1,0 +1,374 @@
+{% extends "base.html" %}
+
+{% block head %}
+    {{ super() }}
+    <!-- Bootstrap CSS apenas para o help desk -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+{% endblock %}
+
+{% block content %}
+<style>
+    .chat-messages-container {
+        min-height: 100vh;
+        background: var(--bg-primary);
+        padding: 2rem;
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    }
+    
+    .page-header {
+        background: var(--bg-secondary);
+        border-radius: 12px;
+        padding: 2rem;
+        margin-bottom: 2rem;
+        border: 1px solid var(--border-color);
+    }
+    
+    .page-title {
+        color: var(--text-primary);
+        font-size: 1.5rem;
+        font-weight: 600;
+        margin: 0;
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+    }
+    
+    .back-button {
+        background: var(--accent-primary);
+        color: white;
+        border: none;
+        border-radius: 8px;
+        padding: 0.5rem 1rem;
+        text-decoration: none;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        transition: all 0.3s ease;
+    }
+    
+    .back-button:hover {
+        background: var(--accent-secondary);
+        color: white;
+        text-decoration: none;
+        transform: translateY(-2px);
+    }
+    
+    .session-info {
+        background: var(--bg-secondary);
+        border: 1px solid var(--border-color);
+        border-radius: 12px;
+        padding: 1.5rem;
+        margin-bottom: 2rem;
+    }
+    
+    .session-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        margin-bottom: 1rem;
+    }
+    
+    .session-client-name {
+        color: var(--text-primary);
+        font-size: 1.3rem;
+        font-weight: 600;
+        margin: 0;
+    }
+    
+    .session-title {
+        color: var(--text-secondary);
+        font-size: 1rem;
+        margin: 0.5rem 0;
+    }
+    
+    .session-description {
+        color: var(--text-secondary);
+        font-size: 0.9rem;
+        line-height: 1.5;
+        margin-bottom: 1rem;
+    }
+    
+    .session-meta {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 1rem;
+        font-size: 0.85rem;
+        color: var(--text-secondary);
+    }
+    
+    .meta-item {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+    
+    .ticket-badge {
+        background: var(--accent-primary);
+        color: white;
+        padding: 0.5rem 1rem;
+        border-radius: 6px;
+        font-size: 0.9rem;
+        font-weight: 500;
+    }
+    
+    .messages-container {
+        background: var(--bg-secondary);
+        border: 1px solid var(--border-color);
+        border-radius: 12px;
+        padding: 1.5rem;
+        max-height: 70vh;
+        overflow-y: auto;
+    }
+    
+    .message {
+        margin-bottom: 1rem;
+        display: flex;
+        flex-direction: column;
+    }
+    
+    .message.client {
+        align-items: flex-start;
+    }
+    
+    .message.agent {
+        align-items: flex-end;
+    }
+    
+    .message.system {
+        align-items: center;
+    }
+    
+    .message-bubble {
+        max-width: 70%;
+        padding: 0.75rem 1rem;
+        border-radius: 18px;
+        position: relative;
+        word-wrap: break-word;
+    }
+    
+    .message.client .message-bubble {
+        background: #e3f2fd;
+        color: #1565c0;
+        border-bottom-left-radius: 4px;
+    }
+    
+    .message.agent .message-bubble {
+        background: var(--accent-primary);
+        color: white;
+        border-bottom-right-radius: 4px;
+    }
+    
+    .message.system .message-bubble {
+        background: var(--bg-primary);
+        color: var(--text-secondary);
+        border: 1px solid var(--border-color);
+        border-radius: 8px;
+        font-style: italic;
+        text-align: center;
+    }
+    
+    .message-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 0.25rem;
+        font-size: 0.75rem;
+        color: var(--text-secondary);
+    }
+    
+    .message-time {
+        font-size: 0.7rem;
+        opacity: 0.7;
+        margin-top: 0.25rem;
+    }
+    
+    .export-button {
+        background: var(--accent-primary);
+        color: white;
+        border: none;
+        border-radius: 8px;
+        padding: 0.75rem 1.5rem;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        transition: all 0.3s ease;
+        cursor: pointer;
+    }
+    
+    .export-button:hover {
+        background: var(--accent-secondary);
+        transform: translateY(-2px);
+    }
+    
+    .empty-messages {
+        text-align: center;
+        padding: 3rem 2rem;
+        color: var(--text-secondary);
+    }
+    
+    .empty-messages i {
+        font-size: 3rem;
+        margin-bottom: 1rem;
+        opacity: 0.5;
+    }
+    
+    .empty-messages h3 {
+        color: var(--text-primary);
+        margin-bottom: 0.5rem;
+    }
+    
+    /* Scrollbar personalizada */
+    .messages-container::-webkit-scrollbar {
+        width: 6px;
+    }
+    
+    .messages-container::-webkit-scrollbar-track {
+        background: var(--bg-primary);
+        border-radius: 3px;
+    }
+    
+    .messages-container::-webkit-scrollbar-thumb {
+        background: var(--accent-primary);
+        border-radius: 3px;
+    }
+    
+    .messages-container::-webkit-scrollbar-thumb:hover {
+        background: var(--accent-secondary);
+    }
+</style>
+
+<div class="chat-messages-container">
+    <!-- Cabeçalho da página -->
+    <div class="page-header">
+        <div class="d-flex justify-content-between align-items-center">
+            <h1 class="page-title">
+                <i class="fas fa-comments"></i>
+                Mensagens do Chat
+            </h1>
+            <div class="d-flex gap-2">
+                <button class="export-button" onclick="exportChatHistory()">
+                    <i class="fas fa-download"></i>
+                    Exportar
+                </button>
+                <a href="{{ url_for('helpdesk.closed_chats') }}" class="back-button">
+                    <i class="fas fa-arrow-left"></i>
+                    Voltar
+                </a>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Informações da sessão -->
+    <div class="session-info">
+        <div class="session-header">
+            <div>
+                <h2 class="session-client-name">{{ session.client_name }}</h2>
+                <p class="session-title">{{ session.title }}</p>
+            </div>
+            {% if session.ticket_id %}
+                <span class="ticket-badge">Ticket #{{ session.ticket_id }}</span>
+            {% endif %}
+        </div>
+        
+        <p class="session-description">{{ session.description }}</p>
+        
+        <div class="session-meta">
+            <div class="meta-item">
+                <i class="fas fa-calendar-plus"></i>
+                <span><strong>Criado:</strong> {{ session.formatted_created_at() }}</span>
+            </div>
+            <div class="meta-item">
+                <i class="fas fa-calendar-times"></i>
+                <span><strong>Encerrado:</strong> {{ session.formatted_closed_at() }}</span>
+            </div>
+            <div class="meta-item">
+                <i class="fas fa-user"></i>
+                <span><strong>Atendente:</strong> {{ session.assigned_to.name if session.assigned_to else 'N/A' }}</span>
+            </div>
+            <div class="meta-item">
+                <i class="fas fa-comments"></i>
+                <span><strong>Mensagens:</strong> {{ messages|length }}</span>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Mensagens -->
+    <div class="messages-container">
+        {% if messages %}
+            {% for message in messages %}
+                <div class="message {{ 'client' if message.is_from_client() else 'agent' if message.is_from_agent() else 'system' }}">
+                    <div class="message-header">
+                        <span class="message-sender">{{ message.sender_name }}</span>
+                        <span class="message-date">{{ message.formatted_created_at() }}</span>
+                    </div>
+                    <div class="message-bubble">
+                        {{ message.message }}
+                    </div>
+                    <div class="message-time">{{ message.formatted_time() }}</div>
+                </div>
+            {% endfor %}
+        {% else %}
+            <div class="empty-messages">
+                <i class="fas fa-comments"></i>
+                <h3>Nenhuma mensagem</h3>
+                <p>Este chat não possui mensagens.</p>
+            </div>
+        {% endif %}
+    </div>
+</div>
+
+<script>
+// Função para exportar histórico do chat
+function exportChatHistory() {
+    const sessionInfo = {
+        clientName: '{{ session.client_name }}',
+        title: '{{ session.title }}',
+        description: '{{ session.description }}',
+        createdAt: '{{ session.formatted_created_at() }}',
+        closedAt: '{{ session.formatted_closed_at() }}',
+        assignedTo: '{{ session.assigned_to.name if session.assigned_to else "N/A" }}',
+        ticketId: '{{ session.ticket_id or "N/A" }}'
+    };
+    
+    const messages = [
+        {% for message in messages %}
+        {
+            sender: '{{ message.sender_name }}',
+            message: '{{ message.message }}',
+            time: '{{ message.formatted_created_at() }}'
+        }{% if not loop.last %},{% endif %}
+        {% endfor %}
+    ];
+    
+    let content = `HISTÓRICO DO CHAT - HELP DESK\n`;
+    content += `=====================================\n\n`;
+    content += `Cliente: ${sessionInfo.clientName}\n`;
+    content += `Título: ${sessionInfo.title}\n`;
+    content += `Descrição: ${sessionInfo.description}\n`;
+    content += `Criado em: ${sessionInfo.createdAt}\n`;
+    content += `Encerrado em: ${sessionInfo.closedAt}\n`;
+    content += `Atendente: ${sessionInfo.assignedTo}\n`;
+    content += `Ticket: ${sessionInfo.ticketId}\n`;
+    content += `Total de mensagens: ${messages.length}\n\n`;
+    content += `MENSAGENS:\n`;
+    content += `==========\n\n`;
+    
+    messages.forEach((msg, index) => {
+        content += `${index + 1}. [${msg.time}] ${msg.sender}:\n`;
+        content += `${msg.message}\n\n`;
+    });
+    
+    // Criar e baixar arquivo
+    const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = `chat_${sessionInfo.clientName.replace(/\s+/g, '_')}_${new Date().toISOString().split('T')[0]}.txt`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+}
+</script>
+
+<!-- Bootstrap JS apenas para o help desk -->
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+{% endblock %}

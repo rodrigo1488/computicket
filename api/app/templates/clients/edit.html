@@ -1,0 +1,164 @@
+{% extends 'base.html' %}
+{% block page_title %}✏️ Editar Cliente{% endblock %}
+{% block content %}
+
+<div class="bg-secondary rounded-lg shadow-lg p-6 mb-6">
+	<div class="flex items-start justify-between mb-4">
+		<div>
+			<h1 class="text-2xl font-bold text-primary mb-2">Editar Cliente</h1>
+			<p class="text-muted">Atualize as informações do cliente {{ client.get('name', '') }}</p>
+		</div>
+		<a href="{{ url_for('clients.list_clients') }}" class="btn btn-secondary">
+			<i class="fas fa-arrow-left"></i>
+			Voltar
+		</a>
+	</div>
+</div>
+
+<div class="bg-secondary rounded-lg shadow-lg p-6">
+	<form method="post" class="space-y-6">
+		<div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+			<!-- Nome -->
+			<div class="form-group">
+				<label for="name" class="form-label">
+					<i class="fas fa-user mr-2"></i>
+					Nome Completo
+				</label>
+				<input type="text" id="name" name="name" value="{{ client.get('name', '') }}" required
+					class="form-input" placeholder="Digite o nome completo do cliente">
+			</div>
+
+			<!-- CPF/CNPJ -->
+			<div class="form-group">
+				<label for="document" class="form-label">
+					<i class="fas fa-id-card mr-2"></i>
+					CPF/CNPJ
+				</label>
+				<input type="text" id="document" name="document" value="{{ client.get('document', '') }}"
+					class="form-input" placeholder="000.000.000-00 ou 00.000.000/0000-00">
+			</div>
+
+			<!-- Telefone -->
+			<div class="form-group">
+				<label for="phone" class="form-label">
+					<i class="fas fa-phone mr-2"></i>
+					Telefone
+				</label>
+				<input type="tel" id="phone" name="phone" value="{{ client.get('phone', '') }}" class="form-input"
+					placeholder="(11) 99999-9999">
+			</div>
+
+			<!-- Email -->
+			<div class="form-group">
+				<label for="email" class="form-label">
+					<i class="fas fa-envelope mr-2"></i>
+					Email
+				</label>
+				<input type="email" id="email" name="email" value="{{ client.get('email', '') }}" class="form-input"
+					placeholder="cliente@exemplo.com">
+			</div>
+
+			<!-- Endereço -->
+			<div class="form-group">
+				<label for="address" class="form-label">
+					<i class="fas fa-map-marker-alt mr-2"></i>
+					Endereço
+				</label>
+				<input type="text" id="address" name="address" value="{{ client.get('address', '') }}"
+					class="form-input" placeholder="Rua, Avenida, etc.">
+			</div>
+
+			<!-- Número -->
+			<div class="form-group">
+				<label for="address_number" class="form-label">
+					<i class="fas fa-hashtag mr-2"></i>
+					Número
+				</label>
+				<input type="text" id="address_number" name="address_number"
+					value="{{ client.get('address_number', '') }}" class="form-input" placeholder="123">
+			</div>
+
+			<!-- Observações -->
+			<div class="form-group md:col-span-2">
+				<label for="notes" class="form-label">
+					<i class="fas fa-sticky-note mr-2"></i>
+					Observações
+				</label>
+				<textarea id="notes" name="notes" rows="4" class="form-input"
+					placeholder="Observações adicionais sobre o cliente...">{{ client.get('notes') or client.get('observacao') or '' }}</textarea>
+			</div>
+		</div>
+
+		<!-- Informações do cliente -->
+		<div class="bg-tertiary rounded-lg p-4 mb-6">
+			<h3 class="text-lg font-semibold text-primary mb-3 flex items-center">
+				<i class="fas fa-info-circle mr-2"></i>
+				Informações do Cliente
+			</h3>
+			<div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+				<div>
+					<span class="text-muted">ID:</span>
+					<span class="font-medium text-primary">{{ client.get('id', 'N/A') }}</span>
+				</div>
+				<div>
+					<span class="text-muted">Status:</span>
+					<span class="font-medium text-primary">
+						<span class="status-badge bg-success/10 border-success/20 text-success/90">
+							<i class="fas fa-check-circle mr-1"></i>
+							Ativo
+						</span>
+					</span>
+				</div>
+				<div>
+					<span class="text-muted">Última Atualização:</span>
+					<span class="font-medium text-primary">
+						{% if client.get('updated_at') %}
+						{{ client.updated_at.strftime('%d/%m/%Y %H:%M') if client.updated_at.strftime else
+						client.updated_at }}
+						{% else %}
+						N/A
+						{% endif %}
+					</span>
+				</div>
+				<div>
+					<span class="text-muted">Fonte:</span>
+					<span class="font-medium text-primary">
+						<span class="status-badge bg-info/10 border-info/20 text-info/90">
+							<i class="fas fa-database mr-1"></i>
+							Externa
+						</span>
+					</span>
+				</div>
+			</div>
+		</div>
+
+		<!-- Botões de ação -->
+		<div class="flex items-center gap-4 justify-end">
+			<a href="{{ url_for('clients.list_clients') }}" class="btn btn-secondary">
+				<i class="fas fa-times"></i>
+				Cancelar
+			</a>
+			<button type="submit" class="btn btn-primary">
+				<i class="fas fa-save"></i>
+				Salvar Alterações
+			</button>
+		</div>
+	</form>
+</div>
+
+<!-- Aviso sobre dados externos -->
+<div class="bg-info/10 border border-info/20 rounded-lg p-4 mt-6">
+	<div class="flex items-start">
+		<i class="fas fa-info-circle text-info mr-2 mt-0.5"></i>
+		<div>
+			<p class="text-sm text-info/90 font-medium mb-1">Informação:</p>
+			<p class="text-sm text-info/90">
+				• Este cliente está sendo gerenciado por uma fonte de dados externa<br>
+				• As alterações serão sincronizadas com o sistema principal<br>
+				• Certifique-se de que os dados estão corretos antes de salvar
+			</p>
+		</div>
+	</div>
+</div>
+
+{% endblock %}

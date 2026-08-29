@@ -1,0 +1,311 @@
+{% extends "base.html" %}
+
+{% block head %}
+    {{ super() }}
+    <!-- Bootstrap CSS apenas para o help desk -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+{% endblock %}
+
+{% block content %}
+<style>
+    .closed-chats-container {
+        min-height: 100vh;
+        background: var(--bg-primary);
+        padding: 2rem;
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    }
+    
+    .page-header {
+        background: var(--bg-secondary);
+        border-radius: 12px;
+        padding: 2rem;
+        margin-bottom: 2rem;
+        border: 1px solid var(--border-color);
+    }
+    
+    .page-title {
+        color: var(--text-primary);
+        font-size: 2rem;
+        font-weight: 600;
+        margin: 0;
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+    }
+    
+    .back-button {
+        background: var(--accent-primary);
+        color: white;
+        border: none;
+        border-radius: 8px;
+        padding: 0.5rem 1rem;
+        text-decoration: none;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        transition: all 0.3s ease;
+    }
+    
+    .back-button:hover {
+        background: var(--accent-secondary);
+        color: white;
+        text-decoration: none;
+        transform: translateY(-2px);
+    }
+    
+    .chats-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+        gap: 1.5rem;
+    }
+    
+    .chat-card {
+        background: var(--bg-secondary);
+        border: 1px solid var(--border-color);
+        border-radius: 12px;
+        padding: 1.5rem;
+        transition: all 0.3s ease;
+        cursor: pointer;
+    }
+    
+    .chat-card:hover {
+        transform: translateY(-4px);
+        box-shadow: 0 8px 25px rgba(0,0,0,0.1);
+        border-color: var(--accent-primary);
+    }
+    
+    .chat-header {
+        display: flex;
+        justify-content: between;
+        align-items: flex-start;
+        margin-bottom: 1rem;
+    }
+    
+    .chat-client-name {
+        color: var(--text-primary);
+        font-size: 1.1rem;
+        font-weight: 600;
+        margin: 0;
+    }
+    
+    .chat-title {
+        color: var(--text-secondary);
+        font-size: 0.9rem;
+        margin: 0.5rem 0;
+    }
+    
+    .chat-description {
+        color: var(--text-secondary);
+        font-size: 0.85rem;
+        line-height: 1.4;
+        margin-bottom: 1rem;
+        display: -webkit-box;
+        -webkit-line-clamp: 3;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+    }
+    
+    .chat-meta {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        font-size: 0.8rem;
+        color: var(--text-secondary);
+    }
+    
+    .chat-date {
+        display: flex;
+        align-items: center;
+        gap: 0.25rem;
+    }
+    
+    .ticket-badge {
+        background: var(--accent-primary);
+        color: white;
+        padding: 0.25rem 0.5rem;
+        border-radius: 4px;
+        font-size: 0.75rem;
+        font-weight: 500;
+    }
+    
+    .empty-state {
+        text-align: center;
+        padding: 4rem 2rem;
+        color: var(--text-secondary);
+    }
+    
+    .empty-state i {
+        font-size: 4rem;
+        margin-bottom: 1rem;
+        opacity: 0.5;
+    }
+    
+    .empty-state h3 {
+        color: var(--text-primary);
+        margin-bottom: 0.5rem;
+    }
+    
+    .stats-cards {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 1rem;
+        margin-bottom: 2rem;
+    }
+    
+    .stat-card {
+        background: var(--bg-secondary);
+        border: 1px solid var(--border-color);
+        border-radius: 8px;
+        padding: 1.5rem;
+        text-align: center;
+    }
+    
+    .stat-number {
+        font-size: 2rem;
+        font-weight: 700;
+        color: var(--accent-primary);
+        margin: 0;
+    }
+    
+    .stat-label {
+        color: var(--text-secondary);
+        font-size: 0.9rem;
+        margin: 0.5rem 0 0 0;
+    }
+    
+    .search-bar {
+        background: var(--bg-secondary);
+        border: 1px solid var(--border-color);
+        border-radius: 8px;
+        padding: 1rem;
+        margin-bottom: 2rem;
+    }
+    
+    .search-input {
+        background: var(--bg-primary);
+        border: 1px solid var(--border-color);
+        border-radius: 6px;
+        padding: 0.75rem 1rem;
+        color: var(--text-primary);
+        width: 100%;
+        font-size: 0.9rem;
+    }
+    
+    .search-input:focus {
+        outline: none;
+        border-color: var(--accent-primary);
+        box-shadow: 0 0 0 3px rgba(var(--accent-primary-rgb), 0.1);
+    }
+    
+    .search-input::placeholder {
+        color: var(--text-secondary);
+    }
+</style>
+
+<div class="closed-chats-container">
+    <!-- Cabeçalho da página -->
+    <div class="page-header">
+        <div class="d-flex justify-content-between align-items-center">
+            <h1 class="page-title">
+                <i class="fas fa-history"></i>
+                Chats Encerrados
+            </h1>
+            <a href="{{ url_for('helpdesk.index') }}" class="back-button">
+                <i class="fas fa-arrow-left"></i>
+                Voltar ao Help Desk
+            </a>
+        </div>
+    </div>
+    
+    <!-- Estatísticas -->
+    <div class="stats-cards">
+        <div class="stat-card">
+            <h3 class="stat-number">{{ closed_sessions|length }}</h3>
+            <p class="stat-label">Total de Chats</p>
+        </div>
+        <div class="stat-card">
+            <h3 class="stat-number">{{ closed_sessions|selectattr('ticket_id')|list|length }}</h3>
+            <p class="stat-label">Com Tickets</p>
+        </div>
+        <div class="stat-card">
+            <h3 class="stat-number">{{ closed_sessions|rejectattr('ticket_id')|list|length }}</h3>
+            <p class="stat-label">Sem Tickets</p>
+        </div>
+    </div>
+    
+    <!-- Barra de pesquisa -->
+    <div class="search-bar">
+        <input type="text" class="search-input" id="searchInput" placeholder="Pesquisar por cliente, título ou descrição...">
+    </div>
+    
+    <!-- Lista de chats -->
+    {% if closed_sessions %}
+        <div class="chats-grid" id="chatsGrid">
+            {% for session in closed_sessions %}
+                <div class="chat-card" data-session-id="{{ session.id }}" onclick="viewChatMessages({{ session.id }})">
+                    <div class="chat-header">
+                        <div>
+                            <h4 class="chat-client-name">{{ session.client_name }}</h4>
+                            <p class="chat-title">{{ session.title }}</p>
+                        </div>
+                        {% if session.ticket_id %}
+                            <span class="ticket-badge">Ticket #{{ session.ticket_id }}</span>
+                        {% endif %}
+                    </div>
+                    
+                    <p class="chat-description">{{ session.description }}</p>
+                    
+                    <div class="chat-meta">
+                        <div class="chat-date">
+                            <i class="fas fa-calendar"></i>
+                            {{ session.formatted_closed_at() }}
+                        </div>
+                        <div>
+                            <i class="fas fa-user"></i>
+                            {{ session.assigned_to.name if session.assigned_to else 'N/A' }}
+                        </div>
+                    </div>
+                </div>
+            {% endfor %}
+        </div>
+    {% else %}
+        <div class="empty-state">
+            <i class="fas fa-comments"></i>
+            <h3>Nenhum chat encerrado</h3>
+            <p>Você ainda não possui chats encerrados.</p>
+            <a href="{{ url_for('helpdesk.index') }}" class="back-button">
+                <i class="fas fa-arrow-left"></i>
+                Voltar ao Help Desk
+            </a>
+        </div>
+    {% endif %}
+</div>
+
+<script>
+// Função para visualizar mensagens do chat
+function viewChatMessages(sessionId) {
+    window.location.href = `/helpdesk/closed/${sessionId}`;
+}
+
+// Função de pesquisa
+document.getElementById('searchInput').addEventListener('input', function(e) {
+    const searchTerm = e.target.value.toLowerCase();
+    const chatCards = document.querySelectorAll('.chat-card');
+    
+    chatCards.forEach(card => {
+        const clientName = card.querySelector('.chat-client-name').textContent.toLowerCase();
+        const title = card.querySelector('.chat-title').textContent.toLowerCase();
+        const description = card.querySelector('.chat-description').textContent.toLowerCase();
+        
+        if (clientName.includes(searchTerm) || title.includes(searchTerm) || description.includes(searchTerm)) {
+            card.style.display = 'block';
+        } else {
+            card.style.display = 'none';
+        }
+    });
+});
+</script>
+
+<!-- Bootstrap JS apenas para o help desk -->
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+{% endblock %}

@@ -1,0 +1,400 @@
+"use client";
+
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { ChevronLeft, ChevronRight, Pencil, Plus, Trash2 } from "lucide-react";
+import { useMemo, useState } from "react";
+import { PageTitle } from "@/components/layout/AppShell";
+import { Modal } from "@/components/ui/Modal";
+import { PrimaryButton, UnderlineField } from "@/components/ui/UnderlineField";
+import { flask, asItems, type PageRes } from "@/lib/api";
+import { useAuth } from "@/lib/auth-context";
+import { cn } from "@/lib/cn";
+
+type CalEvent = {
+  id: number | string;
+  title: string;
+  start: string;
+  end?: string;
+  allDay?: boolean;
+  color?: string;
+  description?: string;
+  client_name?: string;
+  service_name?: string;
+  user_name?: string;
+  extendedProps?: {
+    type?: string;
+    client_name?: string;
+    service_name?: string;
+    user_name?: string;
+    description?: string;
+    appointment_id?: number;
+    client_id?: number;
+    user_id?: number;
+    service_id?: number;
+  };
+  client_id?: number;
+  user_id?: number;
+  service_id?: number;
+};
+
+type Client = { id: number; name: string };
+type Service = { id: number; name: string };
+type UserRow = { id: number; name: string; status?: string };
+
+const WEEKDAYS = ["Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom"];
+
+function startOfWeek(d: Date) {
+  const x = new Date(d);
+  const day = (x.getDay() + 6) % 7;
+  x.setDate(x.getDate() - day);
+  x.setHours(0, 0, 0, 0);
+  return x;
+}
+
+function addDays(d: Date, n: number) {
+  const x = new Date(d);
+  x.setDate(x.getDate() + n);
+  return x;
+}
+
+function ymd(d: Date) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+function toDatetimeLocal(d: Date) {
+  return `${ymd(d)}T${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+}
+
+function formatWeekLabel(weekStart: Date) {
+  const weekEnd = addDays(weekStart, 6);
+  const opts: Intl.DateTimeFormatOptions = { day: "numeric", month: "short" };
+  const a = weekStart.toLocaleDateString("pt-BR", opts);
+  const b = weekEnd.toLocaleDateString("pt-BR", { ...opts, year: "numeric" });
+  return `${a} – ${b}`;
+}
+
+function eventDayKey(ev: CalEvent) {
+  const raw = ev.start || "";
+  return raw.slice(0, 10);
+}
+
+function eventTime(ev: CalEvent) {
+  if (ev.allDay) return "Dia todo";
+  const d = new Date(ev.start);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+}
+
+export default function AgendaPage() {
+  const qc = useQueryClient();
+  const { user } = useAuth();
+  const [anchor, setAnchor] = useState(() => startOfWeek(new Date()));
+  const [open, setOpen] = useState(false);
+  const [title, setTitle] = useState("");
+  const [description, setDescription] = useState("");
+  const [when, setWhen] = useState(() => toDatetimeLocal(new Date()));
+  const [clientQ, setClientQ] = useState("");
+  const [clientId, setClientId] = useState("");
+  const [userId, setUserId] = useState(user?.id ? String(user.id) : "");
+  const [serviceId, setServiceId] = useState("");
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [formError, setFormError] = useState("");
+
+  const weekDays = useMemo(() => Array.from({ length: 7 }, (_, i) => addDays(anchor, i)), [anchor]);
+  const rangeStart = weekDays[0];
+  const rangeEnd = addDays(weekDays[6], 1);
+
+  const eventsQuery = useQuery({
+    queryKey: ["agenda-cal", ymd(rangeStart), ymd(rangeEnd)],
+    queryFn: () =>
+      flask.get<CalEvent[]>(
+        `/agenda/calendario?start=${encodeURIComponent(rangeStart.toISOString())}&end=${encodeURIComponent(rangeEnd.toISOString())}`,
+      ),
+  });
+
+  const clients = useQuery({
+    queryKey: ["clients", clientQ],
+    queryFn: () => flask.get<{ items: Client[] }>(`/api/web/clients?q=${encodeURIComponent(clientQ)}&per_page=30`),
+    enabled: open,
+  });
+  const services = useQuery({
+    queryKey: ["services"],
+    queryFn: () => flask.get<PageRes<Service> | Service[]>("/api/web/services?per_page=200"),
+    enabled: open,
+  });
+  const users = useQuery({
+    queryKey: ["users"],
+    queryFn: () => flask.get<PageRes<UserRow> | UserRow[]>("/api/web/users?status=1&per_page=200"),
+    enabled: open,
+  });
+
+  const create = useMutation({
+    mutationFn: () => {
+      const iso = new Date(when).toISOString();
+      const body = {
+        title,
+        description,
+        appointment_date: iso,
+        client_id: Number(clientId),
+        user_id: Number(userId),
+        service_id: serviceId ? Number(serviceId) : null,
+      };
+      if (editingId) return flask.post<{ success: boolean; message?: string }>(`/agenda/${editingId}/editar`, body);
+      return flask.post<{ success: boolean; message?: string; error?: string }>("/agenda/novo", body);
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["agenda-cal"] });
+      setOpen(false);
+      setEditingId(null);
+      setTitle("");
+      setDescription("");
+      setClientId("");
+      setServiceId("");
+      setFormError("");
+    },
+    onError: (e) => setFormError(e instanceof Error ? e.message : "Erro ao agendar"),
+  });
+
+  const removeAppt = useMutation({
+    mutationFn: (id: number) => flask.post(`/agenda/${id}/excluir`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["agenda-cal"] }),
+  });
+
+  const openCreate = (date?: Date) => {
+    const base = date ? new Date(date) : new Date();
+    if (date) base.setHours(9, 0, 0, 0);
+    setWhen(toDatetimeLocal(base));
+    if (!userId && user?.id) setUserId(String(user.id));
+    setEditingId(null);
+    setTitle("");
+    setDescription("");
+    setClientId("");
+    setServiceId("");
+    setFormError("");
+    setOpen(true);
+  };
+
+  const openEdit = (ev: CalEvent) => {
+    const id = Number(ev.extendedProps?.appointment_id || ev.id);
+    if (!id || Number.isNaN(id)) return;
+    setEditingId(id);
+    setTitle(ev.title);
+    setDescription(ev.description || ev.extendedProps?.description || "");
+    setWhen(toDatetimeLocal(new Date(ev.start)));
+    const cid = ev.client_id ?? ev.extendedProps?.client_id;
+    const uid = ev.user_id ?? ev.extendedProps?.user_id;
+    const sid = ev.service_id ?? ev.extendedProps?.service_id;
+    setClientId(cid ? String(cid) : "");
+    setUserId(uid ? String(uid) : user?.id ? String(user.id) : "");
+    setServiceId(sid ? String(sid) : "");
+    setFormError("");
+    setOpen(true);
+  };
+
+  const todayKey = ymd(new Date());
+  const events = Array.isArray(eventsQuery.data) ? eventsQuery.data : [];
+  const byDay = useMemo(() => {
+    const map: Record<string, CalEvent[]> = {};
+    for (const ev of events) {
+      const key = eventDayKey(ev);
+      (map[key] ||= []).push(ev);
+    }
+    for (const list of Object.values(map)) {
+      list.sort((a, b) => String(a.start).localeCompare(String(b.start)));
+    }
+    return map;
+  }, [events]);
+
+  return (
+    <div>
+      <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
+        <PageTitle className="mb-0">Agenda</PageTitle>
+        <button
+          type="button"
+          onClick={() => openCreate()}
+          className="inline-flex h-10 items-center gap-2 rounded-xl bg-ink px-4 text-sm font-medium text-white"
+        >
+          <Plus className="h-4 w-4" />
+          Novo agendamento
+        </button>
+      </div>
+
+      <div className="mb-5 flex flex-wrap items-center gap-3">
+        <button
+          type="button"
+          onClick={() => setAnchor(addDays(anchor, -7))}
+          className="rounded-xl border border-[#eee] p-2 text-ink hover:bg-[#fafafa]"
+          aria-label="Semana anterior"
+        >
+          <ChevronLeft className="h-4 w-4" />
+        </button>
+        <p className="min-w-[180px] text-center text-sm font-medium text-navy">{formatWeekLabel(anchor)}</p>
+        <button
+          type="button"
+          onClick={() => setAnchor(addDays(anchor, 7))}
+          className="rounded-xl border border-[#eee] p-2 text-ink hover:bg-[#fafafa]"
+          aria-label="Próxima semana"
+        >
+          <ChevronRight className="h-4 w-4" />
+        </button>
+        <button
+          type="button"
+          onClick={() => setAnchor(startOfWeek(new Date()))}
+          className="rounded-xl border border-[#eee] px-3 py-2 text-sm text-muted hover:text-ink"
+        >
+          Hoje
+        </button>
+      </div>
+
+      {eventsQuery.isLoading ? <p className="mb-4 text-sm text-muted">Carregando agenda…</p> : null}
+      {eventsQuery.error ? <p className="mb-4 text-sm text-open">{(eventsQuery.error as Error).message}</p> : null}
+
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-7">
+        {weekDays.map((day, i) => {
+          const key = ymd(day);
+          const dayEvents = byDay[key] || [];
+          const isToday = key === todayKey;
+          return (
+            <div
+              key={key}
+              className={cn("min-h-[180px] rounded-2xl border border-[#eee] p-3", isToday && "border-brand/40 bg-[#f7f9ff]")}
+            >
+              <button type="button" onClick={() => openCreate(day)} className="mb-3 w-full text-left">
+                <p className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted">{WEEKDAYS[i]}</p>
+                <p className={cn("text-lg font-semibold", isToday ? "text-brand" : "text-navy")}>{day.getDate()}</p>
+              </button>
+              <div className="space-y-2">
+                {dayEvents.length === 0 ? <p className="text-xs text-muted">Sem agendamentos</p> : null}
+                {dayEvents.map((ev) => {
+                  const kind = ev.extendedProps?.type;
+                  const isAppt = !kind || kind === "appointment";
+                  const client = ev.client_name || ev.extendedProps?.client_name;
+                  const tech = ev.user_name || ev.extendedProps?.user_name;
+                  const apptId = Number(ev.extendedProps?.appointment_id || ev.id);
+                  return (
+                    <div
+                      key={String(ev.id)}
+                      className="rounded-xl px-2 py-2 text-left"
+                      style={{ background: ev.color ? `${ev.color}18` : "#f5f5f5" }}
+                    >
+                      <p className="text-[11px] text-muted">{eventTime(ev)}</p>
+                      <p className="text-sm font-medium text-ink">{ev.title}</p>
+                      {kind && kind !== "appointment" ? null : (
+                        <p className="text-xs text-muted">
+                          {[client, tech].filter(Boolean).join(" · ")}
+                        </p>
+                      )}
+                      {isAppt && apptId ? (
+                        <div className="mt-1.5 flex gap-1">
+                          <button
+                            type="button"
+                            onClick={() => openEdit(ev)}
+                            className="flex h-7 w-7 items-center justify-center rounded-lg bg-white text-[#6b7280] hover:bg-[#e5e7eb]"
+                            aria-label="Editar"
+                          >
+                            <Pencil className="h-3.5 w-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (window.confirm("Excluir este agendamento?")) removeAppt.mutate(apptId);
+                            }}
+                            className="flex h-7 w-7 items-center justify-center rounded-lg bg-white text-open hover:bg-open/10"
+                            aria-label="Excluir"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      ) : null}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      <Modal open={open} onClose={() => { setOpen(false); setEditingId(null); }} title={editingId ? "Editar agendamento" : "Novo agendamento"} wide>
+        <form
+          className="space-y-5"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (!title.trim() || !when || !clientId || !userId) {
+              setFormError("Título, data/hora, cliente e técnico são obrigatórios.");
+              return;
+            }
+            create.mutate();
+          }}
+        >
+          <UnderlineField label="Título" value={title} onChange={setTitle} placeholder="Assunto do agendamento" />
+          <UnderlineField label="Data e hora" value={when} onChange={setWhen} type="datetime-local" />
+          <UnderlineField label="Buscar cliente" value={clientQ} onChange={setClientQ} placeholder="Nome do cliente" />
+          <label className="block">
+            <span className="text-[11px] font-medium tracking-[0.08em] text-muted uppercase">Cliente</span>
+            <select
+              value={clientId}
+              onChange={(e) => setClientId(e.target.value)}
+              className="mt-1 w-full border-0 border-b border-[#d7d7d7] bg-transparent py-2 text-[15px] text-ink"
+            >
+              <option value="">Selecione</option>
+              {(clients.data?.items || []).map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="block">
+            <span className="text-[11px] font-medium tracking-[0.08em] text-muted uppercase">Técnico</span>
+            <select
+              value={userId}
+              onChange={(e) => setUserId(e.target.value)}
+              className="mt-1 w-full border-0 border-b border-[#d7d7d7] bg-transparent py-2 text-[15px] text-ink"
+            >
+              <option value="">Selecione</option>
+              {(users.data ? asItems(users.data) : [])
+                .filter((u) => u.status !== "0")
+                .map((u) => (
+                  <option key={u.id} value={u.id}>
+                    {u.name}
+                  </option>
+                ))}
+            </select>
+          </label>
+          <label className="block">
+            <span className="text-[11px] font-medium tracking-[0.08em] text-muted uppercase">Serviço</span>
+            <select
+              value={serviceId}
+              onChange={(e) => setServiceId(e.target.value)}
+              className="mt-1 w-full border-0 border-b border-[#d7d7d7] bg-transparent py-2 text-[15px] text-ink"
+            >
+              <option value="">Opcional</option>
+              {asItems(services.data).map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="block">
+            <span className="text-[11px] font-medium tracking-[0.08em] text-muted uppercase">Descrição</span>
+            <textarea
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              rows={3}
+              className="mt-1 w-full border-0 border-b border-[#d7d7d7] bg-transparent py-2 text-[15px] text-ink"
+            />
+          </label>
+          {formError ? <p className="text-sm text-open">{formError}</p> : null}
+          <PrimaryButton type="submit" disabled={create.isPending}>
+            {create.isPending ? "Salvando…" : editingId ? "Salvar" : "Agendar"}
+          </PrimaryButton>
+        </form>
+      </Modal>
+    </div>
+  );
+}

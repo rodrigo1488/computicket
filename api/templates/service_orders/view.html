@@ -1,0 +1,195 @@
+{% extends "base.html" %}
+
+{% block page_title %}📋 OS #{{ service_order.codigo }}{% endblock %}
+
+{% block content %}
+<div class="bg-secondary rounded-lg shadow-lg p-6 mb-6">
+	<div class="flex items-start justify-between mb-4">
+		<div>
+			<h1 class="text-2xl font-bold text-primary mb-2">Ordem de Serviço #{{ service_order.codigo }}</h1>
+			<p class="text-muted">{{ service_order.client_name }} - {{ service_order.formatted_completion_date() }}</p>
+		</div>
+		<div class="flex gap-3">
+			<a href="{{ url_for('service_orders.list_finalized') }}" class="btn btn-secondary">
+				<i class="fas fa-arrow-left"></i>
+				Voltar
+			</a>
+			{% if service_order.ps_file %}
+			<a href="{{ url_for('service_orders.serve_pdf', filename=service_order.ps_file) }}" target="_blank" class="btn btn-primary">
+				<i class="fas fa-file-pdf"></i>
+				Ver PS
+			</a>
+			{% endif %}
+			{% if service_order.delivery_file %}
+			<a href="{{ url_for('service_orders.serve_pdf', filename=service_order.delivery_file) }}" target="_blank" class="btn btn-info">
+				<i class="fas fa-receipt"></i>
+				Ver Recibo
+			</a>
+			{% endif %}
+		</div>
+	</div>
+</div>
+
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+	<!-- Informações do Cliente -->
+	<div class="bg-secondary rounded-lg shadow-lg p-6">
+		<h2 class="text-xl font-bold text-primary mb-4">
+			<i class="fas fa-user mr-2"></i>
+			Informações do Cliente
+		</h2>
+		<div class="space-y-3">
+			<div class="flex justify-between">
+				<span class="text-muted">Nome:</span>
+				<span class="font-medium">{{ service_order.client_name }}</span>
+			</div>
+			{% if service_order.client_document %}
+			<div class="flex justify-between">
+				<span class="text-muted">Documento:</span>
+				<span class="font-medium">{{ service_order.client_document }}</span>
+			</div>
+			{% endif %}
+			{% if service_order.client_phone %}
+			<div class="flex justify-between">
+				<span class="text-muted">Telefone:</span>
+				<span class="font-medium">{{ service_order.client_phone }}</span>
+			</div>
+			{% endif %}
+			{% if service_order.client_address %}
+			<div class="flex justify-between">
+				<span class="text-muted">Endereço:</span>
+				<span class="font-medium">{{ service_order.client_address }}{% if service_order.client_address_number %}, {{ service_order.client_address_number }}{% endif %}</span>
+			</div>
+			{% endif %}
+			{% if service_order.client_id %}
+			<div class="flex justify-between">
+				<span class="text-muted">ID Cliente:</span>
+				<span class="font-medium">{{ service_order.client_id }}</span>
+			</div>
+			{% endif %}
+		</div>
+	</div>
+
+	<!-- Informações do Serviço -->
+	<div class="bg-secondary rounded-lg shadow-lg p-6">
+		<h2 class="text-xl font-bold text-primary mb-4">
+			<i class="fas fa-cogs mr-2"></i>
+			Informações do Serviço
+		</h2>
+		<div class="space-y-3">
+			<div class="flex justify-between">
+				<span class="text-muted">Equipamento:</span>
+				<span class="font-medium">{{ service_order.equipment or '—' }}</span>
+			</div>
+			<div class="flex justify-between">
+				<span class="text-muted">Status:</span>
+				<span class="status-badge {% if service_order.status == 3 %}status-warning{% else %}status-success{% endif %}">
+					{{ service_order.status_text() }}
+				</span>
+			</div>
+			<div class="flex justify-between">
+				<span class="text-muted">Valor:</span>
+				<span class="font-medium text-success">R$ {{ '%.2f'|format(service_order.value or 0) }}</span>
+			</div>
+			{% if service_order.ps_number %}
+			<div class="flex justify-between">
+				<span class="text-muted">PS Número:</span>
+				<span class="font-medium">{{ service_order.ps_number }}</span>
+			</div>
+			{% endif %}
+			<div class="flex justify-between">
+				<span class="text-muted">Técnico:</span>
+				<span class="font-medium">{{ service_order.technician_name }}</span>
+			</div>
+		</div>
+	</div>
+</div>
+
+<!-- Descrição do Problema -->
+{% if service_order.problem_description %}
+<div class="bg-secondary rounded-lg shadow-lg p-6 mt-6">
+	<h2 class="text-xl font-bold text-primary mb-4">
+		<i class="fas fa-exclamation-triangle mr-2"></i>
+		Problema Descrito
+	</h2>
+	<div class="bg-tertiary rounded-lg p-4">
+		<p class="text-muted whitespace-pre-wrap">{{ service_order.problem_description }}</p>
+	</div>
+</div>
+{% endif %}
+
+<!-- Serviço Executado -->
+<div class="bg-secondary rounded-lg shadow-lg p-6 mt-6">
+	<h2 class="text-xl font-bold text-primary mb-4">
+		<i class="fas fa-tools mr-2"></i>
+		Serviço Executado
+	</h2>
+	<div class="bg-tertiary rounded-lg p-4">
+		<p class="text-muted whitespace-pre-wrap">{{ service_order.service_executed }}</p>
+	</div>
+</div>
+
+<!-- Observações -->
+{% if service_order.observations %}
+<div class="bg-secondary rounded-lg shadow-lg p-6 mt-6">
+	<h2 class="text-xl font-bold text-primary mb-4">
+		<i class="fas fa-sticky-note mr-2"></i>
+		Observações
+	</h2>
+	<div class="bg-tertiary rounded-lg p-4">
+		<p class="text-muted whitespace-pre-wrap">{{ service_order.observations }}</p>
+	</div>
+</div>
+{% endif %}
+
+<!-- Informações de Controle -->
+<div class="bg-secondary rounded-lg shadow-lg p-6 mt-6">
+	<h2 class="text-xl font-bold text-primary mb-4">
+		<i class="fas fa-info-circle mr-2"></i>
+		Informações de Controle
+	</h2>
+	<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+		<div class="bg-tertiary rounded-lg p-4">
+			<div class="text-sm text-muted mb-1">Data de Abertura</div>
+			<div class="font-medium">{{ service_order.formatted_opening_date() }}</div>
+		</div>
+		<div class="bg-tertiary rounded-lg p-4">
+			<div class="text-sm text-muted mb-1">Data de Finalização</div>
+			<div class="font-medium">{{ service_order.formatted_completion_date() }}</div>
+		</div>
+		<div class="bg-tertiary rounded-lg p-4">
+			<div class="text-sm text-muted mb-1">PS Gerada</div>
+			<div class="font-medium">
+				{% if service_order.ps_generated %}
+				<span class="text-success"><i class="fas fa-check"></i> Sim</span>
+				{% else %}
+				<span class="text-muted"><i class="fas fa-times"></i> Não</span>
+				{% endif %}
+			</div>
+		</div>
+		<div class="bg-tertiary rounded-lg p-4">
+			<div class="text-sm text-muted mb-1">Recibo Gerado</div>
+			<div class="font-medium">
+				{% if service_order.delivery_receipt_generated %}
+				<span class="text-success"><i class="fas fa-check"></i> Sim</span>
+				{% else %}
+				<span class="text-muted"><i class="fas fa-times"></i> Não</span>
+				{% endif %}
+			</div>
+		</div>
+	</div>
+	
+	{% if service_order.no_charge or service_order.has_contract %}
+	<div class="mt-4 p-4 bg-warning/10 border border-warning/20 rounded-lg">
+		<h3 class="font-medium text-warning mb-2">Informações Especiais</h3>
+		<div class="space-y-1 text-sm">
+			{% if service_order.no_charge %}
+			<div><i class="fas fa-info-circle text-warning mr-2"></i>Cliente com contrato "não cobra atendimento"</div>
+			{% endif %}
+			{% if service_order.has_contract %}
+			<div><i class="fas fa-file-contract text-warning mr-2"></i>Cliente possui contrato ativo</div>
+			{% endif %}
+		</div>
+	</div>
+	{% endif %}
+</div>
+{% endblock %}

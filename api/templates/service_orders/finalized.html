@@ -1,0 +1,195 @@
+{% extends "base.html" %}
+{% from 'macros/ui.html' import page_header, filter_bar, filter_select, filter_text, filter_date, filter_submit, pagination as render_pagination, empty_state %}
+
+{% block page_title %}📋 Ordens de Serviço Finalizadas{% endblock %}
+
+{% block content %}
+
+{% call page_header('Ordens Finalizadas', 'Histórico de ordens de serviço processadas', icon='fas fa-clipboard-check') %}
+<a href="{{ url_for('service_orders.list_service_orders') }}" class="btn btn-secondary">
+	<i class="fas fa-arrow-left"></i>
+	Voltar
+</a>
+{% endcall %}
+
+{% call filter_bar() %}
+<div class="dc-filter-bar__row">
+	{{ filter_select('status', 'Status', [('3', 'Sem cobrança'), ('5', 'Com cobrança')], current_filters.status, 'Todos') }}
+	{{ filter_select('technician_name', 'Técnico', technicians, current_filters.technician_name, 'Todos') }}
+	{{ filter_text('q', 'Buscar', current_filters.q, 'Código ou cliente') }}
+</div>
+<div class="dc-filter-bar__row">
+	{{ filter_date('date_from', 'Finalizada de', current_filters.date_from) }}
+	{{ filter_date('date_to', 'Finalizada até', current_filters.date_to) }}
+	{{ filter_submit('Filtrar') }}
+</div>
+{% endcall %}
+
+{% if service_orders %}
+<div class="dc-table-container">
+	<div class="dc-table-scroll">
+		<table class="dc-table">
+			<thead>
+				<tr>
+					<th>Código</th>
+					<th>Cliente</th>
+					<th data-col-priority="low">Equipamento</th>
+					<th>Status</th>
+					<th data-col-priority="medium">Valor</th>
+					<th data-col-priority="low">Técnico</th>
+					<th data-col-priority="medium">Data Finalização</th>
+					<th>Ações</th>
+				</tr>
+			</thead>
+			<tbody>
+				{% for order in service_orders %}
+				<tr>
+					<td>
+						<div class="flex items-center">
+							<div class="w-10 h-10 bg-primary/10 rounded-full flex items-center justify-center mr-3">
+								<i class="fas fa-clipboard-list text-primary"></i>
+							</div>
+							<div>
+								<div class="dc-table-cell-primary">{{ order.codigo }}</div>
+								{% if order.ps_number %}
+								<div class="dc-table-cell-muted">PS: {{ order.ps_number }}</div>
+								{% endif %}
+							</div>
+						</div>
+					</td>
+					<td>
+						<div>
+							<div class="font-medium">{{ order.client_name }}</div>
+							{% if order.client_document %}
+							<div class="dc-table-cell-muted">{{ order.client_document }}</div>
+							{% endif %}
+							{% if order.client_phone %}
+							<div class="dc-table-cell-muted">{{ order.client_phone }}</div>
+							{% endif %}
+						</div>
+					</td>
+					<td data-col-priority="low">
+						<div class="text-muted max-w-xs truncate" title="{{ order.equipment or '—' }}">
+							{{ order.equipment or '—' }}
+						</div>
+					</td>
+					<td>
+						<span class="status-badge {% if order.status == 3 %}status-warning{% else %}status-success{% endif %}">
+							{% if order.status == 3 %}
+							<i class="fas fa-info-circle"></i> Sem cobrança
+							{% elif order.status == 5 %}
+							<i class="fas fa-check-circle"></i> Com cobrança
+							{% else %}
+							Status {{ order.status }}
+							{% endif %}
+						</span>
+					</td>
+					<td data-col-priority="medium">
+						<div class="flex items-center">
+							<i class="fas fa-dollar-sign text-success mr-2"></i>
+							<span class="font-medium text-success">
+								R$ {{ '%.2f'|format(order.value or 0) }}
+							</span>
+						</div>
+					</td>
+					<td data-col-priority="low">
+						<div>
+							<div class="font-medium">{{ order.technician_name }}</div>
+							{% if order.technician_id %}
+							<div class="dc-table-cell-muted">ID: {{ order.technician_id }}</div>
+							{% endif %}
+						</div>
+					</td>
+					<td data-col-priority="medium">
+						<div>
+							<div class="font-medium">{{ order.formatted_completion_date() }}</div>
+							{% if order.opening_date %}
+							<div class="dc-table-cell-muted">Abertura: {{ order.formatted_opening_date() }}</div>
+							{% endif %}
+						</div>
+					</td>
+					<td>
+						<div class="dc-table-actions">
+							<a href="{{ url_for('service_orders.view_service_order', order_id=order.id) }}" class="btn btn-sm btn-primary">
+								<i class="fas fa-eye"></i>
+								<span class="hidden xl:inline">Ver</span>
+							</a>
+							{% if order.ps_file %}
+							<a href="{{ url_for('service_orders.serve_pdf', filename=order.ps_file) }}" target="_blank" class="btn btn-sm btn-secondary">
+								<i class="fas fa-file-pdf"></i>
+								<span class="hidden xl:inline">PS</span>
+							</a>
+							{% endif %}
+							{% if order.delivery_file %}
+							<a href="{{ url_for('service_orders.serve_pdf', filename=order.delivery_file) }}" target="_blank" class="btn btn-sm btn-info">
+								<i class="fas fa-receipt"></i>
+								<span class="hidden xl:inline">Recibo</span>
+							</a>
+							{% endif %}
+						</div>
+					</td>
+				</tr>
+				{% endfor %}
+			</tbody>
+		</table>
+	</div>
+</div>
+
+{% if pagination and pagination.pages > 1 %}
+<div class="mt-4 flex justify-end items-center gap-2">
+	<label class="text-sm text-muted">Itens por página:</label>
+	<select id="per-page-selector" class="form-input text-sm py-1 px-2 w-20" onchange="changePerPage(this.value)">
+		<option value="10" {% if pagination.per_page==10 %}selected{% endif %}>10</option>
+		<option value="20" {% if pagination.per_page==20 %}selected{% endif %}>20</option>
+		<option value="50" {% if pagination.per_page==50 %}selected{% endif %}>50</option>
+		<option value="100" {% if pagination.per_page==100 %}selected{% endif %}>100</option>
+	</select>
+</div>
+{{ render_pagination(pagination.page, pagination.pages, 'service_orders.list_finalized', request.args.to_dict(), pagination.total, 'ordens') }}
+{% endif %}
+
+{% else %}
+{{ empty_state('fas fa-clipboard-check', 'Nenhuma ordem finalizada', 'Ainda não há ordens de serviço finalizadas com os filtros atuais.', url_for('service_orders.finalize_service_order'), 'Finalizar Primeira OS', 'fas fa-check-circle') }}
+{% endif %}
+
+<script>
+	function changePerPage(perPage) {
+		const selector = document.getElementById('per-page-selector');
+		if (selector) {
+			selector.disabled = true;
+			selector.style.opacity = '0.5';
+		}
+
+		const loadingIndicator = document.createElement('div');
+		loadingIndicator.className = 'fixed top-4 right-4 bg-primary text-white px-4 py-2 rounded-lg shadow-lg z-50 flex items-center gap-2';
+		loadingIndicator.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Carregando...';
+		document.body.appendChild(loadingIndicator);
+
+		const url = new URL(window.location);
+		url.searchParams.set('per_page', perPage);
+		url.searchParams.set('page', '1');
+
+		setTimeout(() => {
+			window.location.href = url.toString();
+		}, 100);
+	}
+
+	document.addEventListener('DOMContentLoaded', function () {
+		const paginationLinks = document.querySelectorAll('.dc-pagination a[href*="page="]');
+
+		paginationLinks.forEach(link => {
+			link.addEventListener('click', function (e) {
+				const loadingIndicator = document.createElement('div');
+				loadingIndicator.className = 'fixed top-4 right-4 bg-primary text-white px-4 py-2 rounded-lg shadow-lg z-50 flex items-center gap-2';
+				loadingIndicator.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Carregando página...';
+				document.body.appendChild(loadingIndicator);
+
+				paginationLinks.forEach(l => {
+					l.style.pointerEvents = 'none';
+					l.style.opacity = '0.5';
+				});
+			});
+		});
+	});
+</script>
+{% endblock %}

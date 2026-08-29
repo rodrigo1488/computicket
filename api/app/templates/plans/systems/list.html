@@ -1,0 +1,223 @@
+{% extends 'base.html' %}
+{% block page_title %}🖥️ Sistemas{% endblock %}
+{% block content %}
+
+<div class="bg-secondary rounded-lg shadow-lg p-6 mb-6">
+	<div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 mb-6">
+		<div class="flex-1">
+			<h1 class="text-2xl lg:text-3xl font-bold text-primary mb-2">
+				🖥️ Sistemas
+			</h1>
+			<p class="text-secondary">
+				Gerencie os sistemas e softwares disponíveis para suporte
+			</p>
+		</div>
+		<div class="flex-shrink-0">
+			<a href="{{ url_for('plans.create_system') }}" class="btn btn-primary">
+				<i class="fas fa-plus mr-2"></i>
+				Novo Sistema
+			</a>
+		</div>
+	</div>
+</div>
+
+<!-- Lista de Sistemas -->
+<div class="bg-secondary rounded-lg shadow-lg p-6">
+	{% if systems %}
+	<div class="overflow-x-auto">
+		<table class="w-full">
+			<thead>
+				<tr class="border-b border-gray-200">
+					<th class="text-left py-3 px-4 font-semibold text-primary">Sistema</th>
+					<th class="text-left py-3 px-4 font-semibold text-primary">Versão</th>
+					<th class="text-left py-3 px-4 font-semibold text-primary">Empresa</th>
+					<th class="text-left py-3 px-4 font-semibold text-primary">Planos</th>
+					<th class="text-left py-3 px-4 font-semibold text-primary">Status</th>
+					<th class="text-left py-3 px-4 font-semibold text-primary">Criado em</th>
+					<th class="text-right py-3 px-4 font-semibold text-primary">Ações</th>
+				</tr>
+			</thead>
+			<tbody>
+				{% for system in systems %}
+				<tr class="border-b border-gray-100 hover:bg-tertiary/50 transition-colors">
+					<td class="py-4 px-4">
+						<div>
+							<div class="font-medium text-primary">{{ system.name }}</div>
+							{% if system.description %}
+							<div class="text-sm text-secondary line-clamp-1">{{ system.description }}</div>
+							{% endif %}
+						</div>
+					</td>
+					<td class="py-4 px-4">
+						{% if system.version %}
+						<span class="text-sm text-secondary">v{{ system.version }}</span>
+						{% else %}
+						<span class="text-sm text-muted">—</span>
+						{% endif %}
+					</td>
+					<td class="py-4 px-4">
+						{% if system.company %}
+						<span class="text-sm text-secondary">{{ system.company }}</span>
+						{% else %}
+						<span class="text-sm text-muted">—</span>
+						{% endif %}
+					</td>
+					<td class="py-4 px-4">
+						<div class="flex items-center gap-2">
+							<span class="text-sm text-success font-medium">{{ system.get_active_plans_count() }}</span>
+							<span class="text-sm text-muted">/</span>
+							<span class="text-sm text-secondary">{{ system.get_total_plans() }}</span>
+						</div>
+					</td>
+					<td class="py-4 px-4">
+						<span class="status-badge status-{{ 'success' if system.is_active else 'secondary' }}">
+							{{ 'Ativo' if system.is_active else 'Inativo' }}
+						</span>
+					</td>
+					<td class="py-4 px-4">
+						<span class="text-sm text-secondary">{{ system.created_at | brasilia_datetime('%d/%m/%Y') }}</span>
+					</td>
+					<td class="py-4 px-4">
+						<div class="flex items-center justify-end gap-2">
+							<a href="{{ url_for('plans.view_system', system_id=system.id) }}" 
+							   class="btn btn-sm btn-info" title="Visualizar">
+								<i class="fas fa-eye"></i>
+							</a>
+							<a href="{{ url_for('plans.edit_system', system_id=system.id) }}" 
+							   class="btn btn-sm btn-warning" title="Editar">
+								<i class="fas fa-edit"></i>
+							</a>
+							<a href="{{ url_for('plans.list_plans', system_id=system.id) }}" 
+							   class="btn btn-sm btn-primary" title="Planos">
+								<i class="fas fa-list"></i>
+							</a>
+							<button onclick="confirmDelete('{{ system.name }}', '{{ url_for('plans.delete_system', system_id=system.id) }}')" 
+									class="btn btn-sm btn-danger" title="Deletar">
+								<i class="fas fa-trash"></i>
+							</button>
+						</div>
+					</td>
+				</tr>
+				{% endfor %}
+			</tbody>
+		</table>
+	</div>
+	{% else %}
+	<div class="empty-state">
+		<i class="fas fa-desktop text-4xl text-muted mb-4"></i>
+		<h3 class="text-lg font-semibold text-primary mb-2">Nenhum sistema cadastrado</h3>
+		<p class="text-secondary mb-4">Comece criando seu primeiro sistema para organizar os planos de suporte.</p>
+		<a href="{{ url_for('plans.create_system') }}" class="btn btn-primary">
+			<i class="fas fa-plus mr-2"></i>
+			Criar Primeiro Sistema
+		</a>
+	</div>
+	{% endif %}
+</div>
+
+<!-- Modal de Confirmação de Exclusão -->
+<div id="delete-modal" class="modal-overlay">
+	<div class="modal w-full max-w-md mx-4 sm:mx-6 lg:mx-auto">
+		<div class="modal-header">
+			<h3 class="modal-title">
+				<i class="fas fa-exclamation-triangle mr-2"></i>
+				Confirmar Exclusão
+			</h3>
+			<button id="close-delete-modal" class="btn btn-sm btn-secondary">
+				<i class="fas fa-times"></i>
+			</button>
+		</div>
+		<div class="modal-body">
+			<div class="bg-error/10 border border-error/20 rounded-lg p-4 mb-4">
+				<div class="flex items-start">
+					<i class="fas fa-exclamation-triangle text-error mr-2 mt-0.5"></i>
+					<div>
+						<p class="text-sm text-error/90 font-medium mb-2">
+							<strong>⚠️ ATENÇÃO: Esta ação é IRREVERSÍVEL!</strong>
+						</p>
+						<p class="text-sm text-error/80">
+							Tem certeza que deseja excluir o sistema <strong id="system-name"></strong>?
+						</p>
+					</div>
+				</div>
+			</div>
+			
+			<div class="bg-warning/10 border border-warning/20 rounded-lg p-4 mb-4">
+				<div class="flex items-start">
+					<i class="fas fa-info-circle text-warning mr-2 mt-0.5"></i>
+					<div>
+						<p class="text-sm text-warning/90 font-medium mb-2">
+							Esta ação irá:
+						</p>
+						<ul class="text-sm text-warning/80 space-y-1">
+							<li>• Excluir o sistema permanentemente</li>
+							<li>• Excluir todos os planos associados</li>
+							<li>• Remover contratos de clientes</li>
+						</ul>
+					</div>
+				</div>
+			</div>
+			
+			<div class="flex flex-col sm:flex-row items-center gap-3 justify-end">
+				<button type="button" id="cancel-delete" class="btn btn-secondary w-full sm:w-auto">Cancelar</button>
+				<form id="delete-form" method="post" class="w-full sm:w-auto">
+					<button type="submit" class="btn btn-error w-full">
+						<i class="fas fa-trash mr-2"></i>
+						Confirmar Exclusão
+					</button>
+				</form>
+			</div>
+		</div>
+	</div>
+</div>
+
+<script>
+function confirmDelete(systemName, deleteUrl) {
+	const modal = document.getElementById('delete-modal');
+	const systemNameElement = document.getElementById('system-name');
+	const deleteForm = document.getElementById('delete-form');
+	
+	systemNameElement.textContent = systemName;
+	deleteForm.action = deleteUrl;
+	
+	modal.classList.add('active');
+}
+
+// Event listeners para o modal
+document.addEventListener('DOMContentLoaded', function() {
+	const modal = document.getElementById('delete-modal');
+	const closeBtn = document.getElementById('close-delete-modal');
+	const cancelBtn = document.getElementById('cancel-delete');
+	
+	if (closeBtn) {
+		closeBtn.addEventListener('click', () => {
+			modal.classList.remove('active');
+		});
+	}
+	
+	if (cancelBtn) {
+		cancelBtn.addEventListener('click', () => {
+			modal.classList.remove('active');
+		});
+	}
+	
+	if (modal) {
+		modal.addEventListener('click', (e) => {
+			if (e.target === modal) {
+				modal.classList.remove('active');
+			}
+		});
+	}
+});
+</script>
+
+<style>
+.line-clamp-1 {
+	display: -webkit-box;
+	-webkit-line-clamp: 1;
+	-webkit-box-orient: vertical;
+	overflow: hidden;
+}
+</style>
+
+{% endblock %}

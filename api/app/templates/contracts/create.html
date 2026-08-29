@@ -1,0 +1,185 @@
+{% extends 'base.html' %}
+{% block page_title %}➕ Criar Novo Contrato{% endblock %}
+{% block content %}
+
+<!-- Cabeçalho -->
+<div class="mb-6">
+	<div class="text-sm text-muted mb-1">
+		<a href="{{ url_for('contracts.list_contracts') }}" class="text-muted">Contratos</a>
+		<i class="fas fa-chevron-right mx-1 text-xs"></i>
+		Novo Contrato
+	</div>
+	<h1 class="text-2xl font-bold text-primary">Criar Novo Contrato</h1>
+</div>
+
+<div class="bg-secondary rounded-lg shadow-lg p-6" style="max-width: 720px;">
+	<form method="post" class="space-y-6">
+		<!-- Dados do contrato -->
+		<div class="form-group">
+			<label class="form-label">Nome do Contrato *</label>
+			<input name="contract_name" required class="form-input w-full" placeholder="Ex: Manutenção Mensal, Suporte Técnico...">
+			<div class="form-help">Este nome identifica o contrato no sistema.</div>
+		</div>
+
+		<div class="form-group">
+			<label class="flex items-center space-x-2">
+				<input type="checkbox" name="no_charge" class="form-checkbox">
+				<span class="text-sm text-primary">Sem cobrança</span>
+			</label>
+			<div class="form-help">Clientes com este contrato não serão cobrados pelos serviços.</div>
+		</div>
+
+		<!-- Clientes (opcional) -->
+		<div class="form-group" style="border-top: 1px solid var(--border-color); padding-top: 1.25rem;">
+			<label class="form-label">Clientes (opcional)</label>
+			<div class="form-help mb-3">Busque e marque os clientes que farão parte deste contrato. Você pode adicionar mais depois, na tela de gerenciamento.</div>
+
+			<input type="text" id="client-search"
+				   placeholder="Digite o nome ou documento do cliente..."
+				   class="form-input w-full mb-2">
+
+			<div id="search-loading" class="hidden mb-2 text-center">
+				<i class="fas fa-spinner fa-spin text-primary"></i>
+				<span class="ml-2 text-sm text-muted">Buscando clientes...</span>
+			</div>
+
+			<div id="search-results-count" class="hidden mb-2 text-sm text-muted">
+				<span id="results-count">0</span> cliente(s) encontrado(s)
+			</div>
+
+			<div id="clients-list" class="max-h-48 overflow-y-auto rounded-lg p-3" style="border: 1px solid var(--border-color);">
+				<div id="search-placeholder" class="text-center py-4 text-muted">
+					<p>Digite no campo acima para buscar clientes</p>
+				</div>
+			</div>
+		</div>
+
+		<!-- Ações -->
+		<div class="flex gap-2 justify-end">
+			<a href="{{ url_for('contracts.list_contracts') }}" class="btn btn-secondary">
+				Cancelar
+			</a>
+			<button type="submit" class="btn btn-primary">
+				<i class="fas fa-save"></i>
+				Criar Contrato
+			</button>
+		</div>
+	</form>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+	const searchInput = document.getElementById('client-search');
+	const clientsList = document.getElementById('clients-list');
+	const searchLoading = document.getElementById('search-loading');
+	const searchResultsCount = document.getElementById('search-results-count');
+	const resultsCount = document.getElementById('results-count');
+
+	let searchTimeout;
+	let currentSearchTerm = '';
+
+	// Busca AJAX de clientes
+	function searchClients(query) {
+		currentSearchTerm = query.trim();
+
+		if (currentSearchTerm.length === 0) {
+			showPlaceholder();
+			return;
+		}
+
+		showLoading();
+
+		fetch(`{{ url_for('contracts.search_clients_for_contract_creation') }}?q=${encodeURIComponent(currentSearchTerm)}`)
+			.then(response => response.json())
+			.then(data => {
+				hideLoading();
+
+				if (data.error) {
+					showError(data.error);
+					return;
+				}
+
+				updateResultsCount(data.clients.length);
+
+				if (data.clients.length === 0) {
+					showNoResults(currentSearchTerm);
+					return;
+				}
+
+				renderClientsList(data.clients);
+			})
+			.catch(error => {
+				hideLoading();
+				showError(`Erro ao buscar clientes: ${error.message}`);
+			});
+	}
+
+	function showPlaceholder() {
+		clientsList.innerHTML = `
+			<div id="search-placeholder" class="text-center py-4 text-muted">
+				<p>Digite no campo acima para buscar clientes</p>
+			</div>
+		`;
+		hideResultsCount();
+	}
+
+	function showLoading() {
+		searchLoading.classList.remove('hidden');
+		clientsList.innerHTML = '';
+		hideResultsCount();
+	}
+
+	function hideLoading() {
+		searchLoading.classList.add('hidden');
+	}
+
+	function showError(message) {
+		clientsList.innerHTML = `
+			<div class="text-center py-4 text-red-700">
+				<i class="fas fa-exclamation-triangle text-2xl mb-2"></i>
+				<p>Erro: ${message}</p>
+			</div>
+		`;
+		hideResultsCount();
+	}
+
+	function showNoResults(searchTerm) {
+		clientsList.innerHTML = `
+			<div class="text-center py-4 text-muted">
+				<p>Nenhum cliente encontrado para "${searchTerm}"</p>
+			</div>
+		`;
+		hideResultsCount();
+	}
+
+	function renderClientsList(clients) {
+		clientsList.innerHTML = clients.map(client => `
+			<label class="flex items-center space-x-2 py-1">
+				<input type="checkbox" name="client_ids" value="${client.id}" class="form-checkbox client-checkbox">
+				<span class="text-sm">${client.name}
+					${client.document ? ` - ${client.document}` : ''}
+				</span>
+			</label>
+		`).join('');
+	}
+
+	function updateResultsCount(count) {
+		resultsCount.textContent = count;
+		searchResultsCount.classList.remove('hidden');
+	}
+
+	function hideResultsCount() {
+		searchResultsCount.classList.add('hidden');
+	}
+
+	searchInput.addEventListener('input', function() {
+		const query = this.value;
+		clearTimeout(searchTimeout);
+		searchTimeout = setTimeout(() => {
+			searchClients(query);
+		}, 200);
+	});
+});
+</script>
+
+{% endblock %}

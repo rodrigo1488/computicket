@@ -1,0 +1,244 @@
+<!-- Tickets agrupados por usuário -->
+<div class="tickets-by-users-container">
+	{% for user_data in users_tickets %}
+	<div class="user-tickets-section">
+		<div class="user-header">
+			<div class="user-info">
+				<h3 class="user-name">
+					<i class="fas fa-user"></i>
+					{{ user_data.user.name }}
+				</h3>
+				<span class="tickets-count">
+					{{ user_data.total_tickets }} ticket{{ 's' if user_data.total_tickets != 1 else '' }}
+				</span>
+			</div>
+		</div>
+
+		<div class="dc-table-container">
+			<div class="dc-table-scroll">
+				<table class="dc-table">
+					<thead>
+						<tr>
+							<th>#</th>
+							<th>Título</th>
+							<th>Cliente</th>
+							<th data-col-priority="low">Serviço</th>
+							<th>Status</th>
+							<th data-col-priority="medium">Horas</th>
+							<th data-col-priority="medium">Valor</th>
+							<th>Ações</th>
+						</tr>
+					</thead>
+					<tbody>
+						{% for t in user_data.tickets %}
+						<tr>
+							<td>
+								<a class="font-medium text-primary hover:text-accent-primary" href="{{ url_for('tickets.view_ticket', ticket_id=t.id) }}">#{{ t.id }}</a>
+							</td>
+							<td>
+								<div class="font-medium text-primary">{{ t.title }}</div>
+								{% if t.description %}
+								<div class="text-sm text-muted">{{ t.description[:50] }}{% if t.description|length > 50 %}...{% endif %}</div>
+								{% endif %}
+							</td>
+							<td>{{ t.display_client_name() }}</td>
+							<td data-col-priority="low">{{ t.service.name if t.service else '-' }}</td>
+							<td>
+								<span class="status-badge status-{{ t.status.replace('_', '-') }}">
+									{{ t.status.replace('_', ' ').title() }}
+								</span>
+							</td>
+							<td data-col-priority="medium">{{ t.formatted_total_hours() }}</td>
+							<td data-col-priority="medium">
+								{% if t.status == 'fechado' %}
+									<span class="font-medium text-success">R$ {{ '%.2f'|format(t.total_cost or 0) }}</span>
+								{% else %}
+									<span class="text-muted">—</span>
+								{% endif %}
+							</td>
+							<td>
+								<div class="dc-table-actions">
+									{% if t.status != 'fechado' and t.status != 'cancelado' %}
+										{% if t.assigned_to_id == current_user.id %}
+											{# Usuário atribuído - pode iniciar, encerrar e fechar #}
+											{% if t.status == 'aberto' %}
+											<form class="inline" method="post" action="{{ url_for('tickets.start_ticket', ticket_id=t.id) }}">
+												<button class="btn btn-sm btn-success">
+													<i class="fas fa-play"></i>
+													Iniciar
+												</button>
+											</form>
+											{% elif t.status == 'em_andamento' %}
+											<button class="btn btn-sm btn-warning" data-open-stop="{{ t.id }}">
+												<i class="fas fa-stop"></i>
+												Encerrar
+											</button>
+											{% endif %}
+											<button class="btn btn-sm btn-error" data-open-close="{{ t.id }}">
+												<i class="fas fa-times"></i>
+												Fechar
+											</button>
+										{% else %}
+											{# Outro usuário - pode assumir o ticket #}
+											<form class="inline" method="post" action="{{ url_for('tickets.assume_ticket', ticket_id=t.id) }}">
+												<button class="btn btn-sm btn-accent" onclick="return confirm('Deseja assumir este ticket?')">
+													<i class="fas fa-hand-paper"></i>
+													Assumir
+												</button>
+											</form>
+										{% endif %}
+									{% else %}
+										{# Mostrar botão Imprimir PS apenas se ticket fechado, tem cobrança e não tem flag "não cobra atendimento" #}
+										{% if t.ps_printed %}
+											{% if t.resolved_ps_filename() %}
+											<a href="{{ url_for('tickets.serve_pdf', filename=t.resolved_ps_filename()) }}" target="_blank" rel="noopener"
+												class="status-badge status-fechado hover:opacity-90 transition-opacity" title="Visualizar PS">
+												<i class="fas fa-file-pdf"></i>
+												PS: {{ t.ps_number }}
+											</a>
+											{% else %}
+											<span class="status-badge status-fechado">
+												<i class="fas fa-check"></i>
+												PS: {{ t.ps_number }}
+											</span>
+											{% endif %}
+										{% else %}
+											<button class="btn btn-sm btn-secondary hidden" data-open-print="{{ t.id }}" data-ticket-id="{{ t.id }}">
+												<i class="fas fa-print"></i>
+												Imprimir PS
+											</button>
+										{% endif %}
+									{% endif %}
+								</div>
+							</td>
+						</tr>
+						<!-- Stop modal per row -->
+						<tr id="stop-modal-row-{{ t.id }}" class="hidden">
+							<td colspan="8" class="p-4" style="background: var(--bg-tertiary);">
+								<div class="bg-secondary rounded-lg shadow-lg p-6 max-w-xl">
+									<div class="flex items-center justify-between mb-4">
+										<h3 class="text-lg font-semibold text-primary">Encerrar sessão do ticket #{{ t.id }}</h3>
+										<button data-close-stop="{{ t.id }}" class="btn btn-sm btn-secondary">
+											<i class="fas fa-times"></i>
+										</button>
+									</div>
+									<form method="post" action="{{ url_for('tickets.stop_ticket', ticket_id=t.id) }}" class="space-y-4">
+										<div class="form-group">
+											<label class="form-label">Comentário (opcional)</label>
+											<input name="comment" class="form-input" placeholder="Adicione um comentário sobre o trabalho realizado">
+										</div>
+										<div class="flex items-center gap-3 justify-end">
+											<button type="button" data-close-stop="{{ t.id }}" class="btn btn-secondary">Cancelar</button>
+											<button type="submit" class="btn btn-warning">
+												<i class="fas fa-stop"></i>
+												Encerrar sessão
+											</button>
+										</div>
+									</form>
+								</div>
+							</td>
+						</tr>
+						<!-- Close modal per row -->
+						<tr id="close-modal-row-{{ t.id }}" class="hidden">
+							<td colspan="8" class="p-4" style="background: var(--bg-tertiary);">
+								<div class="bg-secondary rounded-lg shadow-lg p-6 max-w-xl">
+									<div class="flex items-center justify-between mb-4">
+										<h3 class="text-lg font-semibold text-primary">Fechar ticket #{{ t.id }}</h3>
+										<button data-close-close="{{ t.id }}" class="btn btn-sm btn-secondary">
+											<i class="fas fa-times"></i>
+										</button>
+									</div>
+									<form method="post" action="{{ url_for('tickets.close_ticket', ticket_id=t.id) }}" class="space-y-4">
+										<div class="form-group">
+											<label class="form-label">Valor manual (opcional)</label>
+											<input type="number" step="0.01" min="0" name="manual_total_cost" class="form-input" placeholder="Ex.: 150.00">
+											<div class="form-help">Deixe em branco para usar o valor calculado automaticamente</div>
+										</div>
+										<div class="flex items-center gap-3 justify-end">
+											<button type="button" data-close-close="{{ t.id }}" class="btn btn-secondary">Cancelar</button>
+											<button type="submit" class="btn btn-error">
+												<i class="fas fa-times"></i>
+												Confirmar fechamento
+											</button>
+										</div>
+									</form>
+								</div>
+							</td>
+						</tr>
+						{% endfor %}
+						{% if not user_data.tickets %}
+						<tr>
+							<td colspan="8">
+								<div class="dc-table-empty">
+									<i class="fas fa-ticket-alt"></i>
+									<p>Nenhum ticket para este usuário.</p>
+								</div>
+							</td>
+						</tr>
+						{% endif %}
+					</tbody>
+				</table>
+			</div>
+		</div>
+	</div>
+	{% endfor %}
+</div>
+
+<!-- Modais de Impressão de PS -->
+{% for user_data in users_tickets %}
+	{% for t in user_data.tickets %}
+	<div id="print-modal-{{ t.id }}" class="modal-overlay">
+		<div class="modal w-full max-w-3xl mx-4 sm:mx-6 lg:mx-auto">
+			<div class="modal-header">
+				<h3 class="modal-title">
+					<i class="fas fa-print mr-2"></i>
+					Imprimir PS do ticket #{{ t.id }}
+				</h3>
+				<button data-close-print="{{ t.id }}" class="btn btn-sm btn-secondary">
+					<i class="fas fa-times"></i>
+				</button>
+			</div>
+			<div class="modal-body">
+				<form class="space-y-4" onsubmit="return false;" data-print-form="{{ t.id }}">
+					<div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+						<div class="form-group">
+							<label class="form-label">Cliente</label>
+							<input type="text" value="{{ t.display_client_name() }}" class="form-input"
+								readonly data-field="client_name">
+						</div>
+						<div class="form-group">
+							<label class="form-label">Telefone</label>
+							<input type="text" value="" class="form-input" placeholder="(00)0000-0000"
+								data-field="phone">
+						</div>
+						<div class="form-group">
+							<label class="form-label">CNPJ/CPF</label>
+							<input type="text" value="" class="form-input"
+								data-field="client_social_revenue">
+						</div>
+						<div class="form-group">
+							<label class="form-label">Total (R$)</label>
+							<input type="number" step="0.01" min="0"
+								value="{{ '%.2f'|format(t.total_cost or 0) }}" class="form-input"
+								data-field="total_amount">
+						</div>
+						<div class="form-group md:col-span-2">
+							<label class="form-label">Descrição do serviço</label>
+							<textarea class="form-textarea" data-field="description_service"
+								rows="8">{{ t.title }}{% if t.description %} - {{ t.description }}{% endif %}</textarea>
+						</div>
+					</div>
+					<div class="flex items-center justify-end gap-3 mt-4">
+						<button type="button" data-close-print="{{ t.id }}"
+							class="btn btn-secondary">Cancelar</button>
+						<button type="button" class="btn btn-primary" data-submit-print="{{ t.id }}">
+							<i class="fas fa-print"></i>
+							Imprimir
+						</button>
+					</div>
+				</form>
+			</div>
+		</div>
+	</div>
+	{% endfor %}
+{% endfor %}

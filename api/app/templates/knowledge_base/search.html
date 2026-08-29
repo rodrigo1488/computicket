@@ -1,0 +1,419 @@
+{% extends "base.html" %}
+
+{% block title %}Buscar - Banco de Conhecimentos{% endblock %}
+
+{% block content %}
+<div class="container mx-auto px-4 py-8">
+	<!-- Cabeçalho -->
+	<div class="mb-8">
+		<div class="flex items-center gap-4">
+			<a href="{{ url_for('knowledge_base.index') }}" class="btn btn-secondary">
+				<i class="fas fa-arrow-left mr-2"></i>Voltar
+			</a>
+			<div>
+				<h1 class="text-3xl font-bold text-primary mb-2">
+					<i class="fas fa-search mr-3"></i>Buscar Conhecimentos
+				</h1>
+				<p class="text-muted">Encontre artigos, categorias e informações no banco de conhecimentos</p>
+			</div>
+		</div>
+	</div>
+
+	<!-- Formulário de Busca -->
+	<div class="bg-secondary rounded-lg mb-8">
+		<!-- Desktop: Busca sempre visível -->
+		<div class="hidden lg:block p-6 desktop-filters">
+			<div class="flex items-center gap-4 mb-4">
+				<h3 class="text-lg font-bold text-primary">
+					<i class="fas fa-search mr-2"></i>Busca Global
+				</h3>
+				{% if search_term or category_id %}
+				<span class="badge badge-primary">Busca Ativa</span>
+				{% endif %}
+			</div>
+			
+			<form method="GET" class="space-y-4">
+				<div class="grid grid-cols-1 xl:grid-cols-4 gap-4">
+					<!-- Termo de Busca -->
+					<div class="xl:col-span-2">
+						<label class="form-label">Termo de Busca</label>
+						<input type="text" 
+							   name="q" 
+							   placeholder="Digite palavras-chave, títulos, conteúdo..." 
+							   class="form-input w-full"
+							   value="{{ search_term }}"
+							   autofocus>
+					</div>
+					
+					<!-- Filtro por Categoria -->
+					<div class="xl:col-span-1">
+						<label class="form-label">Categoria</label>
+						<select name="category" class="form-input">
+							<option value="">Todas as categorias</option>
+							{% for category in categories %}
+							<option value="{{ category.id }}" {% if category_id == category.id %}selected{% endif %}>
+								{{ category.name }}
+							</option>
+							{% endfor %}
+						</select>
+					</div>
+					
+					<!-- Botões -->
+					<div class="xl:col-span-1 flex items-end gap-2">
+						<button type="submit" class="btn btn-primary flex-1">
+							<i class="fas fa-search mr-1"></i>Buscar
+						</button>
+						{% if search_term %}
+						<a href="{{ url_for('knowledge_base.search') }}" class="btn btn-secondary">
+							<i class="fas fa-times"></i>
+						</a>
+						{% endif %}
+					</div>
+				</div>
+			</form>
+		</div>
+		
+		<!-- Mobile: Busca recolhível -->
+		<div class="lg:hidden">
+			<!-- Cabeçalho da Busca -->
+			<div class="flex items-center justify-between p-6 border-b border-border-color filters-header">
+				<div class="flex items-center gap-3">
+					<h3 class="text-lg font-bold text-primary">
+						<i class="fas fa-search mr-2"></i>Busca Global
+					</h3>
+					{% if search_term or category_id %}
+					<span class="badge badge-primary">Busca Ativa</span>
+					{% endif %}
+				</div>
+				<button type="button" 
+						id="toggleSearchFilters" 
+						class="btn btn-secondary btn-sm"
+						onclick="toggleSearchFilters()">
+					<i class="fas fa-chevron-down mr-2" id="searchFilterIcon"></i>
+					<span id="searchFilterText">Mostrar Filtros</span>
+				</button>
+			</div>
+			
+			<!-- Conteúdo da Busca (Recolhível) -->
+			<div id="searchFiltersContent" class="p-6" style="display: none;">
+				<form method="GET" class="space-y-4">
+					<div class="grid grid-cols-1 gap-4">
+						<!-- Termo de Busca -->
+						<div>
+							<label class="form-label">Termo de Busca</label>
+							<input type="text" 
+								   name="q" 
+								   placeholder="Digite palavras-chave, títulos, conteúdo..." 
+								   class="form-input w-full"
+								   value="{{ search_term }}"
+								   autofocus>
+						</div>
+						
+						<!-- Filtro por Categoria -->
+						<div>
+							<label class="form-label">Categoria</label>
+							<select name="category" class="form-input">
+								<option value="">Todas as categorias</option>
+								{% for category in categories %}
+								<option value="{{ category.id }}" {% if category_id == category.id %}selected{% endif %}>
+									{{ category.name }}
+								</option>
+								{% endfor %}
+							</select>
+						</div>
+					</div>
+					
+					<div class="flex flex-col gap-3">
+						<button type="submit" class="btn btn-primary">
+							<i class="fas fa-search mr-2"></i>Buscar
+						</button>
+						<div class="flex gap-3">
+							{% if search_term %}
+							<a href="{{ url_for('knowledge_base.search') }}" class="btn btn-secondary flex-1">
+								<i class="fas fa-times mr-2"></i>Limpar
+							</a>
+							{% endif %}
+							<button type="button" class="btn btn-secondary flex-1" onclick="toggleSearchFilters()">
+								<i class="fas fa-chevron-up mr-2"></i>Recolher
+							</button>
+						</div>
+					</div>
+				</form>
+			</div>
+		</div>
+	</div>
+
+	<!-- Resultados -->
+	{% if search_term %}
+	<div class="mb-6">
+		<h2 class="text-xl font-bold text-primary mb-4">
+			{% if results %}
+				{{ results|length }} resultado(s) para "{{ search_term }}"
+			{% else %}
+				Nenhum resultado encontrado para "{{ search_term }}"
+			{% endif %}
+		</h2>
+		
+		{% if category_id %}
+		<div class="flex items-center gap-2 mb-4">
+			<span class="text-muted">Filtrado por categoria:</span>
+			{% for category in categories %}
+				{% if category.id == category_id %}
+				<span class="badge badge-primary">
+					<i class="{{ category.icon }} mr-1"></i>{{ category.name }}
+				</span>
+				{% endif %}
+			{% endfor %}
+		</div>
+		{% endif %}
+	</div>
+
+	<!-- Lista de Resultados -->
+	{% if results %}
+	<div class="space-y-6">
+		{% for article in results %}
+		<div class="bg-secondary rounded-lg p-6 hover:shadow-lg transition-shadow">
+			<div class="flex items-start gap-4">
+				<!-- Ícone da Categoria -->
+				<div class="w-12 h-12 rounded-lg flex items-center justify-center flex-shrink-0" 
+					 style="background-color: {{ article.category.color }}20; color: {{ article.category.color }}">
+					<i class="{{ article.category.icon }}"></i>
+				</div>
+				
+				<!-- Conteúdo do Artigo -->
+				<div class="flex-1">
+					<div class="flex items-start justify-between mb-3">
+						<div>
+							<h3 class="text-xl font-bold mb-2">
+								<a href="{{ url_for('knowledge_base.article_view', article_id=article.id) }}" 
+								   class="hover:text-primary transition-colors">
+									{{ article.title }}
+								</a>
+							</h3>
+							<div class="flex items-center gap-3 mb-2">
+								<span class="badge badge-secondary">
+									<i class="{{ article.category.icon }} mr-1"></i>{{ article.category.name }}
+								</span>
+								{% if article.is_featured %}
+								<span class="badge badge-warning">
+									<i class="fas fa-star mr-1"></i>Destaque
+								</span>
+								{% endif %}
+							</div>
+						</div>
+						
+						<div class="flex items-center gap-2 text-sm text-muted">
+							<span><i class="fas fa-eye mr-1"></i>{{ article.views_count }}</span>
+							<span><i class="fas fa-paperclip mr-1"></i>{{ article.attachments.count() }}</span>
+						</div>
+					</div>
+					
+					{% if article.summary %}
+					<p class="text-muted mb-3">{{ article.summary }}</p>
+					{% endif %}
+					
+					<!-- Tags -->
+					{% if article.get_tags_list() %}
+					<div class="flex flex-wrap gap-2 mb-3">
+						{% for tag in article.get_tags_list() %}
+						<span class="badge badge-secondary">{{ tag }}</span>
+						{% endfor %}
+					</div>
+					{% endif %}
+					
+					<!-- Metadados -->
+					<div class="flex items-center justify-between text-sm text-muted">
+						<div class="flex items-center gap-4">
+							<span><i class="fas fa-user mr-1"></i>{{ article.created_by.name }}</span>
+							<span><i class="fas fa-calendar mr-1"></i>{{ article.created_at.strftime('%d/%m/%Y') }}</span>
+							{% if article.updated_at != article.created_at %}
+							<span><i class="fas fa-edit mr-1"></i>Atualizado em {{ article.updated_at.strftime('%d/%m/%Y') }}</span>
+							{% endif %}
+						</div>
+						<a href="{{ url_for('knowledge_base.article_view', article_id=article.id) }}" 
+						   class="btn btn-sm btn-primary">
+							<i class="fas fa-eye mr-1"></i>Ver Artigo
+						</a>
+					</div>
+				</div>
+			</div>
+		</div>
+		{% endfor %}
+	</div>
+	{% else %}
+	<!-- Nenhum Resultado -->
+	<div class="text-center py-12">
+		<i class="fas fa-search text-6xl text-muted mb-4"></i>
+		<h3 class="text-xl font-bold text-muted mb-2">Nenhum resultado encontrado</h3>
+		<p class="text-muted mb-4">
+			Tente ajustar os termos de busca ou filtros para encontrar o que procura.
+		</p>
+		<div class="flex flex-col sm:flex-row gap-3 justify-center">
+			<a href="{{ url_for('knowledge_base.search') }}" class="btn btn-primary">
+				<i class="fas fa-search mr-2"></i>Nova Busca
+			</a>
+			<a href="{{ url_for('knowledge_base.index') }}" class="btn btn-secondary">
+				<i class="fas fa-home mr-2"></i>Voltar ao Início
+			</a>
+		</div>
+	</div>
+	{% endif %}
+	{% else %}
+	<!-- Página Inicial de Busca -->
+	<div class="text-center py-12">
+		<i class="fas fa-search text-6xl text-muted mb-4"></i>
+		<h3 class="text-xl font-bold text-muted mb-2">Digite um termo para buscar</h3>
+		<p class="text-muted mb-6">
+			Use a busca para encontrar artigos, procedimentos, manuais e outras informações no banco de conhecimentos.
+		</p>
+		
+		<!-- Dicas de Busca -->
+		<div class="max-w-2xl mx-auto">
+			<h4 class="font-bold text-primary mb-4">Dicas para uma busca eficiente:</h4>
+			<div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-left">
+				<div class="bg-secondary rounded-lg p-4">
+					<h5 class="font-bold mb-2"><i class="fas fa-lightbulb mr-2"></i>Palavras-chave</h5>
+					<p class="text-sm text-muted">Use termos específicos relacionados ao que procura</p>
+				</div>
+				<div class="bg-secondary rounded-lg p-4">
+					<h5 class="font-bold mb-2"><i class="fas fa-filter mr-2"></i>Filtros</h5>
+					<p class="text-sm text-muted">Use o filtro por categoria para refinar os resultados</p>
+				</div>
+				<div class="bg-secondary rounded-lg p-4">
+					<h5 class="font-bold mb-2"><i class="fas fa-tags mr-2"></i>Tags</h5>
+					<p class="text-sm text-muted">Busque por tags para encontrar artigos relacionados</p>
+				</div>
+				<div class="bg-secondary rounded-lg p-4">
+					<h5 class="font-bold mb-2"><i class="fas fa-user mr-2"></i>Autor</h5>
+					<p class="text-sm text-muted">Busque pelo nome do autor para encontrar seus artigos</p>
+				</div>
+			</div>
+		</div>
+	</div>
+	{% endif %}
+</div>
+
+<style>
+/* Estilos para barra de filtros recolhível */
+#searchFiltersContent {
+	transition: all 0.3s ease;
+	overflow: hidden;
+}
+
+#toggleSearchFilters {
+	transition: all 0.3s ease;
+}
+
+#toggleSearchFilters:hover {
+	background: var(--primary);
+	color: white;
+}
+
+/* Badge para busca ativa */
+.badge-primary {
+	background: var(--primary);
+	color: white;
+	font-size: 0.75rem;
+	padding: 0.25rem 0.5rem;
+	border-radius: 6px;
+	font-weight: 500;
+	animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+	0% {
+		opacity: 1;
+	}
+	50% {
+		opacity: 0.7;
+	}
+	100% {
+		opacity: 1;
+	}
+}
+
+/* Melhorar aparência do cabeçalho dos filtros */
+.filters-header {
+	background: linear-gradient(135deg, var(--bg-secondary) 0%, var(--bg-tertiary) 100%);
+}
+
+/* Estilos para desktop */
+@media (min-width: 1024px) {
+	/* Filtros desktop sempre visíveis */
+	.desktop-filters {
+		background: linear-gradient(135deg, var(--bg-secondary) 0%, var(--bg-tertiary) 100%);
+		border-radius: 12px;
+	}
+	
+	/* Melhor espaçamento para desktop */
+	.desktop-filters .form-input {
+		font-size: 0.95rem;
+		padding: 0.75rem 1rem;
+	}
+	
+	/* Botões mais compactos no desktop */
+	.desktop-filters .btn {
+		padding: 0.75rem 1rem;
+		font-size: 0.9rem;
+	}
+}
+
+/* Responsividade para mobile */
+@media (max-width: 1023px) {
+	.filters-header {
+		flex-direction: column;
+		gap: 1rem;
+		align-items: stretch;
+	}
+	
+	#toggleSearchFilters {
+		width: 100%;
+		justify-content: center;
+	}
+}
+</style>
+
+<script>
+// Função para recolher/expandir filtros de busca
+function toggleSearchFilters() {
+	const searchFiltersContent = document.getElementById('searchFiltersContent');
+	const searchFilterIcon = document.getElementById('searchFilterIcon');
+	const searchFilterText = document.getElementById('searchFilterText');
+	
+	if (searchFiltersContent.style.display === 'none') {
+		// Expandir filtros
+		searchFiltersContent.style.display = 'block';
+		searchFilterIcon.className = 'fas fa-chevron-up mr-2';
+		searchFilterText.textContent = 'Recolher Filtros';
+		
+		// Salvar estado no localStorage
+		localStorage.setItem('searchFiltersExpanded', 'true');
+	} else {
+		// Recolher filtros
+		searchFiltersContent.style.display = 'none';
+		searchFilterIcon.className = 'fas fa-chevron-down mr-2';
+		searchFilterText.textContent = 'Mostrar Filtros';
+		
+		// Salvar estado no localStorage
+		localStorage.setItem('searchFiltersExpanded', 'false');
+	}
+}
+
+// Inicializar estado dos filtros de busca ao carregar a página
+document.addEventListener('DOMContentLoaded', function() {
+	// Verificar se há busca ativa
+	const hasActiveSearch = {{ 'true' if (search_term or category_id) else 'false' }};
+	
+	// Se há busca ativa, expandir automaticamente (apenas no mobile)
+	if (hasActiveSearch && window.innerWidth < 1024) {
+		toggleSearchFilters();
+	} else if (window.innerWidth < 1024) {
+		// Verificar estado salvo no localStorage (apenas no mobile)
+		const searchFiltersExpanded = localStorage.getItem('searchFiltersExpanded');
+		if (searchFiltersExpanded === 'true') {
+			toggleSearchFilters();
+		}
+	}
+});
+</script>
+{% endblock %}

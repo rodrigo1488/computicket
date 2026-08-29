@@ -1,0 +1,524 @@
+{% extends 'base.html' %}
+{% block page_title %}⚙️ Gerenciar Contrato: {{ contract_name }}{% endblock %}
+{% block content %}
+
+<!-- Cabeçalho -->
+<div class="mb-6">
+	<div class="flex items-center justify-between gap-3 flex-wrap">
+		<div>
+			<div class="text-sm text-muted mb-1">
+				<a href="{{ url_for('contracts.list_contracts') }}" class="text-muted">Contratos</a>
+				<i class="fas fa-chevron-right mx-1 text-xs"></i>
+				Gerenciar
+			</div>
+			<h1 class="text-2xl font-bold text-primary">{{ contract_name }}</h1>
+		</div>
+		<div class="flex gap-2">
+			<a href="{{ url_for('contracts.edit_contract', contract_name=contract_name) }}" class="btn btn-secondary">
+				<i class="fas fa-edit"></i>
+				Editar
+			</a>
+			<form method="post" action="{{ url_for('contracts.delete_contract', contract_name=contract_name) }}" class="inline">
+				<button type="submit" class="btn btn-error" onclick="return confirm('Tem certeza que deseja excluir este contrato? Esta ação removerá o contrato de todos os clientes.')">
+					<i class="fas fa-trash"></i>
+					Excluir
+				</button>
+			</form>
+		</div>
+	</div>
+</div>
+
+<!-- Resumo -->
+{% set ns = namespace(vencidos=0, vencendo=0) %}
+{% for client in contract_clients %}
+	{% if client.contract_details %}
+		{% if client.contract_details.display_status == 'vencido' %}{% set ns.vencidos = ns.vencidos + 1 %}{% endif %}
+		{% if client.contract_details.display_status == 'vencendo' %}{% set ns.vencendo = ns.vencendo + 1 %}{% endif %}
+	{% endif %}
+{% endfor %}
+<div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+	<div class="bg-secondary rounded-lg shadow p-4 text-center">
+		<div class="text-2xl font-bold text-primary">{{ contract_clients|length }}</div>
+		<div class="text-sm text-muted">Clientes</div>
+	</div>
+	<div class="bg-secondary rounded-lg shadow p-4 text-center">
+		<div class="text-2xl font-bold text-primary">{{ contract_services|length }}</div>
+		<div class="text-sm text-muted">Serviços</div>
+	</div>
+	<div class="bg-secondary rounded-lg shadow p-4 text-center">
+		<div class="text-2xl font-bold {% if ns.vencidos > 0 %}text-red-700{% else %}text-primary{% endif %}">{{ ns.vencidos }}</div>
+		<div class="text-sm text-muted">Vencidos</div>
+	</div>
+	<div class="bg-secondary rounded-lg shadow p-4 text-center">
+		<div class="text-2xl font-bold {% if ns.vencendo > 0 %}text-yellow-700{% else %}text-primary{% endif %}">{{ ns.vencendo }}</div>
+		<div class="text-sm text-muted">Vencendo em 30d</div>
+	</div>
+</div>
+
+<!-- Abas -->
+<div class="flex gap-4 mb-4" style="border-bottom: 1px solid var(--border-color);">
+	<button type="button" class="tab-button active" data-tab="tab-clients">
+		<i class="fas fa-users mr-2"></i>
+		Clientes ({{ contract_clients|length }})
+	</button>
+	<button type="button" class="tab-button" data-tab="tab-services">
+		<i class="fas fa-cogs mr-2"></i>
+		Serviços ({{ contract_services|length }})
+	</button>
+</div>
+
+<!-- Aba: Clientes -->
+<div id="tab-clients" class="tab-content active">
+	{% if contract_clients %}
+	<div class="table-container overflow-auto mb-6">
+		<table class="table">
+			<thead>
+				<tr>
+					<th>Cliente</th>
+					<th>Produto</th>
+					<th>Contratação</th>
+					<th>Vencimento</th>
+					<th>Valor</th>
+					<th>Status</th>
+					<th>Ações</th>
+				</tr>
+			</thead>
+			<tbody>
+				{% for client in contract_clients %}
+				{% set details = client.contract_details %}
+				<tr>
+					<td>
+						<div class="font-medium text-primary">
+							{{ client.name }}
+							{% if details and details.notes %}
+							<i class="fas fa-sticky-note text-muted ml-1" title="{{ details.notes }}"></i>
+							{% endif %}
+						</div>
+						<div class="text-xs text-muted">
+							{% if client.document %}{{ client.document }}{% endif %}
+							{% if client.no_charge %}<span class="inline-block bg-green-100 text-green-700 px-2 py-1 rounded-full ml-1">Sem cobrança</span>{% endif %}
+						</div>
+					</td>
+					<td>{{ details.product if details and details.product else '—' }}</td>
+					<td>{{ details.start_date_br if details and details.start_date_br else '—' }}</td>
+					<td>{{ details.end_date_br if details and details.end_date_br else '—' }}</td>
+					<td>{% if details and details.value is not none %}R$ {{ '%.2f'|format(details.value) }}{% else %}—{% endif %}</td>
+					<td>
+						{% if details %}
+							{% if details.display_status == 'vencido' %}
+							<span class="inline-block bg-red-100 text-red-700 text-xs px-2 py-1 rounded-full font-medium">
+								Vencido{% if details.days_to_expire is not none %} há {{ -details.days_to_expire }}d{% endif %}
+							</span>
+							{% elif details.display_status == 'vencendo' %}
+							<span class="inline-block bg-yellow-100 text-yellow-700 text-xs px-2 py-1 rounded-full font-medium">
+								Vence em {{ details.days_to_expire }}d
+							</span>
+							{% elif details.display_status == 'cancelado' %}
+							<span class="inline-block bg-secondary-100 text-gray-500 text-xs px-2 py-1 rounded-full font-medium">
+								Cancelado
+							</span>
+							{% else %}
+							<span class="inline-block bg-green-100 text-green-700 text-xs px-2 py-1 rounded-full font-medium">
+								Ativo
+							</span>
+							{% endif %}
+						{% else %}
+						<span class="text-xs text-muted">Sem detalhes</span>
+						{% endif %}
+					</td>
+					<td>
+						<div class="table-actions">
+							<button type="button" class="btn btn-secondary btn-sm"
+								onclick='openDetailsModal({{ client.id }}, {{ client.name|tojson }}, {{ (details or {})|tojson }})'
+								title="Editar detalhes do contrato deste cliente">
+								<i class="fas fa-edit"></i>
+							</button>
+							<form method="post" action="{{ url_for('contracts.remove_client_from_contract_route', contract_name=contract_name, client_id=client.id) }}" class="inline">
+								<button type="submit" class="btn btn-error btn-sm" onclick="return confirm('Deseja remover este cliente do contrato?')" title="Remover cliente do contrato">
+									<i class="fas fa-times"></i>
+								</button>
+							</form>
+						</div>
+					</td>
+				</tr>
+				{% endfor %}
+			</tbody>
+		</table>
+	</div>
+	{% else %}
+	<div class="bg-secondary rounded-lg shadow-lg p-6 text-center text-muted mb-6">
+		<i class="fas fa-users text-4xl mb-2"></i>
+		<p>Nenhum cliente vinculado a este contrato. Adicione clientes abaixo.</p>
+	</div>
+	{% endif %}
+
+	<!-- Adicionar clientes -->
+	<div class="bg-secondary rounded-lg shadow-lg p-6">
+		<h2 class="text-lg font-semibold text-primary mb-1">Adicionar Clientes</h2>
+		<p class="text-sm text-muted mb-3">Busque pelo nome ou documento e marque os clientes que deseja incluir no contrato.</p>
+
+		<div class="mb-3">
+			<input type="text" id="client-search"
+				   placeholder="Digite o nome ou documento do cliente..."
+				   class="form-input w-full">
+
+			<div id="search-loading" class="hidden mt-2 text-center">
+				<i class="fas fa-spinner fa-spin text-primary"></i>
+				<span class="ml-2 text-sm text-muted">Buscando clientes...</span>
+			</div>
+
+			<div id="search-results-count" class="hidden mt-2 text-sm text-muted">
+				<span id="results-count">0</span> cliente(s) encontrado(s)
+			</div>
+		</div>
+
+		<form method="post" action="{{ url_for('contracts.add_clients_to_contract_route', contract_name=contract_name) }}" id="add-clients-form">
+			<div id="clients-list" class="max-h-48 overflow-y-auto rounded-lg p-3 mb-3" style="border: 1px solid var(--border-color);">
+				<div id="search-placeholder" class="text-center py-4 text-muted">
+					<p>Digite no campo acima para buscar clientes</p>
+				</div>
+			</div>
+
+			<button type="submit" class="btn btn-primary" id="add-clients-btn" disabled>
+				<i class="fas fa-plus"></i>
+				<span id="btn-text">Adicionar Clientes</span>
+			</button>
+		</form>
+	</div>
+</div>
+
+<!-- Aba: Serviços -->
+<div id="tab-services" class="tab-content">
+	{% if contract_services %}
+	<div class="table-container overflow-auto mb-6">
+		<table class="table">
+			<thead>
+				<tr>
+					<th>Serviço</th>
+					<th>Valor/Hora</th>
+					<th>Ações</th>
+				</tr>
+			</thead>
+			<tbody>
+				{% for service in contract_services %}
+				<tr>
+					<td class="font-medium text-primary">{{ service.name }}</td>
+					<td>R$ {{ '%.2f'|format(service.hourly_rate) }}</td>
+					<td>
+						<div class="table-actions">
+							<form method="post" action="{{ url_for('contracts.unlink_service_from_contract', contract_name=contract_name, service_id=service.id) }}" class="inline">
+								<button type="submit" class="btn btn-error btn-sm" onclick="return confirm('Deseja remover este serviço do contrato?')" title="Remover serviço do contrato">
+									<i class="fas fa-times"></i>
+								</button>
+							</form>
+						</div>
+					</td>
+				</tr>
+				{% endfor %}
+			</tbody>
+		</table>
+	</div>
+	{% else %}
+	<div class="bg-secondary rounded-lg shadow-lg p-6 text-center text-muted mb-6">
+		<i class="fas fa-cogs text-4xl mb-2"></i>
+		<p>Nenhum serviço vinculado a este contrato. Adicione um serviço abaixo.</p>
+	</div>
+	{% endif %}
+
+	<!-- Adicionar serviço -->
+	<div class="bg-secondary rounded-lg shadow-lg p-6">
+		<h2 class="text-lg font-semibold text-primary mb-3">Adicionar Serviço</h2>
+		<form method="post" action="{{ url_for('contracts.link_service_to_contract', contract_name=contract_name) }}" class="flex gap-2 flex-wrap">
+			<select name="service_id" class="form-select flex-1" style="min-width: 240px;" required>
+				<option value="">Selecione um serviço para adicionar</option>
+				{% for service in all_services %}
+					{% set is_linked = service.id in contract_services|map(attribute='id')|list %}
+					{% if not is_linked %}
+					<option value="{{ service.id }}">{{ service.name }} — R$ {{ '%.2f'|format(service.hourly_rate) }}/h</option>
+					{% endif %}
+				{% endfor %}
+			</select>
+			<button type="submit" class="btn btn-primary">
+				<i class="fas fa-plus"></i>
+				Adicionar
+			</button>
+		</form>
+	</div>
+</div>
+
+<!-- Modal de detalhes do contrato do cliente -->
+<div id="details-modal" class="modal-overlay hidden">
+	<div class="modal">
+		<div class="modal-header">
+			<h3 class="modal-title" id="details-modal-title">Detalhes do Contrato</h3>
+			<button type="button" id="close-details-modal" class="modal-close">
+				<i class="fas fa-times"></i>
+			</button>
+		</div>
+		<div class="modal-body">
+			<form method="post" id="details-form" action="">
+				<input type="hidden" name="client_name" id="details-client-name-input">
+
+				<div class="mb-3">
+					<label class="form-label" for="details-product">Produto</label>
+					<input type="text" name="product" id="details-product" class="form-input w-full"
+						   list="product-suggestions" placeholder="Ex: Sistema Uniplus, Suporte mensal...">
+					<datalist id="product-suggestions">
+						{% for product in suggested_products %}
+						<option value="{{ product }}"></option>
+						{% endfor %}
+					</datalist>
+				</div>
+
+				<div class="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
+					<div>
+						<label class="form-label" for="details-start-date">Data de Contratação</label>
+						<input type="date" name="start_date" id="details-start-date" class="form-input w-full">
+					</div>
+					<div>
+						<label class="form-label" for="details-end-date">Data de Vencimento</label>
+						<input type="date" name="end_date" id="details-end-date" class="form-input w-full">
+					</div>
+				</div>
+
+				<div class="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
+					<div>
+						<label class="form-label" for="details-value">Valor (R$)</label>
+						<input type="number" name="value" id="details-value" class="form-input w-full" step="0.01" min="0" placeholder="0,00">
+					</div>
+					<div>
+						<label class="form-label" for="details-status">Status</label>
+						<select name="status" id="details-status" class="form-select w-full">
+							<option value="ativo">Ativo</option>
+							<option value="cancelado">Cancelado</option>
+						</select>
+					</div>
+				</div>
+
+				<div class="mb-4">
+					<label class="form-label" for="details-notes">Observações</label>
+					<textarea name="notes" id="details-notes" class="form-input w-full" rows="3" placeholder="Observações sobre este contrato..."></textarea>
+				</div>
+
+				<div class="flex justify-end gap-2">
+					<button type="button" class="btn btn-secondary" id="cancel-details-modal">Cancelar</button>
+					<button type="submit" class="btn btn-primary">
+						<i class="fas fa-save"></i>
+						Salvar Detalhes
+					</button>
+				</div>
+			</form>
+		</div>
+	</div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+	// Abas
+	document.querySelectorAll('.tab-button').forEach(button => {
+		button.addEventListener('click', function() {
+			document.querySelectorAll('.tab-button').forEach(b => b.classList.remove('active'));
+			document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+			this.classList.add('active');
+			document.getElementById(this.dataset.tab).classList.add('active');
+		});
+	});
+
+	const searchInput = document.getElementById('client-search');
+	const clientsList = document.getElementById('clients-list');
+	const searchLoading = document.getElementById('search-loading');
+	const searchResultsCount = document.getElementById('search-results-count');
+	const resultsCount = document.getElementById('results-count');
+	const addClientsBtn = document.getElementById('add-clients-btn');
+	const btnText = document.getElementById('btn-text');
+	const addClientsForm = document.getElementById('add-clients-form');
+
+	let searchTimeout;
+	let selectedClients = new Set();
+	let currentSearchTerm = '';
+
+	// Busca AJAX de clientes disponíveis
+	function searchClients(query) {
+		currentSearchTerm = query.trim();
+
+		if (currentSearchTerm.length === 0) {
+			showPlaceholder();
+			return;
+		}
+
+		showLoading();
+
+		fetch(`{{ url_for('contracts.search_clients_for_contract', contract_name=contract_name) }}?q=${encodeURIComponent(currentSearchTerm)}`)
+			.then(response => response.json())
+			.then(data => {
+				hideLoading();
+
+				if (data.error) {
+					showError(data.error);
+					return;
+				}
+
+				updateResultsCount(data.clients.length);
+
+				if (data.clients.length === 0) {
+					showNoResults(currentSearchTerm);
+					return;
+				}
+
+				renderClientsList(data.clients);
+			})
+			.catch(error => {
+				hideLoading();
+				showError(`Erro ao buscar clientes: ${error.message}`);
+			});
+	}
+
+	function showPlaceholder() {
+		clientsList.innerHTML = `
+			<div id="search-placeholder" class="text-center py-4 text-muted">
+				<p>Digite no campo acima para buscar clientes</p>
+			</div>
+		`;
+		hideResultsCount();
+		resetSelection();
+	}
+
+	function showLoading() {
+		searchLoading.classList.remove('hidden');
+		clientsList.innerHTML = '';
+		hideResultsCount();
+		resetSelection();
+	}
+
+	function hideLoading() {
+		searchLoading.classList.add('hidden');
+	}
+
+	function showError(message) {
+		clientsList.innerHTML = `
+			<div class="text-center py-4 text-red-700">
+				<i class="fas fa-exclamation-triangle text-2xl mb-2"></i>
+				<p>Erro: ${message}</p>
+			</div>
+		`;
+		hideResultsCount();
+		resetSelection();
+	}
+
+	function showNoResults(searchTerm) {
+		clientsList.innerHTML = `
+			<div class="text-center py-4 text-muted">
+				<p>Nenhum cliente encontrado para "${searchTerm}"</p>
+			</div>
+		`;
+		hideResultsCount();
+		resetSelection();
+	}
+
+	function renderClientsList(clients) {
+		clientsList.innerHTML = clients.map(client => `
+			<label class="flex items-center space-x-2 py-1">
+				<input type="checkbox" name="client_ids" value="${client.id}" class="form-checkbox client-checkbox">
+				<span class="text-sm">${client.name}
+					${client.document ? ` - ${client.document}` : ''}
+				</span>
+			</label>
+		`).join('');
+
+		document.querySelectorAll('.client-checkbox').forEach(checkbox => {
+			checkbox.addEventListener('change', updateSelectedClients);
+		});
+	}
+
+	function updateResultsCount(count) {
+		resultsCount.textContent = count;
+		searchResultsCount.classList.remove('hidden');
+	}
+
+	function hideResultsCount() {
+		searchResultsCount.classList.add('hidden');
+	}
+
+	function updateSelectedClients() {
+		const checkboxes = document.querySelectorAll('.client-checkbox:checked');
+		selectedClients.clear();
+		checkboxes.forEach(checkbox => selectedClients.add(checkbox.value));
+
+		addClientsBtn.disabled = selectedClients.size === 0;
+
+		if (selectedClients.size > 0) {
+			btnText.textContent = `Adicionar ${selectedClients.size} Cliente(s)`;
+		} else {
+			btnText.textContent = 'Adicionar Clientes';
+		}
+	}
+
+	function resetSelection() {
+		selectedClients.clear();
+		addClientsBtn.disabled = true;
+		btnText.textContent = 'Adicionar Clientes';
+	}
+
+	searchInput.addEventListener('input', function() {
+		const query = this.value;
+		clearTimeout(searchTimeout);
+		searchTimeout = setTimeout(() => {
+			searchClients(query);
+		}, 200);
+	});
+
+	addClientsForm.addEventListener('submit', function(e) {
+		if (selectedClients.size === 0) {
+			e.preventDefault();
+			alert('Selecione pelo menos um cliente para adicionar.');
+			return;
+		}
+
+		if (!confirm(`Deseja adicionar ${selectedClients.size} cliente(s) ao contrato?`)) {
+			e.preventDefault();
+			return;
+		}
+	});
+
+	// Modal de detalhes do contrato
+	const detailsModal = document.getElementById('details-modal');
+	const closeDetailsModal = document.getElementById('close-details-modal');
+	const cancelDetailsModal = document.getElementById('cancel-details-modal');
+
+	function hideDetailsModal() {
+		detailsModal.classList.add('hidden');
+		detailsModal.classList.remove('active');
+	}
+
+	closeDetailsModal.addEventListener('click', hideDetailsModal);
+	cancelDetailsModal.addEventListener('click', hideDetailsModal);
+	detailsModal.addEventListener('click', function(e) {
+		if (e.target === detailsModal) {
+			hideDetailsModal();
+		}
+	});
+});
+
+// Abre o modal de detalhes preenchido com os dados do cliente
+function openDetailsModal(clientId, clientName, details) {
+	details = details || {};
+
+	document.getElementById('details-modal-title').textContent = `Detalhes do Contrato: ${clientName}`;
+	document.getElementById('details-client-name-input').value = clientName;
+	document.getElementById('details-product').value = details.product || '';
+	document.getElementById('details-start-date').value = details.start_date || '';
+	document.getElementById('details-end-date').value = details.end_date || '';
+	document.getElementById('details-value').value = (details.value !== null && details.value !== undefined) ? details.value : '';
+	document.getElementById('details-status').value = details.status || 'ativo';
+	document.getElementById('details-notes').value = details.notes || '';
+
+	const form = document.getElementById('details-form');
+	form.action = `{{ url_for('contracts.manage_contract', contract_name=contract_name) }}`.replace('/gerenciar', '') + `/cliente/${clientId}/detalhes`;
+
+	const modal = document.getElementById('details-modal');
+	modal.classList.remove('hidden');
+	modal.classList.add('active');
+}
+</script>
+
+{% endblock %}

@@ -1,0 +1,309 @@
+{% extends 'base.html' %}
+{% block page_title %}🗺️ Mapa de {{ target_user.name }}{% endblock %}
+{% block content %}
+
+<div class="container mx-auto px-4 py-6">
+	<!-- Cabeçalho -->
+	<div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
+		<div>
+			<h1 class="text-2xl font-bold text-primary mb-2">
+				<i class="fas fa-map mr-2"></i>
+				Mapa de {{ target_user.name }}
+			</h1>
+			<p class="text-secondary">Última localização registrada</p>
+		</div>
+		
+		<div class="flex gap-2">
+			<a href="{{ url_for('monitoring.index') }}" class="btn btn-secondary">
+				<i class="fas fa-arrow-left mr-2"></i>
+				Voltar
+			</a>
+			<button id="refresh-location-btn" class="btn btn-info">
+				<i class="fas fa-sync-alt mr-2"></i>
+				Atualizar
+			</button>
+		</div>
+	</div>
+	
+	<!-- Informações do Usuário -->
+	<div class="bg-tertiary rounded-lg p-4 mb-6">
+		<div class="flex items-center gap-4">
+			<div class="w-16 h-16 rounded-full bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center">
+				<i class="fas fa-user text-white text-2xl"></i>
+			</div>
+			<div class="flex-1">
+				<h2 class="text-xl font-semibold text-primary">{{ target_user.name }}</h2>
+				<p class="text-muted capitalize">{{ target_user.role }}</p>
+			</div>
+			<div class="text-right">
+				<div id="location-status" class="text-sm text-muted">
+					<i class="fas fa-clock mr-1"></i>
+					Carregando...
+				</div>
+				<div id="location-accuracy" class="text-xs text-muted"></div>
+			</div>
+		</div>
+	</div>
+	
+	<!-- Mapa -->
+	<div class="bg-tertiary rounded-lg p-4">
+		<div id="user-map" style="height: 500px; width: 100%; border-radius: 8px; overflow: hidden;">
+			<!-- Mapa será carregado via JavaScript -->
+		</div>
+	</div>
+	
+	<!-- Detalhes da Localização -->
+	<div id="location-details" class="mt-6 bg-tertiary rounded-lg p-4" style="display: none;">
+		<h3 class="text-lg font-semibold text-primary mb-4">
+			<i class="fas fa-info-circle mr-2"></i>
+			Detalhes da Localização
+		</h3>
+		
+		<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+			<div class="bg-secondary rounded-lg p-3">
+				<div class="text-sm text-muted">Endereço</div>
+				<div id="location-address" class="font-medium">-</div>
+			</div>
+			
+			<div class="bg-secondary rounded-lg p-3">
+				<div class="text-sm text-muted">Coordenadas</div>
+				<div id="location-coordinates" class="font-mono text-sm">-</div>
+			</div>
+			
+			<div class="bg-secondary rounded-lg p-3">
+				<div class="text-sm text-muted">Precisão</div>
+				<div id="location-accuracy-detail" class="font-medium">-</div>
+			</div>
+		</div>
+		
+		<div class="mt-4 flex gap-2">
+			<a id="google-maps-link" href="#" target="_blank" class="btn btn-info">
+				<i class="fas fa-external-link-alt mr-2"></i>
+				Abrir no Google Maps
+			</a>
+			<button id="copy-coordinates-btn" class="btn btn-outline">
+				<i class="fas fa-copy mr-2"></i>
+				Copiar Coordenadas
+			</button>
+		</div>
+	</div>
+	
+	<!-- Mensagem de Sem Localização -->
+	<div id="no-location-message" class="mt-6 bg-warning/10 border border-warning/20 rounded-lg p-6 text-center" style="display: none;">
+		<i class="fas fa-map-marker-alt text-warning text-4xl mb-4"></i>
+		<h3 class="text-lg font-semibold text-warning mb-2">Nenhuma Localização Encontrada</h3>
+		<p class="text-warning/90">Este usuário ainda não possui localizações registradas no sistema.</p>
+	</div>
+</div>
+
+<style>
+.user-marker {
+	width: 50px;
+	height: 50px;
+	border-radius: 50%;
+	border: 4px solid white;
+	box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	color: white;
+	font-weight: bold;
+	font-size: 1.2rem;
+}
+
+.user-marker.online {
+	background: linear-gradient(135deg, #10b981, #059669);
+}
+
+.user-marker.offline {
+	background: linear-gradient(135deg, #6b7280, #4b5563);
+}
+</style>
+
+<script>
+class UserMapManager {
+	constructor() {
+		this.map = null;
+		this.marker = null;
+		this.userId = {{ target_user.id }};
+		this.userName = "{{ target_user.name }}";
+		this.userRole = "{{ target_user.role }}";
+		this.init();
+	}
+	
+	init() {
+		this.setupEventListeners();
+		this.loadMap();
+		this.loadUserLocation();
+		
+		console.log('🗺️ UserMapManager inicializado para usuário:', this.userName);
+	}
+	
+	setupEventListeners() {
+		// Botão de atualizar
+		document.getElementById('refresh-location-btn').addEventListener('click', () => {
+			this.loadUserLocation();
+		});
+		
+		// Botão de copiar coordenadas
+		document.getElementById('copy-coordinates-btn').addEventListener('click', () => {
+			this.copyCoordinates();
+		});
+	}
+	
+	loadMap() {
+		// Usar OpenStreetMap com Leaflet
+		this.map = L.map('user-map').setView([-23.5505, -46.6333], 10); // São Paulo como centro
+		
+		// Adicionar camada do mapa
+		L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+			attribution: '© OpenStreetMap contributors',
+			maxZoom: 18
+		}).addTo(this.map);
+		
+		console.log('🗺️ Mapa carregado');
+	}
+	
+	async loadUserLocation() {
+		try {
+			const response = await fetch(`/monitoring/api/user-location/${this.userId}`);
+			const data = await response.json();
+			
+			if (data.success && data.location) {
+				this.displayLocation(data.location);
+			} else {
+				this.showNoLocation();
+			}
+			
+		} catch (error) {
+			console.error('❌ Erro ao carregar localização do usuário:', error);
+			this.showNoLocation();
+		}
+	}
+	
+	displayLocation(location) {
+		// Atualizar informações do usuário
+		document.getElementById('location-status').innerHTML = `
+			<i class="fas fa-clock mr-1"></i>
+			Última atualização: ${new Date(location.last_seen).toLocaleString()}
+		`;
+		
+		if (location.accuracy) {
+			document.getElementById('location-accuracy').innerHTML = `
+				<i class="fas fa-crosshairs mr-1"></i>
+				Precisão: ${Math.round(location.accuracy)}m
+			`;
+		}
+		
+		// Atualizar detalhes da localização
+		document.getElementById('location-address').textContent = location.address || 'Endereço não disponível';
+		document.getElementById('location-coordinates').textContent = 
+			`${location.latitude.toFixed(6)}, ${location.longitude.toFixed(6)}`;
+		document.getElementById('location-accuracy-detail').textContent = 
+			location.accuracy ? `${Math.round(location.accuracy)}m` : 'Não disponível';
+		
+		// Atualizar link do Google Maps
+		const googleMapsLink = document.getElementById('google-maps-link');
+		googleMapsLink.href = `https://www.google.com/maps?q=${location.latitude},${location.longitude}`;
+		
+		// Mostrar seção de detalhes
+		document.getElementById('location-details').style.display = 'block';
+		document.getElementById('no-location-message').style.display = 'none';
+		
+		// Atualizar mapa
+		this.updateMap(location);
+		
+		console.log('📍 Localização exibida:', location);
+	}
+	
+	updateMap(location) {
+		// Remover marcador existente
+		if (this.marker) {
+			this.map.removeLayer(this.marker);
+		}
+		
+		// Criar ícone personalizado
+		const icon = L.divIcon({
+			className: 'user-marker ' + (location.is_online ? 'online' : 'offline'),
+			html: `<i class="fas fa-user"></i>`,
+			iconSize: [50, 50],
+			iconAnchor: [25, 25]
+		});
+		
+		// Criar marcador
+		this.marker = L.marker([location.latitude, location.longitude], { icon })
+			.addTo(this.map);
+		
+		// Adicionar popup
+		const popupContent = `
+			<div class="p-3">
+				<div class="font-semibold text-primary mb-2">${this.userName}</div>
+				<div class="text-sm text-muted mb-2">${this.userRole}</div>
+				<div class="text-sm mb-2">
+					<i class="fas fa-circle ${location.is_online ? 'text-success' : 'text-gray-400'}"></i>
+					${location.is_online ? 'Online' : 'Offline'}
+				</div>
+				${location.address ? `
+				<div class="text-xs text-muted mb-2">${location.address}</div>
+				` : ''}
+				<div class="text-xs text-muted">
+					Última atualização: ${new Date(location.last_seen).toLocaleString()}
+				</div>
+			</div>
+		`;
+		
+		this.marker.bindPopup(popupContent);
+		
+		// Centralizar mapa no marcador
+		this.map.setView([location.latitude, location.longitude], 15);
+		
+		// Abrir popup automaticamente
+		this.marker.openPopup();
+	}
+	
+	showNoLocation() {
+		// Esconder seção de detalhes
+		document.getElementById('location-details').style.display = 'none';
+		document.getElementById('no-location-message').style.display = 'block';
+		
+		// Atualizar status
+		document.getElementById('location-status').innerHTML = `
+			<i class="fas fa-exclamation-triangle mr-1"></i>
+			Nenhuma localização registrada
+		`;
+		document.getElementById('location-accuracy').innerHTML = '';
+		
+		console.log('⚠️ Nenhuma localização encontrada para o usuário');
+	}
+	
+	copyCoordinates() {
+		if (this.marker) {
+			const latLng = this.marker.getLatLng();
+			const text = `${latLng.lat}, ${latLng.lng}`;
+			
+			navigator.clipboard.writeText(text).then(() => {
+				this.showNotification('Coordenadas copiadas!', 'success');
+			}).catch(err => {
+				console.error('Erro ao copiar:', err);
+				this.showNotification('Erro ao copiar coordenadas', 'error');
+			});
+		}
+	}
+	
+	showNotification(message, type = 'info') {
+		// Implementar sistema de notificações
+		console.log(`📢 ${type.toUpperCase()}: ${message}`);
+	}
+}
+
+// Inicializar quando a página carregar
+document.addEventListener('DOMContentLoaded', function() {
+	window.userMapManager = new UserMapManager();
+});
+</script>
+
+<!-- Leaflet CSS e JS -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+{% endblock %}

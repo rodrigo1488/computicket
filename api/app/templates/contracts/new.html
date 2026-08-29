@@ -1,0 +1,105 @@
+{% extends 'base.html' %}
+{% block page_title %}📋 Novo Contrato{% endblock %}
+{% block content %}
+
+<div class="bg-secondary rounded-lg shadow-lg p-6 mb-6">
+	<div class="flex items-start justify-between mb-4">
+		<div>
+			<h1 class="text-2xl font-bold text-primary mb-2">Novo Contrato</h1>
+			<p class="text-muted">Crie um novo tipo de contrato no sistema</p>
+		</div>
+		<a href="{{ url_for('contracts.list_contracts') }}" class="btn btn-secondary">
+			<i class="fas fa-arrow-left"></i>
+			Voltar
+		</a>
+	</div>
+</div>
+
+<div class="bg-secondary rounded-lg shadow-lg p-6">
+	<form method="post" class="space-y-6">
+		<div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+			<!-- Nome do Contrato -->
+			<div class="form-group">
+				<label for="name" class="form-label">
+					<i class="fas fa-file-contract mr-2"></i>
+					Nome do Contrato
+				</label>
+				<input 
+					type="text" 
+					id="name" 
+					name="name" 
+					required 
+					class="form-input"
+					placeholder="Digite o nome do contrato"
+				>
+			</div>
+
+			<!-- Cliente -->
+			<div class="form-group">
+				<label for="client_id" class="form-label">
+					<i class="fas fa-user mr-2"></i>
+					Cliente
+				</label>
+				<select 
+					id="client_id" 
+					name="client_id" 
+					class="form-select"
+				>
+					<option value="">Selecione um cliente</option>
+					{% for c in clients %}
+					<option value="{{ c.id }}">{{ c.name }}</option>
+					{% endfor %}
+				</select>
+			</div>
+		</div>
+
+		<!-- Serviços -->
+		<div class="form-group">
+			<label for="service_ids" class="form-label">
+				<i class="fas fa-cogs mr-2"></i>
+				Serviços Incluídos
+			</label>
+			<select 
+				id="service_ids" 
+				name="service_ids" 
+				multiple 
+				size="6"
+				class="form-select"
+			>
+				{% for s in services %}
+				<option value="{{ s.id }}">{{ s.name }} - R$ {{ '%.2f'|format(s.hourly_rate or 0) }}/h</option>
+				{% endfor %}
+			</select>
+			<div class="form-help">Segure Ctrl (ou Cmd no Mac) para selecionar múltiplos serviços</div>
+		</div>
+
+		<!-- Botões de ação -->
+		<div class="flex items-center gap-4 justify-end">
+			<a href="{{ url_for('contracts.list_contracts') }}" class="btn btn-secondary">
+				<i class="fas fa-times"></i>
+				Cancelar
+			</a>
+			<button type="submit" class="btn btn-primary">
+				<i class="fas fa-save"></i>
+				Criar Contrato
+			</button>
+		</div>
+	</form>
+</div>
+
+<!-- Informações sobre contratos -->
+<div class="bg-info/10 border border-info/20 rounded-lg p-4 mt-6">
+	<div class="flex items-start">
+		<i class="fas fa-info-circle text-info mr-2 mt-0.5"></i>
+		<div>
+			<p class="text-sm text-info/90 font-medium mb-1">Dica:</p>
+			<p class="text-sm text-info/90">
+				• Os contratos definem quais serviços estão disponíveis para cada cliente<br>
+				• Você pode selecionar múltiplos serviços para incluir no contrato<br>
+				• Contratos podem ser editados posteriormente conforme necessário
+			</p>
+		</div>
+	</div>
+</div>
+
+{% endblock %}

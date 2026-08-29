@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="pt-br" data-theme="light">
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Login - Sistema de Tickets</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+</head>
+
+<body class="login-body">
+    <div class="login-container">
+        <div class="login-card">
+            <div class="login-header">
+                <div class="login-logo" style="flex-direction: column; gap: 0;">
+                    <img src="/image/logo%203.jpg" alt="Sistema de Tickets" class="logo-light"
+                        style="max-width: 260px; max-height: 90px; object-fit: contain;">
+                    <img src="/image/logo.png" alt="Sistema de Tickets" class="logo-dark"
+                        style="max-width: 260px; max-height: 90px; object-fit: contain;">
+                </div>
+                <p class="login-subtitle">Faça login para acessar o sistema</p>
+            </div>
+
+            <!-- Flash Messages -->
+            {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+            <div class="flash-messages">
+                {% for category, message in messages %}
+                <div class="flash-message flash-{{ category }}">
+                    <i
+                        class="fas fa-{{ 'check-circle' if category == 'success' else 'exclamation-triangle' if category == 'error' else 'info-circle' }}"></i>
+                    {{ message }}
+                </div>
+                {% endfor %}
+            </div>
+            {% endif %}
+            {% endwith %}
+
+            <form method="post" class="login-form">
+                <div class="form-group">
+                    <label class="form-label">
+                        <i class="fas fa-envelope"></i>
+                        Email
+                    </label>
+                    <input name="email" type="email" required class="form-input" placeholder="Digite seu email">
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">
+                        <i class="fas fa-lock"></i>
+                        Senha
+                    </label>
+                    <input name="password" type="password" required class="form-input" placeholder="Digite sua senha">
+                </div>
+
+                <button type="submit" class="btn btn-primary btn-full">
+                    <i class="fas fa-sign-in-alt"></i>
+                    Entrar
+                </button>
+            </form>
+
+            <div class="login-footer">
+                <a href="{{ url_for('auth.seed_admin') }}" class="login-link">
+                    <i class="fas fa-user-plus"></i>
+                    Criar admin padrão
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Toggle de tema para a página de login
+        document.addEventListener('DOMContentLoaded', function () {
+            // Verificar se há tema salvo no localStorage
+            const savedTheme = localStorage.getItem('theme') || 'light';
+            document.documentElement.setAttribute('data-theme', savedTheme);
+
+            // Adicionar botão de toggle de tema
+            const themeToggle = document.createElement('button');
+            themeToggle.className = 'theme-toggle';
+            themeToggle.innerHTML = '<i class="fas fa-moon"></i>';
+            themeToggle.title = 'Alternar tema';
+
+            themeToggle.addEventListener('click', function () {
+                const currentTheme = document.documentElement.getAttribute('data-theme');
+                const newTheme = currentTheme === 'light' ? 'dark' : 'light';
+
+                document.documentElement.setAttribute('data-theme', newTheme);
+                localStorage.setItem('theme', newTheme);
+
+                // Atualizar ícone
+                const icon = this.querySelector('i');
+                icon.className = newTheme === 'light' ? 'fas fa-moon' : 'fas fa-sun';
+            });
+
+            // Posicionar botão no canto superior direito
+            document.body.appendChild(themeToggle);
+
+            // Atualizar ícone inicial
+            const icon = themeToggle.querySelector('i');
+            icon.className = savedTheme === 'light' ? 'fas fa-moon' : 'fas fa-sun';
+        });
+    </script>
+</body>
+
+</html>

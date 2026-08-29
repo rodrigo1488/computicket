@@ -1,0 +1,208 @@
+{% extends 'base.html' %}
+{% block page_title %}📋 Relatório de Tickets{% endblock %}
+{% block content %}
+
+<div class="bg-secondary rounded-lg shadow-lg p-6 mb-6">
+	<div class="flex items-start justify-between mb-4">
+		<div>
+			<h1 class="text-2xl font-bold text-primary mb-2">Relatório de Tickets</h1>
+			<p class="text-muted">Analise tickets por usuário, cliente e período</p>
+		</div>
+	</div>
+</div>
+
+<div class="bg-secondary rounded-lg shadow-lg p-6 mb-6">
+	<h2 class="text-lg font-semibold text-primary mb-4 flex items-center">
+		<i class="fas fa-filter mr-2"></i>
+		Filtros
+	</h2>
+	<form method="get" class="grid grid-cols-1 md:grid-cols-5 gap-4">
+		<div class="form-group">
+			<label class="form-label">Usuário</label>
+			<select name="user_id" class="form-select">
+				<option value="">Todos</option>
+				{% for u in users %}
+				<option value="{{ u.id }}" {{ 'selected' if request.args.get('user_id')|int == u.id else '' }}>{{ u.name }}</option>
+				{% endfor %}
+			</select>
+		</div>
+		<div class="form-group">
+			<label class="form-label">Cliente</label>
+			<select name="client_id" class="form-select">
+				<option value="">Todos</option>
+				{% for c in clients %}
+				<option value="{{ c.id }}" {{ 'selected' if request.args.get('client_id')|int == c.id else '' }}>{{ c.name }}</option>
+				{% endfor %}
+			</select>
+		</div>
+		<div class="form-group">
+			<label class="form-label">Data Início</label>
+			<input type="datetime-local" name="start" value="{{ request.args.get('start', '') }}" class="form-input datetime-mask" placeholder="DD/MM/AAAA HH:MM">
+		</div>
+		<div class="form-group">
+			<label class="form-label">Data Fim</label>
+			<input type="datetime-local" name="end" value="{{ request.args.get('end', '') }}" class="form-input datetime-mask" placeholder="DD/MM/AAAA HH:MM">
+		</div>
+		<div class="form-group flex items-end">
+			<button type="submit" class="btn btn-primary w-full">
+				<i class="fas fa-search"></i>
+				Filtrar
+			</button>
+		</div>
+	</form>
+</div>
+<div class="bg-secondary rounded-lg shadow-lg p-6">
+	<h2 class="text-lg font-semibold text-primary mb-4 flex items-center">
+		<i class="fas fa-list mr-2"></i>
+		Lista de Tickets
+	</h2>
+	
+	{% if tickets %}
+	<div class="table-container">
+		<table class="table">
+			<thead>
+				<tr>
+					<th>#</th>
+					<th>Título</th>
+					<th>Cliente</th>
+					<th>Status</th>
+					<th>Criado</th>
+					<th>Fechado</th>
+				</tr>
+			</thead>
+			<tbody>
+				{% for t in tickets %}
+				<tr>
+					<td>
+						<div class="font-medium text-primary">#{{ t.id }}</div>
+					</td>
+					<td>
+						<div class="font-medium">{{ t.title }}</div>
+					</td>
+					<td>
+						<div class="flex items-center">
+							<i class="fas fa-building text-muted mr-2"></i>
+							<span>{{ t.client.name }}</span>
+						</div>
+					</td>
+					<td>
+						{% if t.status == 'aberto' %}
+							<span class="status-badge status-aberto">Aberto</span>
+						{% elif t.status == 'em_andamento' %}
+							<span class="status-badge status-em-andamento">Em Andamento</span>
+						{% elif t.status == 'fechado' %}
+							<span class="status-badge status-fechado">Fechado</span>
+						{% else %}
+							<span class="status-badge">{{ t.status }}</span>
+						{% endif %}
+					</td>
+					<td>
+						<div class="text-muted">
+							<i class="fas fa-calendar-plus mr-1"></i>
+							{{ t.created_at.strftime('%d/%m/%Y %H:%M') if t.created_at else '—' }}
+						</div>
+					</td>
+					<td>
+						<div class="text-muted">
+							{% if t.closed_at %}
+								<i class="fas fa-calendar-check mr-1"></i>
+								{{ t.closed_at.strftime('%d/%m/%Y %H:%M') }}
+							{% else %}
+								—
+							{% endif %}
+						</div>
+					</td>
+				</tr>
+				{% endfor %}
+			</tbody>
+		</table>
+	</div>
+	
+	<div class="mt-6 grid grid-cols-1 md:grid-cols-3 gap-4">
+		<div class="bg-tertiary rounded-lg p-4">
+			<div class="flex items-center">
+				<i class="fas fa-ticket-alt text-primary mr-3 text-xl"></i>
+				<div>
+					<div class="text-sm text-muted">Total de Tickets</div>
+					<div class="text-2xl font-bold text-primary">{{ tickets|length }}</div>
+				</div>
+			</div>
+		</div>
+		<div class="bg-tertiary rounded-lg p-4">
+			<div class="flex items-center">
+				<i class="fas fa-check-circle text-success mr-3 text-xl"></i>
+				<div>
+					<div class="text-sm text-muted">Tickets Fechados</div>
+					<div class="text-2xl font-bold text-success">
+						{{ tickets|selectattr('status', 'equalto', 'fechado')|list|length }}
+					</div>
+				</div>
+			</div>
+		</div>
+		<div class="bg-tertiary rounded-lg p-4">
+			<div class="flex items-center">
+				<i class="fas fa-clock text-warning mr-3 text-xl"></i>
+				<div>
+					<div class="text-sm text-muted">Em Andamento</div>
+					<div class="text-2xl font-bold text-warning">
+						{{ tickets|selectattr('status', 'equalto', 'em_andamento')|list|length }}
+					</div>
+				</div>
+			</div>
+		</div>
+	</div>
+	{% else %}
+	<div class="empty-state">
+		<i class="fas fa-list"></i>
+		<h3>Nenhum ticket encontrado</h3>
+		<p>Não há tickets para os filtros selecionados.</p>
+		<a href="{{ url_for('reports.tickets') }}" class="btn btn-primary">
+			<i class="fas fa-refresh"></i>
+			Limpar Filtros
+		</a>
+	</div>
+	{% endif %}
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+	// Máscaras de data e hora
+	function initDateTimeMasks() {
+		const datetimeInputs = document.querySelectorAll('.datetime-mask');
+		
+		datetimeInputs.forEach(input => {
+			// Definir valor padrão se estiver vazio
+			if (!input.value) {
+				const now = new Date();
+				const year = now.getFullYear();
+				const month = String(now.getMonth() + 1).padStart(2, '0');
+				const day = String(now.getDate()).padStart(2, '0');
+				const hours = String(now.getHours()).padStart(2, '0');
+				const minutes = String(now.getMinutes()).padStart(2, '0');
+				
+				input.value = `${year}-${month}-${day}T${hours}:${minutes}`;
+			}
+			
+			// Adicionar validação de data
+			input.addEventListener('change', function() {
+				const startInput = document.querySelector('input[name="start"]');
+				const endInput = document.querySelector('input[name="end"]');
+				
+				if (startInput && endInput && startInput.value && endInput.value) {
+					const start = new Date(startInput.value);
+					const end = new Date(endInput.value);
+					
+					if (end <= start) {
+						alert('A data/hora de fim deve ser posterior à data/hora de início.');
+						endInput.focus();
+					}
+				}
+			});
+		});
+	}
+	
+	// Inicializar máscaras
+	initDateTimeMasks();
+});
+</script>
+{% endblock %}

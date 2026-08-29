@@ -1,0 +1,212 @@
+{% extends 'base.html' %}
+{% block page_title %}✏️ Editar Apontamento - Ticket #{{ ticket.id }}{% endblock %}
+{% block content %}
+
+<div class="bg-secondary rounded-lg shadow-lg p-6 mb-6">
+	<div class="flex items-start justify-between mb-4">
+		<div>
+			<h1 class="text-2xl font-bold text-primary mb-2">Editar Apontamento</h1>
+			<p class="text-muted">Ticket #{{ ticket.id }} - {{ ticket.title }}</p>
+		</div>
+		<a href="{{ url_for('tickets.view_ticket', ticket_id=ticket.id) }}" class="btn btn-secondary">
+			<i class="fas fa-arrow-left"></i>
+			Voltar
+		</a>
+	</div>
+</div>
+
+<div class="bg-secondary rounded-lg shadow-lg p-6">
+	<form method="POST" class="space-y-6">
+		<!-- Datas e Horários -->
+		<div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+			<div class="form-group">
+				<label class="form-label">
+					<i class="fas fa-play mr-2"></i>
+					Data/Hora de Início *
+				</label>
+				<div class="grid grid-cols-2 gap-2">
+					<input type="date" id="start_date" name="start_date" 
+						   value="{% if time_entry.start_time_brasilia() %}{{ time_entry.start_time_brasilia().strftime('%Y-%m-%d') }}{% endif %}"
+						   class="form-input" required>
+					<input type="time" id="start_time" name="start_time" 
+						   value="{% if time_entry.start_time_brasilia() %}{{ time_entry.start_time_brasilia().strftime('%H:%M') }}{% endif %}"
+						   class="form-input" required>
+				</div>
+			</div>
+
+			<div class="form-group">
+				<label class="form-label">
+					<i class="fas fa-stop mr-2"></i>
+					Data/Hora de Fim *
+				</label>
+				<div class="grid grid-cols-2 gap-2">
+					<input type="date" id="end_date" name="end_date" 
+						   value="{% if time_entry.end_time_brasilia() %}{{ time_entry.end_time_brasilia().strftime('%Y-%m-%d') }}{% endif %}"
+						   class="form-input" required>
+					<input type="time" id="end_time" name="end_time" 
+						   value="{% if time_entry.end_time_brasilia() %}{{ time_entry.end_time_brasilia().strftime('%H:%M') }}{% endif %}"
+						   class="form-input" required>
+				</div>
+			</div>
+		</div>
+
+		<!-- Duração Calculada -->
+		<div class="bg-info/10 border border-info/20 rounded-lg p-3">
+			<div class="flex items-center gap-2">
+				<i class="fas fa-clock text-info"></i>
+				<span class="text-sm font-medium text-info">Duração Calculada:</span>
+				<span id="duration-display" class="text-sm font-bold text-info">{{ time_entry.formatted_hours() }}</span>
+			</div>
+		</div>
+
+		<!-- Comentário -->
+		<div class="form-group">
+			<label for="comment" class="form-label">
+				<i class="fas fa-comment mr-2"></i>
+				Comentário
+			</label>
+			<textarea id="comment" name="comment" rows="3" 
+					  class="form-textarea" placeholder="Descreva o trabalho realizado...">{{ time_entry.comment }}</textarea>
+		</div>
+
+		<!-- Informações do Apontamento -->
+		<div class="bg-tertiary rounded-lg p-4">
+			<h3 class="text-lg font-semibold text-primary mb-3">
+				<i class="fas fa-info-circle mr-2"></i>
+				Informações do Apontamento
+			</h3>
+			<div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+				<div>
+					<span class="font-medium text-secondary">Técnico:</span>
+					<span class="ml-2">{{ time_entry.user.name }}</span>
+				</div>
+				<div>
+					<span class="font-medium text-secondary">Criado em:</span>
+					<span class="ml-2">{{ time_entry.created_at.strftime('%d/%m/%Y %H:%M') }}</span>
+				</div>
+				<div>
+					<span class="font-medium text-secondary">Duração Atual:</span>
+					<span class="ml-2 font-bold text-primary">{{ time_entry.formatted_hours() }}</span>
+				</div>
+			</div>
+		</div>
+
+		<!-- Botões -->
+		<div class="flex items-center gap-3 justify-between">
+			<button type="button" onclick="deleteTimeEntry()" class="btn btn-danger">
+				<i class="fas fa-trash"></i>
+				Excluir Apontamento
+			</button>
+			<div class="flex gap-3">
+				<a href="{{ url_for('tickets.view_ticket', ticket_id=ticket.id) }}" class="btn btn-secondary">
+					<i class="fas fa-times"></i>
+					Cancelar
+				</a>
+				<button type="submit" class="btn btn-primary">
+					<i class="fas fa-save"></i>
+					Salvar Alterações
+				</button>
+			</div>
+		</div>
+	</form>
+</div>
+
+<!-- Modal de Confirmação de Exclusão -->
+<div id="deleteModal" class="modal hidden">
+	<div class="modal-content">
+		<div class="modal-header">
+			<h3 class="text-lg font-semibold text-danger">
+				<i class="fas fa-exclamation-triangle mr-2"></i>
+				Confirmar Exclusão
+			</h3>
+		</div>
+		<div class="modal-body">
+			<p class="text-gray-700 mb-4">
+				Tem certeza que deseja excluir este apontamento?
+			</p>
+			<div class="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
+				<p class="text-sm text-yellow-800">
+					<i class="fas fa-info-circle mr-2"></i>
+					Esta ação não pode ser desfeita.
+				</p>
+			</div>
+		</div>
+		<div class="modal-footer">
+			<button type="button" onclick="closeDeleteModal()" class="btn btn-secondary">
+				<i class="fas fa-times mr-2"></i>
+				Cancelar
+			</button>
+			<form method="POST" action="{{ url_for('tickets.delete_time_entry', ticket_id=ticket.id, entry_id=time_entry.id) }}" class="inline">
+				<button type="submit" class="btn btn-danger">
+					<i class="fas fa-trash mr-2"></i>
+					Excluir
+				</button>
+			</form>
+		</div>
+	</div>
+</div>
+
+<script>
+function deleteTimeEntry() {
+	document.getElementById('deleteModal').classList.remove('hidden');
+}
+
+function closeDeleteModal() {
+	document.getElementById('deleteModal').classList.add('hidden');
+}
+
+// Fechar modal ao clicar fora
+document.getElementById('deleteModal').addEventListener('click', function(e) {
+	if (e.target === this) {
+		closeDeleteModal();
+	}
+});
+
+// Calcular duração automaticamente quando datas são alteradas
+document.addEventListener('DOMContentLoaded', function() {
+	const startDate = document.getElementById('start_date');
+	const startTime = document.getElementById('start_time');
+	const endDate = document.getElementById('end_date');
+	const endTime = document.getElementById('end_time');
+	const durationDisplay = document.getElementById('duration-display');
+	
+	function calculateDuration() {
+		if (startDate.value && startTime.value && endDate.value && endTime.value) {
+			const start = new Date(`${startDate.value}T${startTime.value}`);
+			const end = new Date(`${endDate.value}T${endTime.value}`);
+			
+			if (end > start) {
+				const diffMs = end - start;
+				const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+				const diffMinutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
+				
+				if (durationDisplay) {
+					if (diffMinutes === 0) {
+						durationDisplay.textContent = `${diffHours}h`;
+					} else {
+						durationDisplay.textContent = `${diffHours}h ${diffMinutes}min`;
+					}
+				}
+			} else {
+				if (durationDisplay) {
+					durationDisplay.textContent = 'Horário de fim deve ser maior que o de início';
+				}
+			}
+		} else {
+			if (durationDisplay) {
+				durationDisplay.textContent = 'Preencha todos os campos';
+			}
+		}
+	}
+	
+	startDate.addEventListener('change', calculateDuration);
+	startTime.addEventListener('change', calculateDuration);
+	endDate.addEventListener('change', calculateDuration);
+	endTime.addEventListener('change', calculateDuration);
+	
+	// Calcular duração inicial
+	calculateDuration();
+});
+</script>
+{% endblock %}
+

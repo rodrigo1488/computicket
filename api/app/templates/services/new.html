@@ -1,0 +1,100 @@
+{% extends 'base.html' %}
+{% block page_title %}🔧 Novo Serviço{% endblock %}
+{% block content %}
+
+<div class="bg-secondary rounded-lg shadow-lg p-6 mb-6">
+	<div class="flex items-start justify-between mb-4">
+		<div>
+			<h1 class="text-2xl font-bold text-primary mb-2">Novo Serviço</h1>
+			<p class="text-muted">Crie um novo tipo de serviço no sistema</p>
+		</div>
+		<a href="{{ url_for('services.list_services') }}" class="btn btn-secondary">
+			<i class="fas fa-arrow-left"></i>
+			Voltar
+		</a>
+	</div>
+</div>
+
+<div class="bg-secondary rounded-lg shadow-lg p-6">
+	<form method="post" class="space-y-6">
+		<div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+			<!-- Nome -->
+			<div class="form-group">
+				<label for="name" class="form-label">
+					<i class="fas fa-tag mr-2"></i>
+					Nome do Serviço
+				</label>
+				<input 
+					type="text" 
+					id="name" 
+					name="name" 
+					required 
+					class="form-input"
+					placeholder="Digite o nome do serviço"
+				>
+			</div>
+
+			<!-- Valor por Hora -->
+			<div class="form-group">
+				<label for="hourly_rate" class="form-label">
+					<i class="fas fa-dollar-sign mr-2"></i>
+					Valor por Hora (R$)
+				</label>
+				<input 
+					type="number" 
+					id="hourly_rate" 
+					name="hourly_rate" 
+					step="0.01" 
+					min="0" 
+					value="0"
+					class="form-input"
+					placeholder="0.00"
+				>
+			</div>
+		</div>
+
+		<!-- Descrição -->
+		<div class="form-group">
+			<label for="description" class="form-label">
+				<i class="fas fa-align-left mr-2"></i>
+				Descrição
+			</label>
+			<textarea 
+				id="description" 
+				name="description" 
+				rows="4"
+				class="form-input"
+				placeholder="Descreva o serviço oferecido..."
+			></textarea>
+		</div>
+
+		<!-- Botões de ação -->
+		<div class="flex items-center gap-4 justify-end">
+			<a href="{{ url_for('services.list_services') }}" class="btn btn-secondary">
+				<i class="fas fa-times"></i>
+				Cancelar
+			</a>
+			<button type="submit" class="btn btn-primary">
+				<i class="fas fa-save"></i>
+				Criar Serviço
+			</button>
+		</div>
+	</form>
+</div>
+
+<!-- Informações sobre serviços -->
+<div class="bg-info/10 border border-info/20 rounded-lg p-4 mt-6">
+	<div class="flex items-start">
+		<i class="fas fa-info-circle text-info mr-2 mt-0.5"></i>
+		<div>
+			<p class="text-sm text-info/90 font-medium mb-1">Dica:</p>
+			<p class="text-sm text-info/90">
+				• O valor por hora será usado para calcular o custo dos tickets<br>
+				• A descrição ajuda a identificar o tipo de serviço oferecido<br>
+				• Você pode editar essas informações posteriormente
+			</p>
+		</div>
+	</div>
+</div>
+
+{% endblock %}

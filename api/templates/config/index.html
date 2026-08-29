@@ -1,0 +1,504 @@
+{% extends 'base.html' %}
+{% block page_title %}⚙️ Configurações do Sistema{% endblock %}
+{% block content %}
+<div class="header-actions">
+    <button id="test-email-btn" class="btn btn-primary">
+        <i class="fas fa-envelope"></i>
+        Testar Email
+    </button>
+    <button id="test-ticket-notification-btn" class="btn btn-success">
+        <i class="fas fa-ticket-alt"></i>
+        Testar Notificação de Ticket
+    </button>
+    <button id="test-gmail-configs-btn" class="btn btn-info" style="display: none;">
+        <i class="fas fa-google"></i>
+        Testar Gmail
+    </button>
+    <button id="reset-config-btn" class="btn btn-warning">
+        <i class="fas fa-undo"></i>
+        Resetar
+    </button>
+    <button id="export-config-btn" class="btn btn-success">
+        <i class="fas fa-download"></i>
+        Exportar
+    </button>
+    <button id="import-config-btn" class="btn btn-secondary">
+        <i class="fas fa-upload"></i>
+        Importar
+    </button>
+</div>
+
+<div class="space-y-6">
+    <form id="config-form" class="space-y-6">
+        <!-- Configurações de Email -->
+        <div class="card">
+            <div class="card-header">
+                <h2 class="card-title">
+                    <i class="fas fa-envelope"></i>
+                    Configurações de Email
+                </h2>
+                <div class="flex items-center gap-2">
+                    <span class="px-2 py-1 bg-blue-100 text-blue-800 text-xs rounded-full">SMTP</span>
+                    <span id="email-status-badge" class="px-2 py-1 bg-gray-100 text-gray-800 text-xs rounded-full">
+                        <i class="fas fa-question-circle mr-1"></i>Verificando...
+                    </span>
+                </div>
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div class="form-group">
+                    <label class="form-label">Servidor SMTP</label>
+                    <input type="text" name="mail_server"
+                        value="{{ email_configs.mail_server.value if email_configs.mail_server else 'smtp.gmail.com' }}"
+                        class="form-input">
+                    <p class="text-xs text-muted mt-1">Ex: smtp.gmail.com, smtp.outlook.com</p>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Porta</label>
+                    <input type="number" name="mail_port"
+                        value="{{ email_configs.mail_port.value if email_configs.mail_port else '587' }}"
+                        class="form-input">
+                    <p class="text-xs text-muted mt-1">587 (TLS) ou 465 (SSL)</p>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Usuário/Email</label>
+                    <input type="email" name="mail_username"
+                        value="{{ email_configs.mail_username.value if email_configs.mail_username else '' }}"
+                        class="form-input">
+                    <p class="text-xs text-muted mt-1">Email para autenticação SMTP</p>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Senha/Senha de App</label>
+                    <input type="password" name="mail_password"
+                        value="{{ email_configs.mail_password.value if email_configs.mail_password else '' }}"
+                        class="form-input">
+                    <p class="text-xs text-muted mt-1">Use senha de aplicativo para Gmail</p>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Email Remetente</label>
+                    <input type="email" name="mail_default_sender"
+                        value="{{ email_configs.mail_default_sender.value if email_configs.mail_default_sender else '' }}"
+                        class="form-input">
+                    <p class="text-xs text-muted mt-1">Email que aparecerá como remetente</p>
+                </div>
+                <div class="form-group flex items-center">
+                    <label class="flex items-center">
+                        <input type="checkbox" name="mail_use_tls" value="true" {% if email_configs.mail_use_tls and
+                            email_configs.mail_use_tls.value=='true' %}checked{% endif %}
+                            class="mr-2 rounded border-gray-300 text-blue-600 focus:ring-blue-500">
+                        <span class="form-label">Usar TLS</span>
+                    </label>
+                </div>
+            </div>
+        </div>
+
+        <!-- Configurações Gerais -->
+        <div class="card">
+            <div class="card-header">
+                <h2 class="card-title">
+                    <i class="fas fa-cog"></i>
+                    Configurações Gerais
+                </h2>
+                <span class="px-2 py-1 bg-green-100 text-green-800 text-xs rounded-full">Sistema</span>
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div class="form-group">
+                    <label class="form-label">Nome do Sistema</label>
+                    <input type="text" name="system_name"
+                        value="{{ general_configs.system_name.value if general_configs.system_name else 'Sistema de Tickets' }}"
+                        class="form-input">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">URL do Sistema</label>
+                    <input type="url" name="system_url"
+                        value="{{ general_configs.system_url.value if general_configs.system_url else 'http://localhost:5000' }}"
+                        class="form-input">
+                </div>
+                <div class="form-group flex justify-between gap-4">
+                    <div class="w-full">
+                        <label class="form-label">Prefixo dos Tickets</label>
+                        <input type="text" name="ticket_prefix"
+                            value="{{ general_configs.ticket_prefix.value if general_configs.ticket_prefix else 'TK' }}"
+                            class="form-input">
+                    </div>
+                    <div class="w-full">
+                        <label class="form-label">Fuso Horário</label>
+                        <select name="system_timezone" class="form-input">
+                            <option value="America/Sao_Paulo" {% if not system_configs.system_timezone or
+                                system_configs.system_timezone.value=='America/Sao_Paulo' %}selected{% endif %}>
+                                América/São Paulo (Brasília)</option>
+                            <option value="America/Boa_Vista" {% if system_configs.system_timezone and
+                                system_configs.system_timezone.value=='America/Boa_Vista' %}selected{% endif %}>
+                                América/Boa Vista (GMT-4)</option>
+                            <option value="America/Campo_Grande" {% if system_configs.system_timezone and
+                                system_configs.system_timezone.value=='America/Campo_Grande' %}selected{% endif %}>
+                                América/Campo Grande (GMT-4)</option>
+                            <option value="America/Cuiaba" {% if system_configs.system_timezone and
+                                system_configs.system_timezone.value=='America/Cuiaba' %}selected{% endif %}>
+                                América/Cuiabá (GMT-4)</option>
+                            <option value="America/Manaus" {% if system_configs.system_timezone and
+                                system_configs.system_timezone.value=='America/Manaus' %}selected{% endif %}>
+                                América/Manaus (GMT-4)</option>
+                            <option value="America/Porto_Velho" {% if system_configs.system_timezone and
+                                system_configs.system_timezone.value=='America/Porto_Velho' %}selected{% endif %}>
+                                América/Porto Velho (GMT-4)</option>
+                            <option value="America/Rio_Branco" {% if system_configs.system_timezone and
+                                system_configs.system_timezone.value=='America/Rio_Branco' %}selected{% endif %}>
+                                América/Rio Branco (GMT-5)</option>
+                            <option value="UTC" {% if system_configs.system_timezone and
+                                system_configs.system_timezone.value=='UTC' %}selected{% endif %}>UTC Universal</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="form-group flex items-center">
+                    <label class="flex items-center">
+                        <input type="checkbox" name="email_notifications" value="true" {% if
+                            general_configs.email_notifications and general_configs.email_notifications.value=='true'
+                            %}checked{% endif %} class="mr-2 rounded border-gray-300 text-blue-600 focus:ring-blue-500">
+                        <span class="form-label">Notificações por Email</span>
+                    </label>
+                </div>
+                <div class="form-group flex items-center">
+                    <label class="flex items-center">
+                        <input type="checkbox" name="auto_assign_tickets" value="true" {% if
+                            general_configs.auto_assign_tickets and general_configs.auto_assign_tickets.value=='true'
+                            %}checked{% endif %} class="mr-2 rounded border-gray-300 text-blue-600 focus:ring-blue-500">
+                        <span class="form-label">Atribuição Automática de Tickets</span>
+                    </label>
+                </div>
+            </div>
+        </div>
+
+        <!-- Configurações Avançadas -->
+        <div class="card">
+            <div class="card-header">
+                <h2 class="card-title">
+                    <i class="fas fa-tools"></i>
+                    Configurações Avançadas
+                </h2>
+                <span class="px-2 py-1 bg-purple-100 text-purple-800 text-xs rounded-full">Avançado</span>
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div class="form-group flex items-center">
+                    <label class="flex items-center">
+                        <input type="checkbox" name="backup_enabled" value="true" {% if system_configs.backup_enabled
+                            and system_configs.backup_enabled.value=='true' %}checked{% endif %}
+                            class="mr-2 rounded border-gray-300 text-blue-600 focus:ring-blue-500">
+                        <span class="form-label">Backup Automático</span>
+                    </label>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Frequência do Backup (dias)</label>
+                    <input type="number" name="backup_frequency"
+                        value="{{ system_configs.backup_frequency.value if system_configs.backup_frequency else '7' }}"
+                        class="form-input">
+                </div>
+            </div>
+        </div>
+
+        <!-- Botões de Ação -->
+        <div class="flex justify-end space-x-4">
+            <button type="button" onclick="window.history.back()" class="btn btn-secondary">
+                <i class="fas fa-arrow-left"></i>
+                Cancelar
+            </button>
+            <button type="submit" class="btn btn-primary">
+                <i class="fas fa-save"></i>
+                Salvar Configurações
+            </button>
+        </div>
+    </form>
+</div>
+
+<!-- Modal de Importação -->
+<div id="import-modal" class="modal-overlay">
+    <div class="modal">
+        <div class="modal-header">
+            <h3 class="modal-title">
+                <i class="fas fa-upload"></i>
+                Importar Configurações
+            </h3>
+            <button class="modal-close">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+        <textarea id="import-textarea" placeholder="Cole aqui o JSON das configurações..." class="form-input"
+            style="height: 200px; resize: vertical;"></textarea>
+        <div class="flex justify-end space-x-2 mt-4">
+            <button id="cancel-import" class="btn btn-secondary">
+                <i class="fas fa-times"></i>
+                Cancelar
+            </button>
+            <button id="confirm-import" class="btn btn-primary">
+                <i class="fas fa-upload"></i>
+                Importar
+            </button>
+        </div>
+    </div>
+</div>
+
+<script>
+    document.addEventListener('DOMContentLoaded', function () {
+        const form = document.getElementById('config-form');
+
+        // Salvar configurações
+        form.addEventListener('submit', async function (e) {
+            e.preventDefault();
+
+            const formData = new FormData(form);
+            const configs = {};
+
+            // Coletar dados do formulário
+            for (let [key, value] of formData.entries()) {
+                configs[key] = value;
+            }
+
+            // Coletar checkboxes não marcados
+            const checkboxes = form.querySelectorAll('input[type="checkbox"]');
+            checkboxes.forEach(checkbox => {
+                if (!checkbox.checked) {
+                    configs[checkbox.name] = 'false';
+                }
+            });
+
+            try {
+                const response = await fetch('{{ url_for("config.save_config") }}', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(configs)
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    showSuccess(result.message);
+                } else {
+                    showError(result.error);
+                }
+            } catch (error) {
+                showError('Erro ao salvar configurações: ' + error.message);
+            }
+        });
+
+        // Testar email
+        document.getElementById('test-email-btn').addEventListener('click', async function () {
+            try {
+                const response = await fetch('{{ url_for("config.test_email") }}', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    }
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    showSuccess(result.message);
+                } else {
+                    showError(result.error);
+                }
+            } catch (error) {
+                showError('Erro ao testar email: ' + error.message);
+            }
+        });
+
+        // Resetar configurações
+        document.getElementById('reset-config-btn').addEventListener('click', async function () {
+            if (confirm('Tem certeza que deseja resetar todas as configurações para os valores padrão?')) {
+                try {
+                    const response = await fetch('{{ url_for("config.reset_config") }}', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        }
+                    });
+
+                    const result = await response.json();
+
+                    if (result.success) {
+                        showSuccess(result.message);
+                        setTimeout(() => location.reload(), 1500);
+                    } else {
+                        showError(result.error);
+                    }
+                } catch (error) {
+                    showError('Erro ao resetar configurações: ' + error.message);
+                }
+            }
+        });
+
+        // Exportar configurações
+        document.getElementById('export-config-btn').addEventListener('click', async function () {
+            try {
+                const response = await fetch('{{ url_for("config.export_config") }}');
+                const configs = await response.json();
+
+                const dataStr = JSON.stringify(configs, null, 2);
+                const dataBlob = new Blob([dataStr], { type: 'application/json' });
+
+                const link = document.createElement('a');
+                link.href = URL.createObjectURL(dataBlob);
+                link.download = 'configuracoes-sistema.json';
+                link.click();
+
+                showSuccess('Configurações exportadas com sucesso!');
+            } catch (error) {
+                showError('Erro ao exportar configurações: ' + error.message);
+            }
+        });
+
+        // Importar configurações
+        const importModal = document.getElementById('import-modal');
+        const importTextarea = document.getElementById('import-textarea');
+
+        document.getElementById('import-config-btn').addEventListener('click', function () {
+            openModal('import-modal');
+        });
+
+        document.getElementById('cancel-import').addEventListener('click', function () {
+            closeModal('import-modal');
+            importTextarea.value = '';
+        });
+
+        document.getElementById('confirm-import').addEventListener('click', async function () {
+            try {
+                const configs = JSON.parse(importTextarea.value);
+
+                const response = await fetch('{{ url_for("config.import_config") }}', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(configs)
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    showSuccess(result.message);
+                    closeModal('import-modal');
+                    importTextarea.value = '';
+                    setTimeout(() => location.reload(), 1500);
+                } else {
+                    showError(result.error);
+                }
+            } catch (error) {
+                showError('Erro ao importar configurações: JSON inválido');
+            }
+        });
+
+        // Verificar status das configurações de email
+        async function checkEmailStatus() {
+            try {
+                const response = await fetch('{{ url_for("config.email_status") }}');
+                const result = await response.json();
+
+                if (result.success) {
+                    const status = result.status;
+                    const badge = document.getElementById('email-status-badge');
+
+                    if (status.configured) {
+                        badge.className = 'px-2 py-1 bg-green-100 text-green-800 text-xs rounded-full';
+                        badge.innerHTML = '<i class="fas fa-check-circle mr-1"></i>Configurado';
+                    } else {
+                        badge.className = 'px-2 py-1 bg-red-100 text-red-800 text-xs rounded-full';
+                        badge.innerHTML = '<i class="fas fa-exclamation-triangle mr-1"></i>Incompleto';
+
+                        // Mostrar campos faltantes
+                        if (status.missing_fields && status.missing_fields.length > 0) {
+                            const missingText = status.missing_fields.join(', ');
+                            badge.title = `Campos faltantes: ${missingText}`;
+                        }
+                    }
+                }
+            } catch (error) {
+                console.error('Erro ao verificar status do email:', error);
+                const badge = document.getElementById('email-status-badge');
+                badge.className = 'px-2 py-1 bg-yellow-100 text-yellow-800 text-xs rounded-full';
+                badge.innerHTML = '<i class="fas fa-exclamation-circle mr-1"></i>Erro';
+            }
+        }
+
+        // Verificar status ao carregar a página
+        checkEmailStatus();
+
+        // Verificar status após salvar configurações
+        document.getElementById('save-config-btn').addEventListener('click', function () {
+            setTimeout(checkEmailStatus, 1000);
+        });
+
+        // Testar notificação de ticket
+        document.getElementById('test-ticket-notification-btn').addEventListener('click', async function () {
+            const btn = this;
+            const originalText = btn.innerHTML;
+
+            try {
+                btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Testando...';
+                btn.disabled = true;
+
+                const response = await fetch('{{ url_for("config.test_ticket_notification") }}', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    }
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    showSuccess(result.message);
+                } else {
+                    showError(result.error);
+                }
+            } catch (error) {
+                showError('Erro ao testar notificação de ticket: ' + error.message);
+            } finally {
+                btn.innerHTML = originalText;
+                btn.disabled = false;
+            }
+        });
+
+        // Testar configurações do Gmail (desabilitado temporariamente)
+        // document.getElementById('test-gmail-configs-btn').addEventListener('click', async function() {
+        //     const btn = this;
+        //     const originalText = btn.innerHTML;
+        //     
+        //     try {
+        //         btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Testando...';
+        //         btn.disabled = true;
+        //         
+        //         const response = await fetch('{{ url_for("config.test_gmail_configs") }}', {
+        //             method: 'POST',
+        //             headers: {
+        //                 'Content-Type': 'application/json',
+        //             }
+        //         });
+        //         
+        //         const result = await response.json();
+        //         
+        //         if (result.success) {
+        //             let message = 'Resultados dos testes Gmail:\n\n';
+        //             result.results.forEach(test => {
+        //                 const status = test.success ? '✅' : '❌';
+        //                 message += `${status} ${test.name}\n`;
+        //                 if (test.error) {
+        //                     message += `   Erro: ${test.error}\n`;
+        //                 }
+        //                 message += '\n';
+        //             });
+        //             
+        //             alert(message);
+        //         } else {
+        //             showError(result.error);
+        //         }
+        //     } catch (error) {
+        //         showError('Erro ao testar configurações do Gmail: ' + error.message);
+        //     } finally {
+        //         btn.innerHTML = originalText;
+        //         btn.disabled = false;
+        //     }
+        // });
+    });
+</script>
+{% endblock %}

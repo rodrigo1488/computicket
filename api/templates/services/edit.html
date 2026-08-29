@@ -1,0 +1,134 @@
+{% extends 'base.html' %}
+{% block page_title %}✏️ Editar Serviço{% endblock %}
+{% block content %}
+
+<div class="bg-secondary rounded-lg shadow-lg p-6 mb-6">
+	<div class="flex items-start justify-between mb-4">
+		<div>
+			<h1 class="text-2xl font-bold text-primary mb-2">Editar Serviço</h1>
+			<p class="text-muted">Atualize as informações do serviço {{ service.name }}</p>
+		</div>
+		<a href="{{ url_for('services.list_services') }}" class="btn btn-secondary">
+			<i class="fas fa-arrow-left"></i>
+			Voltar
+		</a>
+	</div>
+</div>
+
+<div class="bg-secondary rounded-lg shadow-lg p-6">
+	<form method="post" class="space-y-6">
+		<div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+			<!-- Nome -->
+			<div class="form-group">
+				<label for="name" class="form-label">
+					<i class="fas fa-tag mr-2"></i>
+					Nome do Serviço
+				</label>
+				<input 
+					type="text" 
+					id="name" 
+					name="name" 
+					value="{{ service.name }}"
+					required 
+					class="form-input"
+					placeholder="Digite o nome do serviço"
+				>
+			</div>
+
+			<!-- Valor por Hora -->
+			<div class="form-group">
+				<label for="hourly_rate" class="form-label">
+					<i class="fas fa-dollar-sign mr-2"></i>
+					Valor por Hora (R$)
+				</label>
+				<input 
+					type="number" 
+					id="hourly_rate" 
+					name="hourly_rate" 
+					step="0.01" 
+					min="0" 
+					value="{{ '%.2f'|format(service.hourly_rate or 0) }}"
+					class="form-input"
+					placeholder="0.00"
+				>
+			</div>
+		</div>
+
+		<!-- Descrição -->
+		<div class="form-group">
+			<label for="description" class="form-label">
+				<i class="fas fa-align-left mr-2"></i>
+				Descrição
+			</label>
+			<textarea 
+				id="description" 
+				name="description" 
+				rows="4"
+				class="form-input"
+				placeholder="Descreva o serviço oferecido..."
+			>{{ service.description }}</textarea>
+		</div>
+
+		<!-- Informações do serviço -->
+		<div class="bg-tertiary rounded-lg p-4 mb-6">
+			<h3 class="text-lg font-semibold text-primary mb-3 flex items-center">
+				<i class="fas fa-info-circle mr-2"></i>
+				Informações do Serviço
+			</h3>
+			<div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+				<div>
+					<span class="text-muted">ID:</span>
+					<span class="font-medium text-primary">{{ service.id }}</span>
+				</div>
+				<div>
+					<span class="text-muted">Status:</span>
+					<span class="font-medium text-primary">
+						<span class="status-badge bg-success/10 border-success/20 text-success/90">
+							<i class="fas fa-check-circle mr-1"></i>
+							Ativo
+						</span>
+					</span>
+				</div>
+				<div>
+					<span class="text-muted">Valor Atual:</span>
+					<span class="font-medium text-primary">
+						R$ {{ '%.2f'|format(service.hourly_rate or 0) }} / hora
+					</span>
+				</div>
+				<div>
+					<span class="text-muted">Tickets Relacionados:</span>
+					<span class="font-medium text-primary">{{ service.tickets|length }}</span>
+				</div>
+			</div>
+		</div>
+
+		<!-- Botões de ação -->
+		<div class="flex items-center gap-4 justify-end">
+			<a href="{{ url_for('services.list_services') }}" class="btn btn-secondary">
+				<i class="fas fa-times"></i>
+				Cancelar
+			</a>
+			<button type="submit" class="btn btn-primary">
+				<i class="fas fa-save"></i>
+				Salvar Alterações
+			</button>
+		</div>
+	</form>
+</div>
+
+<!-- Aviso sobre alterações -->
+<div class="bg-warning/10 border border-warning/20 rounded-lg p-4 mt-6">
+	<div class="flex items-start">
+		<i class="fas fa-exclamation-triangle text-warning mr-2 mt-0.5"></i>
+		<div>
+			<p class="text-sm text-warning/90 font-medium mb-1">Importante:</p>
+			<p class="text-sm text-warning/90">
+				• Alterações no valor por hora afetarão apenas novos tickets<br>
+				• Tickets já existentes manterão o valor original<br>
+				• A descrição ajuda na identificação do tipo de serviço
+			</p>
+		</div>
+	</div>
+</div>
+
+{% endblock %}

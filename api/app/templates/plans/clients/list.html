@@ -1,0 +1,295 @@
+{% extends 'base.html' %}
+{% block page_title %}👥 Planos dos Clientes{% endblock %}
+{% block content %}
+
+<div class="bg-secondary rounded-lg shadow-lg p-6 mb-6">
+	<div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 mb-6">
+		<div class="flex-1">
+			<h1 class="text-2xl lg:text-3xl font-bold text-primary mb-2">
+				👥 Planos dos Clientes
+			</h1>
+			<p class="text-secondary">
+				Gerencie os planos contratados pelos clientes
+			</p>
+		</div>
+		<div class="flex-shrink-0">
+			<a href="{{ url_for('plans.index') }}" class="btn btn-secondary">
+				<i class="fas fa-arrow-left mr-2"></i>
+				Voltar
+			</a>
+		</div>
+	</div>
+</div>
+
+<!-- Filtros -->
+<div class="bg-secondary rounded-lg shadow-lg p-6 mb-6">
+	<div class="flex flex-col sm:flex-row gap-4">
+		<div class="flex-1">
+			<label class="form-label">Filtrar por Status</label>
+			<select id="status-filter" class="form-select">
+				<option value="">Todos</option>
+				<option value="active">Ativos</option>
+				<option value="expired">Expirados</option>
+				<option value="expiring">Expirando</option>
+			</select>
+		</div>
+		<div class="flex-1">
+			<label class="form-label">Filtrar por Sistema</label>
+			<select id="system-filter" class="form-select">
+				<option value="">Todos os Sistemas</option>
+				{% for system in systems %}
+				<option value="{{ system.id }}">{{ system.name }}</option>
+				{% endfor %}
+			</select>
+		</div>
+		<div class="flex-shrink-0">
+			<button id="clear-filters" class="btn btn-outline">
+				<i class="fas fa-times mr-2"></i>
+				Limpar Filtros
+			</button>
+		</div>
+	</div>
+</div>
+
+<!-- Lista de Planos dos Clientes -->
+<div class="bg-secondary rounded-lg shadow-lg p-6">
+	{% if client_plans %}
+	<div class="overflow-x-auto">
+		<table class="w-full" id="client-plans-table">
+			<thead>
+				<tr class="border-b border-gray-200">
+					<th class="text-left py-3 px-4 font-semibold text-primary">Cliente</th>
+					<th class="text-left py-3 px-4 font-semibold text-primary">Sistema</th>
+					<th class="text-left py-3 px-4 font-semibold text-primary">Plano</th>
+					<th class="text-left py-3 px-4 font-semibold text-primary">Período</th>
+					<th class="text-left py-3 px-4 font-semibold text-primary">Horas</th>
+					<th class="text-left py-3 px-4 font-semibold text-primary">Status</th>
+					<th class="text-right py-3 px-4 font-semibold text-primary">Ações</th>
+				</tr>
+			</thead>
+			<tbody>
+				{% for client_plan in client_plans %}
+				<tr class="border-b border-gray-100 hover:bg-tertiary/50 transition-colors" 
+					data-status="{{ 'active' if client_plan.is_active else 'expired' }}"
+					data-system="{{ client_plan.plan.system.id }}">
+					<td class="py-4 px-4">
+						<div>
+							<div class="font-medium text-primary">{{ client_plan.client.name }}</div>
+							<div class="text-sm text-secondary">{{ client_plan.client.email }}</div>
+						</div>
+					</td>
+					<td class="py-4 px-4">
+						<div>
+							<div class="font-medium text-primary">{{ client_plan.plan.system.name }}</div>
+							<div class="text-sm text-secondary">{{ client_plan.plan.system.version or 'Sem versão' }}</div>
+						</div>
+					</td>
+					<td class="py-4 px-4">
+						<div>
+							<div class="font-medium text-primary">{{ client_plan.plan.name }}</div>
+							<div class="text-sm text-secondary">{{ client_plan.plan.get_formatted_monthly_value() }}/mês</div>
+						</div>
+					</td>
+					<td class="py-4 px-4">
+						<div class="text-sm">
+							<div class="text-primary">{{ client_plan.start_date.strftime('%d/%m/%Y') }}</div>
+							<div class="text-secondary">até {{ client_plan.end_date.strftime('%d/%m/%Y') }}</div>
+						</div>
+					</td>
+					<td class="py-4 px-4">
+						<div class="text-sm">
+							<div class="text-primary">{{ client_plan.get_effective_monthly_hours() }}h/mês</div>
+							<div class="text-secondary">{{ client_plan.get_effective_hour_rate() }}/h adicional</div>
+						</div>
+					</td>
+					<td class="py-4 px-4">
+						<div class="flex flex-col gap-1">
+							<span class="status-badge status-{{ client_plan.get_status_color() }} text-xs">
+								{{ client_plan.get_status_text() }}
+							</span>
+							{% if client_plan.is_auto_renew %}
+							<span class="status-badge status-info text-xs">
+								<i class="fas fa-sync mr-1"></i>
+								Auto Renovação
+							</span>
+							{% endif %}
+						</div>
+					</td>
+					<td class="py-4 px-4">
+						<div class="flex items-center justify-end gap-2">
+							<a href="{{ url_for('plans.view_client_plan', client_plan_id=client_plan.id) }}" 
+							   class="btn btn-sm btn-info" title="Visualizar">
+								<i class="fas fa-eye"></i>
+							</a>
+							<a href="{{ url_for('plans.edit_client_plan', client_plan_id=client_plan.id) }}" 
+							   class="btn btn-sm btn-warning" title="Editar">
+								<i class="fas fa-edit"></i>
+							</a>
+							<button onclick="confirmDelete('{{ client_plan.client.name }} - {{ client_plan.plan.name }}', '{{ url_for('plans.delete_client_plan', client_plan_id=client_plan.id) }}')" 
+									class="btn btn-sm btn-danger" title="Deletar">
+								<i class="fas fa-trash"></i>
+							</button>
+						</div>
+					</td>
+				</tr>
+				{% endfor %}
+			</tbody>
+		</table>
+	</div>
+	{% else %}
+	<div class="empty-state">
+		<i class="fas fa-users text-4xl text-muted mb-4"></i>
+		<h3 class="text-lg font-semibold text-primary mb-2">Nenhum plano contratado</h3>
+		<p class="text-secondary mb-4">Nenhum cliente contratou planos ainda.</p>
+		<a href="{{ url_for('clients.list_clients') }}" class="btn btn-primary">
+			<i class="fas fa-user-plus mr-2"></i>
+			Gerenciar Clientes
+		</a>
+	</div>
+	{% endif %}
+</div>
+
+<!-- Modal de Confirmação de Exclusão -->
+<div id="delete-modal" class="modal-overlay">
+	<div class="modal w-full max-w-md mx-4 sm:mx-6 lg:mx-auto">
+		<div class="modal-header">
+			<h3 class="modal-title">
+				<i class="fas fa-exclamation-triangle mr-2"></i>
+				Confirmar Exclusão
+			</h3>
+			<button id="close-delete-modal" class="btn btn-sm btn-secondary">
+				<i class="fas fa-times"></i>
+			</button>
+		</div>
+		<div class="modal-body">
+			<div class="bg-error/10 border border-error/20 rounded-lg p-4 mb-4">
+				<div class="flex items-start">
+					<i class="fas fa-exclamation-triangle text-error mr-2 mt-0.5"></i>
+					<div>
+						<p class="text-sm text-error/90 font-medium mb-2">
+							<strong>⚠️ ATENÇÃO: Esta ação é IRREVERSÍVEL!</strong>
+						</p>
+						<p class="text-sm text-error/80">
+							Tem certeza que deseja excluir o plano <strong id="plan-name"></strong>?
+						</p>
+					</div>
+				</div>
+			</div>
+			
+			<div class="bg-warning/10 border border-warning/20 rounded-lg p-4 mb-4">
+				<div class="flex items-start">
+					<i class="fas fa-info-circle text-warning mr-2 mt-0.5"></i>
+					<div>
+						<p class="text-sm text-warning/90 font-medium mb-2">
+							Esta ação irá:
+						</p>
+						<ul class="text-sm text-warning/80 space-y-1">
+							<li>• Excluir o plano do cliente permanentemente</li>
+							<li>• Perder histórico de uso</li>
+							<li>• Remover acesso ao suporte</li>
+						</ul>
+					</div>
+				</div>
+			</div>
+			
+			<div class="flex flex-col sm:flex-row items-center gap-3 justify-end">
+				<button type="button" id="cancel-delete" class="btn btn-secondary w-full sm:w-auto">Cancelar</button>
+				<form id="delete-form" method="post" class="w-full sm:w-auto">
+					<button type="submit" class="btn btn-error w-full">
+						<i class="fas fa-trash mr-2"></i>
+						Confirmar Exclusão
+					</button>
+				</form>
+			</div>
+		</div>
+	</div>
+</div>
+
+<script>
+// Filtros
+document.addEventListener('DOMContentLoaded', function() {
+	const statusFilter = document.getElementById('status-filter');
+	const systemFilter = document.getElementById('system-filter');
+	const clearFilters = document.getElementById('clear-filters');
+	const table = document.getElementById('client-plans-table');
+	const rows = table.querySelectorAll('tbody tr');
+	
+	function applyFilters() {
+		const statusValue = statusFilter.value;
+		const systemValue = systemFilter.value;
+		
+		rows.forEach(row => {
+			let showRow = true;
+			
+			// Filtro por status
+			if (statusValue) {
+				const rowStatus = row.dataset.status;
+				if (statusValue === 'expiring') {
+					// Lógica para planos expirando (implementar se necessário)
+					showRow = rowStatus === 'active';
+				} else {
+					showRow = rowStatus === statusValue;
+				}
+			}
+			
+			// Filtro por sistema
+			if (systemValue && showRow) {
+				const rowSystem = row.dataset.system;
+				showRow = rowSystem === systemValue;
+			}
+			
+			row.style.display = showRow ? '' : 'none';
+		});
+	}
+	
+	statusFilter.addEventListener('change', applyFilters);
+	systemFilter.addEventListener('change', applyFilters);
+	
+	clearFilters.addEventListener('click', function() {
+		statusFilter.value = '';
+		systemFilter.value = '';
+		applyFilters();
+	});
+});
+
+// Modal de exclusão
+function confirmDelete(planName, deleteUrl) {
+	const modal = document.getElementById('delete-modal');
+	const planNameElement = document.getElementById('plan-name');
+	const deleteForm = document.getElementById('delete-form');
+	
+	planNameElement.textContent = planName;
+	deleteForm.action = deleteUrl;
+	
+	modal.classList.add('active');
+}
+
+// Event listeners para o modal
+document.addEventListener('DOMContentLoaded', function() {
+	const modal = document.getElementById('delete-modal');
+	const closeBtn = document.getElementById('close-delete-modal');
+	const cancelBtn = document.getElementById('cancel-delete');
+	
+	if (closeBtn) {
+		closeBtn.addEventListener('click', () => {
+			modal.classList.remove('active');
+		});
+	}
+	
+	if (cancelBtn) {
+		cancelBtn.addEventListener('click', () => {
+			modal.classList.remove('active');
+		});
+	}
+	
+	if (modal) {
+		modal.addEventListener('click', (e) => {
+			if (e.target === modal) {
+				modal.classList.remove('active');
+			}
+		});
+	}
+});
+</script>
+
+{% endblock %}

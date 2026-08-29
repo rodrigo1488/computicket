@@ -1,0 +1,265 @@
+{# =====================================================================
+   COMPUTICKET — MACROS DE UI REUTILIZÁVEIS
+   =====================================================================
+   Importar no topo do template com:
+
+       {% from 'macros/ui.html' import page_header, status_badge,
+          filter_bar, filter_select, filter_text, filter_date,
+          filter_checkbox, filter_submit, status_pills, pagination,
+          empty_state, kpi_card %}
+
+   Os estilos correspondentes estão em static/css/components.css
+   (classes com prefixo "dc-") e o comportamento (toggle de filtros,
+   contagem de filtros ativos, seleção de pílulas de status) é
+   inicializado automaticamente pelo bloco no final de static/app.js
+   para qualquer elemento com atributo data-dc-filter-bar.
+   ===================================================================== #}
+
+
+{# ---------------------------------------------------------------------
+   Cabeçalho de página padrão.
+   Uso:
+     {% call page_header('Tickets', 'Gerencie os chamados de suporte', icon='fas fa-ticket-alt') %}
+       <a href="..." class="btn btn-primary"><i class="fas fa-plus"></i> Novo</a>
+     {% endcall %}
+--------------------------------------------------------------------- #}
+{% macro page_header(title, subtitle=None, icon=None) %}
+<div class="dc-page-header">
+  <div>
+    <h1 class="dc-page-header__title">
+      {% if icon %}<i class="{{ icon }}"></i>{% endif %}
+      {{ title }}
+    </h1>
+    {% if subtitle %}<p class="dc-page-header__subtitle">{{ subtitle }}</p>{% endif %}
+  </div>
+  {% if caller %}
+  <div class="dc-page-header__actions">
+    {{ caller() }}
+  </div>
+  {% endif %}
+</div>
+{% endmacro %}
+
+
+{# ---------------------------------------------------------------------
+   Badge de status genérico. Reaproveita as classes .status-badge já
+   existentes (status-aberto, status-em-andamento, status-fechado,
+   status-cancelado, etc.) — basta que "status" use "_" ou "-".
+--------------------------------------------------------------------- #}
+{% macro status_badge(status, label=None, icon=None) %}
+{% set normalized = (status or '')|replace('_', '-') %}
+<span class="status-badge status-{{ normalized }}">
+  {% if icon %}<i class="{{ icon }}"></i>{% endif %}
+  {{ label if label is not none else (status or '')|replace('_', ' ')|title }}
+</span>
+{% endmacro %}
+
+
+{# ---------------------------------------------------------------------
+   Barra de filtros recolhível e padronizada.
+   Uso:
+     {% call filter_bar() %}
+       {{ status_pills('status', [('', 'Todos', 'fas fa-list'), ('aberto', 'Aberto', 'fas fa-clock')], current_status) }}
+       <div class="dc-filter-bar__row">
+         {{ filter_select('assigned_to_id', 'Técnico', users_options, request.args.get('assigned_to_id')) }}
+         {{ filter_text('q', 'Buscar', request.args.get('q',''), 'Título ou cliente') }}
+         {{ filter_submit() }}
+       </div>
+     {% endcall %}
+--------------------------------------------------------------------- #}
+{% macro filter_bar(form_id='dc-filters-form', method='get', title='Filtros') %}
+<div class="dc-filter-bar" data-dc-filter-bar>
+  <button type="button" class="dc-filter-bar__toggle" data-dc-filter-toggle>
+    <span class="dc-filter-bar__toggle-left">
+      <i class="fas fa-filter"></i>
+      {{ title }}
+      <span class="dc-filter-bar__count" data-dc-filter-count></span>
+    </span>
+    <i class="fas fa-chevron-down dc-filter-bar__chevron"></i>
+  </button>
+  <div class="dc-filter-bar__body">
+    <form method="{{ method }}" id="{{ form_id }}" data-dc-filter-form>
+      {{ caller() }}
+    </form>
+  </div>
+</div>
+{% endmacro %}
+
+{# "options" aceita tanto uma lista de tuplas (valor, rótulo) quanto uma
+   lista simples de strings (nesse caso valor e rótulo são iguais). #}
+{% macro filter_select(name, label, options, selected=None, all_label='Todos') %}
+<div class="dc-filter-bar__group">
+  <label>{{ label }}</label>
+  <select name="{{ name }}" class="form-select" data-dc-filter-field>
+    <option value="">{{ all_label }}</option>
+    {% for opt in options %}
+    {% set is_tuple = opt is sequence and opt is not string %}
+    {% set value = opt[0] if is_tuple else opt %}
+    {% set text = opt[1] if is_tuple else opt %}
+    <option value="{{ value }}" {% if selected is not none and (selected|string)==(value|string) %}selected{% endif %}>
+      {{ text }}
+    </option>
+    {% endfor %}
+  </select>
+</div>
+{% endmacro %}
+
+{% macro filter_text(name, label, value='', placeholder='') %}
+<div class="dc-filter-bar__group">
+  <label>{{ label }}</label>
+  <input type="text" name="{{ name }}" value="{{ value or '' }}" placeholder="{{ placeholder }}"
+    class="form-input" data-dc-filter-field>
+</div>
+{% endmacro %}
+
+{% macro filter_date(name, label, value='') %}
+<div class="dc-filter-bar__group">
+  <label>{{ label }}</label>
+  <input type="date" name="{{ name }}" value="{{ value or '' }}" class="form-input" data-dc-filter-field>
+</div>
+{% endmacro %}
+
+{% macro filter_checkbox(name, label, checked=False, value='1') %}
+<div class="dc-filter-bar__group dc-filter-bar__group--checkbox">
+  <label class="flex items-center gap-2 cursor-pointer" style="text-transform:none; font-weight:500; font-size:0.875rem;">
+    <input type="checkbox" name="{{ name }}" value="{{ value }}" {% if checked %}checked{% endif %}
+      class="form-checkbox" data-dc-filter-field>
+    {{ label }}
+  </label>
+</div>
+{% endmacro %}
+
+{% macro filter_submit(label='Filtrar', icon='fas fa-search') %}
+<div class="dc-filter-bar__group">
+  <label>&nbsp;</label>
+  <button type="submit" class="btn btn-primary w-full">
+    <i class="{{ icon }}"></i>
+    {{ label }}
+  </button>
+</div>
+{% endmacro %}
+
+{# Pílulas de status com input escondido — options é uma lista de tuplas
+   (valor, rótulo, ícone_opcional) #}
+{% macro status_pills(name, options, current) %}
+<div class="dc-filter-bar__row">
+  <input type="hidden" name="{{ name }}" value="{{ current or '' }}" data-dc-status-input data-dc-filter-field>
+  <div class="dc-status-pills">
+    {% for opt in options %}
+    {% set value = opt[0] %}
+    {% set label = opt[1] %}
+    {% set icon = opt[2] if opt|length > 2 else None %}
+    <button type="button" class="dc-status-pill {{ 'active' if (current or '')==value else '' }}"
+      data-dc-status-value="{{ value }}">
+      {% if icon %}<i class="{{ icon }}"></i>{% endif %}
+      {{ label }}
+    </button>
+    {% endfor %}
+  </div>
+</div>
+{% endmacro %}
+
+
+{# ---------------------------------------------------------------------
+   Paginação padronizada.
+   Uso: {{ pagination(current_page, total_pages, request.endpoint, request.args.to_dict()) }}
+--------------------------------------------------------------------- #}
+{% macro pagination(current_page, total_pages, endpoint, args={}, total_items=None, item_label='itens') %}
+{% if total_pages and total_pages > 1 %}
+<nav class="dc-pagination" aria-label="Paginação">
+  <div class="dc-pagination__info">
+    Página {{ current_page }} de {{ total_pages }}
+    {% if total_items is not none %}({{ total_items }} {{ item_label }} no total){% endif %}
+  </div>
+  <div class="dc-pagination__controls">
+    {% if current_page > 1 %}
+    <a class="btn btn-sm btn-secondary dc-pagination__btn" title="Primeira página"
+      href="{{ url_for(endpoint, **dict(args, page=1)) }}"><i class="fas fa-angle-double-left"></i></a>
+    <a class="btn btn-sm btn-secondary dc-pagination__btn" title="Página anterior"
+      href="{{ url_for(endpoint, **dict(args, page=current_page - 1)) }}"><i class="fas fa-angle-left"></i></a>
+    {% else %}
+    <span class="btn btn-sm btn-secondary dc-pagination__btn disabled"><i class="fas fa-angle-double-left"></i></span>
+    <span class="btn btn-sm btn-secondary dc-pagination__btn disabled"><i class="fas fa-angle-left"></i></span>
+    {% endif %}
+
+    <div class="dc-pagination__numbers">
+      {% set start_page = [1, current_page - 2]|max %}
+      {% set end_page = [total_pages, current_page + 2]|min %}
+      {% if start_page > 1 %}
+      <a class="btn btn-sm btn-secondary dc-pagination__number"
+        href="{{ url_for(endpoint, **dict(args, page=1)) }}">1</a>
+      {% if start_page > 2 %}<span class="dc-pagination__ellipsis">...</span>{% endif %}
+      {% endif %}
+
+      {% for p in range(start_page, end_page + 1) %}
+      {% if p == current_page %}
+      <span class="btn btn-sm btn-primary dc-pagination__number active">{{ p }}</span>
+      {% else %}
+      <a class="btn btn-sm btn-secondary dc-pagination__number"
+        href="{{ url_for(endpoint, **dict(args, page=p)) }}">{{ p }}</a>
+      {% endif %}
+      {% endfor %}
+
+      {% if end_page < total_pages %}
+      {% if end_page < total_pages - 1 %}<span class="dc-pagination__ellipsis">...</span>{% endif %}
+      <a class="btn btn-sm btn-secondary dc-pagination__number"
+        href="{{ url_for(endpoint, **dict(args, page=total_pages)) }}">{{ total_pages }}</a>
+      {% endif %}
+    </div>
+
+    {% if current_page < total_pages %}
+    <a class="btn btn-sm btn-secondary dc-pagination__btn" title="Próxima página"
+      href="{{ url_for(endpoint, **dict(args, page=current_page + 1)) }}"><i class="fas fa-angle-right"></i></a>
+    <a class="btn btn-sm btn-secondary dc-pagination__btn" title="Última página"
+      href="{{ url_for(endpoint, **dict(args, page=total_pages)) }}"><i class="fas fa-angle-double-right"></i></a>
+    {% else %}
+    <span class="btn btn-sm btn-secondary dc-pagination__btn disabled"><i class="fas fa-angle-right"></i></span>
+    <span class="btn btn-sm btn-secondary dc-pagination__btn disabled"><i class="fas fa-angle-double-right"></i></span>
+    {% endif %}
+  </div>
+</nav>
+{% endif %}
+{% endmacro %}
+
+
+{# ---------------------------------------------------------------------
+   Estado vazio padronizado (reaproveita a classe legada .empty-state).
+--------------------------------------------------------------------- #}
+{% macro empty_state(icon, title, message, action_url=None, action_label=None, action_icon='fas fa-plus') %}
+<div class="empty-state">
+  <i class="{{ icon }}"></i>
+  <h3>{{ title }}</h3>
+  <p>{{ message }}</p>
+  {% if action_url and action_label %}
+  <a href="{{ action_url }}" class="btn btn-primary dc-empty-state__action">
+    <i class="{{ action_icon }}"></i>
+    {{ action_label }}
+  </a>
+  {% endif %}
+</div>
+{% endmacro %}
+
+
+{# ---------------------------------------------------------------------
+   Card de indicador numérico (KPI) para o Dashboard.
+   variant: 'primary' (padrão) | 'success' | 'warning' | 'error' | 'info'
+   id/value_id: opcionais, úteis quando JS precisa localizar o card
+   (ex. clique para abrir modal de detalhes) ou o valor (ex. atualização
+   em tempo real) por seletor estável em vez de classes de estilo.
+   clickable: quando True, adiciona cursor de ponteiro (o listener de
+   clique é adicionado via JS pelo id, sem necessidade de onclick inline).
+--------------------------------------------------------------------- #}
+{% macro kpi_card(icon, label, value, variant='primary', trend=None, trend_direction='up', id=None, value_id=None, extra_class='', clickable=False) %}
+<div class="dc-kpi-card{% if clickable %} dc-kpi-card--clickable{% endif %}{% if extra_class %} {{ extra_class }}{% endif %}"{% if id %} id="{{ id }}"{% endif %}>
+  <div class="dc-kpi-card__icon{% if variant and variant != 'primary' %} dc-kpi-card__icon--{{ variant }}{% endif %}">
+    <i class="{{ icon }}"></i>
+  </div>
+  <div class="dc-kpi-card__body">
+    <div class="dc-kpi-card__value"{% if value_id %} id="{{ value_id }}"{% endif %}>{{ value }}</div>
+    <div class="dc-kpi-card__label">{{ label }}</div>
+    {% if trend %}
+    <div class="dc-kpi-card__trend dc-kpi-card__trend--{{ trend_direction }}">{{ trend }}</div>
+    {% endif %}
+  </div>
+</div>
+{% endmacro %}

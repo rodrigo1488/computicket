@@ -1,0 +1,41 @@
+{% extends 'base.html' %}
+{% block page_title %}✏️ Editar Plano do Cliente{% endblock %}
+{% block content %}
+
+<div class="bg-secondary rounded-lg shadow-lg p-6 mb-6">
+	<h1 class="text-2xl font-bold text-primary">Editar Plano do Cliente</h1>
+</div>
+
+<div class="bg-secondary rounded-lg shadow-lg p-6">
+	<form method="post" class="space-y-6">
+		<div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+			<div class="form-group">
+				<label class="form-label">Data de Início</label>
+				<input type="date" name="start_date" class="form-input" value="{{ client_plan.start_date.strftime('%Y-%m-%d') }}">
+			</div>
+			<div class="form-group">
+				<label class="form-label">Data de Fim</label>
+				<input type="date" name="end_date" class="form-input" value="{{ client_plan.end_date.strftime('%Y-%m-%d') }}">
+			</div>
+			<div class="form-group">
+				<label class="form-label">Horas Mensais Personalizadas</label>
+				<input type="number" name="custom_monthly_hours" class="form-input" min="0" value="{{ client_plan.custom_monthly_hours or '' }}">
+			</div>
+			<div class="form-group">
+				<label class="form-label">Valor da Hora Adicional Personalizado (R$)</label>
+				<input type="number" name="custom_hour_rate" class="form-input" step="0.01" min="0" value="{{ client_plan.custom_hour_rate or '' }}">
+			</div>
+		</div>
+		<div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+			<label class="flex items-center"><input type="checkbox" name="is_active" class="form-checkbox mr-2" {{ 'checked' if client_plan.is_active else '' }}>Plano Ativo</label>
+			<label class="flex items-center"><input type="checkbox" name="is_auto_renew" class="form-checkbox mr-2" {{ 'checked' if client_plan.is_auto_renew else '' }}>Renovação Automática</label>
+		</div>
+		<div class="flex items-center justify-end gap-3">
+			<a href="{{ url_for('plans.view_client_plan', client_plan_id=client_plan.id) }}" class="btn btn-secondary"><i class="fas fa-times mr-2"></i>Cancelar</a>
+			<button type="submit" class="btn btn-primary"><i class="fas fa-save mr-2"></i>Salvar</button>
+		</div>
+	</form>
+</div>
+
+{% endblock %}
+

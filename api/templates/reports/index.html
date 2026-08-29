@@ -1,0 +1,1936 @@
+{% extends 'base.html' %}
+{% block page_title %}📊 Relatórios{% endblock %}
+{% block content %}
+
+<style>
+.technician-row td:first-child {
+	position: relative;
+}
+
+.technician-row td:first-child:hover {
+	background-color: rgba(59, 130, 246, 0.05);
+}
+
+.technician-details td {
+	border-top: none !important;
+}
+
+.technician-details .bg-gray-50 {
+	background-color: #f9fafb;
+	border-left: 4px solid #3b82f6;
+}
+
+.technician-details .space-y-2 > * + * {
+	margin-top: 0.5rem;
+}
+
+.cursor-pointer {
+	cursor: pointer;
+}
+
+.transition-transform {
+	transition: transform 0.2s ease-in-out;
+}
+
+.transition-colors {
+	transition: color 0.2s ease-in-out;
+}
+
+.transition-shadow {
+	transition: box-shadow 0.2s ease-in-out;
+}
+
+.hover\:shadow-md:hover {
+	box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+}
+
+.hover\:text-primary:hover {
+	color: #3b82f6;
+}
+
+.bg-primary\/10 {
+	background-color: rgba(59, 130, 246, 0.1);
+}
+
+.bg-success\/10 {
+	background-color: rgba(16, 185, 129, 0.1);
+}
+
+.text-primary {
+	color: #3b82f6;
+}
+
+.text-success {
+	color: #10b981;
+}
+
+.text-muted {
+	color: #6b7280;
+}
+
+.text-error {
+	color: #ef4444;
+}
+
+.text-gray-900 {
+	color: #111827;
+}
+
+.border-gray-200 {
+	border-color: #e5e7eb;
+}
+
+.rounded-lg {
+	border-radius: 0.5rem;
+}
+
+.border {
+	border-width: 1px;
+}
+
+.p-3 {
+	padding: 0.75rem;
+}
+
+.p-4 {
+	padding: 1rem;
+}
+
+.mb-1 {
+	margin-bottom: 0.25rem;
+}
+
+.mb-2 {
+	margin-bottom: 0.5rem;
+}
+
+.mb-3 {
+	margin-bottom: 0.75rem;
+}
+
+.mr-1 {
+	margin-right: 0.25rem;
+}
+
+.mr-2 {
+	margin-right: 0.5rem;
+}
+
+.gap-2 {
+	gap: 0.5rem;
+}
+
+.gap-4 {
+	gap: 1rem;
+}
+
+.flex {
+	display: flex;
+}
+
+.items-center {
+	align-items: center;
+}
+
+.items-start {
+	align-items: flex-start;
+}
+
+.justify-between {
+	justify-content: space-between;
+}
+
+.flex-1 {
+	flex: 1 1 0%;
+}
+
+.text-right {
+	text-align: right;
+}
+
+.text-center {
+	text-align: center;
+}
+
+.text-xs {
+	font-size: 0.75rem;
+	line-height: 1rem;
+}
+
+.text-sm {
+	font-size: 0.875rem;
+	line-height: 1.25rem;
+}
+
+.font-medium {
+	font-weight: 500;
+}
+
+.font-semibold {
+	font-weight: 600;
+}
+
+.font-bold {
+	font-weight: 700;
+}
+
+.px-2 {
+	padding-left: 0.5rem;
+	padding-right: 0.5rem;
+}
+
+.py-1 {
+	padding-top: 0.25rem;
+	padding-bottom: 0.25rem;
+}
+
+.rounded {
+	border-radius: 0.25rem;
+}
+
+.grid {
+	display: grid;
+}
+
+.grid-cols-1 {
+	grid-template-columns: repeat(1, minmax(0, 1fr));
+}
+
+.lg\:grid-cols-2 {
+	grid-template-columns: repeat(1, minmax(0, 1fr));
+}
+
+@media (min-width: 1024px) {
+	.lg\:grid-cols-2 {
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+	}
+}
+
+/* Estilos para campos de data */
+input[type="date"] {
+	-webkit-appearance: none;
+	-moz-appearance: none;
+	appearance: none;
+	background-color: white;
+	border: 1px solid #d1d5db;
+	border-radius: 0.375rem;
+	padding: 0.5rem 0.75rem;
+	font-size: 0.875rem;
+	line-height: 1.25rem;
+	color: #111827;
+	width: 100%;
+}
+
+input[type="date"]:focus {
+	outline: none;
+	border-color: #3b82f6;
+	box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+input[type="date"]:disabled {
+	background-color: #f9fafb;
+	color: #6b7280;
+	cursor: not-allowed;
+}
+
+/* Garantir que os campos de data sejam editáveis */
+.form-input[type="date"] {
+	pointer-events: auto;
+	user-select: auto;
+	-webkit-user-select: auto;
+	-moz-user-select: auto;
+	-ms-user-select: auto;
+}
+
+/* Estilos para Modal */
+.modal {
+	position: fixed;
+	top: 0;
+	left: 0;
+	width: 100%;
+	height: 100%;
+	background-color: transparent;
+	z-index: 999999;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+}
+
+.modal-content {
+	background: var(--bg-secondary, #f8fafc);
+	border-radius: 0.75rem;
+	box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+	max-width: 700px;
+	width: 95%;
+	max-height: 85vh;
+	overflow: hidden;
+	border: 1px solid var(--border-color, #e5e7eb);
+	display: flex;
+	flex-direction: column;
+	position: relative;
+	z-index: 1000000;
+}
+
+.modal-header {
+	padding: 2rem 2rem 1.5rem 2rem;
+	border-bottom: 1px solid var(--border-color, #e5e7eb);
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	background: var(--bg-tertiary, #f1f5f9);
+	border-radius: 0.75rem 0.75rem 0 0;
+}
+
+.modal-body {
+	padding: 2rem;
+	background: var(--bg-secondary, #f8fafc);
+	flex: 1;
+	overflow-y: auto;
+	min-height: 0;
+}
+
+.modal-close {
+	background: none;
+	border: none;
+	font-size: 1.5rem;
+	color: #6b7280;
+	cursor: pointer;
+	padding: 0.5rem;
+	border-radius: 0.5rem;
+	transition: all 0.2s ease;
+	width: 2.5rem;
+	height: 2.5rem;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+}
+
+.modal-close:hover {
+	color: #ef4444;
+	background-color: #fef2f2;
+	transform: scale(1.1);
+}
+
+/* Estilos para os cards de seleção de relatório */
+.report-type-card {
+	background: var(--bg-primary, #ffffff);
+	border: 2px solid var(--border-color, #e5e7eb);
+	border-radius: 0.75rem;
+	padding: 1.5rem;
+	cursor: pointer;
+	transition: all 0.3s ease;
+	position: relative;
+	overflow: hidden;
+}
+
+.report-type-card:hover {
+	border-color: var(--primary-color, #3b82f6);
+	box-shadow: 0 10px 25px -5px rgba(59, 130, 246, 0.1);
+	transform: translateY(-2px);
+}
+
+.report-type-card.selected {
+	border-color: var(--primary-color, #3b82f6);
+	background: var(--primary-light, #eff6ff);
+	box-shadow: 0 10px 25px -5px rgba(59, 130, 246, 0.2);
+}
+
+.report-type-card::before {
+	content: '';
+	position: absolute;
+	top: 0;
+	left: 0;
+	right: 0;
+	height: 4px;
+	background: var(--primary-color, #3b82f6);
+	opacity: 0;
+	transition: opacity 0.3s ease;
+}
+
+.report-type-card.selected::before {
+	opacity: 1;
+}
+
+.report-type-icon {
+	width: 3rem;
+	height: 3rem;
+	border-radius: 0.75rem;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	margin-bottom: 1rem;
+	font-size: 1.5rem;
+}
+
+.report-type-icon.complete {
+	background: linear-gradient(135deg, #10b981, #059669);
+	color: white;
+}
+
+.report-type-icon.synthetic {
+	background: linear-gradient(135deg, #f59e0b, #d97706);
+	color: white;
+}
+
+.report-type-title {
+	font-size: 1.125rem;
+	font-weight: 600;
+	color: #1f2937;
+	margin-bottom: 0.5rem;
+}
+
+.report-type-description {
+	font-size: 0.875rem;
+	color: #6b7280;
+	line-height: 1.5;
+}
+
+/* Estilos para o formulário de cliente */
+.client-selection-section {
+	background: var(--bg-tertiary, #f8fafc);
+	border-radius: 0.75rem;
+	padding: 1.5rem;
+	border: 1px solid var(--border-color, #e2e8f0);
+}
+
+.client-info-card {
+	background: var(--primary-light, #f0f9ff);
+	border: 1px solid var(--primary-color, #0ea5e9);
+	border-radius: 0.75rem;
+	padding: 1.5rem;
+	margin-top: 1rem;
+}
+
+/* Estilos para os botões */
+.modal-actions {
+	background: var(--bg-tertiary, #f8fafc);
+	border-top: 1px solid var(--border-color, #e5e7eb);
+	padding: 1.5rem 2rem;
+	border-radius: 0 0 0.75rem 0.75rem;
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 1rem;
+	flex-shrink: 0;
+}
+
+.btn-modal {
+	padding: 0.75rem 1.5rem;
+	border-radius: 0.5rem;
+	font-weight: 500;
+	transition: all 0.2s ease;
+	border: none;
+	cursor: pointer;
+	display: flex;
+	align-items: center;
+	gap: 0.5rem;
+}
+
+.btn-modal-secondary {
+	background: #f3f4f6;
+	color: #374151;
+	border: 1px solid #d1d5db;
+}
+
+.btn-modal-secondary:hover {
+	background: #e5e7eb;
+	color: #1f2937;
+}
+
+.btn-modal-primary {
+	background: var(--primary-color, #3b82f6);
+	color: white;
+	box-shadow: 0 4px 6px -1px rgba(59, 130, 246, 0.3);
+}
+
+.btn-modal-primary:hover {
+	background: var(--primary-dark, #2563eb);
+	transform: translateY(-1px);
+	box-shadow: 0 6px 8px -1px rgba(59, 130, 246, 0.4);
+}
+
+.btn-modal-primary:disabled {
+	background: #9ca3af;
+	cursor: not-allowed;
+	transform: none;
+	box-shadow: none;
+}
+</style>
+
+<div class="bg-secondary rounded-lg shadow-lg p-6 mb-6">
+	<div class="flex items-start justify-between mb-4">
+		<div>
+			<h1 class="text-2xl font-bold text-primary mb-2">Relatórios</h1>
+			<p class="text-muted">Análise detalhada de performance, produtividade e faturamento</p>
+		</div>
+		<div class="flex items-center gap-2">
+			<span class="text-sm text-muted">Sistema de Tickets</span>
+			<span class="text-sm font-medium text-primary">v1.0</span>
+		</div>
+	</div>
+</div>
+
+<!-- Filtros Globais -->
+<div class="bg-secondary rounded-lg shadow-lg p-6 mb-6">
+	<div class="flex items-center justify-between mb-4">
+		<h3 class="text-lg font-semibold text-primary flex items-center">
+			<i class="fas fa-filter mr-2"></i>
+			Filtros
+		</h3>
+		<button id="apply-filters" class="btn btn-primary">
+			<i class="fas fa-search mr-2"></i>
+			Aplicar Filtros
+		</button>
+		<div id="filter-status" class="text-sm text-muted mt-2" style="display: none;">
+			<i class="fas fa-info-circle mr-1"></i>
+			<span id="filter-status-text"></span>
+		</div>
+	</div>
+	
+	<div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+		<div class="form-group">
+			<label class="form-label">Data Início</label>
+			<input type="date" id="start-date" class="form-input" value="{{ default_start }}">
+		</div>
+		<div class="form-group">
+			<label class="form-label">Data Fim</label>
+			<input type="date" id="end-date" class="form-input" value="{{ default_end }}">
+		</div>
+		<div class="form-group">
+			<label class="form-label">Período Rápido</label>
+			<select id="quick-period" class="form-select">
+				<option value="">Selecionar período</option>
+				<option value="today">Hoje</option>
+				<option value="week">Esta Semana</option>
+				<option value="month" selected>Este Mês</option>
+				<option value="quarter">Este Trimestre</option>
+				<option value="year">Este Ano</option>
+			</select>
+		</div>
+	</div>
+</div>
+
+<!-- Sistema de Abas -->
+<div class="bg-secondary rounded-lg shadow-lg">
+	<!-- Navegação das Abas -->
+	<div class="border-b border-gray-200">
+		<nav class="flex space-x-8 px-6" aria-label="Tabs">
+			<button class="tab-button active" data-tab="hours-client">
+				<i class="fas fa-building mr-2"></i>
+				Horas por Cliente
+			</button>
+			<button class="tab-button" data-tab="hours-technician">
+				<i class="fas fa-user mr-2"></i>
+				Horas por Técnico
+			</button>
+			<button class="tab-button" data-tab="billing-technician">
+				<i class="fas fa-dollar-sign mr-2"></i>
+				Faturamento por Técnico
+			</button>
+			<button class="tab-button" data-tab="tickets-technician">
+				<i class="fas fa-ticket-alt mr-2"></i>
+				Tickets por Técnico
+			</button>
+			<button class="tab-button" data-tab="productivity">
+				<i class="fas fa-chart-line mr-2"></i>
+				Produtividade
+			</button>
+			<button class="tab-button" data-tab="service-performance">
+				<i class="fas fa-cogs mr-2"></i>
+				Performance por Serviço
+			</button>
+		</nav>
+	</div>
+
+	<!-- Conteúdo das Abas -->
+	<div class="p-6">
+		<!-- Aba: Horas por Cliente -->
+		<div id="tab-hours-client" class="tab-content active">
+			<div class="flex items-center justify-between mb-4">
+				<h3 class="text-lg font-semibold text-primary">Horas por Cliente</h3>
+				<div class="flex gap-2">
+				<button class="btn btn-secondary" onclick="exportReport('hours-client')">
+						<i class="fas fa-file-excel mr-2"></i>
+						Exportar Excel
+					</button>
+					<button class="btn btn-primary" onclick="showClientSelectionModal()">
+						<i class="fas fa-file-pdf mr-2"></i>
+						Exportar PDF
+				</button>
+				</div>
+			</div>
+			<div class="table-container">
+				<table class="table">
+					<thead>
+						<tr>
+							<th>Cliente</th>
+							<th>Tipo</th>
+							<th>Total de Horas</th>
+							<th>Tickets</th>
+							<th>Média por Entrada</th>
+						</tr>
+					</thead>
+					<tbody id="hours-client-data">
+						<tr>
+							<td colspan="5" class="text-center text-muted p-8">
+								<i class="fas fa-spinner fa-spin text-2xl mb-2"></i>
+								<p>Carregando dados...</p>
+							</td>
+						</tr>
+					</tbody>
+				</table>
+			</div>
+		</div>
+
+		<!-- Aba: Horas por Técnico -->
+		<div id="tab-hours-technician" class="tab-content">
+			<div class="flex items-center justify-between mb-4">
+				<h3 class="text-lg font-semibold text-primary">Horas por Técnico</h3>
+				<button class="btn btn-secondary" onclick="exportReport('hours-technician')">
+					<i class="fas fa-download mr-2"></i>
+					Exportar
+				</button>
+			</div>
+			<div class="table-container">
+				<table class="table">
+					<thead>
+						<tr>
+							<th>Técnico</th>
+							<th>Função</th>
+							<th>Total de Horas</th>
+							<th>Entradas</th>
+							<th>Tickets</th>
+							<th>Média por Entrada</th>
+						</tr>
+					</thead>
+					<tbody id="hours-technician-data">
+						<tr>
+							<td colspan="6" class="text-center text-muted p-8">
+								<i class="fas fa-spinner fa-spin text-2xl mb-2"></i>
+								<p>Carregando dados...</p>
+							</td>
+						</tr>
+					</tbody>
+				</table>
+			</div>
+		</div>
+
+		<!-- Aba: Faturamento por Técnico -->
+		<div id="tab-billing-technician" class="tab-content">
+			<div class="flex items-center justify-between mb-4">
+				<h3 class="text-lg font-semibold text-primary">Faturamento por Técnico</h3>
+				<button class="btn btn-secondary" onclick="exportReport('billing-technician')">
+					<i class="fas fa-download mr-2"></i>
+					Exportar
+				</button>
+			</div>
+			<div class="table-container">
+				<table class="table">
+					<thead>
+						<tr>
+							<th>Técnico</th>
+							<th>Função</th>
+							<th>Total de Horas</th>
+							<th>Faturamento Total</th>
+							<th>Tickets</th>
+							<th>Taxa Média/Hora</th>
+						</tr>
+					</thead>
+					<tbody id="billing-technician-data">
+						<tr>
+							<td colspan="6" class="text-center text-muted p-8">
+								<i class="fas fa-spinner fa-spin text-2xl mb-2"></i>
+								<p>Carregando dados...</p>
+							</td>
+						</tr>
+					</tbody>
+				</table>
+			</div>
+		</div>
+
+		<!-- Aba: Tickets por Técnico -->
+		<div id="tab-tickets-technician" class="tab-content">
+			<div class="flex items-center justify-between mb-4">
+				<h3 class="text-lg font-semibold text-primary">Tickets por Técnico</h3>
+				<button class="btn btn-secondary" onclick="exportReport('tickets-technician')">
+					<i class="fas fa-download mr-2"></i>
+					Exportar
+				</button>
+			</div>
+			<div class="table-container">
+				<table class="table">
+					<thead>
+						<tr>
+							<th>Técnico</th>
+							<th>Função</th>
+							<th>Total Tickets</th>
+							<th>Abertos</th>
+							<th>Em Andamento</th>
+							<th>Fechados</th>
+							<th>Horas Totais</th>
+							<th>Tempo Médio Resolução</th>
+						</tr>
+					</thead>
+					<tbody id="tickets-technician-data">
+						<tr>
+							<td colspan="8" class="text-center text-muted p-8">
+								<i class="fas fa-spinner fa-spin text-2xl mb-2"></i>
+								<p>Carregando dados...</p>
+							</td>
+						</tr>
+					</tbody>
+				</table>
+			</div>
+		</div>
+
+		<!-- Aba: Produtividade -->
+		<div id="tab-productivity" class="tab-content">
+			<div class="flex items-center justify-between mb-4">
+				<h3 class="text-lg font-semibold text-primary">Métricas de Produtividade</h3>
+				<button class="btn btn-secondary" onclick="exportReport('productivity')">
+					<i class="fas fa-download mr-2"></i>
+					Exportar
+				</button>
+			</div>
+			
+			<!-- Cards de Resumo -->
+			<div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+				<div class="bg-tertiary rounded-lg p-4">
+					<div class="flex items-center">
+						<div class="w-12 h-12 bg-primary/10 rounded-lg flex items-center justify-center mr-3">
+							<i class="fas fa-ticket-alt text-primary text-xl"></i>
+						</div>
+						<div>
+							<div class="text-sm text-muted">Total de Tickets</div>
+							<div class="text-2xl font-bold text-primary" id="total-tickets">-</div>
+						</div>
+					</div>
+				</div>
+				<div class="bg-tertiary rounded-lg p-4">
+					<div class="flex items-center">
+						<div class="w-12 h-12 bg-success/10 rounded-lg flex items-center justify-center mr-3">
+							<i class="fas fa-check-circle text-success text-xl"></i>
+						</div>
+						<div>
+							<div class="text-sm text-muted">Taxa de Fechamento</div>
+							<div class="text-2xl font-bold text-success" id="closure-rate">-</div>
+						</div>
+					</div>
+				</div>
+				<div class="bg-tertiary rounded-lg p-4">
+					<div class="flex items-center">
+						<div class="w-12 h-12 bg-warning/10 rounded-lg flex items-center justify-center mr-3">
+							<i class="fas fa-clock text-warning text-xl"></i>
+						</div>
+						<div>
+							<div class="text-sm text-muted">Tempo Médio</div>
+							<div class="text-2xl font-bold text-warning" id="avg-resolution-time">-</div>
+						</div>
+					</div>
+				</div>
+				<div class="bg-tertiary rounded-lg p-4">
+					<div class="flex items-center">
+						<div class="w-12 h-12 bg-info/10 rounded-lg flex items-center justify-center mr-3">
+							<i class="fas fa-hourglass-half text-info text-xl"></i>
+						</div>
+						<div>
+							<div class="text-sm text-muted">Horas Totais</div>
+							<div class="text-2xl font-bold text-info" id="total-hours">-</div>
+						</div>
+					</div>
+				</div>
+			</div>
+
+			<!-- Gráficos -->
+			<div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+				<div class="bg-tertiary rounded-lg p-4">
+					<h4 class="font-semibold text-primary mb-4">Tickets por Dia</h4>
+					<div class="relative" style="height: 240px;">
+						<canvas id="daily-tickets-chart"></canvas>
+					</div>
+				</div>
+				<div class="bg-tertiary rounded-lg p-4">
+					<h4 class="font-semibold text-primary mb-4">Horas por Dia</h4>
+					<div class="relative" style="height: 240px;">
+						<canvas id="daily-hours-chart"></canvas>
+					</div>
+				</div>
+			</div>
+		</div>
+
+		<!-- Aba: Performance por Serviço -->
+		<div id="tab-service-performance" class="tab-content">
+			<div class="flex items-center justify-between mb-4">
+				<h3 class="text-lg font-semibold text-primary">Performance por Serviço</h3>
+				<button class="btn btn-secondary" onclick="exportReport('service-performance')">
+					<i class="fas fa-download mr-2"></i>
+					Exportar
+				</button>
+			</div>
+			<div class="table-container">
+				<table class="table">
+					<thead>
+						<tr>
+							<th>Serviço</th>
+							<th>Taxa/Hora</th>
+							<th>Tickets</th>
+							<th>Horas Totais</th>
+							<th>Média por Ticket</th>
+							<th>Receita Total</th>
+						</tr>
+					</thead>
+					<tbody id="service-performance-data">
+						<tr>
+							<td colspan="6" class="text-center text-muted p-8">
+								<i class="fas fa-spinner fa-spin text-2xl mb-2"></i>
+								<p>Carregando dados...</p>
+							</td>
+						</tr>
+					</tbody>
+				</table>
+			</div>
+		</div>
+	</div>
+</div>
+
+<!-- Modal de Seleção de Cliente para PDF -->
+<div id="client-selection-modal" class="modal" style="display: none;">
+	<div class="modal-content">
+		<div class="modal-header">
+			<h3 class="text-lg font-semibold text-primary">
+				<i class="fas fa-file-pdf mr-2"></i>
+				Exportar Relatório PDF
+			</h3>
+			<button class="modal-close" onclick="closeClientSelectionModal()">
+				<i class="fas fa-times"></i>
+			</button>
+		</div>
+		<div class="modal-body">
+			<div class="text-center mb-6">
+				<h4 class="text-lg font-semibold text-primary mb-2">Configuração do Relatório</h4>
+				<p class="text-muted">
+					Selecione o tipo de relatório e o cliente para gerar o PDF personalizado
+				</p>
+			</div>
+			
+			<!-- Seleção do tipo de relatório -->
+			<div class="mb-6">
+				<h5 class="text-md font-semibold text-primary mb-4 flex items-center">
+					<i class="fas fa-chart-bar mr-2 text-primary"></i>
+					Tipo de Relatório
+				</h5>
+				<div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+					<div class="report-type-card" id="card-complete" onclick="selectReportType('complete')">
+						<div class="report-type-icon complete">
+							<i class="fas fa-file-alt"></i>
+						</div>
+						<div class="flex items-center mb-3">
+							<input type="radio" id="report-complete" name="report-type" value="complete" class="mr-3" checked>
+							<label for="report-complete" class="report-type-title">Relatório Completo</label>
+						</div>
+						<p class="report-type-description">
+							Inclui todos os tickets com detalhamento completo de pontamentos, descrições e informações técnicas.
+						</p>
+					</div>
+					<div class="report-type-card" id="card-synthetic" onclick="selectReportType('synthetic')">
+						<div class="report-type-icon synthetic">
+							<i class="fas fa-chart-pie"></i>
+						</div>
+						<div class="flex items-center mb-3">
+							<input type="radio" id="report-synthetic" name="report-type" value="synthetic" class="mr-3">
+							<label for="report-synthetic" class="report-type-title">Relatório Sintético</label>
+						</div>
+						<p class="report-type-description">
+							Resumo executivo com número do ticket, data, horas gastas e totais. Ideal para apresentações.
+						</p>
+					</div>
+				</div>
+			</div>
+			
+			<!-- Seleção do cliente -->
+			<div class="client-selection-section">
+				<h5 class="text-md font-semibold text-primary mb-4 flex items-center">
+					<i class="fas fa-users mr-2 text-primary"></i>
+					Selecionar Cliente
+				</h5>
+				<select id="pdf-client-select" class="form-select">
+					<option value="">Selecione um cliente...</option>
+					<optgroup label="Clientes Internos">
+						{% for client in clients %}
+						<option value="internal_{{ client.id }}" data-client-id="{{ client.id }}" data-client-name="{{ client.name }}">
+							{{ client.name }}
+						</option>
+						{% endfor %}
+					</optgroup>
+					<optgroup label="Clientes Externos">
+						<!-- Será preenchido dinamicamente -->
+					</optgroup>
+				</select>
+				
+				<div id="selected-client-info" class="client-info-card" style="display: none;">
+					<h6 class="font-semibold text-primary mb-3 flex items-center">
+						<i class="fas fa-check-circle mr-2"></i>
+						Cliente Selecionado
+					</h6>
+					<div id="client-details"></div>
+				</div>
+			</div>
+		</div>
+		
+		<!-- Rodapé do modal com botões -->
+		<div class="modal-actions">
+			<div class="flex items-center text-sm text-muted">
+				<i class="fas fa-info-circle mr-2 text-primary"></i>
+				<span>O relatório incluirá todos os tickets do período filtrado</span>
+			</div>
+			<div class="flex gap-3">
+				<button class="btn-modal btn-modal-secondary" onclick="closeClientSelectionModal()">
+					<i class="fas fa-times"></i>
+					Cancelar
+				</button>
+				<button id="export-pdf-btn" class="btn-modal btn-modal-primary" onclick="exportClientPDF()" disabled>
+					<i class="fas fa-file-pdf"></i>
+					<span id="export-btn-text">Gerar PDF Completo</span>
+				</button>
+			</div>
+		</div>
+	</div>
+</div>
+
+<!-- JavaScript -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+let currentTab = 'hours-client';
+let currentFilters = {
+	start: '',
+	end: ''
+};
+
+// Inicialização
+document.addEventListener('DOMContentLoaded', function() {
+	// Inicializar filtros após DOM estar carregado
+	initializeFilters();
+	
+	// Event listeners para abas
+	document.querySelectorAll('.tab-button').forEach(button => {
+		button.addEventListener('click', function() {
+			const tabId = this.dataset.tab;
+			switchTab(tabId);
+		});
+	});
+
+	// Event listeners para filtros
+	document.getElementById('apply-filters').addEventListener('click', applyFilters);
+	document.getElementById('quick-period').addEventListener('change', handleQuickPeriod);
+
+	// Carregar dados iniciais
+	loadCurrentTabData();
+	
+	// Carregar clientes externos para o modal
+	loadExternalClients();
+	
+	// Inicializar modal com card completo selecionado
+	document.getElementById('card-complete').classList.add('selected');
+	
+	// Event listener para fechar modal ao clicar fora
+	document.addEventListener('click', function(event) {
+		const modal = document.getElementById('client-selection-modal');
+		if (event.target === modal) {
+			closeClientSelectionModal();
+		}
+	});
+	
+	// Event listener para fechar modal com ESC
+	document.addEventListener('keydown', function(event) {
+		if (event.key === 'Escape') {
+			const modal = document.getElementById('client-selection-modal');
+			if (modal.style.display === 'flex') {
+				closeClientSelectionModal();
+			}
+		}
+	});
+});
+
+// Função para carregar clientes externos
+async function loadExternalClients() {
+	try {
+		const response = await fetch(`/relatorios/api/hours-by-client?start=${currentFilters.start}&end=${currentFilters.end}`);
+		const data = await response.json();
+		
+		const externalGroup = document.querySelector('#pdf-client-select optgroup[label="Clientes Externos"]');
+		externalGroup.innerHTML = '';
+		
+		// Filtrar apenas clientes externos únicos
+		const externalClients = data.filter(item => item.client_type === 'Externo');
+		const uniqueExternalClients = [...new Map(externalClients.map(item => [item.client_name, item])).values()];
+		
+		uniqueExternalClients.forEach(client => {
+			const option = document.createElement('option');
+			option.value = `external_${client.client_name}`;
+			option.setAttribute('data-client-name', client.client_name);
+			option.textContent = client.client_name;
+			externalGroup.appendChild(option);
+		});
+	} catch (error) {
+		console.error('Erro ao carregar clientes externos:', error);
+	}
+}
+
+// Função para mostrar modal de seleção de cliente
+function showClientSelectionModal() {
+	// Garantir que não há outros modais abertos
+	const existingModals = document.querySelectorAll('.modal');
+	existingModals.forEach(modal => {
+		if (modal.id !== 'client-selection-modal') {
+			modal.style.display = 'none';
+		}
+	});
+	
+	// Fechar qualquer modal do Bootstrap que possa estar aberto
+	const bootstrapModals = document.querySelectorAll('.modal.show, .modal-backdrop');
+	bootstrapModals.forEach(modal => {
+		modal.style.display = 'none';
+		modal.classList.remove('show');
+	});
+	
+	// Remover qualquer backdrop que possa estar ativo
+	const backdrops = document.querySelectorAll('.modal-backdrop');
+	backdrops.forEach(backdrop => {
+		backdrop.remove();
+	});
+	
+	document.getElementById('client-selection-modal').style.display = 'flex';
+	document.body.style.overflow = 'hidden';
+	
+	// Carregar clientes externos atualizados
+	loadExternalClients();
+}
+
+// Função para fechar modal
+function closeClientSelectionModal() {
+	document.getElementById('client-selection-modal').style.display = 'none';
+	document.body.style.overflow = 'auto';
+	
+	// Limpar seleção
+	document.getElementById('pdf-client-select').value = '';
+	document.getElementById('selected-client-info').style.display = 'none';
+	document.getElementById('export-pdf-btn').disabled = true;
+	
+	// Limpar classes CSS dos cards
+	document.getElementById('card-complete').classList.remove('selected');
+	document.getElementById('card-synthetic').classList.remove('selected');
+	
+	// Resetar para completo
+	document.getElementById('report-complete').checked = true;
+	document.getElementById('report-synthetic').checked = false;
+	document.getElementById('export-btn-text').textContent = 'Gerar PDF Completo';
+	
+	// Remover qualquer backdrop que possa ter sido criado
+	const backdrops = document.querySelectorAll('.modal-backdrop');
+	backdrops.forEach(backdrop => {
+		backdrop.remove();
+	});
+}
+
+// Função para selecionar tipo de relatório
+function selectReportType(type) {
+	const completeRadio = document.getElementById('report-complete');
+	const syntheticRadio = document.getElementById('report-synthetic');
+	const exportBtnText = document.getElementById('export-btn-text');
+	const completeCard = document.getElementById('card-complete');
+	const syntheticCard = document.getElementById('card-synthetic');
+	
+	if (type === 'complete') {
+		completeRadio.checked = true;
+		syntheticRadio.checked = false;
+		exportBtnText.textContent = 'Gerar PDF Completo';
+		
+		// Aplicar classes CSS
+		completeCard.classList.add('selected');
+		syntheticCard.classList.remove('selected');
+	} else if (type === 'synthetic') {
+		completeRadio.checked = false;
+		syntheticRadio.checked = true;
+		exportBtnText.textContent = 'Gerar PDF Sintético';
+		
+		// Aplicar classes CSS
+		completeCard.classList.remove('selected');
+		syntheticCard.classList.add('selected');
+	}
+}
+
+// Event listener para mudança de cliente
+document.addEventListener('DOMContentLoaded', function() {
+	const clientSelect = document.getElementById('pdf-client-select');
+	if (clientSelect) {
+		clientSelect.addEventListener('change', function() {
+			const selectedOption = this.options[this.selectedIndex];
+			const clientInfo = document.getElementById('selected-client-info');
+			const clientDetails = document.getElementById('client-details');
+			const exportBtn = document.getElementById('export-pdf-btn');
+			
+			if (this.value) {
+				const clientName = selectedOption.getAttribute('data-client-name') || selectedOption.textContent;
+				const clientId = selectedOption.getAttribute('data-client-id');
+				
+				clientDetails.innerHTML = `
+					<div class="flex items-center justify-between">
+						<div>
+							<div class="font-medium text-primary">${clientName}</div>
+							<div class="text-sm text-muted">
+								${clientId ? 'Cliente Interno' : 'Cliente Externo'}
+							</div>
+						</div>
+						<div class="text-right">
+							<div class="text-sm text-muted">Período:</div>
+							<div class="text-sm font-medium">
+								${currentFilters.start ? new Date(currentFilters.start).toLocaleDateString('pt-BR') : 'Início'} - 
+								${currentFilters.end ? new Date(currentFilters.end).toLocaleDateString('pt-BR') : 'Fim'}
+							</div>
+						</div>
+					</div>
+				`;
+				
+				clientInfo.style.display = 'block';
+				exportBtn.disabled = false;
+			} else {
+				clientInfo.style.display = 'none';
+				exportBtn.disabled = true;
+			}
+		});
+	}
+});
+
+// Função para exportar PDF do cliente
+function exportClientPDF() {
+	const clientSelect = document.getElementById('pdf-client-select');
+	const selectedOption = clientSelect.options[clientSelect.selectedIndex];
+	
+	if (!selectedOption.value) {
+		alert('Por favor, selecione um cliente');
+		return;
+	}
+	
+	// Verificar tipo de relatório selecionado
+	const reportType = document.querySelector('input[name="report-type"]:checked').value;
+	
+	const clientValue = selectedOption.value;
+	const clientName = selectedOption.getAttribute('data-client-name') || selectedOption.textContent;
+	const clientId = selectedOption.getAttribute('data-client-id');
+	
+	// Construir URL de exportação baseada no tipo
+	let exportUrl = `/relatorios/export/hours-by-client-pdf?`;
+	if (reportType === 'synthetic') {
+		exportUrl = `/relatorios/export/hours-by-client-synthetic-pdf?`;
+	}
+	
+	const params = new URLSearchParams();
+	
+	if (currentFilters.start) {
+		params.append('start', currentFilters.start);
+	}
+	if (currentFilters.end) {
+		params.append('end', currentFilters.end);
+	}
+	
+	if (clientValue.startsWith('internal_')) {
+		params.append('client_id', clientId);
+	} else if (clientValue.startsWith('external_')) {
+		params.append('external_client_name', clientName);
+	}
+	
+	exportUrl += params.toString();
+	
+	// Mostrar loading
+	const exportBtn = document.getElementById('export-pdf-btn');
+	const originalText = exportBtn.innerHTML;
+	exportBtn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Gerando PDF...';
+	exportBtn.disabled = true;
+	
+	// Criar link temporário para download
+	const link = document.createElement('a');
+	link.href = exportUrl;
+	link.style.display = 'none';
+	document.body.appendChild(link);
+	link.click();
+	document.body.removeChild(link);
+	
+	// Restaurar botão após um tempo
+	setTimeout(() => {
+		exportBtn.innerHTML = originalText;
+		exportBtn.disabled = false;
+		closeClientSelectionModal();
+	}, 2000);
+}
+
+function initializeFilters() {
+	// Garantir que os elementos existem antes de acessá-los
+	const startDateElement = document.getElementById('start-date');
+	const endDateElement = document.getElementById('end-date');
+	
+	console.log('Inicializando filtros...');
+	console.log('Elemento start-date encontrado:', !!startDateElement);
+	console.log('Elemento end-date encontrado:', !!endDateElement);
+	
+	if (startDateElement && endDateElement) {
+		// Verificar se os campos estão editáveis
+		console.log('Campo start-date disabled:', startDateElement.disabled);
+		console.log('Campo start-date readonly:', startDateElement.readOnly);
+		console.log('Campo end-date disabled:', endDateElement.disabled);
+		console.log('Campo end-date readonly:', endDateElement.readOnly);
+		
+		// Garantir que os campos estão editáveis
+		startDateElement.disabled = false;
+		startDateElement.readOnly = false;
+		endDateElement.disabled = false;
+		endDateElement.readOnly = false;
+		
+		currentFilters.start = startDateElement.value;
+		currentFilters.end = endDateElement.value;
+		console.log('Filtros inicializados com valores:', currentFilters);
+	} else {
+		console.error('Elementos de data não encontrados');
+		// Valores padrão se os elementos não existirem
+		const today = new Date();
+		const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+		currentFilters.start = startOfMonth.toISOString().split('T')[0];
+		currentFilters.end = today.toISOString().split('T')[0];
+		console.log('Usando valores padrão:', currentFilters);
+	}
+}
+
+function switchTab(tabId) {
+	// Remover active de todas as abas
+	document.querySelectorAll('.tab-button').forEach(btn => btn.classList.remove('active'));
+	document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
+
+	// Ativar aba selecionada
+	document.querySelector(`[data-tab="${tabId}"]`).classList.add('active');
+	document.getElementById(`tab-${tabId}`).classList.add('active');
+
+	currentTab = tabId;
+	loadCurrentTabData();
+}
+
+function applyFilters() {
+	const startDateElement = document.getElementById('start-date');
+	const endDateElement = document.getElementById('end-date');
+	
+	if (startDateElement && endDateElement) {
+		currentFilters.start = startDateElement.value;
+		currentFilters.end = endDateElement.value;
+		
+		// Validar datas
+		if (currentFilters.start && currentFilters.end) {
+			const startDate = new Date(currentFilters.start);
+			const endDate = new Date(currentFilters.end);
+			
+			if (endDate < startDate) {
+				alert('A data de fim deve ser posterior ou igual à data de início.');
+				endDateElement.focus();
+				return;
+			}
+		}
+		
+		console.log('Filtros aplicados:', currentFilters);
+		showFilterStatus();
+	loadCurrentTabData();
+	} else {
+		console.error('Elementos de data não encontrados ao aplicar filtros');
+	}
+}
+
+function showFilterStatus() {
+	const statusElement = document.getElementById('filter-status');
+	const statusTextElement = document.getElementById('filter-status-text');
+	
+	if (statusElement && statusTextElement) {
+		let statusText = '';
+		
+		if (currentFilters.start && currentFilters.end) {
+			const startDate = new Date(currentFilters.start);
+			const endDate = new Date(currentFilters.end);
+			statusText = `Filtros aplicados: ${startDate.toLocaleDateString('pt-BR')} a ${endDate.toLocaleDateString('pt-BR')}`;
+		} else if (currentFilters.start) {
+			const startDate = new Date(currentFilters.start);
+			statusText = `Filtro aplicado: a partir de ${startDate.toLocaleDateString('pt-BR')}`;
+		} else if (currentFilters.end) {
+			const endDate = new Date(currentFilters.end);
+			statusText = `Filtro aplicado: até ${endDate.toLocaleDateString('pt-BR')}`;
+		} else {
+			statusText = 'Mostrando todos os dados (sem filtros de data)';
+		}
+		
+		statusTextElement.textContent = statusText;
+		statusElement.style.display = 'block';
+		
+		// Esconder após 3 segundos
+		setTimeout(() => {
+			statusElement.style.display = 'none';
+		}, 3000);
+	}
+}
+
+function handleQuickPeriod() {
+	const period = document.getElementById('quick-period').value;
+	const startDateElement = document.getElementById('start-date');
+	const endDateElement = document.getElementById('end-date');
+	
+	if (!startDateElement || !endDateElement) {
+		console.error('Elementos de data não encontrados ao definir período rápido');
+		return;
+	}
+	
+	if (!period) {
+		return;
+	}
+	
+	const today = new Date();
+	let startDate, endDate = today.toISOString().split('T')[0];
+
+	switch(period) {
+		case 'today':
+			startDate = endDate;
+			break;
+		case 'week':
+			const weekAgo = new Date(today);
+			weekAgo.setDate(today.getDate() - 7);
+			startDate = weekAgo.toISOString().split('T')[0];
+			break;
+		case 'month':
+			startDate = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().split('T')[0];
+			break;
+		case 'quarter':
+			const quarter = Math.floor(today.getMonth() / 3);
+			startDate = new Date(today.getFullYear(), quarter * 3, 1).toISOString().split('T')[0];
+			break;
+		case 'year':
+			startDate = new Date(today.getFullYear(), 0, 1).toISOString().split('T')[0];
+			break;
+		default:
+			return;
+	}
+
+	startDateElement.value = startDate;
+	endDateElement.value = endDate;
+	
+	// Atualizar filtros e recarregar dados
+	currentFilters.start = startDate;
+	currentFilters.end = endDate;
+	
+	console.log('Período rápido aplicado:', { period, startDate, endDate });
+	showFilterStatus();
+	loadCurrentTabData();
+}
+
+function loadCurrentTabData() {
+	switch(currentTab) {
+		case 'hours-client':
+			loadHoursByClient();
+			break;
+		case 'hours-technician':
+			loadHoursByTechnician();
+			break;
+		case 'billing-technician':
+			loadBillingByTechnician();
+			break;
+		case 'tickets-technician':
+			loadTicketsByTechnician();
+			break;
+		case 'productivity':
+			loadProductivityMetrics();
+			break;
+		case 'service-performance':
+			loadServicePerformance();
+			break;
+	}
+}
+
+async function loadHoursByClient() {
+	try {
+		console.log('Carregando horas por cliente com filtros:', currentFilters);
+		const url = `/relatorios/api/hours-by-client?start=${currentFilters.start}&end=${currentFilters.end}`;
+		console.log('URL da requisição:', url);
+		
+		const response = await fetch(url);
+		if (!response.ok) {
+			throw new Error(`HTTP error! status: ${response.status}`);
+		}
+		const data = await response.json();
+		renderHoursByClient(data);
+	} catch (error) {
+		console.error('Erro ao carregar horas por cliente:', error);
+		showError('hours-client-data', 'Erro ao carregar dados');
+	}
+}
+
+function renderHoursByClient(data) {
+	const tbody = document.getElementById('hours-client-data');
+	
+	if (data.length === 0) {
+		tbody.innerHTML = `
+			<tr>
+				<td colspan="5" class="empty-state">
+					<i class="fas fa-building"></i>
+					<p>Nenhum dado encontrado para o período selecionado</p>
+				</td>
+			</tr>
+		`;
+		return;
+	}
+
+	tbody.innerHTML = data.map(item => `
+		<tr>
+			<td class="font-medium">${item.client_name}</td>
+			<td><span class="status-badge ${item.client_type === 'Externo' ? 'status-warning' : 'status-success'}">${item.client_type}</span></td>
+			<td class="font-bold text-primary">${item.total_hours.toFixed(1)}h</td>
+			<td>${item.tickets_count}</td>
+			<td>${item.avg_hours_per_entry.toFixed(1)}h</td>
+		</tr>
+	`).join('');
+}
+
+async function loadHoursByTechnician() {
+	try {
+		const response = await fetch(`/relatorios/api/hours-by-technician?start=${currentFilters.start}&end=${currentFilters.end}`);
+		const data = await response.json();
+		renderHoursByTechnician(data);
+	} catch (error) {
+		console.error('Erro ao carregar horas por técnico:', error);
+		showError('hours-technician-data', 'Erro ao carregar dados');
+	}
+}
+
+function renderHoursByTechnician(data) {
+	const tbody = document.getElementById('hours-technician-data');
+	
+	if (data.length === 0) {
+		tbody.innerHTML = `
+			<tr>
+				<td colspan="6" class="empty-state">
+					<i class="fas fa-user"></i>
+					<p>Nenhum dado encontrado para o período selecionado</p>
+				</td>
+			</tr>
+		`;
+		return;
+	}
+
+	tbody.innerHTML = data.map(item => `
+		<tr>
+			<td class="font-medium">${item.name}</td>
+			<td><span class="status-badge status-primary">${item.role}</span></td>
+			<td class="font-bold text-primary">${item.total_hours.toFixed(1)}h</td>
+			<td>${item.entries_count}</td>
+			<td>${item.tickets_count}</td>
+			<td>${item.avg_hours_per_entry.toFixed(1)}h</td>
+		</tr>
+	`).join('');
+}
+
+async function loadBillingByTechnician() {
+	try {
+		console.log('Carregando faturamento por técnico com filtros:', currentFilters);
+		const url = `/relatorios/api/billing-by-technician?start=${currentFilters.start}&end=${currentFilters.end}`;
+		console.log('URL da requisição:', url);
+		
+		const response = await fetch(url);
+		if (!response.ok) {
+			throw new Error(`HTTP error! status: ${response.status}`);
+		}
+		const data = await response.json();
+		renderBillingByTechnician(data);
+	} catch (error) {
+		console.error('Erro ao carregar faturamento por técnico:', error);
+		showError('billing-technician-data', 'Erro ao carregar dados');
+	}
+}
+
+function renderBillingByTechnician(data) {
+	const tbody = document.getElementById('billing-technician-data');
+	
+	if (data.length === 0) {
+		tbody.innerHTML = `
+			<tr>
+				<td colspan="6" class="empty-state">
+					<i class="fas fa-dollar-sign"></i>
+					<p>Nenhum dado encontrado para o período selecionado</p>
+				</td>
+			</tr>
+		`;
+		return;
+	}
+
+	tbody.innerHTML = data.map(item => `
+		<tr class="technician-row" data-technician-id="${item.user_id}">
+			<td class="font-medium cursor-pointer hover:text-primary transition-colors" onclick="toggleTechnicianDetails(${item.user_id})">
+				<i class="fas fa-chevron-right transition-transform" id="chevron-${item.user_id}"></i>
+				${item.name}
+			</td>
+			<td><span class="status-badge status-primary">${item.role}</span></td>
+			<td class="font-bold text-primary">—</td>
+			<td class="font-bold text-success">R$ ${item.total_billing.toFixed(2)}</td>
+			<td>${item.tickets_count}</td>
+			<td>—</td>
+		</tr>
+		<tr class="technician-details" id="details-${item.user_id}" style="display: none;">
+			<td colspan="6" class="p-0">
+				<div class="bg-gray-50 border-l-4 border-primary p-4">
+					<div class="flex items-center justify-between mb-3">
+						<h4 class="font-semibold text-primary">Detalhes do Faturamento - ${item.name}</h4>
+						<div class="flex gap-2 text-sm text-muted">
+							<span><i class="fas fa-ticket-alt mr-1"></i>${item.tickets_count} tickets</span>
+							<span><i class="fas fa-clipboard-list mr-1"></i>${item.service_orders_count} ordens</span>
+						</div>
+					</div>
+					<div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+						<div>
+							<h5 class="font-medium text-primary mb-2">Tickets Faturados</h5>
+							<div id="tickets-${item.user_id}" class="space-y-2">
+								<div class="text-center text-muted p-4">
+									<i class="fas fa-spinner fa-spin"></i>
+									<p>Carregando tickets...</p>
+								</div>
+							</div>
+						</div>
+						<div>
+							<h5 class="font-medium text-primary mb-2">Ordens de Serviço</h5>
+							<div id="service-orders-${item.user_id}" class="space-y-2">
+								<div class="text-center text-muted p-4">
+									<i class="fas fa-spinner fa-spin"></i>
+									<p>Carregando ordens...</p>
+								</div>
+							</div>
+						</div>
+					</div>
+				</div>
+			</td>
+		</tr>
+	`).join('');
+}
+
+async function loadTicketsByTechnician() {
+	try {
+		const response = await fetch(`/relatorios/api/tickets-by-technician?start=${currentFilters.start}&end=${currentFilters.end}`);
+		const data = await response.json();
+		renderTicketsByTechnician(data);
+	} catch (error) {
+		console.error('Erro ao carregar tickets por técnico:', error);
+		showError('tickets-technician-data', 'Erro ao carregar dados');
+	}
+}
+
+function renderTicketsByTechnician(data) {
+	const tbody = document.getElementById('tickets-technician-data');
+	
+	if (data.length === 0) {
+		tbody.innerHTML = `
+			<tr>
+				<td colspan="8" class="empty-state">
+					<i class="fas fa-ticket-alt"></i>
+					<p>Nenhum dado encontrado para o período selecionado</p>
+				</td>
+			</tr>
+		`;
+		return;
+	}
+
+	tbody.innerHTML = data.map(item => `
+		<tr>
+			<td class="font-medium">${item.name}</td>
+			<td><span class="status-badge status-primary">${item.role}</span></td>
+			<td class="font-bold text-primary">${item.total_tickets}</td>
+			<td><span class="status-badge status-error">${item.open_tickets}</span></td>
+			<td><span class="status-badge status-warning">${item.in_progress_tickets}</span></td>
+			<td><span class="status-badge status-success">${item.closed_tickets}</span></td>
+			<td class="font-bold text-primary">${item.total_hours.toFixed(1)}h</td>
+			<td>${formatResolutionTime(item.avg_resolution_time)}</td>
+		</tr>
+	`).join('');
+}
+
+async function loadProductivityMetrics() {
+	try {
+		const response = await fetch(`/relatorios/api/productivity-metrics?start=${currentFilters.start}&end=${currentFilters.end}`);
+		const data = await response.json();
+		renderProductivityMetrics(data);
+	} catch (error) {
+		console.error('Erro ao carregar métricas de produtividade:', error);
+	}
+}
+
+function renderProductivityMetrics(data) {
+	// Atualizar cards de resumo
+	document.getElementById('total-tickets').textContent = data.total_tickets;
+	document.getElementById('closure-rate').textContent = data.closure_rate.toFixed(1) + '%';
+	document.getElementById('avg-resolution-time').textContent = formatResolutionTime(data.avg_resolution_time);
+	document.getElementById('total-hours').textContent = data.daily_hours.reduce((sum, day) => sum + day.hours, 0).toFixed(1) + 'h';
+
+	// Gráfico de tickets por dia
+	renderDailyChart('daily-tickets-chart', data.daily_tickets, 'Tickets', '#3b82f6');
+	
+	// Gráfico de horas por dia
+	renderDailyChart('daily-hours-chart', data.daily_hours, 'Horas', '#10b981');
+}
+
+function renderDailyChart(canvasId, data, label, color) {
+	const ctx = document.getElementById(canvasId).getContext('2d');
+	
+	window.dailyCharts = window.dailyCharts || {};
+	if (window.dailyCharts[canvasId]) {
+		window.dailyCharts[canvasId].destroy();
+		window.dailyCharts[canvasId] = null;
+	}
+	
+	window.dailyCharts[canvasId] = new Chart(ctx, {
+		type: 'line',
+		data: {
+			labels: data.map(item => item.date),
+			datasets: [{
+				label: label,
+				data: data.map(item => item.count || item.hours),
+				borderColor: color,
+				backgroundColor: color + '20',
+				tension: 0.4,
+				fill: true
+			}]
+		},
+		options: {
+			responsive: true,
+			maintainAspectRatio: false,
+			plugins: {
+				legend: {
+					display: false
+				}
+			},
+			scales: {
+				y: {
+					beginAtZero: true
+				}
+			}
+		}
+	});
+}
+
+async function loadServicePerformance() {
+	try {
+		const response = await fetch(`/relatorios/api/service-performance?start=${currentFilters.start}&end=${currentFilters.end}`);
+		const data = await response.json();
+		renderServicePerformance(data);
+	} catch (error) {
+		console.error('Erro ao carregar performance por serviço:', error);
+		showError('service-performance-data', 'Erro ao carregar dados');
+	}
+}
+
+function renderServicePerformance(data) {
+	const tbody = document.getElementById('service-performance-data');
+	
+	if (data.length === 0) {
+		tbody.innerHTML = `
+			<tr>
+				<td colspan="6" class="empty-state">
+					<i class="fas fa-cogs"></i>
+					<p>Nenhum dado encontrado para o período selecionado</p>
+				</td>
+			</tr>
+		`;
+		return;
+	}
+
+	tbody.innerHTML = data.map(item => `
+		<tr>
+			<td class="font-medium">${item.name}</td>
+			<td>R$ ${item.hourly_rate.toFixed(2)}/h</td>
+			<td>${item.tickets_count}</td>
+			<td class="font-bold text-primary">${item.total_hours.toFixed(1)}h</td>
+			<td>${item.avg_hours_per_ticket.toFixed(1)}h</td>
+			<td class="font-bold text-success">R$ ${item.total_revenue.toFixed(2)}</td>
+		</tr>
+	`).join('');
+}
+
+function showError(elementId, message) {
+	document.getElementById(elementId).innerHTML = `
+		<tr>
+			<td colspan="10" class="text-center text-error p-8">
+				<i class="fas fa-exclamation-triangle text-2xl mb-2"></i>
+				<p>${message}</p>
+			</td>
+		</tr>
+	`;
+}
+
+function formatResolutionTime(hours) {
+	if (!hours || hours === 0) return '-';
+	
+	if (hours < 24) {
+		return `${hours.toFixed(1)}h`;
+	} else {
+		const days = Math.floor(hours / 24);
+		const remainingHours = hours % 24;
+		return `${days}d ${remainingHours.toFixed(1)}h`;
+	}
+}
+
+function exportReport(reportType) {
+	// Implementar exportação baseada no tipo de relatório
+	const startDate = currentFilters.start;
+	const endDate = currentFilters.end;
+	
+	let exportUrl = '';
+	let filename = '';
+	
+	switch(reportType) {
+		case 'billing-technician':
+			exportUrl = `/relatorios/export/billing-by-technician?start=${startDate}&end=${endDate}`;
+			filename = `faturamento_por_tecnico_${startDate}_${endDate}.xlsx`;
+			break;
+		case 'hours-client':
+			// Exportação Excel para horas por cliente (relatório resumido)
+			exportUrl = `/relatorios/export/hours-by-client-excel?start=${startDate}&end=${endDate}`;
+			filename = `horas_por_cliente_${startDate}_${endDate}.xlsx`;
+			break;
+		case 'hours-technician':
+			// TODO: Implementar exportação de horas por técnico
+			alert('Exportação de horas por técnico ainda não implementada');
+			return;
+		case 'tickets-technician':
+			// TODO: Implementar exportação de tickets por técnico
+			alert('Exportação de tickets por técnico ainda não implementada');
+			return;
+		case 'productivity':
+			// TODO: Implementar exportação de produtividade
+			alert('Exportação de produtividade ainda não implementada');
+			return;
+		case 'service-performance':
+			// TODO: Implementar exportação de performance por serviço
+			alert('Exportação de performance por serviço ainda não implementada');
+			return;
+		default:
+			alert('Tipo de relatório não suportado para exportação');
+			return;
+	}
+	
+	if (exportUrl) {
+		// Mostrar loading
+		const button = event.target;
+		const originalText = button.innerHTML;
+		button.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Exportando...';
+		button.disabled = true;
+		
+		// Criar link temporário para download
+		const link = document.createElement('a');
+		link.href = exportUrl;
+		link.download = filename;
+		document.body.appendChild(link);
+		link.click();
+		document.body.removeChild(link);
+		
+		// Restaurar botão após um tempo
+		setTimeout(() => {
+			button.innerHTML = originalText;
+			button.disabled = false;
+		}, 2000);
+	}
+}
+
+// Função para alternar a exibição dos detalhes do técnico
+function toggleTechnicianDetails(technicianId) {
+	const detailsRow = document.getElementById(`details-${technicianId}`);
+	const chevron = document.getElementById(`chevron-${technicianId}`);
+	
+	if (detailsRow.style.display === 'none') {
+		// Expandir
+		detailsRow.style.display = 'table-row';
+		chevron.style.transform = 'rotate(90deg)';
+		
+		// Carregar dados dos tickets se ainda não foram carregados
+		loadTechnicianBillingDetails(technicianId);
+	} else {
+		// Recolher
+		detailsRow.style.display = 'none';
+		chevron.style.transform = 'rotate(0deg)';
+	}
+}
+
+// Função para carregar os detalhes de faturamento do técnico
+async function loadTechnicianBillingDetails(technicianId) {
+	try {
+		const response = await fetch(`/relatorios/api/billing-tickets-by-technician/${technicianId}?start=${currentFilters.start}&end=${currentFilters.end}`);
+		const data = await response.json();
+		
+		// Renderizar tickets
+		renderTechnicianTickets(technicianId, data.tickets);
+		
+		// Renderizar ordens de serviço
+		renderTechnicianServiceOrders(technicianId, data.service_orders);
+		
+	} catch (error) {
+		console.error('Erro ao carregar detalhes do técnico:', error);
+		document.getElementById(`tickets-${technicianId}`).innerHTML = `
+			<div class="text-center text-error p-4">
+				<i class="fas fa-exclamation-triangle"></i>
+				<p>Erro ao carregar tickets</p>
+			</div>
+		`;
+		document.getElementById(`service-orders-${technicianId}`).innerHTML = `
+			<div class="text-center text-error p-4">
+				<i class="fas fa-exclamation-triangle"></i>
+				<p>Erro ao carregar ordens</p>
+			</div>
+		`;
+	}
+}
+
+// Função para renderizar os tickets do técnico
+function renderTechnicianTickets(technicianId, tickets) {
+	const container = document.getElementById(`tickets-${technicianId}`);
+	
+	if (tickets.length === 0) {
+		container.innerHTML = `
+			<div class="text-center text-muted p-4">
+				<i class="fas fa-ticket-alt text-2xl mb-2"></i>
+				<p>Nenhum ticket faturado</p>
+			</div>
+		`;
+		return;
+	}
+	
+	container.innerHTML = tickets.map(ticket => `
+		<div class="bg-white rounded-lg border border-gray-200 p-3 hover:shadow-md transition-shadow">
+			<div class="flex items-start justify-between">
+				<div class="flex-1">
+					<div class="flex items-center gap-2 mb-1">
+						<span class="font-medium text-primary">#${ticket.id}</span>
+						<span class="text-xs bg-primary/10 text-primary px-2 py-1 rounded">Ticket</span>
+					</div>
+					<h6 class="font-medium text-gray-900 mb-1">${ticket.title}</h6>
+					<p class="text-sm text-muted mb-2">${ticket.client_name}</p>
+					<div class="flex items-center gap-4 text-xs text-muted">
+						<span><i class="fas fa-cogs mr-1"></i>${ticket.service_name}</span>
+						<span><i class="fas fa-clock mr-1"></i>${ticket.total_hours.toFixed(1)}h</span>
+						<span><i class="fas fa-calendar mr-1"></i>${formatDate(ticket.closed_at)}</span>
+					</div>
+				</div>
+				<div class="text-right">
+					<div class="font-bold text-success">R$ ${ticket.total_cost.toFixed(2)}</div>
+				</div>
+			</div>
+		</div>
+	`).join('');
+}
+
+// Função para renderizar as ordens de serviço do técnico
+function renderTechnicianServiceOrders(technicianId, serviceOrders) {
+	const container = document.getElementById(`service-orders-${technicianId}`);
+	
+	if (serviceOrders.length === 0) {
+		container.innerHTML = `
+			<div class="text-center text-muted p-4">
+				<i class="fas fa-clipboard-list text-2xl mb-2"></i>
+				<p>Nenhuma ordem de serviço</p>
+			</div>
+		`;
+		return;
+	}
+	
+	container.innerHTML = serviceOrders.map(order => `
+		<div class="bg-white rounded-lg border border-gray-200 p-3 hover:shadow-md transition-shadow">
+			<div class="flex items-start justify-between">
+				<div class="flex-1">
+					<div class="flex items-center gap-2 mb-1">
+						<span class="font-medium text-primary">${order.codigo}</span>
+						<span class="text-xs bg-success/10 text-success px-2 py-1 rounded">OS</span>
+					</div>
+					<h6 class="font-medium text-gray-900 mb-1">${order.service_executed}</h6>
+					<p class="text-sm text-muted mb-2">${order.client_name}</p>
+					<div class="flex items-center gap-4 text-xs text-muted">
+						<span><i class="fas fa-calendar mr-1"></i>${formatDate(order.completion_date)}</span>
+					</div>
+				</div>
+				<div class="text-right">
+					<div class="font-bold text-success">R$ ${order.value.toFixed(2)}</div>
+				</div>
+			</div>
+		</div>
+	`).join('');
+}
+
+// Função auxiliar para formatar data
+function formatDate(dateString) {
+	if (!dateString) return '-';
+	
+	const date = new Date(dateString);
+	return date.toLocaleDateString('pt-BR', {
+		day: '2-digit',
+		month: '2-digit',
+		year: 'numeric'
+	});
+}
+
+// Validação de data
+function initDateValidation() {
+	const startInput = document.getElementById('start-date');
+	const endInput = document.getElementById('end-date');
+	
+	if (startInput && endInput) {
+		console.log('Inicializando validação de data...');
+		
+		// Adicionar validação quando as datas mudarem
+		startInput.addEventListener('change', function() {
+			console.log('Data início alterada:', this.value);
+			validateDates();
+		});
+		endInput.addEventListener('change', function() {
+			console.log('Data fim alterada:', this.value);
+			validateDates();
+		});
+		
+		// Adicionar validação quando o usuário sair do campo
+		startInput.addEventListener('blur', validateDates);
+		endInput.addEventListener('blur', validateDates);
+		
+		// Adicionar event listeners para debug
+		startInput.addEventListener('focus', function() {
+			console.log('Campo data início recebeu foco');
+		});
+		endInput.addEventListener('focus', function() {
+			console.log('Campo data fim recebeu foco');
+		});
+		
+		startInput.addEventListener('input', function() {
+			console.log('Input na data início:', this.value);
+		});
+		endInput.addEventListener('input', function() {
+			console.log('Input na data fim:', this.value);
+		});
+	} else {
+		console.error('Elementos de data não encontrados para validação');
+	}
+}
+
+function validateDates() {
+	const startInput = document.getElementById('start-date');
+	const endInput = document.getElementById('end-date');
+	
+	if (startInput && endInput && startInput.value && endInput.value) {
+		const start = new Date(startInput.value);
+		const end = new Date(endInput.value);
+		
+		if (end < start) {
+			alert('A data de fim deve ser posterior ou igual à data de início.');
+			endInput.focus();
+			return false;
+		}
+	}
+	return true;
+}
+
+// Inicializar validação de data quando a página carregar
+document.addEventListener('DOMContentLoaded', function() {
+	initDateValidation();
+});
+</script>
+
+{% endblock %}

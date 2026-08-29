@@ -1,0 +1,635 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Help Desk - Chat</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        body {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 1rem 0;
+        }
+        .chat-container {
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 15px 35px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+            max-width: 800px;
+            width: 100%;
+            margin: 0 auto;
+            height: 80vh;
+            display: flex;
+            flex-direction: column;
+        }
+        .chat-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 1rem 1.5rem;
+            display: flex;
+            justify-content: between;
+            align-items: center;
+        }
+        .chat-messages {
+            flex: 1;
+            overflow-y: auto;
+            padding: 1rem;
+            background: #f8f9fa;
+        }
+        .message {
+            margin-bottom: 1rem;
+            display: flex;
+            align-items: flex-start;
+        }
+        .message.client {
+            justify-content: flex-end;
+        }
+        .message.agent {
+            justify-content: flex-start;
+        }
+        .message.system {
+            justify-content: center;
+        }
+        .message-content {
+            max-width: 70%;
+            padding: 0.75rem 1rem;
+            border-radius: 15px;
+            position: relative;
+        }
+        .message.client .message-content {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border-bottom-right-radius: 5px;
+        }
+        .message.agent .message-content {
+            background: white;
+            border: 1px solid #e9ecef;
+            border-bottom-left-radius: 5px;
+        }
+        .message.system .message-content {
+            background: #e3f2fd;
+            color: #1976d2;
+            border-radius: 20px;
+            font-style: italic;
+            text-align: center;
+        }
+        .message-time {
+            font-size: 0.75rem;
+            opacity: 0.7;
+            margin-top: 0.25rem;
+        }
+        .message-sender {
+            font-weight: 600;
+            font-size: 0.85rem;
+            margin-bottom: 0.25rem;
+        }
+        .chat-input {
+            padding: 1rem 1.5rem;
+            background: white;
+            border-top: 1px solid #e9ecef;
+        }
+        .status-badge {
+            padding: 0.25rem 0.75rem;
+            border-radius: 20px;
+            font-size: 0.8rem;
+            font-weight: 600;
+        }
+        .status-waiting {
+            background: #fff3cd;
+            color: #856404;
+        }
+        .status-active {
+            background: #d1edff;
+            color: #0c5460;
+        }
+        .status-closed {
+            background: #f8d7da;
+            color: #721c24;
+        }
+        .btn-logout {
+            background: #dc3545;
+            border: none;
+            border-radius: 8px;
+            padding: 6px 12px;
+            color: white;
+            text-decoration: none;
+            font-size: 0.9rem;
+            transition: all 0.3s ease;
+        }
+        .btn-logout:hover {
+            background: #c82333;
+            color: white;
+        }
+        .typing-indicator {
+            display: none;
+            padding: 0.5rem 1rem;
+            color: #6c757d;
+            font-style: italic;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="row justify-content-center">
+            <div class="col-12">
+                <div class="chat-container">
+                    <div class="chat-header">
+                        <div class="d-flex justify-content-between align-items-center w-100">
+                            <div>
+                                <h5 class="mb-0">
+                                    <i class="fas fa-headset me-2"></i>{{ session.title }}
+                                </h5>
+                                <small>
+                                    <span class="status-badge status-{{ session.status_color() }}">
+                                        {{ session.status_text() }}
+                                    </span>
+                                    {% if session.assigned_to %}
+                                        • Atendido por {{ session.assigned_to.name }}
+                                    {% endif %}
+                                </small>
+                            </div>
+                            <div class="d-flex gap-2">
+                                <button onclick="testUpdateInterface()" class="btn btn-sm btn-outline-primary">
+                                    <i class="fas fa-test-tube me-1"></i>Testar
+                                </button>
+                                <button onclick="closeChatOnExit()" class="btn-logout">
+                                    <i class="fas fa-sign-out-alt me-1"></i>Sair
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="chat-messages" id="chatMessages">
+                        {% for message in messages %}
+                            <div class="message {{ 'client' if message.is_from_client() else 'agent' if message.is_from_agent() else 'system' }}">
+                                <div class="message-content">
+                                    {% if not message.is_system_message() %}
+                                        <div class="message-sender">{{ message.sender_name }}</div>
+                                    {% endif %}
+                                    <div class="message-text">{{ message.message }}</div>
+                                    <div class="message-time">{{ message.formatted_time() }}</div>
+                                </div>
+                            </div>
+                        {% endfor %}
+                    </div>
+                    
+                    <div class="typing-indicator" id="typingIndicator">
+                        <i class="fas fa-circle-notch fa-spin me-2"></i>Agente está digitando...
+                    </div>
+                    
+                    <div class="chat-input">
+                        <form id="messageForm">
+                            <div class="input-group">
+                                <input type="text" class="form-control" id="messageInput" 
+                                       placeholder="Digite sua mensagem..." required>
+                                <button class="btn btn-primary" type="submit">
+                                    <i class="fas fa-paper-plane"></i>
+                                </button>
+                            </div>
+                        </form>
+                        
+                        {% if session.status == 'closed' %}
+                            <div class="alert alert-secondary mt-2 mb-0 text-center">
+                                <i class="fas fa-check-circle me-2"></i>
+                                Atendimento finalizado. Obrigado por entrar em contato!
+                            </div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/3.1.3/socket.io.js"></script>
+    <script>
+        const chatMessages = document.getElementById('chatMessages');
+        const messageForm = document.getElementById('messageForm');
+        const messageInput = document.getElementById('messageInput');
+        const typingIndicator = document.getElementById('typingIndicator');
+        
+        // Conectar ao WebSocket
+        const socket = io();
+        const sessionId = '{{ session.session_id }}';
+        
+        // Polling como fallback para mensagens em tempo real
+        let pollingInterval = null;
+        let lastMessageId = 0;
+        
+        // Auto scroll para a última mensagem
+        function scrollToBottom() {
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+        }
+        
+        // Adicionar mensagem ao chat
+        function addMessage(message) {
+            // Atualizar lastMessageId se tiver ID
+            if (message.id && message.id > lastMessageId) {
+                lastMessageId = message.id;
+            }
+            
+            // Verificar se a mensagem já existe (evitar duplicação por ID)
+            if (message.id) {
+                const existingMessage = chatMessages.querySelector(`[data-message-id="${message.id}"]`);
+                if (existingMessage) {
+                    return; // Não adicionar se já existe
+                }
+                
+                // Se é uma mensagem real (não temporária), verificar se há mensagem temporária para substituir
+                if (!message.id.toString().startsWith('temp-')) {
+                    // Procurar mensagem temporária com mesmo texto e remetente
+                    const tempMessages = chatMessages.querySelectorAll('[data-message-id^="temp-"]');
+                    for (let tempMsg of tempMessages) {
+                        const tempText = tempMsg.querySelector('.message-text').textContent;
+                        const tempSender = tempMsg.querySelector('.message-sender')?.textContent;
+                        if (tempText === message.message && tempSender === message.sender_name) {
+                            tempMsg.remove(); // Remove a mensagem temporária
+                            break;
+                        }
+                    }
+                }
+            }
+            
+            const messageDiv = document.createElement('div');
+            const messageClass = message.is_from_client ? 'client' : message.is_from_agent ? 'agent' : 'system';
+            messageDiv.className = `message ${messageClass}`;
+            messageDiv.setAttribute('data-message-id', message.id || 'temp-' + Date.now());
+            
+            
+            let senderHtml = '';
+            if (!message.is_system_message) {
+                senderHtml = `<div class="message-sender">${message.sender_name}</div>`;
+            }
+            
+            messageDiv.innerHTML = `
+                <div class="message-content">
+                    ${senderHtml}
+                    <div class="message-text">${message.message}</div>
+                    <div class="message-time">${message.time}</div>
+                </div>
+            `;
+            
+            chatMessages.appendChild(messageDiv);
+            scrollToBottom();
+        }
+        
+        // Funções de polling
+        function startPolling() {
+            if (pollingInterval) {
+                clearInterval(pollingInterval);
+            }
+            
+            // Polling muito frequente para garantir que mensagens apareçam
+            pollingInterval = setInterval(() => {
+                checkNewMessages();
+            }, 500); // Verificar a cada 0.5 segundos
+            
+            // Mostrar indicador de status
+            showStatusIndicator('Sistema de mensagens ativo');
+        }
+        
+        function stopPolling() {
+            if (pollingInterval) {
+                clearInterval(pollingInterval);
+                pollingInterval = null;
+            }
+        }
+        
+        function showStatusIndicator(message) {
+            // Remover indicador anterior se existir
+            const existingIndicator = document.getElementById('statusIndicator');
+            if (existingIndicator) {
+                existingIndicator.remove();
+            }
+            
+            // Criar novo indicador
+            const indicator = document.createElement('div');
+            indicator.id = 'statusIndicator';
+            indicator.className = 'alert alert-info alert-dismissible fade show';
+            indicator.style.cssText = 'position: fixed; top: 10px; right: 10px; z-index: 9999; max-width: 300px;';
+            indicator.innerHTML = `
+                <i class="fas fa-sync-alt fa-spin me-2"></i>${message}
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            `;
+            
+            document.body.appendChild(indicator);
+            
+            // Remover automaticamente após 3 segundos
+            setTimeout(() => {
+                if (indicator.parentNode) {
+                    indicator.remove();
+                }
+            }, 3000);
+        }
+        
+        function checkNewMessages() {
+            fetch(`/helpdesk/api/client/chat/${sessionId}/messages?since=${lastMessageId}`)
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    if (data.success && data.messages) {
+                        data.messages.forEach(message => {
+                            if (message.id > lastMessageId) {
+                                addMessage(message);
+                                lastMessageId = message.id; // Atualizar lastMessageId
+                                
+                                // Verificar se é mensagem de sistema sobre status
+                                if (message.is_system_message) {
+                                    if (message.message.includes('assumir') || message.message.includes('vou te ajudar')) {
+                                        updateChatInterface('active');
+                                    } else if (message.message.includes('finalizado') || message.message.includes('encerrou')) {
+                                        updateChatInterface('closed');
+                                    }
+                                }
+                            }
+                        });
+                    }
+                })
+                .catch(error => {
+                    console.error('Erro ao verificar mensagens:', error);
+                    // Tentar reconectar WebSocket se houver erro
+                    if (socket && !socket.connected) {
+                        socket.connect();
+                    }
+                });
+        }
+        
+        // Eventos WebSocket
+        socket.on('connect', function() {
+            // Entrar na sala do chat
+            socket.emit('join_chat', {
+                session_id: sessionId,
+                user_type: 'client'
+            });
+            
+            // Iniciar polling como fallback
+            startPolling();
+        });
+        
+        socket.on('connected', function(data) {
+            // Confirmação de conexão
+        });
+        
+        socket.on('joined_chat', function(data) {
+            // Entrou na sala
+        });
+        
+        socket.on('error', function(data) {
+            console.error('Erro WebSocket:', data);
+        });
+        
+        socket.on('disconnect', function() {
+            // Tentar reconectar após 2 segundos
+            setTimeout(() => {
+                if (!socket.connected) {
+                    socket.connect();
+                }
+            }, 2000);
+        });
+        
+        socket.on('reconnect', function() {
+            // Reentrar na sala após reconexão
+            socket.emit('join_chat', {
+                session_id: sessionId,
+                user_type: 'client'
+            });
+        });
+        
+        socket.on('message_sent', function(data) {
+            // Marcar última mensagem como confirmada
+            const messages = document.querySelectorAll('.message');
+            const lastMessage = messages[messages.length - 1];
+            if (lastMessage) {
+                lastMessage.setAttribute('data-confirmed', 'true');
+            }
+        });
+        
+        socket.on('new_message', function(data) {
+            addMessage(data);
+        });
+        
+        socket.on('user_typing', function(data) {
+            if (data.is_typing) {
+                typingIndicator.style.display = 'block';
+                typingIndicator.innerHTML = `<i class="fas fa-circle-notch fa-spin me-2"></i>${data.user_name} está digitando...`;
+            } else {
+                typingIndicator.style.display = 'none';
+            }
+        });
+        
+        socket.on('session_assumed', function(data) {
+            console.log('Evento session_assumed recebido:', data);
+            
+            addMessage({
+                message: data.message,
+                sender_name: 'Sistema',
+                is_from_client: false,
+                is_from_agent: false,
+                is_system_message: true,
+                time: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+            });
+            
+            // Atualizar interface para permitir envio de mensagens
+            console.log('Atualizando interface para status: active');
+            updateChatInterface('active');
+        });
+        
+        socket.on('session_closed', function(data) {
+            addMessage({
+                message: data.message,
+                sender_name: 'Sistema',
+                is_from_client: false,
+                is_from_agent: false,
+                is_system_message: true,
+                time: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+            });
+            
+            // Atualizar interface para status fechado
+            updateChatInterface('closed');
+        });
+        
+        socket.on('ticket_created', function(data) {
+            addMessage({
+                message: data.message,
+                sender_name: 'Sistema',
+                is_from_client: false,
+                is_from_agent: false,
+                is_system_message: true,
+                time: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+            });
+        });
+        
+        // Enviar mensagem
+        if (messageForm) {
+            messageForm.addEventListener('submit', function(e) {
+                e.preventDefault();
+                
+                const message = messageInput.value.trim();
+                if (!message) return;
+                
+                // Adicionar mensagem imediatamente (otimista) com ID temporário
+                const tempId = 'temp-' + Date.now() + '-' + Math.random();
+                const messageData = {
+                    id: tempId,
+                    message: message,
+                    is_from_client: true,
+                    is_from_agent: false,
+                    is_system_message: false,
+                    sender_name: '{{ session.client_name }}',
+                    time: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+                };
+                
+                addMessage(messageData);
+                
+                // Limpar input
+                messageInput.value = '';
+                
+                // Tentar enviar via WebSocket primeiro
+                if (socket && socket.connected) {
+                    socket.emit('send_message', {
+                        session_id: sessionId,
+                        message: message,
+                        user_type: 'client'
+                    });
+                    
+                    // Fallback para polling após 3 segundos se não confirmar
+                    setTimeout(() => {
+                        if (!messageData.confirmed) {
+                            // O polling já está ativo, então a mensagem será detectada
+                        }
+                    }, 3000);
+                } else {
+                    // O polling já está ativo
+                }
+            });
+        }
+        
+        // Indicar que está digitando
+        if (messageInput) {
+            let typingTimer;
+            messageInput.addEventListener('input', function() {
+                socket.emit('typing', {
+                    session_id: sessionId,
+                    user_type: 'client',
+                    is_typing: true
+                });
+                
+                clearTimeout(typingTimer);
+                typingTimer = setTimeout(function() {
+                    socket.emit('typing', {
+                        session_id: sessionId,
+                        user_type: 'client',
+                        is_typing: false
+                    });
+                }, 1000);
+            });
+        }
+        
+        // Inicializar lastMessageId com a última mensagem existente
+        const existingMessages = document.querySelectorAll('.message');
+        if (existingMessages.length > 0) {
+            // Assumir que a última mensagem tem o ID mais alto
+            // Em uma implementação real, você passaria o ID da última mensagem do servidor
+            lastMessageId = existingMessages.length;
+        }
+        
+        // Função para atualizar interface baseada no status
+        function updateChatInterface(status) {
+            console.log('updateChatInterface chamada com status:', status);
+            
+            const messageForm = document.getElementById('messageForm');
+            const messageInput = document.getElementById('messageInput');
+            
+            console.log('Elementos encontrados:', {
+                messageForm: messageForm,
+                messageInput: messageInput
+            });
+            
+            // Campo de texto sempre disponível
+            if (messageForm) {
+                messageForm.style.display = 'block';
+                console.log('Formulário de mensagem sempre exibido');
+            }
+            if (messageInput) {
+                messageInput.disabled = false;
+                messageInput.placeholder = 'Digite sua mensagem...';
+                console.log('Campo de entrada sempre habilitado');
+            }
+            
+            if (status === 'active') {
+                console.log('Status ativo - removendo mensagens de status');
+                
+                // Remover mensagens de espera/encerrado se existirem
+                const waitingMsg = document.querySelector('.waiting-message');
+                const closedMsg = document.querySelector('.closed-message');
+                if (waitingMsg) {
+                    waitingMsg.remove();
+                    console.log('Mensagem de espera removida');
+                }
+                if (closedMsg) {
+                    closedMsg.remove();
+                    console.log('Mensagem de encerrado removida');
+                }
+                
+            } else if (status === 'waiting') {
+                console.log('Status de espera - mostrando mensagem informativa');
+                // Adicionar mensagem de espera se não existir
+                const waitingMsg = document.querySelector('.waiting-message');
+                if (!waitingMsg) {
+                    const waitingDiv = document.createElement('div');
+                    waitingDiv.className = 'waiting-message alert alert-info text-center';
+                    waitingDiv.innerHTML = '<i class="fas fa-clock me-2"></i>Aguardando um agente assumir seu atendimento...';
+                    document.querySelector('.chat-input').appendChild(waitingDiv);
+                    console.log('Mensagem de espera adicionada');
+                }
+            } else if (status === 'closed') {
+                console.log('Status encerrado - mostrando mensagem de finalização');
+                const closedMsg = document.querySelector('.closed-message');
+                if (!closedMsg) {
+                    const closedDiv = document.createElement('div');
+                    closedDiv.className = 'closed-message alert alert-secondary text-center';
+                    closedDiv.innerHTML = '<i class="fas fa-check-circle me-2"></i>Atendimento finalizado. Obrigado por entrar em contato!';
+                    document.querySelector('.chat-input').appendChild(closedDiv);
+                    console.log('Mensagem de encerrado adicionada');
+                }
+            }
+        }
+        
+        // Função de teste para verificar updateChatInterface
+        function testUpdateInterface() {
+            console.log('Testando updateChatInterface...');
+            updateChatInterface('active');
+            alert('Interface atualizada para status: active');
+        }
+        
+        // Função para encerrar chat quando cliente clica em sair
+        function closeChatOnExit() {
+            fetch('/helpdesk/api/client/close-chat', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    session_id: sessionId
+                })
+            }).then(response => {
+                // Redirecionar para login após encerrar
+                window.location.href = '/helpdesk/client';
+            }).catch(error => {
+                console.error('Erro ao encerrar chat:', error);
+                // Mesmo com erro, redirecionar para login
+                window.location.href = '/helpdesk/client';
+            });
+        }
+        
+        // Scroll inicial
+        scrollToBottom();
+    </script>
+</body>
+</html>

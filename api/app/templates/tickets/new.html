@@ -1,0 +1,446 @@
+{% extends 'base.html' %}
+{% block page_title %}➕ Abrir Ticket{% endblock %}
+{% block content %}
+
+<div class="bg-secondary rounded-lg shadow-lg p-6">
+	<form method="post" class="space-y-6">
+		<input type="hidden" name="parent_id" value="{{ prefilled.parent_id or '' }}">
+
+		<div class="form-group">
+			<label class="form-label">Título *</label>
+			<input name="title" required class="form-input" placeholder="Digite o título do ticket"
+				value="{{ prefilled.title or '' }}">
+		</div>
+
+		<div class="form-group">
+			<label class="form-label">Descrição</label>
+			<textarea name="description" class="form-textarea" rows="4"
+				placeholder="Descreva o problema ou solicitação">{{ prefilled.description or '' }}</textarea>
+		</div>
+
+		<div class="form-group">
+			<label class="form-label">Cliente (fonte externa) *</label>
+			<input type="hidden" name="external_client_id" id="external_client_id">
+			<div class="relative">
+				<div class="relative">
+					<input id="client-live-search" type="text" autocomplete="off"
+						placeholder="Digite para buscar cliente externo..." class="form-input pl-10">
+					<div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+						<i class="fas fa-search text-gray-400"></i>
+					</div>
+					<div class="absolute inset-y-0 right-0 pr-3 flex items-center">
+						<button type="button" id="clear-client" class="text-gray-400 hover:text-gray-600 hidden">
+							<i class="fas fa-times"></i>
+						</button>
+					</div>
+				</div>
+				<div id="client-search-results"
+					class="absolute z-20 mt-2 w-full bg-white border border-gray-200 rounded-xl shadow-2xl max-h-80 overflow-hidden hidden">
+					<div class="p-4 border-b border-gray-100 bg-gradient-to-r from-blue-50 to-indigo-50">
+						<div class="flex items-center gap-2 text-sm text-gray-600">
+							<i class="fas fa-search text-blue-500"></i>
+							<span class="font-medium">Resultados da busca</span>
+						</div>
+					</div>
+					<div id="client-results-list" class="max-h-64 overflow-y-auto"></div>
+				</div>
+				<div id="client-selected" class="mt-3 hidden">
+					<div
+						class="bg-gradient-to-r from-green-50 to-emerald-50 border border-green-200 rounded-xl p-4 shadow-sm">
+						<div class="flex items-center justify-between">
+							<div class="flex items-center gap-3">
+								<div
+									class="w-12 h-12 bg-gradient-to-br from-green-500 to-emerald-600 rounded-full flex items-center justify-center text-white font-bold text-lg">
+									<span id="selected-client-avatar"></span>
+								</div>
+								<div class="flex-1">
+									<div class="flex items-center gap-2 mb-1">
+										<i class="fas fa-check-circle text-green-500 text-sm"></i>
+										<span class="text-xs font-medium text-green-600 uppercase tracking-wide">Cliente
+											Selecionado</span>
+									</div>
+									<div class="font-semibold text-gray-900 text-sm mb-1" id="selected-client-name">
+									</div>
+									<div class="text-xs text-gray-600 space-y-1" id="selected-client-details"></div>
+								</div>
+							</div>
+							<button type="button" id="change-client"
+								class="px-3 py-2 text-xs font-medium text-green-600 hover:text-green-800 hover:bg-green-100 rounded-lg transition-colors duration-200 flex items-center gap-1">
+								<i class="fas fa-edit"></i>
+								<span>Alterar</span>
+							</button>
+						</div>
+					</div>
+				</div>
+			</div>
+		</div>
+
+		<div class="form-group">
+			<label class="form-label">Solicitante *</label>
+			<input name="solicitante" required class="form-input" placeholder="Nome da pessoa que solicitou o serviço"
+				value="{{ prefilled.solicitante or '' }}">
+		</div>
+
+		<div class="form-group">
+			<label class="form-label">Serviço (opcional)</label>
+			<select name="service_id" id="service-select" class="form-select">
+				<option value="">Selecione um serviço</option>
+				{% for s in services_dict %}
+				<option value="{{ s.id }}" data-rate="{{ s.hourly_rate }}">{{ s.name }} - R$ {{
+					"%.2f"|format(s.hourly_rate) }}/h</option>
+				{% endfor %}
+			</select>
+			<div class="form-help">
+				<i class="fas fa-info-circle mr-1"></i>
+				Todos os serviços estão disponíveis. Serviços contemplados pelo contrato do cliente não geram custos.
+			</div>
+			<div id="service-contract-info" class="mt-2 hidden">
+				<div class="bg-blue-50 border border-blue-200 rounded-lg p-3">
+					<div class="flex items-center gap-2">
+						<i class="fas fa-info-circle text-blue-500"></i>
+						<div class="text-sm text-blue-700">
+							<span id="service-contract-text"></span>
+						</div>
+					</div>
+				</div>
+			</div>
+		</div>
+		<div class="form-group">
+			<label class="form-label">Atribuir para (opcional)</label>
+			<select name="assigned_to_id" class="form-select">
+				<option value="">Selecione um técnico</option>
+				{% for u in users %}
+				<option value="{{ u.id }}">{{ u.name }}</option>
+				{% endfor %}
+			</select>
+		</div>
+
+		<div class="flex items-center gap-3 justify-end">
+			<a href="{{ url_for('tickets.list_tickets') }}" class="btn btn-secondary">
+				<i class="fas fa-arrow-left"></i>
+				Voltar
+			</a>
+			<button type="submit" class="btn btn-primary">
+				<i class="fas fa-plus"></i>
+				Abrir Ticket
+			</button>
+		</div>
+	</form>
+</div>
+
+<script>
+	document.addEventListener('DOMContentLoaded', function () {
+		const input = document.getElementById('client-live-search');
+		const results = document.getElementById('client-search-results');
+		const resultsList = document.getElementById('client-results-list');
+		const hiddenId = document.getElementById('external_client_id');
+		const selectedDiv = document.getElementById('client-selected');
+		const selectedName = document.getElementById('selected-client-name');
+		const selectedDetails = document.getElementById('selected-client-details');
+		const clearBtn = document.getElementById('clear-client');
+		const changeBtn = document.getElementById('change-client');
+		const serviceSelect = document.getElementById('service-select');
+		const serviceContractInfo = document.getElementById('service-contract-info');
+		const serviceContractText = document.getElementById('service-contract-text');
+
+		let selectedClient = null;
+		let timer = null;
+
+		function hideResults() {
+			results.classList.add('hidden');
+		}
+		function showResults() {
+			results.classList.remove('hidden');
+		}
+
+		async function search(q) {
+			const resp = await fetch(`{{ url_for('clients.search_clients') }}?q=${encodeURIComponent(q)}&limit=50`);
+			return await resp.json();
+		}
+
+		function render(items) {
+			resultsList.innerHTML = '';
+			if (!items.length) {
+				resultsList.innerHTML = `
+					<div class="p-8 text-center text-gray-500">
+						<div class="w-16 h-16 mx-auto mb-4 bg-gray-100 rounded-full flex items-center justify-center">
+							<i class="fas fa-search text-2xl text-gray-400"></i>
+						</div>
+						<div class="font-medium text-gray-600 mb-1">Nenhum cliente encontrado</div>
+						<div class="text-sm text-gray-500">Tente uma busca diferente</div>
+					</div>
+				`;
+				showResults();
+				return;
+			}
+
+			items.forEach(function (c, index) {
+				const btn = document.createElement('button');
+				btn.type = 'button';
+				btn.className = 'w-full text-left px-4 py-4 hover:bg-gradient-to-r hover:from-blue-50 hover:to-indigo-50 border-b border-gray-100 last:border-b-0 transition-all duration-200 group';
+
+				// Criar estrutura mais rica para o cliente
+				const clientInfo = document.createElement('div');
+				clientInfo.className = 'flex items-start gap-3';
+
+				// Avatar/Inicial do nome
+				const avatarDiv = document.createElement('div');
+				avatarDiv.className = 'w-10 h-10 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-full flex items-center justify-center text-white font-bold text-sm group-hover:scale-110 transition-transform duration-200';
+				avatarDiv.textContent = (c.name || 'N').charAt(0).toUpperCase();
+
+				// Informações do cliente
+				const infoDiv = document.createElement('div');
+				infoDiv.className = 'flex-1 min-w-0';
+
+				const nameDiv = document.createElement('div');
+				nameDiv.className = 'font-semibold text-gray-900 text-sm mb-1 truncate';
+				nameDiv.textContent = c.name || 'Nome não informado';
+
+				const detailsDiv = document.createElement('div');
+				detailsDiv.className = 'space-y-1';
+
+				// Documento
+				if (c.document) {
+					const docDiv = document.createElement('div');
+					docDiv.className = 'flex items-center gap-2 text-xs text-gray-600';
+					docDiv.innerHTML = `
+						<i class="fas fa-id-card text-gray-400 w-3"></i>
+						<span>${c.document}</span>
+					`;
+					detailsDiv.appendChild(docDiv);
+				}
+
+				// Telefone
+				if (c.phone) {
+					const phoneDiv = document.createElement('div');
+					phoneDiv.className = 'flex items-center gap-2 text-xs text-gray-600';
+					phoneDiv.innerHTML = `
+						<i class="fas fa-phone text-gray-400 w-3"></i>
+						<span>${c.phone}</span>
+					`;
+					detailsDiv.appendChild(phoneDiv);
+				}
+
+				// Email
+				if (c.email) {
+					const emailDiv = document.createElement('div');
+					emailDiv.className = 'flex items-center gap-2 text-xs text-gray-600 truncate';
+					emailDiv.innerHTML = `
+						<i class="fas fa-envelope text-gray-400 w-3"></i>
+						<span class="truncate">${c.email}</span>
+					`;
+					detailsDiv.appendChild(emailDiv);
+				}
+
+				// Ícone de seleção
+				const selectIcon = document.createElement('div');
+				selectIcon.className = 'w-6 h-6 rounded-full border-2 border-gray-300 group-hover:border-blue-500 flex items-center justify-center transition-colors duration-200';
+				selectIcon.innerHTML = '<i class="fas fa-chevron-right text-gray-400 text-xs group-hover:text-blue-500"></i>';
+
+				infoDiv.appendChild(nameDiv);
+				infoDiv.appendChild(detailsDiv);
+
+				clientInfo.appendChild(avatarDiv);
+				clientInfo.appendChild(infoDiv);
+				clientInfo.appendChild(selectIcon);
+
+				btn.appendChild(clientInfo);
+
+				btn.addEventListener('click', function () {
+					selectClient(c);
+				});
+				resultsList.appendChild(btn);
+			});
+			showResults();
+		}
+
+		function selectClient(client) {
+			selectedClient = client;
+			hiddenId.value = client.id;
+
+			// Atualizar avatar
+			const avatar = document.getElementById('selected-client-avatar');
+			avatar.textContent = (client.name || 'N').charAt(0).toUpperCase();
+
+			// Atualizar nome
+			selectedName.textContent = client.name || 'Nome não informado';
+
+			// Atualizar detalhes com ícones
+			const detailsContainer = document.getElementById('selected-client-details');
+			detailsContainer.innerHTML = '';
+
+			if (client.document) {
+				const docDiv = document.createElement('div');
+				docDiv.className = 'flex items-center gap-2';
+				docDiv.innerHTML = `
+					<i class="fas fa-id-card text-gray-400 w-3"></i>
+					<span>${client.document}</span>
+				`;
+				detailsContainer.appendChild(docDiv);
+			}
+
+			if (client.phone) {
+				const phoneDiv = document.createElement('div');
+				phoneDiv.className = 'flex items-center gap-2';
+				phoneDiv.innerHTML = `
+					<i class="fas fa-phone text-gray-400 w-3"></i>
+					<span>${client.phone}</span>
+				`;
+				detailsContainer.appendChild(phoneDiv);
+			}
+
+			if (client.email) {
+				const emailDiv = document.createElement('div');
+				emailDiv.className = 'flex items-center gap-2 truncate';
+				emailDiv.innerHTML = `
+					<i class="fas fa-envelope text-gray-400 w-3"></i>
+					<span class="truncate">${client.email}</span>
+				`;
+				detailsContainer.appendChild(emailDiv);
+			}
+
+			selectedDiv.classList.remove('hidden');
+			clearBtn.classList.remove('hidden');
+			hideResults();
+			input.value = '';
+
+			// Verificar se serviço selecionado é contemplado pelo contrato
+			checkServiceContract();
+		}
+
+		function clearClient() {
+			selectedClient = null;
+			hiddenId.value = '';
+			selectedDiv.classList.add('hidden');
+			clearBtn.classList.add('hidden');
+			serviceContractInfo.classList.add('hidden');
+			serviceSelect.value = '';
+		}
+
+		async function checkServiceContract() {
+			if (!selectedClient || !serviceSelect.value) {
+				serviceContractInfo.classList.add('hidden');
+				return;
+			}
+
+			try {
+				const response = await fetch(`/api/check-service-contract?client_id=${selectedClient.id}&service_id=${serviceSelect.value}`);
+				if (response.ok) {
+					const data = await response.json();
+					if (data.has_contract) {
+						serviceContractText.textContent = 'Este serviço é contemplado pelo contrato do cliente - sem cobrança';
+						serviceContractInfo.classList.remove('hidden');
+					} else {
+						serviceContractText.textContent = 'Este serviço não é contemplado pelo contrato - será cobrado';
+						serviceContractInfo.classList.remove('hidden');
+					}
+				}
+			} catch (error) {
+				console.error('Erro ao verificar contrato:', error);
+			}
+		}
+
+		// Event listeners
+		input.addEventListener('input', function () {
+			clearTimeout(timer);
+			timer = setTimeout(async function () {
+				const q = input.value.trim();
+				if (!q) {
+					resultsList.innerHTML = '';
+					hideResults();
+					return;
+				}
+				const data = await search(q);
+				render(data);
+			}, 300);
+		});
+
+		clearBtn.addEventListener('click', clearClient);
+		changeBtn.addEventListener('click', function () {
+			clearClient();
+			input.focus();
+		});
+
+		serviceSelect.addEventListener('change', checkServiceContract);
+
+		document.addEventListener('click', function (e) {
+			if (!results.contains(e.target) && e.target !== input && e.target !== clearBtn) {
+				hideResults();
+			}
+		});
+
+		// Preencher campos automaticamente com parâmetros da URL
+		function fillFieldsFromURL() {
+			const urlParams = new URLSearchParams(window.location.search);
+
+			// Preencher título
+			const title = urlParams.get('title');
+			if (title) {
+				document.querySelector('input[name="title"]').value = decodeURIComponent(title);
+			}
+
+			// Preencher descrição
+			const description = urlParams.get('description');
+			if (description) {
+				document.querySelector('textarea[name="description"]').value = decodeURIComponent(description);
+			}
+
+			// Preencher solicitante
+			const clientName = urlParams.get('client_name');
+			if (clientName) {
+				document.querySelector('input[name="solicitante"]').value = decodeURIComponent(clientName);
+			}
+
+			// Buscar e selecionar cliente automaticamente pelo email
+			const clientEmail = urlParams.get('client_email');
+			if (clientEmail) {
+				searchClientByEmail(decodeURIComponent(clientEmail));
+			}
+		}
+
+		// Buscar cliente pelo email
+		async function searchClientByEmail(email) {
+			try {
+				const response = await fetch(`{{ url_for('clients.search_clients') }}?q=${encodeURIComponent(email)}&limit=1`);
+				const clients = await response.json();
+
+				if (clients && clients.length > 0) {
+					const client = clients[0];
+					// Verificar se o email corresponde
+					if (client.email && client.email.toLowerCase() === email.toLowerCase()) {
+						selectClient(client);
+					}
+				}
+			} catch (error) {
+				console.error('Erro ao buscar cliente por email:', error);
+			}
+		}
+
+		// Executar preenchimento automático quando a página carregar
+		fillFieldsFromURL();
+
+		// Se temos um external_client_id pré-preenchido via Python/Jinja
+		const prefilledClientId = "{{ prefilled.external_client_id or '' }}";
+		const prefilledServiceId = "{{ prefilled.service_id or '' }}";
+
+		if (prefilledClientId) {
+			// Buscar o cliente nos dados locais ou via API e selecionar
+			(async function () {
+				const response = await fetch(`{{ url_for('tickets.api_clients') }}?id=${prefilledClientId}`);
+				if (response.ok) {
+					const clients = await response.json();
+					if (clients && clients.length > 0) {
+						selectClient(clients[0]);
+
+						// Se também temos um serviço pré-preenchido
+						if (prefilledServiceId) {
+							serviceSelect.value = prefilledServiceId;
+							checkServiceContract();
+						}
+					}
+				}
+			})();
+		}
+	});
+</script>
+{% endblock %}

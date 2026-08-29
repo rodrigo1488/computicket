@@ -1,0 +1,937 @@
+{% extends 'base.html' %}
+{% block page_title %}🎧 Dashboard Help Desk{% endblock %}
+{% block content %}
+
+<!-- Relógio e botão de volta no canto superior direito -->
+<div class="fixed top-4 right-4 z-50 flex gap-2">
+	<!-- Botão de volta ao Dashboard -->
+	<a href="{{ url_for('dashboard.index') }}" class="bg-gradient-to-r from-blue-600 to-blue-700 text-white px-4 py-2 rounded-lg shadow-lg hover:from-blue-700 hover:to-blue-800 transition-all duration-300 transform hover:scale-105 flex items-center gap-2">
+		<i class="fas fa-arrow-left"></i>
+		<span class="hidden sm:inline">Dashboard</span>
+	</a>
+	
+	<!-- Relógio -->
+	<div class="bg-primary/90 backdrop-blur-sm rounded-lg px-4 py-2 shadow-lg">
+		<div class="flex items-center gap-2 text-white">
+			<span id="brasilia-clock" class="font-mono text-sm font-medium"></span>
+		</div>
+	</div>
+</div>
+
+<!-- Cards de Resumo do Help Desk -->
+<div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4 mb-6">
+	<!-- Total de Chats -->
+	<div class="bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl shadow-lg p-4 text-white transform hover:scale-105 transition-all duration-300 cursor-pointer dashboard-card" id="total-chats-card">
+		<div class="flex items-center justify-between">
+			<div>
+				<p class="text-blue-100 text-sm font-medium">Total</p>
+				<p class="text-2xl font-bold">{{ (status_counts.get('waiting', 0) + status_counts.get('active', 0) + status_counts.get('closed', 0)) }}</p>
+				<p class="text-blue-100 text-xs">chats</p>
+			</div>
+			<div class="w-10 h-10 bg-white/20 rounded-full flex items-center justify-center">
+				<i class="fas fa-comments text-white text-lg"></i>
+			</div>
+		</div>
+	</div>
+
+	<!-- Em Espera -->
+	<div class="bg-gradient-to-br from-yellow-500 to-yellow-600 rounded-xl shadow-lg p-4 text-white transform hover:scale-105 transition-all duration-300 cursor-pointer dashboard-card" id="chats-espera-card">
+		<div class="flex items-center justify-between">
+			<div>
+				<p class="text-yellow-100 text-sm font-medium">Em Espera</p>
+				<p class="text-2xl font-bold">{{ status_counts.get('waiting', 0) }}</p>
+				<p class="text-yellow-100 text-xs">aguardando</p>
+			</div>
+			<div class="w-10 h-10 bg-white/20 rounded-full flex items-center justify-center">
+				<i class="fas fa-clock text-white text-lg"></i>
+			</div>
+		</div>
+	</div>
+
+	<!-- Atendendo -->
+	<div class="bg-gradient-to-br from-green-500 to-green-600 rounded-xl shadow-lg p-4 text-white transform hover:scale-105 transition-all duration-300 cursor-pointer dashboard-card" id="chats-atendendo-card">
+		<div class="flex items-center justify-between">
+			<div>
+				<p class="text-green-100 text-sm font-medium">Atendendo</p>
+				<p class="text-2xl font-bold">{{ status_counts.get('active', 0) }}</p>
+				<p class="text-green-100 text-xs">em andamento</p>
+			</div>
+			<div class="w-10 h-10 bg-white/20 rounded-full flex items-center justify-center">
+				<i class="fas fa-headset text-white text-lg"></i>
+			</div>
+		</div>
+	</div>
+
+	<!-- Chats em Risco -->
+	<div class="bg-gradient-to-br from-red-500 to-red-600 rounded-xl shadow-lg p-4 text-white transform hover:scale-105 transition-all duration-300 cursor-pointer dashboard-card" id="chats-risco-card">
+		<div class="flex items-center justify-between">
+			<div>
+				<p class="text-red-100 text-sm font-medium">Em Risco</p>
+				<p class="text-2xl font-bold">{{ chats_em_risco|length }}</p>
+				<p class="text-red-100 text-xs">+15min espera</p>
+			</div>
+			<div class="w-10 h-10 bg-white/20 rounded-full flex items-center justify-center">
+				<i class="fas fa-exclamation-triangle text-white text-lg"></i>
+			</div>
+		</div>
+	</div>
+
+	<!-- Chats Finalizados Hoje -->
+	<div class="bg-gradient-to-br from-purple-500 to-purple-600 rounded-xl shadow-lg p-4 text-white transform hover:scale-105 transition-all duration-300 cursor-pointer dashboard-card" id="chats-finalizados-card">
+		<div class="flex items-center justify-between">
+			<div>
+				<p class="text-purple-100 text-sm font-medium">Finalizados</p>
+				<p class="text-2xl font-bold">{{ chats_finalizados_hoje }}</p>
+				<p class="text-purple-100 text-xs">hoje</p>
+			</div>
+			<div class="w-10 h-10 bg-white/20 rounded-full flex items-center justify-center">
+				<i class="fas fa-check-circle text-white text-lg"></i>
+			</div>
+		</div>
+	</div>
+
+	<!-- Sem Resposta -->
+	<div class="bg-gradient-to-br from-orange-500 to-orange-600 rounded-xl shadow-lg p-4 text-white transform hover:scale-105 transition-all duration-300 cursor-pointer dashboard-card" id="chats-sem-resposta-card">
+		<div class="flex items-center justify-between">
+			<div>
+				<p class="text-orange-100 text-sm font-medium">Sem Resposta</p>
+				<p class="text-2xl font-bold">{{ chats_sem_resposta|length }}</p>
+				<p class="text-orange-100 text-xs">+10min</p>
+			</div>
+			<div class="w-10 h-10 bg-white/20 rounded-full flex items-center justify-center">
+				<i class="fas fa-hourglass-half text-white text-lg"></i>
+			</div>
+		</div>
+	</div>
+</div>
+
+<!-- Grid Principal -->
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+	<!-- Ranking de Técnicos -->
+	<div class="bg-white rounded-xl shadow-lg p-6">
+		<div class="flex items-center justify-between mb-4">
+			<h3 class="text-lg font-semibold text-gray-800 flex items-center gap-2">
+				<i class="fas fa-trophy text-yellow-500"></i>
+				Ranking de Técnicos - Mês
+			</h3>
+		</div>
+		<div class="space-y-3">
+			{% for item in technician_ranking %}
+			<div class="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+				<div class="flex items-center gap-3">
+					<div class="w-8 h-8 bg-gradient-to-br from-blue-500 to-blue-600 rounded-full flex items-center justify-center text-white font-bold text-sm">
+						{{ loop.index }}
+					</div>
+					<div>
+						<p class="font-medium text-gray-800">{{ item.user.name }}</p>
+						<p class="text-sm text-gray-500">{{ item.user.email }}</p>
+					</div>
+				</div>
+				<div class="text-right">
+					<p class="font-bold text-lg text-blue-600">{{ item.count }}</p>
+					<p class="text-xs text-gray-500">chats</p>
+				</div>
+			</div>
+			{% else %}
+			<div class="text-center py-8 text-gray-500">
+				<i class="fas fa-chart-line text-4xl mb-2"></i>
+				<p>Nenhum técnico com chats finalizados este mês</p>
+			</div>
+			{% endfor %}
+		</div>
+	</div>
+
+	<!-- Chats em Risco -->
+	<div class="bg-white rounded-xl shadow-lg p-6">
+		<div class="flex items-center justify-between mb-4">
+			<h3 class="text-lg font-semibold text-gray-800 flex items-center gap-2">
+				<i class="fas fa-exclamation-triangle text-red-500"></i>
+				Chats em Risco
+			</h3>
+			<span class="bg-red-100 text-red-800 text-xs font-medium px-2.5 py-0.5 rounded-full">
+				{{ chats_em_risco|length }}
+			</span>
+		</div>
+		<div class="space-y-3 max-h-64 overflow-y-auto">
+			{% for chat in chats_em_risco %}
+			<div class="p-3 bg-red-50 border border-red-200 rounded-lg">
+				<div class="flex items-center justify-between">
+					<div>
+						<p class="font-medium text-gray-800">{{ chat.client_name }}</p>
+						<p class="text-sm text-gray-600">{{ chat.title }}</p>
+						<p class="text-xs text-red-600">
+							<i class="fas fa-clock mr-1"></i>
+							{{ chat.created_at.strftime('%H:%M') }} - {{ chat.minutes_waiting }}min
+						</p>
+					</div>
+					<a href="{{ url_for('helpdesk.index') }}" class="bg-red-600 text-white px-3 py-1 rounded text-sm hover:bg-red-700 transition-colors">
+						Atender
+					</a>
+				</div>
+			</div>
+			{% else %}
+			<div class="text-center py-8 text-gray-500">
+				<i class="fas fa-check-circle text-4xl mb-2 text-green-500"></i>
+				<p>Nenhum chat em risco no momento</p>
+			</div>
+			{% endfor %}
+		</div>
+	</div>
+</div>
+
+<!-- Carrossel de Chats Sem Resposta -->
+<div class="bg-white rounded-xl shadow-lg p-6 mb-6">
+	<div class="flex items-center justify-between mb-4">
+		<h3 class="text-lg font-semibold text-gray-800 flex items-center gap-2">
+			<i class="fas fa-hourglass-half text-orange-500"></i>
+			Chats Sem Resposta (+10min)
+		</h3>
+		<span class="bg-orange-100 text-orange-800 text-xs font-medium px-2.5 py-0.5 rounded-full">
+			{{ chats_sem_resposta|length }}
+		</span>
+	</div>
+	
+	{% if chats_sem_resposta %}
+	<div class="relative">
+		<div class="overflow-hidden">
+			<div id="chats-sem-resposta-carousel" class="flex transition-transform duration-300 ease-in-out">
+				{% for chat in chats_sem_resposta %}
+				<div class="w-full flex-shrink-0 px-2">
+					<div class="bg-orange-50 border border-orange-200 rounded-lg p-4">
+						<div class="flex items-center justify-between">
+							<div class="flex-1">
+								<div class="flex items-center gap-3 mb-2">
+									<div class="w-10 h-10 bg-orange-500 rounded-full flex items-center justify-center text-white font-bold">
+										{{ chat.client_name[0].upper() }}
+									</div>
+									<div>
+										<p class="font-medium text-gray-800">{{ chat.client_name }}</p>
+										<p class="text-sm text-gray-600">{{ chat.title }}</p>
+									</div>
+								</div>
+								<div class="flex items-center gap-4 text-sm text-gray-600">
+									<span>
+										<i class="fas fa-clock mr-1"></i>
+										{{ chat.created_at.strftime('%H:%M') }}
+									</span>
+									<span class="text-orange-600 font-medium">
+										<i class="fas fa-exclamation-triangle mr-1"></i>
+										Sem resposta há {{ chat.minutes_no_response }}min
+									</span>
+								</div>
+							</div>
+							<div class="flex gap-2">
+								<a href="{{ url_for('helpdesk.index') }}" class="bg-orange-600 text-white px-4 py-2 rounded text-sm hover:bg-orange-700 transition-colors">
+									<i class="fas fa-reply mr-1"></i>
+									Responder
+								</a>
+							</div>
+						</div>
+					</div>
+				</div>
+				{% endfor %}
+			</div>
+		</div>
+		
+		{% if chats_sem_resposta|length > 1 %}
+		<!-- Controles do carrossel -->
+		<button id="prev-btn" class="absolute left-0 top-1/2 transform -translate-y-1/2 bg-white shadow-lg rounded-full p-2 hover:bg-gray-50 transition-colors">
+			<i class="fas fa-chevron-left text-gray-600"></i>
+		</button>
+		<button id="next-btn" class="absolute right-0 top-1/2 transform -translate-y-1/2 bg-white shadow-lg rounded-full p-2 hover:bg-gray-50 transition-colors">
+			<i class="fas fa-chevron-right text-gray-600"></i>
+		</button>
+		{% endif %}
+	</div>
+	{% else %}
+	<div class="text-center py-8 text-gray-500">
+		<i class="fas fa-check-circle text-4xl mb-2 text-green-500"></i>
+		<p>Todos os chats estão sendo respondidos adequadamente</p>
+	</div>
+	{% endif %}
+</div>
+
+<!-- Botão para ir ao Help Desk -->
+<div class="text-center">
+	<a href="{{ url_for('helpdesk.index') }}" class="inline-flex items-center gap-2 bg-gradient-to-r from-blue-600 to-blue-700 text-white px-6 py-3 rounded-lg font-medium hover:from-blue-700 hover:to-blue-800 transition-all duration-300 transform hover:scale-105 shadow-lg">
+		<i class="fas fa-headset"></i>
+		Abrir Help Desk
+	</a>
+</div>
+
+<!-- Modais dos Cards -->
+<!-- Modal Total de Chats -->
+<div id="total-chats-modal" class="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center" style="display: none;">
+	<div class="bg-white rounded-xl shadow-2xl max-w-4xl w-full mx-4 max-h-[90vh] overflow-hidden">
+		<div class="bg-gradient-to-r from-blue-600 to-blue-700 text-white p-6">
+			<div class="flex items-center justify-between">
+				<h3 class="text-xl font-bold flex items-center gap-2">
+					<i class="fas fa-comments"></i>
+					Total de Chats
+				</h3>
+				<button id="close-total-chats-modal" class="text-white hover:text-gray-200 text-2xl">
+					<i class="fas fa-times"></i>
+				</button>
+			</div>
+		</div>
+		<div class="p-6 overflow-y-auto max-h-[calc(90vh-120px)]">
+			<div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+				<div class="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+					<h4 class="font-semibold text-yellow-800 mb-2">Em Espera</h4>
+					<p class="text-2xl font-bold text-yellow-600">{{ status_counts.get('waiting', 0) }}</p>
+				</div>
+				<div class="bg-green-50 border border-green-200 rounded-lg p-4">
+					<h4 class="font-semibold text-green-800 mb-2">Atendendo</h4>
+					<p class="text-2xl font-bold text-green-600">{{ status_counts.get('active', 0) }}</p>
+				</div>
+				<div class="bg-purple-50 border border-purple-200 rounded-lg p-4">
+					<h4 class="font-semibold text-purple-800 mb-2">Finalizados</h4>
+					<p class="text-2xl font-bold text-purple-600">{{ status_counts.get('closed', 0) }}</p>
+				</div>
+			</div>
+			<div class="text-center text-gray-600">
+				<i class="fas fa-chart-pie text-4xl mb-2"></i>
+				<p>Visão geral de todos os chats do sistema</p>
+			</div>
+		</div>
+	</div>
+</div>
+
+<!-- Modal Chats em Espera -->
+<div id="chats-espera-modal" class="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center" style="display: none;">
+	<div class="bg-white rounded-xl shadow-2xl max-w-4xl w-full mx-4 max-h-[90vh] overflow-hidden">
+		<div class="bg-gradient-to-r from-yellow-600 to-yellow-700 text-white p-6">
+			<div class="flex items-center justify-between">
+				<h3 class="text-xl font-bold flex items-center gap-2">
+					<i class="fas fa-clock"></i>
+					Chats em Espera
+				</h3>
+				<button id="close-chats-espera-modal" class="text-white hover:text-gray-200 text-2xl">
+					<i class="fas fa-times"></i>
+				</button>
+			</div>
+		</div>
+		<div class="p-6 overflow-y-auto max-h-[calc(90vh-120px)]">
+			<div class="space-y-3">
+				{% for chat in chats_em_risco %}
+				<div class="p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+					<div class="flex items-center justify-between">
+						<div>
+							<p class="font-medium text-gray-800">{{ chat.client_name }}</p>
+							<p class="text-sm text-gray-600">{{ chat.title }}</p>
+							<p class="text-xs text-yellow-600">
+								<i class="fas fa-clock mr-1"></i>
+								{{ chat.created_at.strftime('%H:%M') }} - {{ chat.minutes_waiting }}min
+							</p>
+						</div>
+						<a href="{{ url_for('helpdesk.index') }}" class="bg-yellow-600 text-white px-3 py-1 rounded text-sm hover:bg-yellow-700 transition-colors">
+							Atender
+						</a>
+					</div>
+				</div>
+				{% else %}
+				<div class="text-center py-8 text-gray-500">
+					<i class="fas fa-check-circle text-4xl mb-2 text-green-500"></i>
+					<p>Nenhum chat em espera no momento</p>
+				</div>
+				{% endfor %}
+			</div>
+		</div>
+	</div>
+</div>
+
+<!-- Modal Chats Atendendo -->
+<div id="chats-atendendo-modal" class="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center" style="display: none;">
+	<div class="bg-white rounded-xl shadow-2xl max-w-4xl w-full mx-4 max-h-[90vh] overflow-hidden">
+		<div class="bg-gradient-to-r from-green-600 to-green-700 text-white p-6">
+			<div class="flex items-center justify-between">
+				<h3 class="text-xl font-bold flex items-center gap-2">
+					<i class="fas fa-headset"></i>
+					Chats Atendendo
+				</h3>
+				<button id="close-chats-atendendo-modal" class="text-white hover:text-gray-200 text-2xl">
+					<i class="fas fa-times"></i>
+				</button>
+			</div>
+		</div>
+		<div class="p-6 overflow-y-auto max-h-[calc(90vh-120px)]">
+			<div class="text-center py-8 text-gray-500">
+				<i class="fas fa-headset text-4xl mb-2 text-green-500"></i>
+				<p>Chats em atendimento ativo</p>
+				<a href="{{ url_for('helpdesk.index') }}" class="inline-flex items-center gap-2 bg-green-600 text-white px-4 py-2 rounded-lg mt-4 hover:bg-green-700 transition-colors">
+					<i class="fas fa-external-link-alt"></i>
+					Abrir Help Desk
+				</a>
+			</div>
+		</div>
+	</div>
+</div>
+
+<!-- Modal Chats em Risco -->
+<div id="chats-risco-modal" class="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center" style="display: none;">
+	<div class="bg-white rounded-xl shadow-2xl max-w-4xl w-full mx-4 max-h-[90vh] overflow-hidden">
+		<div class="bg-gradient-to-r from-red-600 to-red-700 text-white p-6">
+			<div class="flex items-center justify-between">
+				<h3 class="text-xl font-bold flex items-center gap-2">
+					<i class="fas fa-exclamation-triangle"></i>
+					Chats em Risco
+				</h3>
+				<button id="close-chats-risco-modal" class="text-white hover:text-gray-200 text-2xl">
+					<i class="fas fa-times"></i>
+				</button>
+			</div>
+		</div>
+		<div class="p-6 overflow-y-auto max-h-[calc(90vh-120px)]">
+			<div class="space-y-3">
+				{% for chat in chats_em_risco %}
+				<div class="p-3 bg-red-50 border border-red-200 rounded-lg">
+					<div class="flex items-center justify-between">
+						<div>
+							<p class="font-medium text-gray-800">{{ chat.client_name }}</p>
+							<p class="text-sm text-gray-600">{{ chat.title }}</p>
+							<p class="text-xs text-red-600">
+								<i class="fas fa-clock mr-1"></i>
+								{{ chat.created_at.strftime('%H:%M') }} - {{ chat.minutes_waiting }}min
+							</p>
+						</div>
+						<a href="{{ url_for('helpdesk.index') }}" class="bg-red-600 text-white px-3 py-1 rounded text-sm hover:bg-red-700 transition-colors">
+							Atender
+						</a>
+					</div>
+				</div>
+				{% else %}
+				<div class="text-center py-8 text-gray-500">
+					<i class="fas fa-check-circle text-4xl mb-2 text-green-500"></i>
+					<p>Nenhum chat em risco no momento</p>
+				</div>
+				{% endfor %}
+			</div>
+		</div>
+	</div>
+</div>
+
+<!-- Modal Chats Finalizados -->
+<div id="chats-finalizados-modal" class="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center" style="display: none;">
+	<div class="bg-white rounded-xl shadow-2xl max-w-4xl w-full mx-4 max-h-[90vh] overflow-hidden">
+		<div class="bg-gradient-to-r from-purple-600 to-purple-700 text-white p-6">
+			<div class="flex items-center justify-between">
+				<h3 class="text-xl font-bold flex items-center gap-2">
+					<i class="fas fa-check-circle"></i>
+					Chats Finalizados Hoje
+				</h3>
+				<button id="close-chats-finalizados-modal" class="text-white hover:text-gray-200 text-2xl">
+					<i class="fas fa-times"></i>
+				</button>
+			</div>
+		</div>
+		<div class="p-6 overflow-y-auto max-h-[calc(90vh-120px)]">
+			<div class="text-center py-8 text-gray-500">
+				<i class="fas fa-check-circle text-4xl mb-2 text-purple-500"></i>
+				<p class="text-2xl font-bold text-purple-600 mb-2">{{ chats_finalizados_hoje }}</p>
+				<p>Chats finalizados hoje</p>
+				<a href="{{ url_for('helpdesk.closed_chats') }}" class="inline-flex items-center gap-2 bg-purple-600 text-white px-4 py-2 rounded-lg mt-4 hover:bg-purple-700 transition-colors">
+					<i class="fas fa-history"></i>
+					Ver Histórico Completo
+				</a>
+			</div>
+		</div>
+	</div>
+</div>
+
+<!-- Modal Chats Sem Resposta -->
+<div id="chats-sem-resposta-modal" class="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center" style="display: none;">
+	<div class="bg-white rounded-xl shadow-2xl max-w-4xl w-full mx-4 max-h-[90vh] overflow-hidden">
+		<div class="bg-gradient-to-r from-orange-600 to-orange-700 text-white p-6">
+			<div class="flex items-center justify-between">
+				<h3 class="text-xl font-bold flex items-center gap-2">
+					<i class="fas fa-hourglass-half"></i>
+					Chats Sem Resposta
+				</h3>
+				<button id="close-chats-sem-resposta-modal" class="text-white hover:text-gray-200 text-2xl">
+					<i class="fas fa-times"></i>
+				</button>
+			</div>
+		</div>
+		<div class="p-6 overflow-y-auto max-h-[calc(90vh-120px)]">
+			<div class="space-y-3">
+				{% for chat in chats_sem_resposta %}
+				<div class="p-3 bg-orange-50 border border-orange-200 rounded-lg">
+					<div class="flex items-center justify-between">
+						<div>
+							<p class="font-medium text-gray-800">{{ chat.client_name }}</p>
+							<p class="text-sm text-gray-600">{{ chat.title }}</p>
+							<p class="text-xs text-orange-600">
+								<i class="fas fa-exclamation-triangle mr-1"></i>
+								Sem resposta há {{ chat.minutes_no_response }}min
+							</p>
+						</div>
+						<a href="{{ url_for('helpdesk.index') }}" class="bg-orange-600 text-white px-3 py-1 rounded text-sm hover:bg-orange-700 transition-colors">
+							Responder
+						</a>
+					</div>
+				</div>
+				{% else %}
+				<div class="text-center py-8 text-gray-500">
+					<i class="fas fa-check-circle text-4xl mb-2 text-green-500"></i>
+					<p>Todos os chats estão sendo respondidos adequadamente</p>
+				</div>
+				{% endfor %}
+			</div>
+		</div>
+	</div>
+</div>
+
+<script>
+// Relógio de Brasília
+function updateClock() {
+	const now = new Date();
+	const brasiliaTime = new Date(now.toLocaleString("en-US", {timeZone: "America/Sao_Paulo"}));
+	const timeString = brasiliaTime.toLocaleTimeString('pt-BR', {
+		hour: '2-digit',
+		minute: '2-digit',
+		second: '2-digit'
+	});
+	document.getElementById('brasilia-clock').textContent = timeString;
+}
+
+// Atualizar relógio a cada segundo
+setInterval(updateClock, 1000);
+updateClock();
+
+// Carrossel de chats sem resposta
+let currentSlide = 0;
+const slides = document.querySelectorAll('#chats-sem-resposta-carousel > div');
+const totalSlides = slides.length;
+
+function showSlide(index) {
+	const carousel = document.getElementById('chats-sem-resposta-carousel');
+	if (carousel && totalSlides > 0) {
+		carousel.style.transform = `translateX(-${index * 100}%)`;
+	}
+}
+
+function nextSlide() {
+	if (totalSlides > 1) {
+		currentSlide = (currentSlide + 1) % totalSlides;
+		showSlide(currentSlide);
+	}
+}
+
+function prevSlide() {
+	if (totalSlides > 1) {
+		currentSlide = (currentSlide - 1 + totalSlides) % totalSlides;
+		showSlide(currentSlide);
+	}
+}
+
+// Event listeners para os botões do carrossel
+document.getElementById('prev-btn')?.addEventListener('click', prevSlide);
+document.getElementById('next-btn')?.addEventListener('click', nextSlide);
+
+// Auto-play do carrossel (mudar slide a cada 5 segundos)
+if (totalSlides > 1) {
+	setInterval(nextSlide, 5000);
+}
+
+// Função para atualizar dados via AJAX
+function updateDashboardData() {
+	fetch('/api/dashboard/helpdesk')
+		.then(response => response.json())
+		.then(data => {
+			if (data.success) {
+				updateCards(data.data);
+				updateRanking(data.data.technician_ranking);
+				updateRiskChats(data.data.chats_em_risco);
+				updateNoResponseChats(data.data.chats_sem_resposta);
+			}
+		})
+		.catch(error => {
+			console.error('Erro ao atualizar dados:', error);
+		});
+}
+
+// Atualizar cards de métricas
+function updateCards(data) {
+	// Total de chats
+	const totalChats = (data.status_counts.waiting || 0) + (data.status_counts.active || 0) + (data.status_counts.closed || 0);
+	updateCardValue('.grid .bg-gradient-to-br.from-blue-500 .text-2xl', totalChats);
+	
+	// Em espera
+	updateCardValue('.grid .bg-gradient-to-br.from-yellow-500 .text-2xl', data.status_counts.waiting || 0);
+	
+	// Atendendo
+	updateCardValue('.grid .bg-gradient-to-br.from-green-500 .text-2xl', data.status_counts.active || 0);
+	
+	// Em risco
+	updateCardValue('.grid .bg-gradient-to-br.from-red-500 .text-2xl', data.chats_em_risco.length);
+	
+	// Finalizados hoje
+	updateCardValue('.grid .bg-gradient-to-br.from-purple-500 .text-2xl', data.chats_finalizados_hoje);
+	
+	// Sem resposta
+	updateCardValue('.grid .bg-gradient-to-br.from-orange-500 .text-2xl', data.chats_sem_resposta.length);
+	
+	// Reconfigurar event listeners após atualização
+	reconfigureEventListeners();
+}
+
+// Atualizar valor de um card
+function updateCardValue(selector, value) {
+	const element = document.querySelector(selector);
+	if (element) {
+		element.textContent = value;
+	}
+}
+
+// Função para reconfigurar event listeners após atualização AJAX
+function reconfigureEventListeners() {
+	// Total de Chats
+	const totalChatsCard = document.getElementById('total-chats-card');
+	if (totalChatsCard && !totalChatsCard.hasAttribute('data-listener-added')) {
+		totalChatsCard.addEventListener('click', function() {
+			openModal('total-chats-modal');
+		});
+		totalChatsCard.setAttribute('data-listener-added', 'true');
+	}
+	
+	// Chats em Espera
+	const chatsEsperaCard = document.getElementById('chats-espera-card');
+	if (chatsEsperaCard && !chatsEsperaCard.hasAttribute('data-listener-added')) {
+		chatsEsperaCard.addEventListener('click', function() {
+			openModal('chats-espera-modal');
+		});
+		chatsEsperaCard.setAttribute('data-listener-added', 'true');
+	}
+	
+	// Chats Atendendo
+	const chatsAtendendoCard = document.getElementById('chats-atendendo-card');
+	if (chatsAtendendoCard && !chatsAtendendoCard.hasAttribute('data-listener-added')) {
+		chatsAtendendoCard.addEventListener('click', function() {
+			openModal('chats-atendendo-modal');
+		});
+		chatsAtendendoCard.setAttribute('data-listener-added', 'true');
+	}
+	
+	// Chats em Risco
+	const chatsRiscoCard = document.getElementById('chats-risco-card');
+	if (chatsRiscoCard && !chatsRiscoCard.hasAttribute('data-listener-added')) {
+		chatsRiscoCard.addEventListener('click', function() {
+			openModal('chats-risco-modal');
+		});
+		chatsRiscoCard.setAttribute('data-listener-added', 'true');
+	}
+	
+	// Chats Finalizados
+	const chatsFinalizadosCard = document.getElementById('chats-finalizados-card');
+	if (chatsFinalizadosCard && !chatsFinalizadosCard.hasAttribute('data-listener-added')) {
+		chatsFinalizadosCard.addEventListener('click', function() {
+			openModal('chats-finalizados-modal');
+		});
+		chatsFinalizadosCard.setAttribute('data-listener-added', 'true');
+	}
+	
+	// Chats Sem Resposta
+	const chatsSemRespostaCard = document.getElementById('chats-sem-resposta-card');
+	if (chatsSemRespostaCard && !chatsSemRespostaCard.hasAttribute('data-listener-added')) {
+		chatsSemRespostaCard.addEventListener('click', function() {
+			openModal('chats-sem-resposta-modal');
+		});
+		chatsSemRespostaCard.setAttribute('data-listener-added', 'true');
+	}
+}
+
+// Atualizar ranking de técnicos
+function updateRanking(ranking) {
+	const rankingContainer = document.querySelector('.space-y-3');
+	if (rankingContainer) {
+		if (ranking.length === 0) {
+			rankingContainer.innerHTML = `
+				<div class="text-center py-8 text-gray-500">
+					<i class="fas fa-chart-line text-4xl mb-2"></i>
+					<p>Nenhum técnico com chats finalizados este mês</p>
+				</div>
+			`;
+		} else {
+			rankingContainer.innerHTML = ranking.map((item, index) => `
+				<div class="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+					<div class="flex items-center gap-3">
+						<div class="w-8 h-8 bg-gradient-to-br from-blue-500 to-blue-600 rounded-full flex items-center justify-center text-white font-bold text-sm">
+							${index + 1}
+						</div>
+						<div>
+							<p class="font-medium text-gray-800">${item.user.name}</p>
+							<p class="text-sm text-gray-500">${item.user.email}</p>
+						</div>
+					</div>
+					<div class="text-right">
+						<p class="font-bold text-lg text-blue-600">${item.count}</p>
+						<p class="text-xs text-gray-500">chats</p>
+					</div>
+				</div>
+			`).join('');
+		}
+	}
+}
+
+// Atualizar chats em risco
+function updateRiskChats(chats) {
+	const riskContainer = document.querySelector('.max-h-64.overflow-y-auto');
+	if (riskContainer) {
+		if (chats.length === 0) {
+			riskContainer.innerHTML = `
+				<div class="text-center py-8 text-gray-500">
+					<i class="fas fa-check-circle text-4xl mb-2 text-green-500"></i>
+					<p>Nenhum chat em risco no momento</p>
+				</div>
+			`;
+		} else {
+			riskContainer.innerHTML = chats.map(chat => `
+				<div class="p-3 bg-red-50 border border-red-200 rounded-lg">
+					<div class="flex items-center justify-between">
+						<div>
+							<p class="font-medium text-gray-800">${chat.client_name}</p>
+							<p class="text-sm text-gray-600">${chat.title}</p>
+							<p class="text-xs text-red-600">
+								<i class="fas fa-clock mr-1"></i>
+								${new Date(chat.created_at).toLocaleTimeString('pt-BR', {hour: '2-digit', minute: '2-digit'})} - ${chat.minutes_waiting}min
+							</p>
+						</div>
+						<a href="/helpdesk" class="bg-red-600 text-white px-3 py-1 rounded text-sm hover:bg-red-700 transition-colors">
+							Atender
+						</a>
+					</div>
+				</div>
+			`).join('');
+		}
+	}
+}
+
+// Atualizar chats sem resposta
+function updateNoResponseChats(chats) {
+	const carouselContainer = document.querySelector('#chats-sem-resposta-carousel');
+	if (carouselContainer) {
+		if (chats.length === 0) {
+			carouselContainer.innerHTML = `
+				<div class="w-full flex-shrink-0 px-2">
+					<div class="text-center py-8 text-gray-500">
+						<i class="fas fa-check-circle text-4xl mb-2 text-green-500"></i>
+						<p>Todos os chats estão sendo respondidos adequadamente</p>
+					</div>
+				</div>
+			`;
+		} else {
+			carouselContainer.innerHTML = chats.map(chat => `
+				<div class="w-full flex-shrink-0 px-2">
+					<div class="bg-orange-50 border border-orange-200 rounded-lg p-4">
+						<div class="flex items-center justify-between">
+							<div class="flex-1">
+								<div class="flex items-center gap-3 mb-2">
+									<div class="w-10 h-10 bg-orange-500 rounded-full flex items-center justify-center text-white font-bold">
+										${chat.client_name[0].toUpperCase()}
+									</div>
+									<div>
+										<p class="font-medium text-gray-800">${chat.client_name}</p>
+										<p class="text-sm text-gray-600">${chat.title}</p>
+									</div>
+								</div>
+								<div class="flex items-center gap-4 text-sm text-gray-600">
+									<span>
+										<i class="fas fa-clock mr-1"></i>
+										${new Date(chat.created_at).toLocaleTimeString('pt-BR', {hour: '2-digit', minute: '2-digit'})}
+									</span>
+									<span class="text-orange-600 font-medium">
+										<i class="fas fa-exclamation-triangle mr-1"></i>
+										Sem resposta há ${chat.minutes_no_response}min
+									</span>
+								</div>
+							</div>
+							<div class="flex gap-2">
+								<a href="/helpdesk" class="bg-orange-600 text-white px-4 py-2 rounded text-sm hover:bg-orange-700 transition-colors">
+									<i class="fas fa-reply mr-1"></i>
+									Responder
+								</a>
+							</div>
+						</div>
+					</div>
+				</div>
+			`).join('');
+		}
+	}
+}
+
+// Atualização automática dos dados a cada 15 segundos
+setInterval(updateDashboardData, 15000);
+
+// Funções para abrir e fechar modais
+function openModal(modalId) {
+	const modal = document.getElementById(modalId);
+	if (modal) {
+		modal.style.display = 'flex';
+	}
+}
+
+function closeModal(modalId) {
+	const modal = document.getElementById(modalId);
+	if (modal) {
+		modal.style.display = 'none';
+	}
+}
+
+// Event listeners para os cards
+document.addEventListener('DOMContentLoaded', function() {
+	// Total de Chats
+	const totalChatsCard = document.getElementById('total-chats-card');
+	const closeTotalChatsModal = document.getElementById('close-total-chats-modal');
+	const totalChatsModal = document.getElementById('total-chats-modal');
+	
+	if (totalChatsCard) {
+		totalChatsCard.addEventListener('click', function() {
+			openModal('total-chats-modal');
+		});
+	}
+	
+	if (closeTotalChatsModal) {
+		closeTotalChatsModal.addEventListener('click', function() {
+			closeModal('total-chats-modal');
+		});
+	}
+	
+	if (totalChatsModal) {
+		totalChatsModal.addEventListener('click', function(e) {
+			if (e.target === totalChatsModal) {
+				closeModal('total-chats-modal');
+			}
+		});
+	}
+	
+	// Chats em Espera
+	const chatsEsperaCard = document.getElementById('chats-espera-card');
+	const closeChatsEsperaModal = document.getElementById('close-chats-espera-modal');
+	const chatsEsperaModal = document.getElementById('chats-espera-modal');
+	
+	if (chatsEsperaCard) {
+		chatsEsperaCard.addEventListener('click', function() {
+			openModal('chats-espera-modal');
+		});
+	}
+	
+	if (closeChatsEsperaModal) {
+		closeChatsEsperaModal.addEventListener('click', function() {
+			closeModal('chats-espera-modal');
+		});
+	}
+	
+	if (chatsEsperaModal) {
+		chatsEsperaModal.addEventListener('click', function(e) {
+			if (e.target === chatsEsperaModal) {
+				closeModal('chats-espera-modal');
+			}
+		});
+	}
+	
+	// Chats Atendendo
+	const chatsAtendendoCard = document.getElementById('chats-atendendo-card');
+	const closeChatsAtendendoModal = document.getElementById('close-chats-atendendo-modal');
+	const chatsAtendendoModal = document.getElementById('chats-atendendo-modal');
+	
+	if (chatsAtendendoCard) {
+		chatsAtendendoCard.addEventListener('click', function() {
+			openModal('chats-atendendo-modal');
+		});
+	}
+	
+	if (closeChatsAtendendoModal) {
+		closeChatsAtendendoModal.addEventListener('click', function() {
+			closeModal('chats-atendendo-modal');
+		});
+	}
+	
+	if (chatsAtendendoModal) {
+		chatsAtendendoModal.addEventListener('click', function(e) {
+			if (e.target === chatsAtendendoModal) {
+				closeModal('chats-atendendo-modal');
+			}
+		});
+	}
+	
+	// Chats em Risco
+	const chatsRiscoCard = document.getElementById('chats-risco-card');
+	const closeChatsRiscoModal = document.getElementById('close-chats-risco-modal');
+	const chatsRiscoModal = document.getElementById('chats-risco-modal');
+	
+	if (chatsRiscoCard) {
+		chatsRiscoCard.addEventListener('click', function() {
+			openModal('chats-risco-modal');
+		});
+	}
+	
+	if (closeChatsRiscoModal) {
+		closeChatsRiscoModal.addEventListener('click', function() {
+			closeModal('chats-risco-modal');
+		});
+	}
+	
+	if (chatsRiscoModal) {
+		chatsRiscoModal.addEventListener('click', function(e) {
+			if (e.target === chatsRiscoModal) {
+				closeModal('chats-risco-modal');
+			}
+		});
+	}
+	
+	// Chats Finalizados
+	const chatsFinalizadosCard = document.getElementById('chats-finalizados-card');
+	const closeChatsFinalizadosModal = document.getElementById('close-chats-finalizados-modal');
+	const chatsFinalizadosModal = document.getElementById('chats-finalizados-modal');
+	
+	if (chatsFinalizadosCard) {
+		chatsFinalizadosCard.addEventListener('click', function() {
+			openModal('chats-finalizados-modal');
+		});
+	}
+	
+	if (closeChatsFinalizadosModal) {
+		closeChatsFinalizadosModal.addEventListener('click', function() {
+			closeModal('chats-finalizados-modal');
+		});
+	}
+	
+	if (chatsFinalizadosModal) {
+		chatsFinalizadosModal.addEventListener('click', function(e) {
+			if (e.target === chatsFinalizadosModal) {
+				closeModal('chats-finalizados-modal');
+			}
+		});
+	}
+	
+	// Chats Sem Resposta
+	const chatsSemRespostaCard = document.getElementById('chats-sem-resposta-card');
+	const closeChatsSemRespostaModal = document.getElementById('close-chats-sem-resposta-modal');
+	const chatsSemRespostaModal = document.getElementById('chats-sem-resposta-modal');
+	
+	if (chatsSemRespostaCard) {
+		chatsSemRespostaCard.addEventListener('click', function() {
+			openModal('chats-sem-resposta-modal');
+		});
+	}
+	
+	if (closeChatsSemRespostaModal) {
+		closeChatsSemRespostaModal.addEventListener('click', function() {
+			closeModal('chats-sem-resposta-modal');
+		});
+	}
+	
+	if (chatsSemRespostaModal) {
+		chatsSemRespostaModal.addEventListener('click', function(e) {
+			if (e.target === chatsSemRespostaModal) {
+				closeModal('chats-sem-resposta-modal');
+			}
+		});
+	}
+	
+	// Reconfigurar event listeners após carregamento inicial
+	reconfigureEventListeners();
+});
+</script>
+
+{% endblock %}

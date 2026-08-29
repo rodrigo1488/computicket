@@ -1,0 +1,78 @@
+{% extends 'base.html' %}
+{% block page_title %}✏️ Editar Contrato: {{ contract_name }}{% endblock %}
+{% block content %}
+
+<!-- Cabeçalho -->
+<div class="mb-6">
+	<div class="text-sm text-muted mb-1">
+		<a href="{{ url_for('contracts.list_contracts') }}" class="text-muted">Contratos</a>
+		<i class="fas fa-chevron-right mx-1 text-xs"></i>
+		<a href="{{ url_for('contracts.manage_contract', contract_name=contract_name) }}" class="text-muted">{{ contract_name }}</a>
+		<i class="fas fa-chevron-right mx-1 text-xs"></i>
+		Editar
+	</div>
+	<h1 class="text-2xl font-bold text-primary">Editar Contrato</h1>
+</div>
+
+<div class="bg-secondary rounded-lg shadow-lg p-6" style="max-width: 720px;">
+	<form method="post" class="space-y-6">
+		<div class="form-group">
+			<label class="form-label">Nome do Contrato *</label>
+			<input name="new_name" required class="form-input w-full" value="{{ contract_name }}" placeholder="Nome do contrato">
+			<div class="form-help">
+				Ao renomear, os {{ contract_clients|length }} cliente(s) vinculados serão atualizados automaticamente.
+			</div>
+		</div>
+
+		<div class="form-group">
+			<label class="flex items-center space-x-2">
+				<input type="checkbox" name="no_charge" class="form-checkbox">
+				<span class="text-sm text-primary">Sem cobrança</span>
+			</label>
+			<div class="form-help">Clientes com este contrato não serão cobrados pelos serviços.</div>
+		</div>
+
+		<div class="flex gap-2 justify-end">
+			<a href="{{ url_for('contracts.manage_contract', contract_name=contract_name) }}" class="btn btn-secondary">
+				Cancelar
+			</a>
+			<button type="submit" class="btn btn-primary">
+				<i class="fas fa-save"></i>
+				Salvar Alterações
+			</button>
+		</div>
+	</form>
+</div>
+
+{% if contract_clients %}
+<!-- Clientes vinculados (informativo) -->
+<div class="bg-secondary rounded-lg shadow-lg p-6 mt-6" style="max-width: 720px;">
+	<div class="flex items-center justify-between mb-3">
+		<h2 class="text-lg font-semibold text-primary">Clientes Vinculados</h2>
+		<span class="text-sm text-muted">{{ contract_clients|length }} cliente(s)</span>
+	</div>
+	<div class="max-h-64 overflow-y-auto">
+		{% for client in contract_clients %}
+		<div class="flex items-center justify-between gap-2 py-2" {% if not loop.last %}style="border-bottom: 1px solid var(--border-color);"{% endif %}>
+			<div>
+				<div class="font-medium text-primary text-sm">{{ client.name }}</div>
+				{% if client.document or client.phone %}
+				<div class="text-xs text-muted">
+					{% if client.document %}{{ client.document }}{% endif %}{% if client.document and client.phone %} · {% endif %}{% if client.phone %}{{ client.phone }}{% endif %}
+				</div>
+				{% endif %}
+			</div>
+			{% if client.no_charge %}
+			<span class="inline-block bg-green-100 text-green-700 text-xs px-2 py-1 rounded-full">Sem cobrança</span>
+			{% endif %}
+		</div>
+		{% endfor %}
+	</div>
+	<div class="text-sm text-muted mt-3">
+		Para adicionar ou remover clientes, use a
+		<a href="{{ url_for('contracts.manage_contract', contract_name=contract_name) }}">tela de gerenciamento</a>.
+	</div>
+</div>
+{% endif %}
+
+{% endblock %}

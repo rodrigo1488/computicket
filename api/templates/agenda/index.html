@@ -1,0 +1,2103 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="agenda-container">
+    <div class="agenda-header">
+        <div class="agenda-title">
+            <h1><i class="fas fa-calendar-alt"></i> Agenda</h1>
+            <p>Gerencie seus agendamentos e visualize sua agenda</p>
+        </div>
+        <div class="agenda-actions">
+            <button class="btn btn-primary" onclick="abrirModalNovoAgendamento()">
+                <i class="fas fa-plus"></i> Novo Agendamento
+            </button>
+            <button class="btn btn-primary" onclick="abrirModalTrocarPlantao()" style="background-color: #8b5cf6; border-color: #7c3aed;">
+                <i class="fas fa-sync-alt"></i> Trocar Plantão
+            </button>
+            <button class="btn btn-secondary" onclick="testarLembretes()">
+                <i class="fas fa-envelope"></i> Testar Lembretes
+            </button>
+            <button class="btn btn-info" onclick="testarScheduler()">
+                <i class="fas fa-clock"></i> Testar Scheduler
+            </button>
+            <button class="btn btn-warning" onclick="toggleFiltroUsuario()" id="btnFiltroUsuario">
+                <i class="fas fa-user"></i> <span id="textoFiltroUsuario">Mostrar Apenas Meus</span>
+            </button>
+        </div>
+    </div>
+
+    {% if saturday_info %}
+    <!-- Card de Revezamento de Sábado -->
+    <div class="saturday-shift-card">
+        <div class="saturday-shift-content">
+            <div class="saturday-shift-left">
+                <div class="saturday-shift-icon">
+                    <i class="fas fa-users-cog"></i>
+                </div>
+                <div class="saturday-shift-details">
+                    <div class="saturday-shift-header">
+                        <h3>Revezamento de Folgas de Sábado</h3>
+                        <span class="saturday-shift-badge">
+                            Sábado {{ saturday_info.date_str }}
+                        </span>
+                    </div>
+                    <div class="saturday-shift-teams">
+                        <span>
+                            Folga nesta semana: <strong class="team-off-label">🏖️ {{ saturday_info.off_team }}</strong>
+                        </span>
+                        <span class="bullet-separator">•</span>
+                        <span>
+                            Plantão nesta semana: <strong class="team-work-label">🔧 {{ saturday_info.work_team }}</strong>
+                        </span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="saturday-shift-right">
+                <div class="team-status-box">
+                    <div class="team-status-title">
+                        <span class="dot-indicator bg-purple"></span>
+                        Folga ({{ saturday_info.off_team }}):
+                    </div>
+                    <div class="team-members">
+                        {% for u in saturday_info.off_users %}{{ u.name }}{% if not loop.last %}, {% endif %}{% else %}Nenhum membro{% endfor %}
+                    </div>
+                </div>
+
+                <div class="team-status-box">
+                    <div class="team-status-title">
+                        <span class="dot-indicator bg-amber"></span>
+                        Plantão ({{ saturday_info.work_team }}):
+                    </div>
+                    <div class="team-members">
+                        {% for u in saturday_info.work_users %}{{ u.name }}{% if not loop.last %}, {% endif %}{% else %}Nenhum membro{% endfor %}
+                    </div>
+                </div>
+            </div>
+            
+            {% if saturday_info.swaps %}
+            <div class="saturday-shift-swaps" style="margin-top: 1rem; padding-top: 0.75rem; border-top: 1px dashed var(--border-color); font-size: 0.8rem; display: flex; flex-wrap: wrap; gap: 0.5rem; width: 100%;">
+                <span style="color: var(--text-secondary); font-weight: 600;">Trocas temporárias neste sábado:</span>
+                {% for swap in saturday_info.swaps %}
+                <span class="status-badge" style="background: rgba(139, 92, 246, 0.1); border: 1px solid rgba(139, 92, 246, 0.2); color: #a78bfa; display: inline-flex; align-items: center; gap: 0.5rem; font-size: 0.75rem; padding: 0.25rem 0.75rem; border-radius: 50px;">
+                    {{ swap.user1_name }} ⇄ {{ swap.user2_name }}
+                    <button type="button" onclick="cancelarTrocaPlantao({{ swap.id }})" style="background: rgba(248, 113, 113, 0.15); border: 1px solid rgba(248, 113, 113, 0.3); color: #f87171; cursor: pointer; padding: 0.125rem 0.375rem; border-radius: 4px; font-size: 0.7rem; display: inline-flex; align-items: center; gap: 0.25rem;" title="Desfazer troca">
+                        <i class="fas fa-undo-alt"></i> Desfazer
+                    </button>
+                </span>
+                {% endfor %}
+            </div>
+            {% endif %}
+        </div>
+    </div>
+    {% endif %}
+
+    {% if pending_swaps %}
+    <!-- Banner de Trocas Pendentes -->
+    <div class="pending-swaps-banner" style="background: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.25); padding: 1rem; border-radius: 12px; margin-bottom: 1.5rem; border-left: 4px solid #f59e0b;">
+        <h4 style="color: #f59e0b; margin: 0 0 0.75rem 0; display: flex; align-items: center; gap: 0.5rem; font-size: 1rem; font-weight: 600;">
+            <i class="fas fa-exclamation-triangle"></i> Trocas de Plantão Pendentes de Confirmação
+        </h4>
+        <div style="display: flex; flex-direction: column; gap: 0.5rem;">
+            {% for swap in pending_swaps %}
+            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem; font-size: 0.9rem; background: var(--bg-tertiary); padding: 0.75rem 1rem; border-radius: 8px; border: 1px solid var(--border-color);">
+                <span style="color: var(--text-primary);">
+                    Solicitação: <strong>{{ swap.requested_by.name }}</strong> quer trocar o sábado <strong>{{ swap.swap_date_br }}</strong> entre <strong>{{ swap.user_1.name }}</strong> e <strong>{{ swap.user_2.name }}</strong>.
+                </span>
+                <div style="display: flex; gap: 0.5rem;">
+                    <button class="btn btn-sm" onclick="aceitarTroca({{ swap.id }})" style="background-color: #10b981; color: white; padding: 0.375rem 0.75rem; font-size: 0.8rem; border-radius: 6px; border: none; cursor: pointer; display: inline-flex; align-items: center; gap: 0.25rem;">
+                        <i class="fas fa-check"></i> Aceitar
+                    </button>
+                    <button class="btn btn-sm" onclick="recusarTroca({{ swap.id }})" style="background-color: #ef4444; color: white; padding: 0.375rem 0.75rem; font-size: 0.8rem; border-radius: 6px; border: none; cursor: pointer; display: inline-flex; align-items: center; gap: 0.25rem;">
+                        <i class="fas fa-times"></i> Recusar
+                    </button>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Calendário -->
+    <div class="calendar-container">
+        <div id="calendar"></div>
+    </div>
+
+    <!-- Modal Trocar Plantão -->
+    <div id="modalTrocarPlantao" class="modal">
+        <div class="modal-content" style="max-width: 500px;">
+            <div class="modal-header">
+                <h2><i class="fas fa-sync-alt"></i> Registrar Troca Temporária</h2>
+                <button type="button" class="close-btn" onclick="fecharModalTrocarPlantao()">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            
+            <div class="modal-body">
+                <form id="formTrocaPlantao">
+                    <!-- Data do Sábado -->
+                    <div class="form-group">
+                        <label for="swapDate">Data (Selecione um Sábado) *</label>
+                        <input type="date" id="swapDate" name="swap_date" required class="form-input">
+                    </div>
+                    
+                    <!-- Membro Equipe 1 -->
+                    <div class="form-group">
+                        <label for="swapUser1">Membro da Equipe 1 *</label>
+                        <select id="swapUser1" name="user_1_id" required class="form-select">
+                            <option value="">Carregando usuários...</option>
+                        </select>
+                    </div>
+                    
+                    <!-- Membro Equipe 2 -->
+                    <div class="form-group">
+                        <label for="swapUser2">Membro da Equipe 2 *</label>
+                        <select id="swapUser2" name="user_2_id" required class="form-select">
+                            <option value="">Carregando usuários...</option>
+                        </select>
+                    </div>
+                </form>
+            </div>
+            
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" onclick="fecharModalTrocarPlantao()">Cancelar</button>
+                <button type="button" class="btn btn-primary" onclick="salvarTrocaPlantao()" style="background-color: #8b5cf6; border-color: #7c3aed;">Confirmar Troca</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Novo Agendamento -->
+    <div id="modalNovoAgendamento" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2><i class="fas fa-calendar-plus"></i> Novo Agendamento</h2>
+                <button type="button" class="close-btn" onclick="fecharModalNovoAgendamento()">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            
+            <div class="modal-body">
+                <form id="formNovoAgendamento">
+                    <!-- Título -->
+                    <div class="form-group">
+                        <label for="titulo">Título *</label>
+                        <input type="text" id="titulo" name="title" required placeholder="Ex: Manutenção do servidor">
+                    </div>
+                    
+                    <!-- Data e Hora -->
+                    <div class="form-group">
+                        <label for="dataHora">Data e Hora *</label>
+                        <input type="datetime-local" id="dataHora" name="appointment_date" required>
+                    </div>
+                    
+                    <!-- Cliente -->
+                    <div class="form-group">
+                        <label for="clienteSearch">Cliente *</label>
+                        <div class="search-container">
+                            <input type="text" id="clienteSearch" placeholder="Digite para buscar cliente..." autocomplete="off">
+                            <div id="clienteDropdown" class="search-dropdown"></div>
+                            <input type="hidden" id="clienteId" name="client_id" required>
+                            <div id="clienteSelected" class="selected-item"></div>
+                        </div>
+                    </div>
+                    
+                    <!-- Usuário -->
+                    <div class="form-group">
+                        <label for="usuario">Usuário Responsável *</label>
+                        <select id="usuario" name="user_id" required>
+                            <option value="">Carregando usuários...</option>
+                        </select>
+                    </div>
+                    
+                    <!-- Serviço -->
+                    <div class="form-group">
+                        <label for="servico">Serviço</label>
+                        <select id="servico" name="service_id">
+                            <option value="">Carregando serviços...</option>
+                        </select>
+                    </div>
+                    <div class="form-section">
+                        <div class="form-group">
+                            <label for="telefone">telefone do cliente</label>
+                            <input type="tel" id="telefone" name="telefone" placeholder="Digite o telefone do cliente">
+                            
+                        </div>
+                    </div>
+                    
+                    <!-- Descrição -->
+                    <div class="form-group">
+                        <label for="descricao">Descrição</label>
+                        <textarea id="descricao" name="description" rows="3" placeholder="Descreva os detalhes do agendamento..."></textarea>
+                    </div>
+                </form>
+            </div>
+            
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" onclick="fecharModalNovoAgendamento()">Cancelar</button>
+                <button type="button" class="btn btn-primary" onclick="criarAgendamento()">Criar Agendamento</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Visualizar Agendamento -->
+    <div id="modalVisualizarAgendamento" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2><i class="fas fa-eye"></i> Detalhes do Agendamento</h2>
+                <button type="button" class="close-btn" onclick="fecharModalVisualizarAgendamento()">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div id="detalhesAgendamento">
+                    <!-- Conteúdo será preenchido via JavaScript -->
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" onclick="fecharModalVisualizarAgendamento()">Fechar</button>
+                <button type="button" class="btn btn-danger" onclick="cancelarAgendamento()" id="btnCancelarAgendamento">
+                    <i class="fas fa-times"></i> Cancelar Agendamento
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- FullCalendar CSS -->
+<link href="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.8/index.global.min.css" rel="stylesheet">
+
+<!-- FullCalendar JS -->
+<script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.8/index.global.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.8/locales/pt-br.global.min.js"></script>
+
+<style>
+.agenda-container {
+    padding: 1rem;
+    max-width: 100%;
+}
+
+.agenda-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 2rem;
+    padding: 1.5rem;
+    background: var(--bg-secondary);
+    border-radius: 12px;
+    box-shadow: var(--neumorphism-shadow);
+}
+
+.agenda-title h1 {
+    color: var(--text-primary);
+    margin-bottom: 0.5rem;
+    font-size: 1.8rem;
+}
+
+.agenda-title p {
+    color: var(--text-secondary);
+    margin: 0;
+}
+
+.agenda-actions {
+    display: flex;
+    gap: 1rem;
+}
+
+.calendar-container {
+    background: var(--bg-secondary);
+    border-radius: 12px;
+    padding: 1.5rem;
+    box-shadow: var(--neumorphism-shadow);
+}
+
+#calendar {
+    max-width: 100%;
+}
+
+/* Estilos do FullCalendar */
+.fc {
+    font-family: 'Inter', sans-serif;
+}
+
+.fc-toolbar {
+    margin-bottom: 1.5rem;
+}
+
+.fc-button {
+    background: var(--accent-primary) !important;
+    border: none !important;
+    border-radius: 8px !important;
+    padding: 0.5rem 1rem !important;
+    font-weight: 500 !important;
+}
+
+.fc-button:hover {
+    background: var(--accent-secondary) !important;
+}
+
+.fc-button-primary:focus {
+    box-shadow: 0 0 0 0.2rem rgba(59, 130, 246, 0.25) !important;
+}
+
+.fc-event {
+    border-radius: 6px !important;
+    border: none !important;
+    padding: 2px 6px !important;
+    font-size: 0.85rem !important;
+    font-weight: 500 !important;
+}
+
+.fc-event-title {
+    font-weight: 600 !important;
+}
+
+.fc-daygrid-event {
+    margin: 1px 0 !important;
+}
+
+.fc-timegrid-event {
+    border-radius: 4px !important;
+}
+
+/* Modal styles */
+.modal {
+    position: fixed !important;
+    z-index: 999999 !important;
+    left: 0 !important;
+    top: 0 !important;
+    width: 100vw !important;
+    height: 100vh !important;
+    background-color: rgba(0, 0, 0, 0.8) !important;
+    backdrop-filter: blur(10px) !important;
+    overflow: hidden !important;
+    display: none !important;
+    align-items: center !important;
+    justify-content: center !important;
+}
+
+.modal.show {
+    display: flex !important;
+}
+
+.modal-content {
+    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%) !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border-radius: 16px !important;
+    width: 90vw !important;
+    max-width: 450px !important;
+    max-height: 80vh !important;
+    overflow: hidden !important;
+    box-shadow: 0 25px 80px rgba(0, 0, 0, 0.6) !important;
+    animation: modalSlideIn 0.3s ease !important;
+    position: relative !important;
+    z-index: 1000000 !important;
+    display: flex !important;
+    flex-direction: column !important;
+}
+
+.modal-header {
+    background: linear-gradient(135deg, #0f3460 0%, #16213e 100%) !important;
+    color: white !important;
+    padding: 1rem !important;
+    border-radius: 16px 16px 0 0 !important;
+    display: flex !important;
+    justify-content: space-between !important;
+    align-items: center !important;
+    flex-shrink: 0 !important;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1) !important;
+}
+
+.modal-header h2 {
+    margin: 0 !important;
+    font-size: 1.25rem !important;
+    font-weight: 600 !important;
+    display: flex !important;
+    align-items: center !important;
+    gap: 0.5rem !important;
+}
+
+.modal-header .close-btn {
+    background: rgba(255, 255, 255, 0.1) !important;
+    border: none !important;
+    color: white !important;
+    width: 40px !important;
+    height: 40px !important;
+    border-radius: 50% !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    cursor: pointer !important;
+    transition: all 0.3s ease !important;
+    font-size: 1.2rem !important;
+}
+
+.modal-header .close-btn:hover {
+    background: rgba(255, 255, 255, 0.2) !important;
+    transform: scale(1.1) !important;
+}
+
+.modal-body {
+    padding: 1.5rem !important;
+    color: white !important;
+    background: transparent !important;
+    flex: 1 !important;
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
+}
+
+.form-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+    margin-bottom: 1rem;
+}
+
+.form-group {
+    margin-bottom: 0.75rem !important;
+}
+
+.form-group label {
+    display: block !important;
+    margin-bottom: 0.5rem !important;
+    font-weight: 500 !important;
+    color: #ffffff !important;
+}
+
+.form-group input,
+.form-group select,
+.form-group textarea {
+    width: 100% !important;
+    padding: 0.6rem !important;
+    border: 1px solid rgba(255, 255, 255, 0.2) !important;
+    border-radius: 8px !important;
+    background: rgba(255, 255, 255, 0.1) !important;
+    color: #ffffff !important;
+    font-size: 0.85rem !important;
+    transition: all 0.3s ease !important;
+}
+
+.form-group input::placeholder,
+.form-group textarea::placeholder {
+    color: rgba(255, 255, 255, 0.6) !important;
+}
+
+.form-group input:focus,
+.form-group select:focus,
+.form-group textarea:focus {
+    outline: none !important;
+    border-color: #3b82f6 !important;
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2) !important;
+    background: rgba(255, 255, 255, 0.15) !important;
+}
+
+/* Estilos específicos para selects */
+.form-group select {
+    background: #1a1a2e !important;
+    color: #ffffff !important;
+}
+
+.form-group select option {
+    background: #1a1a2e !important;
+    color: #ffffff !important;
+    padding: 0.5rem !important;
+}
+
+.form-group select:focus {
+    background: #1a1a2e !important;
+    color: #ffffff !important;
+}
+
+.modal-footer {
+    background: rgba(255, 255, 255, 0.05) !important;
+    padding: 1rem !important;
+    border-radius: 0 0 16px 16px !important;
+    border-top: 1px solid rgba(255, 255, 255, 0.1) !important;
+    display: flex !important;
+    justify-content: flex-end !important;
+    gap: 1rem !important;
+    flex-shrink: 0 !important;
+}
+
+.btn {
+    padding: 0.6rem 1.25rem !important;
+    border: none !important;
+    border-radius: 8px !important;
+    font-weight: 500 !important;
+    cursor: pointer !important;
+    transition: all 0.3s ease !important;
+    text-decoration: none !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    gap: 0.5rem !important;
+    font-size: 0.85rem !important;
+}
+
+.btn-primary {
+    background: linear-gradient(135deg, #3b82f6, #1d4ed8) !important;
+    color: white !important;
+}
+
+.btn-primary:hover {
+    background: linear-gradient(135deg, #2563eb, #1e40af) !important;
+    transform: translateY(-2px) !important;
+    box-shadow: 0 10px 25px rgba(59, 130, 246, 0.3) !important;
+}
+
+.btn-secondary {
+    background: rgba(255, 255, 255, 0.1) !important;
+    color: white !important;
+    border: 1px solid rgba(255, 255, 255, 0.2) !important;
+}
+
+.btn-secondary:hover {
+    background: rgba(255, 255, 255, 0.2) !important;
+    transform: translateY(-2px) !important;
+}
+
+.btn-danger {
+    background: linear-gradient(135deg, #ef4444, #dc2626) !important;
+    color: white !important;
+}
+
+.btn-danger:hover {
+    background: linear-gradient(135deg, #dc2626, #b91c1c) !important;
+    transform: translateY(-2px) !important;
+    box-shadow: 0 10px 25px rgba(239, 68, 68, 0.3) !important;
+}
+
+.btn-info {
+    background: linear-gradient(135deg, #06b6d4, #0891b2) !important;
+    color: white !important;
+}
+
+.btn-info:hover {
+    background: linear-gradient(135deg, #0891b2, #0e7490) !important;
+    transform: translateY(-2px) !important;
+    box-shadow: 0 10px 25px rgba(6, 182, 212, 0.3) !important;
+}
+
+.btn-warning {
+    background: linear-gradient(135deg, #f59e0b, #d97706) !important;
+    color: white !important;
+}
+
+.btn-warning:hover {
+    background: linear-gradient(135deg, #d97706, #b45309) !important;
+    transform: translateY(-2px) !important;
+    box-shadow: 0 10px 25px rgba(245, 158, 11, 0.3) !important;
+}
+
+.btn-warning.active {
+    background: linear-gradient(135deg, #10b981, #059669) !important;
+    box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.3) !important;
+}
+
+/* Responsividade */
+@media (max-width: 768px) {
+    .modal-content {
+        width: 95vw !important;
+        max-width: none !important;
+        max-height: 85vh !important;
+        margin: 0 !important;
+        border-radius: 12px !important;
+    }
+    
+    .form-row {
+        grid-template-columns: 1fr !important;
+        gap: 0.5rem !important;
+    }
+    
+    .modal-body {
+        padding: 1rem !important;
+    }
+    
+    .modal-header {
+        padding: 0.75rem !important;
+        border-radius: 12px 12px 0 0 !important;
+    }
+    
+    .modal-header h2 {
+        font-size: 1.1rem !important;
+    }
+    
+    .modal-footer {
+        padding: 0.75rem !important;
+        flex-direction: column !important;
+        border-radius: 0 0 12px 12px !important;
+    }
+    
+    .btn {
+        width: 100% !important;
+        justify-content: center !important;
+        padding: 0.75rem !important;
+    }
+}
+
+/* Client search styles */
+.client-search-container {
+    position: relative;
+    width: 100%;
+}
+
+.client-search-container input[type="text"] {
+    width: 100%;
+    padding: 0.75rem;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    font-size: 0.9rem;
+    transition: all 0.3s ease;
+}
+
+.client-search-container input[type="text"]:focus {
+    outline: none;
+    border-color: var(--accent-primary);
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+.dropdown-menu {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-top: none;
+    border-radius: 0 0 8px 8px;
+    max-height: 200px;
+    overflow-y: auto;
+    z-index: 1000;
+    display: none;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+}
+
+.dropdown-menu.show {
+    display: block;
+}
+
+.dropdown-item {
+    padding: 0.75rem;
+    cursor: pointer;
+    border-bottom: 1px solid var(--border-color);
+    transition: background-color 0.2s ease;
+}
+
+.dropdown-item:hover {
+    background-color: var(--bg-tertiary);
+}
+
+.dropdown-item:last-child {
+    border-bottom: none;
+}
+
+.dropdown-item .client-name {
+    font-weight: 500;
+    color: var(--text-primary);
+}
+
+.dropdown-item .client-details {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    margin-top: 0.25rem;
+}
+
+.selected-client {
+    margin-top: 0.5rem;
+    padding: 0.5rem;
+    background: var(--accent-light);
+    border-radius: 6px;
+    border-left: 4px solid var(--accent-primary);
+    display: none;
+}
+
+.selected-client.show {
+    display: block;
+}
+
+.selected-client .client-info {
+    font-weight: 500;
+    color: var(--accent-secondary);
+}
+
+.selected-client .remove-client {
+    float: right;
+    color: var(--error);
+    cursor: pointer;
+    font-weight: bold;
+}
+
+.selected-client .remove-client:hover {
+    color: var(--error);
+    text-decoration: underline;
+}
+
+@keyframes modalSlideIn {
+    from {
+        opacity: 0;
+        transform: translateY(-50px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.modal-header {
+    padding: 1.5rem;
+    border-bottom: 1px solid var(--border-color);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.modal-header h2 {
+    margin: 0;
+    color: var(--text-primary);
+    font-size: 1.3rem;
+}
+
+.close {
+    color: var(--text-muted);
+    font-size: 28px;
+    font-weight: bold;
+    cursor: pointer;
+    transition: color 0.3s ease;
+}
+
+.close:hover {
+    color: var(--error);
+}
+
+.modal-body {
+    padding: 1.5rem;
+}
+
+.form-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+    margin-bottom: 1rem;
+}
+
+.form-group {
+    display: flex;
+    flex-direction: column;
+}
+
+.form-group label {
+    margin-bottom: 0.5rem;
+    font-weight: 500;
+    color: var(--text-primary);
+}
+
+.form-group input,
+.form-group select,
+.form-group textarea {
+    padding: 0.75rem;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    font-size: 0.9rem;
+    transition: all 0.3s ease;
+}
+
+/* Estilos específicos para selects na responsividade */
+.form-group select {
+    background: #1a1a2e !important;
+    color: #ffffff !important;
+}
+
+.form-group select option {
+    background: #1a1a2e !important;
+    color: #ffffff !important;
+    padding: 0.5rem !important;
+}
+
+.form-group input:focus,
+.form-group select:focus,
+.form-group textarea:focus {
+    outline: none;
+    border-color: var(--accent-primary);
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+.form-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 1rem;
+    margin-top: 1.5rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid var(--border-color);
+}
+
+/* Responsividade */
+@media (max-width: 768px) {
+    .agenda-header {
+        flex-direction: column;
+        gap: 1rem;
+        text-align: center;
+    }
+    
+    .agenda-actions {
+        flex-direction: column;
+        width: 100%;
+    }
+    
+    .form-row {
+        grid-template-columns: 1fr;
+    }
+    
+    .modal-content {
+        width: 95%;
+        margin: 2% auto;
+    }
+    
+    .form-actions {
+        flex-direction: column;
+    }
+}
+
+/* Modo escuro */
+[data-theme="dark"] .fc {
+    --fc-bg-color: var(--bg-secondary);
+    --fc-border-color: var(--border-color);
+    --fc-today-bg-color: var(--bg-tertiary);
+}
+
+[data-theme="dark"] .fc-daygrid-day {
+    background-color: var(--bg-secondary);
+}
+
+[data-theme="dark"] .fc-col-header-cell {
+    background-color: var(--bg-tertiary);
+    color: var(--text-primary);
+}
+
+/* New search container styles */
+.search-container {
+    position: relative;
+    width: 100%;
+}
+
+.search-container input[type="text"] {
+    width: 100%;
+    padding: 0.75rem;
+    border: 1px solid #d1d5db;
+    border-radius: 8px;
+    background: #ffffff;
+    color: #1f2937;
+    font-size: 0.9rem;
+    transition: all 0.3s ease;
+}
+
+.search-container input[type="text"]:focus {
+    outline: none;
+    border-color: #3b82f6;
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+.search-dropdown {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    background: #ffffff;
+    border: 1px solid #d1d5db;
+    border-radius: 8px;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+    max-height: 200px;
+    overflow-y: auto;
+    z-index: 1000;
+    display: none;
+}
+
+.search-dropdown.show {
+    display: block;
+}
+
+.search-dropdown .dropdown-item {
+    padding: 0.75rem;
+    cursor: pointer;
+    border-bottom: 1px solid #e5e7eb;
+    transition: background-color 0.2s ease;
+}
+
+.search-dropdown .dropdown-item:hover {
+    background: #f3f4f6;
+}
+
+.search-dropdown .dropdown-item:last-child {
+    border-bottom: none;
+}
+
+.search-dropdown .client-name {
+    font-weight: 500;
+    color: #1f2937;
+    margin-bottom: 0.25rem;
+}
+
+.search-dropdown .client-details {
+    font-size: 0.8rem;
+    color: #6b7280;
+}
+
+.selected-item {
+    margin-top: 0.5rem;
+    padding: 0.75rem;
+    background: #dbeafe;
+    border: 1px solid #3b82f6;
+    border-radius: 8px;
+    display: none;
+}
+
+.selected-item.show {
+    display: block;
+}
+
+.selected-item .client-info {
+    font-weight: 500;
+    color: #1f2937;
+}
+
+.selected-item .remove-client {
+    float: right;
+    cursor: pointer;
+    color: #3b82f6;
+    font-weight: bold;
+    font-size: 1.2rem;
+    line-height: 1;
+}
+
+.selected-item .remove-client:hover {
+    color: #1d4ed8;
+}
+</style>
+
+<script>
+let calendar;
+let modalNovoAgendamento;
+let modalVisualizarAgendamento;
+let agendamentoAtual = null;
+let filtroUsuarioAtivo = false;
+
+document.addEventListener('DOMContentLoaded', function() {
+    console.log('🚀 Inicializando agenda...');
+    
+    // Inicializar elementos
+    modalNovoAgendamento = document.getElementById('modalNovoAgendamento');
+    modalVisualizarAgendamento = document.getElementById('modalVisualizarAgendamento');
+    
+    // Inicializar calendário
+    inicializarCalendario();
+    
+    // Configurar busca de clientes
+    configurarBuscaClientes();
+    
+    console.log('✅ Agenda inicializada com sucesso!');
+});
+
+function inicializarCalendario() {
+    console.log('🚀 Inicializando calendário...');
+    
+    const calendarEl = document.getElementById('calendar');
+    if (!calendarEl) {
+        console.error('❌ Elemento calendar não encontrado');
+        return;
+    }
+    
+    console.log('📅 Elemento calendar encontrado:', calendarEl);
+    
+    calendar = new FullCalendar.Calendar(calendarEl, {
+        locale: 'pt-br',
+        initialView: 'dayGridMonth',
+        headerToolbar: {
+            left: 'prev,next today',
+            center: 'title',
+            right: 'dayGridMonth,timeGridWeek,timeGridDay'
+        },
+        buttonText: {
+            today: 'Hoje',
+            month: 'Mês',
+            week: 'Semana',
+            day: 'Dia'
+        },
+        events: function(info, successCallback, failureCallback) {
+            console.log('📅 Carregando eventos do calendário...');
+            console.log('👤 Filtro de usuário ativo:', filtroUsuarioAtivo);
+            
+            // Construir URL com parâmetros
+            const params = new URLSearchParams({
+                start: info.startStr,
+                end: info.endStr
+            });
+            
+            // Adicionar filtro de usuário se ativo
+            if (filtroUsuarioAtivo) {
+                params.append('user_filter', 'true');
+            }
+            
+            const url = `/agenda/calendario?${params.toString()}`;
+            console.log('📡 URL da requisição:', url);
+            
+            fetch(url)
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+                return response.json();
+            })
+            .then(data => {
+                console.log('✅ Eventos carregados:', data);
+                successCallback(data);
+            })
+            .catch(error => {
+                console.error('❌ Erro ao carregar eventos do calendário:', error);
+                failureCallback(error);
+            });
+        },
+        eventClick: function(info) {
+            console.log('📅 Evento clicado:', info.event);
+            visualizarAgendamento(info.event);
+        },
+        selectable: true,
+        selectMirror: true,
+        unselectAuto: false,
+        select: function(info) {
+            console.log('📅 Período selecionado:', info.startStr, 'até', info.endStr);
+            // Abrir modal com a data de início
+            abrirModalNovoAgendamento(info.startStr);
+        },
+        dateClick: function(info) {
+            console.log('📅 Data clicada:', info.dateStr);
+            console.log('📅 Informações do clique:', info);
+            
+            // Adicionar efeito visual no dia clicado
+            info.dayEl.style.backgroundColor = '#3b82f6';
+            info.dayEl.style.color = 'white';
+            info.dayEl.style.borderRadius = '4px';
+            
+            // Remover efeito após 500ms
+            setTimeout(() => {
+                info.dayEl.style.backgroundColor = '';
+                info.dayEl.style.color = '';
+                info.dayEl.style.borderRadius = '';
+            }, 500);
+            
+            // Abrir modal com a data selecionada
+            abrirModalNovoAgendamento(info.dateStr);
+        },
+        eventDidMount: function(info) {
+            // Adicionar tooltip
+            info.el.title = `${info.event.title}\n${info.event.extendedProps.description || ''}`;
+        }
+    });
+    
+    console.log('📅 Calendário criado:', calendar);
+    
+    calendar.render();
+    
+    console.log('✅ Calendário renderizado com sucesso!');
+}
+
+function configurarFormulario() {
+    const form = document.getElementById('formNovoAgendamento');
+    
+    // Configurar busca de clientes
+    configurarBuscaClientes();
+    
+    form.addEventListener('submit', function(e) {
+        e.preventDefault();
+        
+        const formData = new FormData(form);
+        const data = Object.fromEntries(formData);
+        
+        // Converter data para formato ISO
+        if (data.appointment_date) {
+            const date = new Date(data.appointment_date);
+            data.appointment_date = date.toISOString();
+        }
+        
+        // Enviar dados
+        fetch('/agenda/novo', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(data)
+        })
+        .then(response => response.json())
+        .then(result => {
+            if (result.success) {
+                // Sucesso
+                mostrarNotificacao('Agendamento criado com sucesso!', 'success');
+                fecharModalNovoAgendamento();
+                calendar.refetchEvents();
+                form.reset();
+                limparClienteSelecionado();
+            } else {
+                // Erro
+                mostrarNotificacao(result.error || 'Erro ao criar agendamento', 'error');
+            }
+        })
+        .catch(error => {
+            console.error('Erro:', error);
+            mostrarNotificacao('Erro ao criar agendamento', 'error');
+        });
+    });
+}
+
+function testarAPIs() {
+    console.log('🧪 Testando APIs...');
+    
+    // Testar API de usuários
+    fetch('/tickets/api/users')
+    .then(response => {
+        console.log('🔍 Teste usuários - Status:', response.status);
+        console.log('🔍 Teste usuários - Headers:', response.headers);
+        return response.text();
+    })
+    .then(text => {
+        console.log('🔍 Teste usuários - Resposta bruta:', text);
+        try {
+            const data = JSON.parse(text);
+            console.log('🔍 Teste usuários - JSON:', data);
+        } catch (e) {
+            console.error('🔍 Teste usuários - Erro ao parsear JSON:', e);
+        }
+    })
+    .catch(error => {
+        console.error('🔍 Teste usuários - Erro:', error);
+    });
+    
+    // Testar API de serviços
+    fetch('/tickets/api/services')
+    .then(response => {
+        console.log('🔍 Teste serviços - Status:', response.status);
+        return response.text();
+    })
+    .then(text => {
+        console.log('🔍 Teste serviços - Resposta bruta:', text);
+        try {
+            const data = JSON.parse(text);
+            console.log('🔍 Teste serviços - JSON:', data);
+        } catch (e) {
+            console.error('🔍 Teste serviços - Erro ao parsear JSON:', e);
+        }
+    })
+    .catch(error => {
+        console.error('🔍 Teste serviços - Erro:', error);
+    });
+}
+
+function testarLembretes() {
+    console.log('🧪 Testando lembretes...');
+    
+    if (!confirm('Deseja testar o envio de lembretes? Isso enviará emails e criará tickets para todos os agendamentos.')) {
+        return;
+    }
+    
+    fetch('/agenda/testar-lembretes')
+    .then(response => {
+        console.log('📡 Resposta teste lembretes:', response.status);
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+        }
+        return response.json();
+    })
+    .then(data => {
+        console.log('📊 Dados teste lembretes:', data);
+        if (data.success) {
+            alert(`Teste concluído!\n\nEmails enviados: ${data.emails_enviados}\nTickets criados: ${data.tickets_criados}\n\n${data.message}`);
+        } else {
+            alert(`Erro no teste: ${data.error}`);
+        }
+    })
+    .catch(error => {
+        console.error('❌ Erro no teste de lembretes:', error);
+        alert(`Erro ao testar lembretes: ${error.message}`);
+    });
+}
+
+function testarScheduler() {
+    console.log('🧪 Testando scheduler...');
+    
+    if (!confirm('Deseja testar o scheduler? Isso executará o envio automático de lembretes.')) {
+        return;
+    }
+    
+    fetch('/agenda/testar-scheduler')
+    .then(response => {
+        console.log('📡 Resposta teste scheduler:', response.status);
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+        }
+        return response.json();
+    })
+    .then(data => {
+        console.log('📊 Dados teste scheduler:', data);
+        if (data.success) {
+            alert(`Scheduler executado com sucesso!\n\n${data.message}\n\nVerifique os logs do servidor para mais detalhes.`);
+        } else {
+            alert(`Erro no teste: ${data.error}`);
+        }
+    })
+    .catch(error => {
+        console.error('❌ Erro no teste do scheduler:', error);
+        alert(`Erro ao testar scheduler: ${error.message}`);
+    });
+}
+
+function toggleFiltroUsuario() {
+    console.log('👤 Alternando filtro de usuário...');
+    
+    // Alternar estado do filtro
+    filtroUsuarioAtivo = !filtroUsuarioAtivo;
+    
+    // Atualizar visual do botão
+    const btnFiltro = document.getElementById('btnFiltroUsuario');
+    const textoFiltro = document.getElementById('textoFiltroUsuario');
+    
+    if (filtroUsuarioAtivo) {
+        btnFiltro.classList.add('active');
+        textoFiltro.textContent = 'Mostrar Todos';
+        console.log('✅ Filtro ativado: Mostrando apenas agendamentos do usuário logado');
+    } else {
+        btnFiltro.classList.remove('active');
+        textoFiltro.textContent = 'Mostrar Apenas Meus';
+        console.log('✅ Filtro desativado: Mostrando todos os agendamentos');
+    }
+    
+    // Recarregar eventos do calendário com o novo filtro
+    if (calendar) {
+        console.log('🔄 Recarregando calendário com filtro:', filtroUsuarioAtivo);
+        calendar.refetchEvents();
+    }
+}
+
+function carregarUsuariosEServicos() {
+    console.log('🔄 Carregando usuários e serviços...');
+    
+    // Testar conectividade primeiro
+    testarAPIs();
+    
+    // Carregar usuários
+    fetch('/tickets/api/users')
+    .then(response => {
+        console.log('📡 Resposta usuários:', response.status);
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+        }
+        return response.json();
+    })
+    .then(data => {
+        console.log('👥 Dados usuários:', data);
+        if (data.success && data.users) {
+            const usuarioSelect = document.getElementById('usuario');
+            if (usuarioSelect) {
+                usuarioSelect.innerHTML = '<option value="">Selecione um usuário</option>';
+                
+                data.users.forEach(user => {
+                    const option = document.createElement('option');
+                    option.value = user.id;
+                    option.textContent = user.name;
+                    usuarioSelect.appendChild(option);
+                });
+                console.log('✅ Usuários carregados:', data.users.length);
+            } else {
+                console.error('❌ Elemento usuario não encontrado');
+            }
+        } else {
+            console.error('❌ Erro na API usuários:', data.error || 'Dados inválidos');
+        }
+    })
+    .catch(error => {
+        console.error('❌ Erro ao carregar usuários:', error);
+        const usuarioSelect = document.getElementById('usuario');
+        if (usuarioSelect) {
+            usuarioSelect.innerHTML = `<option value="">Erro ao carregar usuários: ${error.message}</option>`;
+        }
+    });
+    
+    // Carregar serviços
+    fetch('/tickets/api/services')
+    .then(response => {
+        console.log('📡 Resposta serviços:', response.status);
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+        }
+        return response.json();
+    })
+    .then(data => {
+        console.log('🔧 Dados serviços:', data);
+        if (data.success && data.services) {
+            const servicoSelect = document.getElementById('servico');
+            if (servicoSelect) {
+                servicoSelect.innerHTML = '<option value="">Selecione um serviço (opcional)</option>';
+                
+                data.services.forEach(service => {
+                    const option = document.createElement('option');
+                    option.value = service.id;
+                    option.textContent = `${service.name} - R$ ${service.hourly_rate.toFixed(2)}/h`;
+                    servicoSelect.appendChild(option);
+                });
+                console.log('✅ Serviços carregados:', data.services.length);
+            } else {
+                console.error('❌ Elemento servico não encontrado');
+            }
+        } else {
+            console.error('❌ Erro na API serviços:', data.error || 'Dados inválidos');
+        }
+    })
+    .catch(error => {
+        console.error('❌ Erro ao carregar serviços:', error);
+        const servicoSelect = document.getElementById('servico');
+        if (servicoSelect) {
+            servicoSelect.innerHTML = `<option value="">Erro ao carregar serviços: ${error.message}</option>`;
+        }
+    });
+}
+
+function configurarBuscaClientes() {
+    const searchInput = document.getElementById('clienteSearch');
+    const dropdown = document.getElementById('clienteDropdown');
+    const hiddenInput = document.getElementById('clienteId');
+    const selectedDiv = document.getElementById('clienteSelected');
+    
+    if (!searchInput || !dropdown || !hiddenInput || !selectedDiv) {
+        console.error('❌ Elementos de busca de clientes não encontrados');
+        return;
+    }
+    
+    let searchTimeout;
+    
+    searchInput.addEventListener('input', function() {
+        const query = this.value.trim();
+        
+        clearTimeout(searchTimeout);
+        
+        if (query.length < 2) {
+            dropdown.classList.remove('show');
+            return;
+        }
+        
+        searchTimeout = setTimeout(() => {
+            buscarClientes(query);
+        }, 300);
+    });
+    
+    // Fechar dropdown ao clicar fora
+    document.addEventListener('click', function(e) {
+        if (!e.target.closest('.search-container')) {
+            dropdown.classList.remove('show');
+        }
+    });
+    
+    // Remover cliente selecionado
+    selectedDiv.addEventListener('click', function(e) {
+        if (e.target.classList.contains('remove-client')) {
+            limparClienteSelecionado();
+        }
+    });
+    
+    console.log('✅ Busca de clientes configurada');
+}
+
+function buscarClientes(query) {
+    console.log('🔍 Buscando clientes:', query);
+    const dropdown = document.getElementById('clienteDropdown');
+    
+    fetch(`/tickets/api/clients?q=${encodeURIComponent(query)}`)
+    .then(response => {
+        console.log('📡 Resposta clientes:', response.status);
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+        }
+        return response.json();
+    })
+    .then(data => {
+        console.log('👥 Dados clientes:', data);
+        if (data.success && data.clients && data.clients.length > 0) {
+            dropdown.innerHTML = '';
+            
+            data.clients.forEach(client => {
+                const item = document.createElement('div');
+                item.className = 'dropdown-item';
+                item.innerHTML = `
+                    <div class="client-name">${client.name || 'Nome não informado'}</div>
+                    <div class="client-details">${client.document || 'Sem documento'} - ${client.phone || 'Sem telefone'}</div>
+                `;
+                
+                item.addEventListener('click', function() {
+                    selecionarCliente(client.id, client.name);
+                });
+                
+                dropdown.appendChild(item);
+            });
+            
+            dropdown.classList.add('show');
+            console.log('✅ Clientes encontrados:', data.clients.length);
+        } else {
+            dropdown.classList.remove('show');
+            console.log('ℹ️ Nenhum cliente encontrado');
+        }
+    })
+    .catch(error => {
+        console.error('❌ Erro ao buscar clientes:', error);
+        dropdown.classList.remove('show');
+    });
+}
+
+function selecionarCliente(clientId, clientName) {
+    console.log('✅ Cliente selecionado:', clientName, 'ID:', clientId);
+    
+    const searchInput = document.getElementById('clienteSearch');
+    const dropdown = document.getElementById('clienteDropdown');
+    const hiddenInput = document.getElementById('clienteId');
+    const selectedDiv = document.getElementById('clienteSelected');
+    
+    // Atualizar campos
+    hiddenInput.value = clientId;
+    searchInput.value = '';
+    dropdown.classList.remove('show');
+    
+    // Mostrar cliente selecionado
+    selectedDiv.innerHTML = `
+        <span class="client-info">${clientName}</span>
+        <span class="remove-client">&times;</span>
+    `;
+    selectedDiv.classList.add('show');
+}
+
+function limparClienteSelecionado() {
+    console.log('🗑️ Limpando cliente selecionado');
+    
+    const searchInput = document.getElementById('clienteSearch');
+    const dropdown = document.getElementById('clienteDropdown');
+    const hiddenInput = document.getElementById('clienteId');
+    const selectedDiv = document.getElementById('clienteSelected');
+    
+    searchInput.value = '';
+    hiddenInput.value = '';
+    dropdown.classList.remove('show');
+    selectedDiv.classList.remove('show');
+    selectedDiv.innerHTML = '';
+}
+
+function abrirModalNovoAgendamento(dataSelecionada) {
+    console.log('🚀 Abrindo modal de novo agendamento...');
+    console.log('📅 Data selecionada:', dataSelecionada);
+    
+    if (dataSelecionada) {
+        // Converter data para formato datetime-local
+        // dataSelecionada vem no formato "YYYY-MM-DD" do FullCalendar
+        console.log('📅 Data selecionada (string):', dataSelecionada);
+        
+        // Criar data local sem conversão de timezone
+        const dataFormatada = dataSelecionada + 'T09:00'; // Adicionar horário padrão 09:00
+        console.log('📅 Data formatada para input:', dataFormatada);
+        
+        const dataHoraInput = document.getElementById('dataHora');
+        if (dataHoraInput) {
+            dataHoraInput.value = dataFormatada;
+            console.log('✅ Data preenchida no campo:', dataHoraInput.value);
+        } else {
+            console.error('❌ Campo dataHora não encontrado');
+        }
+    } else {
+        // Definir data mínima como hoje
+        const hoje = new Date();
+        const dataMinima = hoje.toISOString().slice(0, 16);
+        const dataHoraInput = document.getElementById('dataHora');
+        if (dataHoraInput) {
+            dataHoraInput.min = dataMinima;
+            console.log('📅 Data mínima definida:', dataMinima);
+        }
+    }
+    
+    modalNovoAgendamento.classList.add('show');
+    
+    // Carregar dados quando abrir o modal
+    carregarUsuariosEServicos();
+    
+    // Limpar formulário
+    const form = document.getElementById('formNovoAgendamento');
+    if (form) {
+        form.reset();
+        // Reaplicar a data se foi selecionada
+        if (dataSelecionada) {
+            const dataFormatada = dataSelecionada + 'T09:00'; // Mesma lógica de antes
+            const dataHoraInput = document.getElementById('dataHora');
+            if (dataHoraInput) {
+                dataHoraInput.value = dataFormatada;
+            }
+        }
+    }
+    limparClienteSelecionado();
+    
+    console.log('✅ Modal aberto com sucesso');
+}
+
+function fecharModalNovoAgendamento() {
+    console.log('🚪 Fechando modal...');
+    modalNovoAgendamento.classList.remove('show');
+    const form = document.getElementById('formNovoAgendamento');
+    if (form) {
+        form.reset();
+    }
+    limparClienteSelecionado();
+    console.log('✅ Modal fechado com sucesso');
+}
+
+function criarAgendamento() {
+    console.log('💾 Criando agendamento...');
+    
+    const form = document.getElementById('formNovoAgendamento');
+    const formData = new FormData(form);
+    
+    // Validar campos obrigatórios
+    const titulo = formData.get('title');
+    const dataHora = formData.get('appointment_date');
+    const clienteId = formData.get('client_id');
+    const usuarioId = formData.get('user_id');
+    
+    if (!titulo || !dataHora || !clienteId || !usuarioId) {
+        alert('Por favor, preencha todos os campos obrigatórios.');
+        return;
+    }
+    
+    // Preparar dados para envio
+    const dados = {
+        title: titulo,
+        appointment_date: dataHora,
+        client_id: parseInt(clienteId),
+        user_id: parseInt(usuarioId),
+        service_id: formData.get('service_id') ? parseInt(formData.get('service_id')) : null,
+        description: formData.get('description') || ''
+    };
+    
+    console.log('📤 Enviando dados:', dados);
+    
+    // Enviar para API
+    fetch('/agenda/novo', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(dados)
+    })
+    .then(response => {
+        console.log('📡 Resposta:', response.status);
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+        }
+        return response.json();
+    })
+    .then(data => {
+        console.log('✅ Resposta da API:', data);
+        if (data.success) {
+            alert('Agendamento criado com sucesso!');
+            fecharModalNovoAgendamento();
+            // Recarregar calendário
+            calendar.refetchEvents();
+        } else {
+            alert('Erro ao criar agendamento: ' + (data.error || 'Erro desconhecido'));
+        }
+    })
+    .catch(error => {
+        console.error('❌ Erro ao criar agendamento:', error);
+        alert('Erro ao criar agendamento: ' + error.message);
+    });
+}
+
+function visualizarAgendamento(evento) {
+    console.log('👁️ Visualizando agendamento:', evento);
+    
+    // Armazenar o agendamento atual para cancelamento
+    agendamentoAtual = evento.extendedProps.appointment_id;
+    console.log('📝 ID do agendamento atual:', agendamentoAtual);
+    
+    const detalhes = `
+        <div class="agendamento-detalhes">
+            <div class="detalhe-item">
+                <strong>Título:</strong> ${evento.title}
+            </div>
+            <div class="detalhe-item">
+                <strong>Data/Hora:</strong> ${new Date(evento.start).toLocaleString('pt-BR')}
+            </div>
+            <div class="detalhe-item">
+                <strong>Cliente:</strong> ${evento.extendedProps.client_name}
+            </div>
+            <div class="detalhe-item">
+                <strong>Usuário:</strong> ${evento.extendedProps.user_name}
+            </div>
+            <div class="detalhe-item">
+                <strong>Serviço:</strong> ${evento.extendedProps.service_name}
+            </div>
+            <div class="detalhe-item">
+                <strong>Descrição:</strong> ${evento.extendedProps.description || 'Sem descrição'}
+            </div>
+        </div>
+    `;
+    
+    document.getElementById('detalhesAgendamento').innerHTML = detalhes;
+    modalVisualizarAgendamento.classList.add('show');
+}
+
+function fecharModalVisualizarAgendamento() {
+    modalVisualizarAgendamento.classList.remove('show');
+    agendamentoAtual = null; // Limpar referência
+}
+
+function cancelarAgendamento() {
+    if (!agendamentoAtual) {
+        console.error('❌ Nenhum agendamento selecionado para cancelar');
+        alert('Erro: Nenhum agendamento selecionado');
+        return;
+    }
+    
+    console.log('🗑️ Cancelando agendamento:', agendamentoAtual);
+    
+    // Confirmar cancelamento
+    if (!confirm('Tem certeza que deseja cancelar este agendamento?\n\nEsta ação não pode ser desfeita.')) {
+        console.log('❌ Cancelamento cancelado pelo usuário');
+        return;
+    }
+    
+    console.log('✅ Confirmando cancelamento do agendamento:', agendamentoAtual);
+    
+    // Fazer requisição para cancelar
+    fetch(`/agenda/deletar/${agendamentoAtual}`, {
+        method: 'DELETE',
+        headers: {
+            'Content-Type': 'application/json',
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        console.log('✅ Resposta do cancelamento:', data);
+        if (data.success) {
+            alert('Agendamento cancelado com sucesso!');
+            fecharModalVisualizarAgendamento();
+            // Recarregar calendário
+            calendar.refetchEvents();
+        } else {
+            alert('Erro ao cancelar agendamento: ' + (data.error || 'Erro desconhecido'));
+        }
+    })
+    .catch(error => {
+        console.error('❌ Erro ao cancelar agendamento:', error);
+        alert('Erro ao cancelar agendamento: ' + error.message);
+    });
+}
+
+function enviarLembretes() {
+    fetch('/agenda/lembretes')
+    .then(response => response.json())
+    .then(result => {
+        if (result.success) {
+            mostrarNotificacao(
+                `Lembretes enviados! ${result.emails_enviados} emails e ${result.tickets_criados} tickets criados.`, 
+                'success'
+            );
+        } else {
+            mostrarNotificacao(result.error || 'Erro ao enviar lembretes', 'error');
+        }
+    })
+    .catch(error => {
+        console.error('Erro:', error);
+        mostrarNotificacao('Erro ao enviar lembretes', 'error');
+    });
+}
+
+function mostrarNotificacao(mensagem, tipo) {
+    // Criar elemento de notificação
+    const notificacao = document.createElement('div');
+    notificacao.className = `notificacao notificacao-${tipo}`;
+    notificacao.innerHTML = `
+        <i class="fas fa-${tipo === 'success' ? 'check-circle' : 'exclamation-circle'}"></i>
+        <span>${mensagem}</span>
+    `;
+    
+    // Adicionar estilos
+    notificacao.style.cssText = `
+        position: fixed;
+        top: 80px;
+        right: 20px;
+        background: ${tipo === 'success' ? '#10b981' : '#ef4444'};
+        color: white;
+        padding: 1rem 1.5rem;
+        border-radius: 8px;
+        box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+        z-index: 10001;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        animation: slideInRight 0.3s ease;
+    `;
+    
+    document.body.appendChild(notificacao);
+    
+    // Remover após 5 segundos
+    setTimeout(() => {
+        notificacao.style.animation = 'slideOutRight 0.3s ease';
+        setTimeout(() => {
+            document.body.removeChild(notificacao);
+        }, 300);
+    }, 5000);
+}
+
+// Fechar modal ao clicar fora
+window.onclick = function(event) {
+    if (event.target === modalNovoAgendamento) {
+        fecharModalNovoAgendamento();
+    }
+    if (event.target === modalVisualizarAgendamento) {
+        fecharModalVisualizarAgendamento();
+    }
+    if (event.target === document.getElementById('modalTrocarPlantao')) {
+        fecharModalTrocarPlantao();
+    }
+}
+
+// Funções para Troca de Plantão
+const modalTrocarPlantao = document.getElementById('modalTrocarPlantao');
+const swapDateInput = document.getElementById('swapDate');
+const swapUser1Select = document.getElementById('swapUser1');
+const swapUser2Select = document.getElementById('swapUser2');
+
+function abrirModalTrocarPlantao() {
+    if (modalTrocarPlantao) {
+        modalTrocarPlantao.classList.add('show');
+        carregarUsuariosParaTroca();
+        
+        // Definir a data mínima como o dia de hoje
+        const today = new Date().toISOString().split('T')[0];
+        swapDateInput.min = today;
+    }
+}
+
+function fecharModalTrocarPlantao() {
+    if (modalTrocarPlantao) {
+        modalTrocarPlantao.classList.remove('show');
+        document.getElementById('formTrocaPlantao').reset();
+    }
+}
+
+async function carregarUsuariosParaTroca() {
+    try {
+        const response = await fetch('/agenda/api/users-by-team');
+        const data = await response.json();
+        
+        if (response.ok) {
+            swapUser1Select.innerHTML = '<option value="">Selecione um membro da Equipe 1</option>';
+            data.equipe_1.forEach(u => {
+                swapUser1Select.innerHTML += `<option value="${u.id}">${u.name}</option>`;
+            });
+            
+            swapUser2Select.innerHTML = '<option value="">Selecione um membro da Equipe 2</option>';
+            data.equipe_2.forEach(u => {
+                swapUser2Select.innerHTML += `<option value="${u.id}">${u.name}</option>`;
+            });
+        }
+    } catch (err) {
+        console.error('Erro ao carregar usuários:', err);
+    }
+}
+
+async function salvarTrocaPlantao() {
+    const swapDate = swapDateInput.value;
+    const user1Id = swapUser1Select.value;
+    const user2Id = swapUser2Select.value;
+    
+    if (!swapDate || !user1Id || !user2Id) {
+        alert('Por favor, preencha todos os campos obrigatórios.');
+        return;
+    }
+    
+    // Validar se o dia é um sábado
+    const dateObj = new Date(swapDate);
+    const day = dateObj.getUTCDay(); // 0: domingo, ..., 6: sábado
+    if (day !== 6) {
+        alert('A data selecionada deve ser um sábado.');
+        return;
+    }
+    
+    try {
+        const response = await fetch('/agenda/api/swap', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                swap_date: swapDate,
+                user_1_id: parseInt(user1Id),
+                user_2_id: parseInt(user2Id)
+            })
+        });
+        
+        const result = await response.json();
+        if (response.ok) {
+            alert(result.message);
+            fecharModalTrocarPlantao();
+            location.reload();
+        } else {
+            alert('Erro: ' + (result.error || 'Não foi possível registrar a troca.'));
+        }
+    } catch (err) {
+        console.error('Erro ao salvar troca:', err);
+        alert('Erro de conexão ao salvar troca.');
+    }
+}
+
+async function cancelarTrocaPlantao(swapId) {
+    if (!confirm('Tem certeza de que deseja desfazer esta troca de plantão?')) {
+        return;
+    }
+    
+    try {
+        const response = await fetch(`/agenda/api/swap/${swapId}`, {
+            method: 'DELETE'
+        });
+        
+        const result = await response.json();
+        if (response.ok) {
+            alert(result.message);
+            location.reload();
+        } else {
+            alert('Erro: ' + (result.error || 'Não foi possível desfaçer a troca.'));
+        }
+    } catch (err) {
+        console.error('Erro ao deletar troca:', err);
+        alert('Erro de conexão ao deletar troca.');
+    }
+}
+
+async function aceitarTroca(swapId) {
+    if (!confirm('Deseja realmente confirmar esta troca de plantão?')) {
+        return;
+    }
+    try {
+        const response = await fetch(`/agenda/api/swap/${swapId}/accept`, {
+            method: 'POST'
+        });
+        const result = await response.json();
+        if (response.ok) {
+            alert(result.message);
+            location.reload();
+        } else {
+            alert('Erro: ' + (result.error || 'Não foi possível aceitar a troca.'));
+        }
+    } catch (err) {
+        console.error('Erro ao aceitar troca:', err);
+        alert('Erro de conexão ao aceitar troca.');
+    }
+}
+
+async function recusarTroca(swapId) {
+    if (!confirm('Deseja realmente recusar esta solicitação de troca?')) {
+        return;
+    }
+    try {
+        const response = await fetch(`/agenda/api/swap/${swapId}/decline`, {
+            method: 'POST'
+        });
+        const result = await response.json();
+        if (response.ok) {
+            alert(result.message);
+            location.reload();
+        } else {
+            alert('Erro: ' + (result.error || 'Não foi possível recusar a troca.'));
+        }
+    } catch (err) {
+        console.error('Erro ao recusar troca:', err);
+        alert('Erro de conexão ao recusar troca.');
+    }
+}
+
+// Adicionar animações CSS
+const style = document.createElement('style');
+style.textContent = `
+    @keyframes slideInRight {
+        from {
+            transform: translateX(100%);
+            opacity: 0;
+        }
+        to {
+            transform: translateX(0);
+            opacity: 1;
+        }
+    }
+    
+    @keyframes slideOutRight {
+        from {
+            transform: translateX(0);
+            opacity: 1;
+        }
+        to {
+            transform: translateX(100%);
+            opacity: 0;
+        }
+    }
+    
+    .agendamento-detalhes {
+        display: flex;
+        flex-direction: column;
+        gap: 1rem;
+    }
+    
+    .detalhe-item {
+        padding: 0.75rem;
+        background: var(--bg-primary);
+        border-radius: 8px;
+        border-left: 4px solid var(--accent-primary);
+    }
+
+    /* Estilos do Card de Revezamento de Sábado (Puro e compatível com Temas) */
+    .saturday-shift-card {
+        margin-bottom: 1.5rem;
+        padding: 1.25rem;
+        border-radius: 12px;
+        border: 1px solid var(--border-color);
+        background: var(--bg-secondary);
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+    }
+    
+    .saturday-shift-content {
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        gap: 1rem;
+    }
+    
+    @media (min-width: 992px) {
+        .saturday-shift-content {
+            flex-direction: row;
+            align-items: center;
+        }
+    }
+    
+    .saturday-shift-left {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+    }
+    
+    .saturday-shift-icon {
+        width: 3rem;
+        height: 3rem;
+        border-radius: 50%;
+        background: var(--bg-tertiary);
+        color: var(--accent-primary);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.25rem;
+        flex-shrink: 0;
+    }
+    
+    .saturday-shift-details {
+        display: flex;
+        flex-direction: column;
+    }
+    
+    .saturday-shift-header {
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+        margin-bottom: 0.25rem;
+    }
+    
+    .saturday-shift-header h3 {
+        margin: 0;
+        font-size: 1.1rem;
+        font-weight: 700;
+        color: var(--text-primary);
+    }
+    
+    .saturday-shift-badge {
+        font-size: 0.75rem;
+        padding: 0.125rem 0.5rem;
+        border-radius: 50px;
+        background: var(--bg-tertiary);
+        color: var(--text-secondary);
+        font-weight: 600;
+        border: 1px solid var(--border-color);
+    }
+    
+    .saturday-shift-teams {
+        font-size: 0.875rem;
+        color: var(--text-secondary);
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 0.5rem;
+    }
+    
+    .team-off-label {
+        color: #a855f7;
+    }
+    
+    .team-work-label {
+        color: #f59e0b;
+    }
+    
+    .bullet-separator {
+        color: var(--text-muted);
+    }
+    
+    .saturday-shift-right {
+        display: grid;
+        grid-template-cols: 1fr;
+        gap: 0.75rem;
+    }
+    
+    @media (min-width: 576px) {
+        .saturday-shift-right {
+            grid-template-cols: 1fr 1fr;
+        }
+    }
+    
+    .team-status-box {
+        padding: 0.75rem;
+        border-radius: 8px;
+        border: 1px solid var(--border-color);
+        background: var(--bg-tertiary);
+        min-width: 180px;
+    }
+    
+    .team-status-title {
+        font-size: 0.75rem;
+        color: var(--text-secondary);
+        font-weight: 600;
+        margin-bottom: 0.375rem;
+        display: flex;
+        align-items: center;
+        gap: 0.375rem;
+    }
+    
+    .dot-indicator {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        display: inline-block;
+    }
+    
+    .dot-indicator.bg-purple {
+        background: #a855f7;
+    }
+    
+    .dot-indicator.bg-amber {
+        background: #f59e0b;
+    }
+    
+    .team-members {
+        font-size: 0.75rem;
+        font-weight: 700;
+        color: var(--text-primary);
+    }
+`;
+document.head.appendChild(style);
+</script>
+{% endblock %}

@@ -1,0 +1,75 @@
+services:
+  redis:
+    image: redis:8.0.1
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "16379:6379"
+    volumes:
+      - computicket_whatsapp_redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  postgres:
+    image: postgres:16.9
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${WHATSAPP_DB_USER:-computicket}
+      POSTGRES_PASSWORD: ${WHATSAPP_DB_PASS:-computicket}
+      POSTGRES_DB: ${WHATSAPP_DB_NAME:-computicket_whatsapp}
+    ports:
+      - "15432:5432"
+    volumes:
+      - computicket_whatsapp_pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${WHATSAPP_DB_USER:-computicket} -d ${WHATSAPP_DB_NAME:-computicket_whatsapp}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  whatsapp-engine:
+    build:
+      context: /home/rodrigo/Documentos/dev/compuchat/backend_compuchat
+      dockerfile: /home/rodrigo/Documentos/dev/computicket/infra/whatsapp-engine/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "4000:4000"
+    volumes:
+      - computicket_whatsapp_media:/app/public
+    environment:
+      NODE_ENV: production
+      PORT: "4000"
+      HOST: 0.0.0.0
+      DEV_NETWORK: "true"
+      ENABLE_WHATSAPP: "true"
+      ENABLE_BULL_WORKERS: "true"
+      ENABLE_AUDIO_TRANSCRIPTION: "false"
+      BACKEND_URL: http://127.0.0.1:4000
+      FRONTEND_URL: http://localhost:3000
+      DB_DIALECT: postgres
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_USER: ${WHATSAPP_DB_USER:-computicket}
+      DB_PASS: ${WHATSAPP_DB_PASS:-computicket}
+      DB_NAME: ${WHATSAPP_DB_NAME:-computicket_whatsapp}
+      REDIS_URI: redis://redis:6379
+      JWT_SECRET: ${WHATSAPP_JWT_SECRET:-computicket-whatsapp-jwt-dev-secret}
+      JWT_REFRESH_SECRET: ${WHATSAPP_JWT_REFRESH_SECRET:-computicket-whatsapp-refresh-dev-secret}
+      USER_LIMIT: "9999"
+      CONNECTIONS_LIMIT: "9999"
+      CLOSED_SEND_BY_ME: "true"
+      WBOT_ENABLE_DISTRIBUTED_LOCK: "false"
+      CACHE_ENABLED: "true"
+
+volumes:
+  computicket_whatsapp_pg:
+  computicket_whatsapp_redis:
+  computicket_whatsapp_media:
