@@ -673,19 +673,15 @@ def serve_pdf(filename):
 	"""Serve PDF files for printing"""
 	try:
 		# Caminho base da pasta PS (caminho absoluto)
-		ps_path = Path(__file__).parent.parent.parent / "ps"
+		from .ps import _ps_root, find_ps_file_path
+		ps_path = _ps_root()
 		
 		# Verificar se o arquivo existe na pasta ps-do-dia
 		pdf_path = ps_path / "ps-do-dia" / filename
 		if not pdf_path.exists():
-			# Tentar busca recursiva como fallback
-			found_path = None
-			for path in ps_path.rglob(filename):
-				if path.is_file() and path.resolve().is_relative_to(ps_path.resolve()):
-					found_path = path
-					break
-			if found_path:
-				pdf_path = found_path
+			found = find_ps_file_path(filename)
+			if found:
+				pdf_path = found
 			else:
 				return jsonify({"error": "Arquivo PDF não encontrado"}), 404
 		

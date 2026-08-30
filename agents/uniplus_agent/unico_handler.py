@@ -315,14 +315,23 @@ def _insert_finance_ps(p: dict) -> dict:
 	document = p.get("document") or ""
 	description = p.get("description_service") or p.get("historico") or ""
 	total = float(p.get("total") or 0)
+	operation_key = str(p.get("operation_key") or "").strip()
+	operation_marker = f"PSOP:{operation_key}" if operation_key else ""
 	today = date.today()
 	tomorrow = today + timedelta(days=1)
 	conn = _connect()
 	try:
 		with conn.cursor() as cur:
-			cur.execute("SELECT COUNT(*) FROM financeiro WHERE documento = %s", (document,))
-			if cur.fetchone()[0] > 0:
-				raise UniplusPermanentError(f"Duplicata financeiro: {document}")
+			cur.execute(
+				"SELECT observacaoboleto FROM financeiro WHERE documento = %s LIMIT 1",
+				(document,),
+			)
+			existing = cur.fetchone()
+			if existing:
+				existing_note = str(existing[0] or "")
+				if operation_marker and operation_marker in existing_note:
+					return {"ok": True, "document": document, "replayed": True}
+				raise UniplusPermanentError(f"PS_DOCUMENT_CONFLICT:{document}")
 			cur.execute(
 				"""
 				INSERT INTO financeiro (
@@ -334,7 +343,8 @@ def _insert_finance_ps(p: dict) -> dict:
 				(
 					1, id_entidade, document, 8,
 					today.isoformat(), tomorrow.isoformat(),
-					total, total, description, "Avulso",
+					total, total, description,
+					f"Avulso|{operation_marker}" if operation_marker else "Avulso",
 				),
 			)
 			conn.commit()

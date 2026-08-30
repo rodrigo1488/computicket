@@ -1,4 +1,5 @@
 import json
+import os
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -284,8 +285,12 @@ class Ticket(db.Model):
 
 	total_cost = db.Column(db.Float, default=0.0)
 	ps_printed = db.Column(db.Boolean, default=False)  # Marca se a PS já foi impressa
-	ps_number = db.Column(db.String(50), nullable=True)  # Número da PS gerada
+	ps_number = db.Column(db.String(50), nullable=True, unique=True)  # Número reservado/gerado
 	ps_file = db.Column(db.String(200), nullable=True)  # Nome do arquivo PDF gerado
+	ps_operation_key = db.Column(db.String(36), nullable=True, unique=True)
+	ps_registration_status = db.Column(db.String(24), nullable=True)
+	ps_registration_updated_at = db.Column(db.DateTime, nullable=True)
+	ps_job_id = db.Column(db.Integer, nullable=True)
 	visto = db.Column(db.Boolean, default=False)  # Marca se o ticket foi visualizado pelo usuário
 	dav_id = db.Column(db.Integer, nullable=True)
 	dav_codigo = db.Column(db.Integer, nullable=True)
@@ -341,7 +346,9 @@ class Ticket(db.Model):
 			return self.ps_file
 		if not self.ps_printed:
 			return None
-		ps_dir = Path(__file__).resolve().parent.parent / "ps" / "ps-do-dia"
+		configured = (os.environ.get("PS_ROOT") or "").strip()
+		ps_root = Path(configured) if configured else Path(__file__).resolve().parent.parent / "ps"
+		ps_dir = ps_root / "ps-do-dia"
 		candidates: list[str] = []
 		if self.products:
 			candidates.append(f"ps-recibo-{self.id}.pdf")
@@ -351,11 +358,14 @@ class Ticket(db.Model):
 			if (ps_dir / name).exists():
 				return name
 		# Se não encontrar em ps-do-dia, buscar em qualquer subpasta de ps/
-		ps_root = Path(__file__).resolve().parent.parent / "ps"
-		for name in candidates:
-			for path in ps_root.rglob(name):
-				if path.is_file():
-					return name
+		if ps_root.exists():
+			for name in candidates:
+				try:
+					for path in ps_root.rglob(name):
+						if path.is_file():
+							return name
+				except OSError:
+					continue
 		return candidates[0] if candidates else None
 
 	def __repr__(self) -> str:

@@ -416,6 +416,7 @@ def enqueue_and_wait(
 	*,
 	timeout: float = 60.0,
 	created_by_id: int | None = None,
+	on_enqueued=None,
 ) -> dict[str, Any]:
 	"""Enfileira, espera ACK e retorna result_dict (pode ser {})."""
 	if not agent_enabled():
@@ -424,5 +425,7 @@ def enqueue_and_wait(
 		# ainda enfileira — agente pode conectar e drenar; wait pode timeout
 		pass
 	job = enqueue_uniplus_job(job_type, payload, created_by_id=created_by_id)
+	if on_enqueued is not None:
+		on_enqueued(job)
 	done = wait_job(job.id, timeout=timeout)
 	return done.result_dict()

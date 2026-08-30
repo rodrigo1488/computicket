@@ -6,6 +6,7 @@ from textwrap import wrap
 from datetime import datetime
 import os
 import re
+import uuid
 from flask import request, jsonify, Blueprint
 from textwrap import wrap
 # from escpos.printer import Network
@@ -18,6 +19,41 @@ import logging
 
 IMPRESSORA_PORTA = 9100
 service_provision_routes = Blueprint("service_provision_routes", __name__)
+PS_DOCUMENT_CONFLICT = "PS_DOCUMENT_CONFLICT:"
+
+
+def _ps_operation_marker(operation_key):
+    return f"PSOP:{operation_key}" if operation_key else ""
+
+
+def build_collision_ps_document(base_document, operation_key):
+    token = str(operation_key or "").split("-")[0].upper()
+    if not token:
+        raise ValueError("Chave da operação é obrigatória para resolver colisão de PS")
+    return f"{base_document}-{token}"
+
+
+def _link_ps_job(ticket_id, job_id):
+    from .. import db
+    from ..models import Ticket
+
+    ticket = db.session.get(Ticket, ticket_id)
+    if ticket:
+        ticket.ps_job_id = job_id
+        ticket.ps_registration_updated_at = datetime.now()
+        db.session.commit()
+
+
+def _ps_output_dir() -> str:
+    """Diretório de gravação dos PDFs (PS_ROOT/ps-do-dia ou ./ps/ps-do-dia)."""
+    root = (os.environ.get("PS_ROOT") or "").strip()
+    if root:
+        out = os.path.join(root, "ps-do-dia")
+    else:
+        out = os.path.join(os.getcwd(), "ps", "ps-do-dia")
+    os.makedirs(out, exist_ok=True)
+    return out
+
 
 @service_provision_routes.route("/api/signatures/<int:ticket_id>", methods=["GET"])
 def get_ticket_signatures(ticket_id):
@@ -188,7 +224,19 @@ def build_ps_document(ticket_number, title=""):
         raise ValueError("Referência inválida para geração da PS")
     return f"PS/{source}-{reference}"
 
-def insert_ps_with_transaction_control(id_entidade, data, total, ticket_number, title, description_service):
+def insert_ps_with_transaction_control(
+    id_entidade,
+    data,
+    total,
+    ticket_number,
+    title,
+    description_service,
+    *,
+    document=None,
+    operation_key=None,
+    on_job_enqueued=None,
+    existing_job_id=None,
+):
     """
     Registra a cobrança da PS no PostgreSQL/Unico.
 
@@ -198,27 +246,49 @@ def insert_ps_with_transaction_control(id_entidade, data, total, ticket_number, 
     """
     pg_conn = None
     pg_cursor = None
-    document = build_ps_document(ticket_number, title)
+    document = document or build_ps_document(ticket_number, title)
     final_os = str(ticket_number)
+    operation_marker = _ps_operation_marker(operation_key)
 
     try:
-        from ..uniplus_jobs import agent_enabled, enqueue_and_wait
+        from ..uniplus_jobs import UniplusJobError, agent_enabled, enqueue_and_wait, wait_job
         if agent_enabled():
-            enqueue_and_wait("insert_finance_ps", {
-                "id_entidade": id_entidade,
-                "document": document,
-                "description_service": description_service,
-                "total": total,
-            })
-            return True, (document, final_os)
+            try:
+                if existing_job_id:
+                    result = wait_job(existing_job_id).result_dict()
+                else:
+                    result = enqueue_and_wait(
+                        "insert_finance_ps",
+                        {
+                            "id_entidade": id_entidade,
+                            "document": document,
+                            "description_service": description_service,
+                            "total": total,
+                            "operation_key": operation_key,
+                        },
+                        on_enqueued=on_job_enqueued,
+                    )
+            except UniplusJobError as exc:
+                message = str(exc)
+                if PS_DOCUMENT_CONFLICT in message:
+                    return False, message[message.index(PS_DOCUMENT_CONFLICT):]
+                raise
+            return True, (result.get("document") or document, final_os)
 
         pg_conn = connect_postgres()
         if not pg_conn:
             raise RuntimeError("Não foi possível conectar ao PostgreSQL/Unico")
         pg_cursor = pg_conn.cursor()
-        pg_cursor.execute("SELECT COUNT(*) FROM financeiro WHERE documento = %s", (document,))
-        if pg_cursor.fetchone()[0] > 0:
-            return False, f"PS já cadastrada no PostgreSQL/Unico: {document}"
+        pg_cursor.execute(
+            "SELECT observacaoboleto FROM financeiro WHERE documento = %s LIMIT 1",
+            (document,),
+        )
+        existing = pg_cursor.fetchone()
+        if existing:
+            existing_note = str(existing[0] or "")
+            if operation_marker and operation_marker in existing_note:
+                return True, (document, final_os)
+            return False, f"{PS_DOCUMENT_CONFLICT}{document}"
 
         today = datetime.today()
         tomorrow = today + timedelta(days=1)
@@ -232,7 +302,8 @@ def insert_ps_with_transaction_control(id_entidade, data, total, ticket_number, 
             1, id_entidade, document, 8,
             today.strftime('%Y-%m-%d'),
             tomorrow.strftime('%Y-%m-%d'),
-            total, total, description_service, 'Avulso'
+            total, total, description_service,
+            f"Avulso|{operation_marker}" if operation_marker else "Avulso",
         ))
         pg_conn.commit()
         print(f"✅ PS {document} registrada no PostgreSQL/Unico")
@@ -280,8 +351,7 @@ def generateServiceProvisionPDF(
 ):
     try:
         new_ps = ps_number.replace("/","_")
-        output_dir = os.path.join(os.getcwd(), "ps", "ps-do-dia")
-        os.makedirs(output_dir, exist_ok=True)
+        output_dir = _ps_output_dir()
         output_path = os.path.join(output_dir, f"{new_ps}.pdf")
         c = canvas.Canvas(output_path, pagesize=A4)
         width, height = A4
@@ -534,21 +604,60 @@ def print_ps():
         if not data:
             return jsonify({"error": "Dados não fornecidos"}), 400
         
-        # Validar campos obrigatórios
         body = data.get("body", {})
-        required_fields = ["ticket_number", "client_name", "description_service", "total_amount"]
-        for field in required_fields:
-            if not body.get(field):
-                return jsonify({"error": f"Campo obrigatório: {field}"}), 400
+        if not body.get("ticket_number"):
+            return jsonify({"error": "Campo obrigatório: ticket_number"}), 400
         
-        # Buscar informações completas do ticket e cliente
-        from ..models import Ticket, TimeEntry
+        # A referência, o cliente e o valor vêm do ticket; o payload não é fonte confiável.
+        from .. import db
+        from ..models import Ticket, TimeEntry, UniplusJob
         
-        ticket_id = body["ticket_number"]
-        ticket = Ticket.query.get(ticket_id)
+        try:
+            ticket_id = int(body["ticket_number"])
+        except (TypeError, ValueError):
+            return jsonify({"error": "Número do ticket inválido"}), 400
+
+        ticket = Ticket.query.filter_by(id=ticket_id).with_for_update().first()
         
         if not ticket:
             return jsonify({"error": "Ticket não encontrado"}), 404
+        if ticket.ps_printed:
+            return jsonify({
+                "error": "PS já foi gerada para este ticket",
+                "ps_number": ticket.ps_number,
+                "pdf_file": ticket.ps_file,
+            }), 409
+
+        now = datetime.now()
+        if (
+            ticket.ps_registration_status == "registering"
+            and ticket.ps_registration_updated_at
+            and (now - ticket.ps_registration_updated_at).total_seconds() < 120
+        ):
+            return jsonify({
+                "error": "A geração desta PS já está em andamento",
+                "ps_number": ticket.ps_number,
+            }), 409
+
+        if not ticket.ps_operation_key:
+            ticket.ps_operation_key = str(uuid.uuid4())
+        if not ticket.ps_number:
+            ticket.ps_number = build_ps_document(ticket.id, f"Ticket #{ticket.id}")
+        if ticket.ps_job_id:
+            previous_job = db.session.get(UniplusJob, ticket.ps_job_id)
+            if not previous_job or (previous_job.status == "error" and not previous_job.permanent):
+                ticket.ps_job_id = None
+        ticket.ps_registration_status = "registering"
+        ticket.ps_registration_updated_at = now
+        db.session.commit()
+
+        total_amount = float(ticket.total_cost or 0)
+        if total_amount <= 0:
+            ticket.ps_registration_status = "registration_failed"
+            ticket.ps_registration_updated_at = datetime.now()
+            db.session.commit()
+            return jsonify({"error": "O ticket não possui valor total válido para gerar a PS"}), 400
+        client_name = ticket.display_client_name()
         
         # Buscar apontamentos do ticket para incluir observações
         time_entries = TimeEntry.query.filter_by(ticket_id=ticket_id).all()
@@ -619,27 +728,67 @@ def print_ps():
             success, result_data = insert_ps_with_transaction_control(
                 entity_id, 
                 {
-                    "client_name": body["client_name"],
+                    "client_name": client_name,
                     "address_street": client_data.get("address", ""),
                     "address_number": client_data.get("address_number", ""),
                     "phone": client_data.get("phone", ""),
                     "responsible_name": technician_name,
                     "description_service": full_description
                 }, 
-                float(body["total_amount"]), 
+                total_amount,
                 ticket_id,
                 f"Ticket #{int(ticket_id)}",
-                full_description
+                full_description,
+                document=ticket.ps_number,
+                operation_key=ticket.ps_operation_key,
+                existing_job_id=ticket.ps_job_id,
+                on_job_enqueued=lambda job: _link_ps_job(ticket.id, job.id),
             )
             
+            if (
+                not success
+                and str(result_data).startswith(PS_DOCUMENT_CONFLICT)
+                and ticket.ps_number == build_ps_document(ticket.id, f"Ticket #{ticket.id}")
+            ):
+                ticket.ps_number = build_collision_ps_document(
+                    build_ps_document(ticket.id, f"Ticket #{ticket.id}"),
+                    ticket.ps_operation_key,
+                )
+                ticket.ps_job_id = None
+                ticket.ps_registration_status = "registering"
+                ticket.ps_registration_updated_at = datetime.now()
+                db.session.commit()
+                success, result_data = insert_ps_with_transaction_control(
+                    entity_id,
+                    {"client_name": client_name},
+                    total_amount,
+                    ticket_id,
+                    f"Ticket #{ticket_id}",
+                    full_description,
+                    document=ticket.ps_number,
+                    operation_key=ticket.ps_operation_key,
+                    on_job_enqueued=lambda job: _link_ps_job(ticket.id, job.id),
+                )
+
             if not success:
-                error_msg = result_data if result_data else "Falha ao inserir dados nos bancos - possível duplicata detectada"
-                return jsonify({"error": error_msg}), 500
+                ticket.ps_registration_status = "registration_failed"
+                ticket.ps_registration_updated_at = datetime.now()
+                db.session.commit()
+                error_msg = result_data if result_data else "Falha ao registrar a PS no Unico"
+                status_code = 409 if str(error_msg).startswith(PS_DOCUMENT_CONFLICT) else 500
+                return jsonify({"error": error_msg, "ps_number": ticket.ps_number}), status_code
                 
             document, final_os = result_data
+            ticket.ps_number = document
+            ticket.ps_registration_status = "registered"
+            ticket.ps_registration_updated_at = datetime.now()
+            db.session.commit()
                     
         except Exception as e:
             print(f"Erro ao inserir no banco: {e}")
+            ticket.ps_registration_status = "registration_failed"
+            ticket.ps_registration_updated_at = datetime.now()
+            db.session.commit()
             return jsonify({"error": f"Erro ao processar dados no banco: {str(e)}"}), 500
         
         # Usar o identificador estável registrado no PostgreSQL/Unico
@@ -696,16 +845,16 @@ def print_ps():
             success, result = generateCombinedPSAndDeliveryReceipt(
                 ps_number=ps_number,
                 os_number=final_os if final_os else str(ticket_id),
-                client_name=body["client_name"],
-                client_social=body["client_name"],
-                client_social_revenue=body.get("client_social_revenue", client_data.get("document", "")),
+                client_name=client_name,
+                client_social=client_name,
+                client_social_revenue=client_data.get("document", ""),
                 address_street=client_data.get("address", ""),
                 address_number=client_data.get("address_number", ""),
                 phone=client_data.get("phone", ""),
                 responsible_name=technician_name,
                 equipment=ticket.title or f"Ticket #{ticket_id}",
                 service_executed=full_description,
-                total=float(body["total_amount"]),
+                total=total_amount,
                 delivery_date=datetime.now().strftime("%d/%m/%Y"),
                 solicitado_por=ticket.solicitante,
                 products=product_details,
@@ -714,27 +863,28 @@ def print_ps():
             success, result = generateServiceProvisionPDF(
                 ps_number=ps_number,
                 ticket_number=final_os if final_os else body["ticket_number"],
-                client_name=body["client_name"],
+                client_name=client_name,
                 address_street=client_data.get("address", ""),
                 address_number=client_data.get("address_number", ""),
                 address_neighborhood="",
                 phone=client_data.get("phone", ""),
                 responsible_name=technician_name,
-                client_social=body["client_name"],
-                client_social_revenue=body.get("client_social_revenue", client_data.get("document", "")),
+                client_social=client_name,
+                client_social_revenue=client_data.get("document", ""),
                 description_service=full_description,
-                total=body["total_amount"],
+                total=total_amount,
                 logo_path=None,
                 solicitado_por=ticket.solicitante,
                 signature_data=signature_file_path,
             )
         
         if success:
-            from .. import db
             pdf_filename = os.path.basename(result) if result else None
             ticket.ps_printed = True
             ticket.ps_number = ps_number
             ticket.ps_file = pdf_filename
+            ticket.ps_registration_status = "completed"
+            ticket.ps_registration_updated_at = datetime.now()
             db.session.commit()
 
             return jsonify({
@@ -744,6 +894,9 @@ def print_ps():
                 "ps_number": ps_number,
             })
         else:
+            ticket.ps_registration_status = "pdf_failed"
+            ticket.ps_registration_updated_at = datetime.now()
+            db.session.commit()
             return jsonify({"error": f"Erro ao gerar PS: {result}"}), 500
             
     except Exception as e:
@@ -815,8 +968,7 @@ def generateCombinedPSAndDeliveryReceipt(
 ):
     """Gera PS e recibo de entrega no mesmo PDF (dividindo a folha A4)"""
     try:
-        output_dir = os.path.join(os.getcwd(), "ps", "ps-do-dia")
-        os.makedirs(output_dir, exist_ok=True)
+        output_dir = _ps_output_dir()
         output_path = os.path.join(output_dir, f"ps-recibo-{os_number}.pdf")
         c = canvas.Canvas(output_path, pagesize=A4)
         width, height = A4
@@ -1057,8 +1209,7 @@ def generateDeliveryReceipt(
 ):
     """Gera recibo de entrega de equipamento (versão individual - mantida para compatibilidade)"""
     try:
-        output_dir = os.path.join(os.getcwd(), "ps", "ps-do-dia")
-        os.makedirs(output_dir, exist_ok=True)
+        output_dir = _ps_output_dir()
         output_path = os.path.join(output_dir, f"recibo-entrega-{os_number}.pdf")
         c = canvas.Canvas(output_path, pagesize=A4)
         width, height = A4

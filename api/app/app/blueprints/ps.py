@@ -27,9 +27,29 @@ share_tokens = {}
 def _ps_root() -> Path:
     configured = (os.environ.get("PS_ROOT") or "").strip()
     if configured:
-        return Path(configured)
-    # Docker: PS_ROOT=/app/ps (volume ./ps). Local: api/app/ps.
-    return Path(__file__).resolve().parent.parent.parent / "ps"
+        root = Path(configured)
+    else:
+        # Docker: PS_ROOT=/app/ps (volume ./ps). Local: api/app/ps.
+        root = Path(__file__).resolve().parent.parent.parent / "ps"
+    try:
+        return root.resolve()
+    except OSError:
+        return root
+
+
+def _safe_float(value, default: float = 0.0) -> float:
+    """Converte para float JSON-safe (sem NaN/inf) — nunca levanta."""
+    try:
+        if value is None:
+            return float(default)
+        if isinstance(value, str) and not value.strip():
+            return float(default)
+        result = float(value)
+        if result != result or result in (float("inf"), float("-inf")):
+            return float(default)
+        return result
+    except (TypeError, ValueError, OverflowError):
+        return float(default)
 
 
 def _ps_lookup_names(*values: str | None) -> list[str]:
@@ -65,6 +85,62 @@ def _ps_lookup_names(*values: str | None) -> list[str]:
     return names
 
 
+def build_ps_pdf_index(root: Path | None = None) -> dict:
+    """Uma única varredura recursiva de PS_ROOT (inclui subpastas como ps-do-dia/)."""
+    root = root or _ps_root()
+    by_name: dict[str, str] = {}
+    by_rel: dict[str, str] = {}
+    files: list[tuple[str, str]] = []
+    if not root.exists():
+        return {"by_name": by_name, "by_rel": by_rel, "files": files, "root": root}
+
+    try:
+        resolved = root.resolve()
+    except OSError:
+        return {"by_name": by_name, "by_rel": by_rel, "files": files, "root": root}
+
+    try:
+        for path in root.rglob("*.pdf"):
+            try:
+                if not path.is_file():
+                    continue
+                rel = path.resolve().relative_to(resolved).as_posix()
+            except (OSError, ValueError, RuntimeError):
+                continue
+            files.append((rel, path.name))
+            by_rel[rel.casefold()] = rel
+            name_key = path.name.casefold()
+            prev = by_name.get(name_key)
+            # Prefere caminhos rasos (ps-do-dia/x.pdf) a arquivos arquivados mais fundos
+            if prev is None or rel.count("/") < prev.count("/"):
+                by_name[name_key] = rel
+    except OSError as e:
+        try:
+            current_app.logger.warning("Falha ao varrer PDFs em %s: %s", root, e)
+        except Exception:
+            pass
+
+    return {"by_name": by_name, "by_rel": by_rel, "files": files, "root": root}
+
+
+def resolve_ps_rel_from_index(index: dict | None, *candidates: str | None) -> str | None:
+    """Resolve caminho relativo via índice (sem rglob por candidato)."""
+    if not index:
+        return None
+    by_name = index.get("by_name") or {}
+    by_rel = index.get("by_rel") or {}
+    for candidate in _ps_lookup_names(*candidates):
+        cand = candidate.replace("\\", "/").strip("/")
+        if cand.casefold() in by_rel:
+            return by_rel[cand.casefold()]
+        key = Path(candidate).name.casefold()
+        if key in by_name:
+            return by_name[key]
+        if not key.endswith(".pdf") and f"{key}.pdf" in by_name:
+            return by_name[f"{key}.pdf"]
+    return None
+
+
 def find_ps_file_path(filename: str) -> Path | None:
     if not filename:
         return None
@@ -85,15 +161,18 @@ def find_ps_file_path(filename: str) -> Path | None:
                 and literal_path.resolve().is_relative_to(ps_resolved)
             ):
                 return literal_path
-        except OSError:
+        except (OSError, RuntimeError, ValueError):
             pass
 
         base_name = Path(candidate).name
         try:
             for path in ps_path.rglob(base_name):
-                if path.is_file() and path.resolve().is_relative_to(ps_resolved):
-                    return path
-        except OSError:
+                try:
+                    if path.is_file() and path.resolve().is_relative_to(ps_resolved):
+                        return path
+                except (OSError, RuntimeError, ValueError):
+                    continue
+        except (OSError, RuntimeError):
             continue
 
     return None
@@ -115,9 +194,17 @@ def list_files():
     except ExternalPgError as e:
         current_app.logger.warning("PS Unico indisponível, listando local/disco: %s", e)
         warnings.append(str(e))
+        try:
+            db.session.rollback()
+        except Exception:
+            pass
     except Exception as e:
         current_app.logger.exception("Falha inesperada ao listar PS no Unico")
         warnings.append(f"Erro ao consultar Unico: {e}")
+        try:
+            db.session.rollback()
+        except Exception:
+            pass
 
     try:
         tickets = Ticket.query.filter(
@@ -132,8 +219,10 @@ def list_files():
                 ServiceOrder.ps_generated == True,
             )
         ).all()
-        items = merge_ps_records(financial_records, tickets, orders)
-        items = append_disk_orphan_ps(items)
+        # Uma varredura do volume — evita rglob por ticket/registro (causa de timeout/500)
+        pdf_index = build_ps_pdf_index()
+        items = merge_ps_records(financial_records, tickets, orders, pdf_index=pdf_index)
+        items = append_disk_orphan_ps(items, pdf_index=pdf_index)
 
         search_term = (request.args.get('search') or request.args.get('q') or '').strip().lower()
         if search_term:
@@ -180,7 +269,9 @@ def _iso_date(value):
     return value.isoformat() if hasattr(value, "isoformat") else (str(value) if value else None)
 
 
-def _relative_ps_file(*candidates: str | None):
+def _relative_ps_file(*candidates: str | None, pdf_index: dict | None = None):
+    if pdf_index is not None:
+        return resolve_ps_rel_from_index(pdf_index, *candidates)
     for candidate in candidates:
         full_path = find_ps_file_path(candidate) if candidate else None
         if not full_path:
@@ -192,9 +283,17 @@ def _relative_ps_file(*candidates: str | None):
     return None
 
 
-def _ticket_ps_item(ticket):
-    filename = ticket.ps_file or ticket.resolved_ps_filename()
-    tech = ticket.assigned_to_user.name if getattr(ticket, "assigned_to_user", None) else None
+def _ticket_ps_item(ticket, pdf_index: dict | None = None):
+    # Evita resolved_ps_filename() na listagem (faz rglob por ticket).
+    filename = ticket.ps_file
+    if not filename and ticket.ps_number:
+        filename = f"{str(ticket.ps_number).replace('/', '_')}.pdf"
+    tech = None
+    try:
+        assigned = getattr(ticket, "assigned_to_user", None)
+        tech = assigned.name if assigned else None
+    except Exception:
+        tech = None
     try:
         client_name = ticket.display_client_name()
     except Exception:
@@ -207,14 +306,20 @@ def _ticket_ps_item(ticket):
         "source_id": ticket.id,
         "client_name": client_name or "",
         "technician_name": tech or "",
-        "value": float(ticket.total_cost or 0),
+        "value": _safe_float(ticket.total_cost),
         "issued_at": _iso_date(ticket.closed_at or ticket.created_at),
         "description": ticket.title or "",
-        "path": _relative_ps_file(filename, ticket.ps_number, ticket.ps_file),
+        "path": _relative_ps_file(
+            filename,
+            ticket.ps_number,
+            ticket.ps_file,
+            f"ps-recibo-{ticket.id}.pdf",
+            pdf_index=pdf_index,
+        ),
     }
 
 
-def _order_ps_item(order):
+def _order_ps_item(order, pdf_index: dict | None = None):
     return {
         "ps_number": order.ps_number,
         "name": order.ps_number or order.ps_file or f"OS #{order.codigo}",
@@ -223,25 +328,25 @@ def _order_ps_item(order):
         "source_id": order.id,
         "client_name": order.client_name or "",
         "technician_name": order.technician_name or "",
-        "value": float(order.value or 0),
+        "value": _safe_float(order.value),
         "issued_at": _iso_date(order.completion_date),
         "description": order.service_executed or "",
-        "path": _relative_ps_file(order.ps_file, order.ps_number),
+        "path": _relative_ps_file(order.ps_file, order.ps_number, pdf_index=pdf_index),
     }
 
 
-def merge_ps_records(financial_records, tickets, orders):
+def merge_ps_records(financial_records, tickets, orders, pdf_index: dict | None = None):
     """Une a fonte Unico ao histórico local sem duplicar a mesma PS."""
     ticket_items = []
     for ticket in tickets:
         try:
-            ticket_items.append(_ticket_ps_item(ticket))
+            ticket_items.append(_ticket_ps_item(ticket, pdf_index=pdf_index))
         except Exception as e:
             current_app.logger.warning("Ignorando ticket PS #%s: %s", getattr(ticket, "id", "?"), e)
     order_items = []
     for order in orders:
         try:
-            order_items.append(_order_ps_item(order))
+            order_items.append(_order_ps_item(order, pdf_index=pdf_index))
         except Exception as e:
             current_app.logger.warning("Ignorando OS PS #%s: %s", getattr(order, "id", "?"), e)
     local_items = ticket_items + order_items
@@ -254,35 +359,46 @@ def merge_ps_records(financial_records, tickets, orders):
     seen = set()
 
     for record in financial_records:
-        number = record.get("documento")
-        key = _ps_key(number)
-        local = local_by_number.get(key, {})
-        source = local.get("source")
-        if not source:
-            upper = str(number or "").upper()
-            source = "Ordem de serviço" if upper.startswith("PS/OS-") else (
-                "Ticket" if upper.startswith("PS/TICKET-") else "PS legada"
+        try:
+            number = record.get("documento")
+            key = _ps_key(number)
+            local = local_by_number.get(key, {})
+            source = local.get("source")
+            if not source:
+                upper = str(number or "").upper()
+                source = "Ordem de serviço" if upper.startswith("PS/OS-") else (
+                    "Ticket" if upper.startswith("PS/TICKET-") else "PS legada"
+                )
+            path = local.get("path") or _relative_ps_file(
+                number, local.get("ps_number"), pdf_index=pdf_index
             )
-        path = local.get("path") or _relative_ps_file(number, local.get("ps_number"))
-        item = {
-            "id": f"unico:{record.get('id')}",
-            "ps_number": number,
-            "name": number,
-            "type": source,
-            "source": source,
-            "source_id": local.get("source_id"),
-            "client_name": record.get("client_name") or local.get("client_name") or "",
-            "technician_name": local.get("technician_name") or "",
-            "value": float(record.get("valor") or local.get("value") or 0),
-            "balance": float(record.get("saldo") or 0),
-            "status": record.get("status"),
-            "issued_at": _iso_date(record.get("emissao") or local.get("issued_at")),
-            "description": record.get("description") or local.get("description") or "",
-            "path": path,
-        }
-        merged.append(item)
-        if key:
-            seen.add(key)
+            # valor 0 do Unico é válido (não usar `or` que trata 0 como falsy)
+            raw_valor = record.get("valor")
+            if raw_valor is None:
+                raw_valor = local.get("value")
+            item = {
+                "id": f"unico:{record.get('id')}",
+                "ps_number": number,
+                "name": number,
+                "type": source,
+                "source": source,
+                "source_id": local.get("source_id"),
+                "client_name": record.get("client_name") or local.get("client_name") or "",
+                "technician_name": local.get("technician_name") or "",
+                "value": _safe_float(raw_valor),
+                "balance": _safe_float(record.get("saldo")),
+                "status": record.get("status"),
+                "issued_at": _iso_date(record.get("emissao") or local.get("issued_at")),
+                "description": record.get("description") or local.get("description") or "",
+                "path": path,
+            }
+            merged.append(item)
+            if key:
+                seen.add(key)
+        except Exception as e:
+            current_app.logger.warning(
+                "Ignorando registro Unico PS id=%s: %s", record.get("id"), e
+            )
 
     # Compatibilidade: PS antigas podem existir apenas no banco Computicket,
     # sobretudo quando o identificador vinha da sequência SQL Server removida.
@@ -301,63 +417,67 @@ def merge_ps_records(financial_records, tickets, orders):
     return merged
 
 
-def append_disk_orphan_ps(merged: list) -> list:
-    """Inclui PDFs em PS_ROOT que ainda não aparecem na lista Unico/local."""
-    root = _ps_root()
-    if not root.exists():
+def append_disk_orphan_ps(merged: list, pdf_index: dict | None = None) -> list:
+    """Anexa path em itens sem PDF e inclui órfãos sob PS_ROOT (todas as subpastas)."""
+    index = pdf_index if pdf_index is not None else build_ps_pdf_index()
+    files = index.get("files") or []
+    if not files:
         return merged
+
+    # Preenche path faltante em registros Unico/local quando o PDF existe em subpasta
+    for item in merged:
+        if item.get("path"):
+            continue
+        rel = resolve_ps_rel_from_index(
+            index, item.get("ps_number"), item.get("name"), item.get("ps_file")
+        )
+        if rel:
+            item["path"] = rel
 
     seen_numbers = {_ps_key(item.get("ps_number")) for item in merged if item.get("ps_number")}
     seen_paths = {(item.get("path") or "").casefold() for item in merged if item.get("path")}
     orphans: list = []
 
-    try:
-        resolved_root = root.resolve()
-    except OSError:
-        return merged
+    for rel, name in files:
+        if rel.casefold() in seen_paths:
+            continue
 
-    try:
-        for path in root.rglob("*.pdf"):
-            try:
-                if not path.is_file():
-                    continue
-                rel = path.resolve().relative_to(resolved_root).as_posix()
-            except (OSError, ValueError):
-                continue
-            if rel.casefold() in seen_paths:
-                continue
-
-            stem = path.stem
-            candidates = {
-                _ps_key(stem),
-                _ps_key(stem.replace("_", "/")),
-                _ps_key(stem.replace("_", "/", 1)),
-            }
-            if candidates & seen_numbers:
-                continue
-
-            ps_number = stem.replace("_", "/", 1) if stem.upper().startswith("PS_") else stem
-            orphans.append({
-                "id": f"file:{rel}",
-                "ps_number": ps_number,
-                "name": path.name,
-                "type": "Arquivo",
-                "source": "Arquivo",
-                "source_id": None,
-                "client_name": "",
-                "technician_name": "",
-                "value": 0,
-                "balance": None,
-                "status": None,
-                "issued_at": None,
-                "description": "",
-                "path": rel,
-            })
+        stem = Path(name).stem
+        candidates = {
+            _ps_key(stem),
+            _ps_key(stem.replace("_", "/")),
+            _ps_key(stem.replace("_", "/", 1)),
+        }
+        matched = candidates & seen_numbers
+        if matched:
+            # Número já listado sem path — anexa o arquivo encontrado
+            for item in merged:
+                if _ps_key(item.get("ps_number")) in matched and not item.get("path"):
+                    item["path"] = rel
+                    break
             seen_paths.add(rel.casefold())
-            if _ps_key(ps_number):
-                seen_numbers.add(_ps_key(ps_number))
-    except OSError as e:
-        current_app.logger.warning("Falha ao varrer PDFs em %s: %s", root, e)
+            continue
+
+        ps_number = stem.replace("_", "/", 1) if stem.upper().startswith("PS_") else stem
+        orphans.append({
+            "id": f"file:{rel}",
+            "ps_number": ps_number,
+            "name": name,
+            "type": "Arquivo",
+            "source": "Arquivo",
+            "source_id": None,
+            "client_name": "",
+            "technician_name": "",
+            "value": 0,
+            "balance": None,
+            "status": None,
+            "issued_at": None,
+            "description": "",
+            "path": rel,
+        })
+        seen_paths.add(rel.casefold())
+        if _ps_key(ps_number):
+            seen_numbers.add(_ps_key(ps_number))
 
     if orphans:
         merged = list(merged) + orphans
@@ -595,7 +715,7 @@ def upload_files():
         
         # Pasta de destino
         folder = request.form.get('folder', '')
-        ps_path = Path(__file__).parent.parent.parent / "ps"
+        ps_path = _ps_root()
         target_path = ps_path / folder if folder else ps_path
         
         # Verificar se a pasta de destino existe
@@ -654,7 +774,7 @@ def delete_file(filepath):
             return jsonify({"error": "Acesso negado"}), 403
         
         # Caminho completo do arquivo/pasta
-        ps_path = Path(__file__).parent.parent.parent / "ps"
+        ps_path = _ps_root()
         full_path = ps_path / filepath
         
         if not full_path.exists():
@@ -694,7 +814,7 @@ def generate_share_token():
             return jsonify({"error": "Caminho do arquivo não fornecido"}), 400
         
         # Caminho base da pasta PS (caminho absoluto)
-        ps_path = Path(__file__).parent.parent.parent / "ps"
+        ps_path = _ps_root()
         
         # Construir caminho completo
         full_path = ps_path / filepath

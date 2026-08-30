@@ -106,6 +106,24 @@ def create_app() -> Flask:
 			with db.engine.begin() as conn:
 				conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
 		db.create_all()
+		if db.engine.url.get_backend_name() == "postgresql":
+			with db.engine.begin() as conn:
+				conn.execute(text("ALTER TABLE ticket ADD COLUMN IF NOT EXISTS ps_operation_key VARCHAR(36)"))
+				conn.execute(text("ALTER TABLE ticket ADD COLUMN IF NOT EXISTS ps_registration_status VARCHAR(24)"))
+				conn.execute(text("ALTER TABLE ticket ADD COLUMN IF NOT EXISTS ps_registration_updated_at TIMESTAMP"))
+				conn.execute(text("ALTER TABLE ticket ADD COLUMN IF NOT EXISTS ps_job_id INTEGER"))
+			try:
+				with db.engine.begin() as conn:
+					conn.execute(text(
+						"CREATE UNIQUE INDEX IF NOT EXISTS uq_ticket_ps_number "
+						"ON ticket (ps_number) WHERE ps_number IS NOT NULL"
+					))
+					conn.execute(text(
+						"CREATE UNIQUE INDEX IF NOT EXISTS uq_ticket_ps_operation_key "
+						"ON ticket (ps_operation_key) WHERE ps_operation_key IS NOT NULL"
+					))
+			except Exception as exc:
+				app.logger.error("Não foi possível criar índices únicos de PS: %s", exc)
 		# Migrações leves SQLite
 		try:
 			engine = db.get_engine()
@@ -141,6 +159,25 @@ def create_app() -> Flask:
 						conn.exec_driver_sql("ALTER TABLE ticket ADD COLUMN ps_number VARCHAR(50)")
 					if "ps_file" not in t_cols:
 						conn.exec_driver_sql("ALTER TABLE ticket ADD COLUMN ps_file VARCHAR(200)")
+					if "ps_operation_key" not in t_cols:
+						conn.exec_driver_sql("ALTER TABLE ticket ADD COLUMN ps_operation_key VARCHAR(36)")
+					if "ps_registration_status" not in t_cols:
+						conn.exec_driver_sql("ALTER TABLE ticket ADD COLUMN ps_registration_status VARCHAR(24)")
+					if "ps_registration_updated_at" not in t_cols:
+						conn.exec_driver_sql("ALTER TABLE ticket ADD COLUMN ps_registration_updated_at DATETIME")
+					if "ps_job_id" not in t_cols:
+						conn.exec_driver_sql("ALTER TABLE ticket ADD COLUMN ps_job_id INTEGER")
+					try:
+						conn.exec_driver_sql(
+							"CREATE UNIQUE INDEX IF NOT EXISTS uq_ticket_ps_number "
+							"ON ticket (ps_number) WHERE ps_number IS NOT NULL"
+						)
+						conn.exec_driver_sql(
+							"CREATE UNIQUE INDEX IF NOT EXISTS uq_ticket_ps_operation_key "
+							"ON ticket (ps_operation_key) WHERE ps_operation_key IS NOT NULL"
+						)
+					except Exception as exc:
+						app.logger.error("Não foi possível criar índices únicos de PS: %s", exc)
 					if "parent_id" not in t_cols:
 						conn.exec_driver_sql("ALTER TABLE ticket ADD COLUMN parent_id INTEGER REFERENCES ticket(id)")
 					if "dav_id" not in t_cols:
