@@ -5,10 +5,11 @@ from reportlab.pdfgen import canvas
 from textwrap import wrap
 from datetime import datetime
 import os
+import re
 from flask import request, jsonify, Blueprint
 from textwrap import wrap
 # from escpos.printer import Network
-from .utils import connect_postgres, connect_sql_server
+from .utils import connect_postgres
 try:
     from psycopg2.extras import RealDictCursor
 except ImportError:
@@ -29,6 +30,8 @@ def get_ticket_signatures(ticket_id):
         ticket = Ticket.query.get(ticket_id)
         if not ticket:
             return jsonify({"error": "Ticket não encontrado"}), 404
+        if ticket.ps_printed:
+            return jsonify({"error": "PS já foi impressa anteriormente para este ticket"}), 400
         
         # Buscar todas as assinaturas do ticket
         signatures_list = []
@@ -177,353 +180,86 @@ def insert_finance_pg(id_entidade, document, title, description_service, total):
         if 'conn' in locals():
             conn.close()
 
-def find_next_available_os(cursor, ticket_number):
-    """
-    Busca o próximo número de OS disponível a partir de ticket_number.
-    Usa o cursor aberto do SQL Server para evitar múltiplas conexões.
-    """
-    try:
-        candidate_os = int(ticket_number)
-    except (ValueError, TypeError):
-        return str(ticket_number)
-        
-    while True:
-        cursor.execute("SELECT COUNT(*) FROM servicos WHERE OS = ?", (str(candidate_os),))
-        count = cursor.fetchone()[0]
-        if count == 0:
-            return str(candidate_os)
-        candidate_os += 1
+def build_ps_document(ticket_number, title=""):
+    """Gera um identificador estável sem depender da sequência SQL Server legada."""
+    source = "OS" if str(title).strip().upper().startswith("OS") else "TICKET"
+    reference = re.sub(r"[^A-Za-z0-9_-]+", "-", str(ticket_number).strip()).strip("-")
+    if not reference:
+        raise ValueError("Referência inválida para geração da PS")
+    return f"PS/{source}-{reference}"
 
 def insert_ps_with_transaction_control(id_entidade, data, total, ticket_number, title, description_service):
     """
-    Função principal que controla a inserção nos bancos com controle de transação
-    Garante que ambos os bancos sejam atualizados ou nenhum
+    Registra a cobrança da PS no PostgreSQL/Unico.
+
+    O nome é mantido por compatibilidade com os fluxos de ticket e OS. O antigo
+    espelho SQL Server não faz parte da transação atual.
     Retorna (True, (document, final_os)) se sucesso, (False, error_message) se falha
     """
-    sql_conn = None
     pg_conn = None
-    
-    try:
-        # Conectar aos bancos primeiro para poder usar o cursor na busca de OS disponível
-        sql_conn = connect_sql_server()
-        sql_cursor = sql_conn.cursor()
+    pg_cursor = None
+    document = build_ps_document(ticket_number, title)
+    final_os = str(ticket_number)
 
+    try:
         from ..uniplus_jobs import agent_enabled, enqueue_and_wait
-        use_agent = agent_enabled()
-        pg_cursor = None
-        if not use_agent:
-            pg_conn = connect_postgres()
-            if not pg_conn:
-                raise Exception("Não foi possível conectar ao PostgreSQL Unico")
-            pg_cursor = pg_conn.cursor()
-        
-        # Verificar duplicatas antes de começar (se o mesmo ticket com o mesmo cliente já foi impresso)
-        client_name = data.get("client_name")
-        duplicate_info = check_duplicate_service_sqlserver(ticket_number, client_name)
-        if duplicate_info:
-            print(f"⚠️ Duplicata detectada no SQL Server para ticket: {ticket_number}")
-            return False, f"Falha ao inserir dados nos bancos - possível duplicata detectada. Atendimento já cadastrado:\n- Cliente: {duplicate_info['cliente']}\n- Descrição: {duplicate_info['descricao']}"
-            
-        # Achar a OS disponível no SQL Server para evitar duplicados
-        final_os = find_next_available_os(sql_cursor, ticket_number)
-        
-        today = datetime.today()
-        tomorrow = today + timedelta(days=1)
-        
-        # 1. Inserir no SQL Server e retornar o CODIGO gerado usando OUTPUT
-        sql_cursor.execute("""
-            INSERT INTO servicos (
-                IDCLIENTE, CLIENTE, ENDERECO, NUMERO, BAIRRO, CIDADE,
-                ESTADO, TELEFONE, DESCRICAO, VALOR, EMISSAO,
-                VENCIMENTO, TECNICO, PAGAMAENTO, SOLICITANTE, OS
-            ) OUTPUT INSERTED.CODIGO VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (
-            id_entidade,
-            data.get("client_name")[:50],
-            data.get("address_street", "ENDERECO"),
-            data.get("address_number", "NUMERO"),
-            data.get("address_neighborhood", "CENTRO"),
-            data.get("address_city"),
-            data.get("address_state"),
-            data.get("phone", "(00)0000-0000"),
-            data.get("description_service"),
-            total,
-            today.strftime('%Y-%m-%d'), 
-            today.strftime('%Y-%m-%d'),
-            data.get("responsible_name", "TÉCNICO"),
-            'A VISTA',
-            data.get("client_name")[:50],
-            final_os
-        ))
-        
-        new_id_row = sql_cursor.fetchone()
-        if not new_id_row or new_id_row[0] is None:
-            raise Exception("Não foi possível recuperar o CODIGO gerado pelo SQL Server via OUTPUT.")
-        new_id = int(new_id_row[0])
-        document = f"PS/{new_id}"
-        
-        # 2. Inserir no PostgreSQL (agente Uniplus ou direto)
-        if use_agent:
+        if agent_enabled():
             enqueue_and_wait("insert_finance_ps", {
                 "id_entidade": id_entidade,
                 "document": document,
                 "description_service": description_service,
                 "total": total,
             })
-        else:
-            pg_cursor.execute("""
-                INSERT INTO financeiro (
-                    idfilial, identidade, tipo, documento, idtipodocumentofinanceiro,
-                    status, emissao, vencimento, valor, saldo,
-                    historico, idcodigocontabil, observacaoboleto
-                ) VALUES (%s, %s, 'R', %s, %s, 'A', %s, %s, %s, %s, %s, 192, %s)
-            """, (
-                1, id_entidade, document, 8,
-                today.strftime('%Y-%m-%d'),
-                tomorrow.strftime('%Y-%m-%d'),
-                total, total, description_service, 'Avulso' 
-            ))
-            pg_conn.commit()
-        
-        # 3. Commit SQL Server
-        sql_conn.commit()
-        
-        print(f"✅ Transação completa: PS {document} inserida em ambos os bancos com OS {final_os}")
+            return True, (document, final_os)
+
+        pg_conn = connect_postgres()
+        if not pg_conn:
+            raise RuntimeError("Não foi possível conectar ao PostgreSQL/Unico")
+        pg_cursor = pg_conn.cursor()
+        pg_cursor.execute("SELECT COUNT(*) FROM financeiro WHERE documento = %s", (document,))
+        if pg_cursor.fetchone()[0] > 0:
+            return False, f"PS já cadastrada no PostgreSQL/Unico: {document}"
+
+        today = datetime.today()
+        tomorrow = today + timedelta(days=1)
+        pg_cursor.execute("""
+            INSERT INTO financeiro (
+                idfilial, identidade, tipo, documento, idtipodocumentofinanceiro,
+                status, emissao, vencimento, valor, saldo,
+                historico, idcodigocontabil, observacaoboleto
+            ) VALUES (%s, %s, 'R', %s, %s, 'A', %s, %s, %s, %s, %s, 192, %s)
+        """, (
+            1, id_entidade, document, 8,
+            today.strftime('%Y-%m-%d'),
+            tomorrow.strftime('%Y-%m-%d'),
+            total, total, description_service, 'Avulso'
+        ))
+        pg_conn.commit()
+        print(f"✅ PS {document} registrada no PostgreSQL/Unico")
         return True, (document, final_os)
-        
+
     except Exception as e:
-        print(f"❌ Erro na transação: {e}")
-        
-        # Rollback em ambos os bancos
-        if sql_conn:
-            sql_conn.rollback()
+        print(f"❌ Erro ao registrar PS no PostgreSQL/Unico: {e}")
         if pg_conn:
             pg_conn.rollback()
-            
-        return False, f"Erro ao processar dados no banco: {str(e)}"
-        
+        return False, f"Erro ao registrar PS no PostgreSQL/Unico: {str(e)}"
+
     finally:
-        # Fechar conexões
-        if 'sql_cursor' in locals():
-            sql_cursor.close()
-        if 'pg_cursor' in locals():
+        if pg_cursor:
             pg_cursor.close()
-        if sql_conn:
-            sql_conn.close()
         if pg_conn:
             pg_conn.close()
 
 def check_duplicate_service_sqlserver(ticket_number, client_name=None):
-    """
-    Verifica se já existe um serviço no SQL Server com o mesmo número de OS/ticket e opcionalmente o mesmo cliente
-    Retorna um dicionário com CLIENTE e DESCRICAO se já existe (duplicata), None se não existe.
-    """
-    try:
-        conn = connect_sql_server()
-        cursor = conn.cursor()
-        
-        if client_name:
-            cursor.execute("""
-                SELECT CLIENTE, DESCRICAO FROM servicos WHERE OS = ? AND CLIENTE = ?
-            """, (ticket_number, client_name[:50]))
-        else:
-            cursor.execute("""
-                SELECT CLIENTE, DESCRICAO FROM servicos WHERE OS = ?
-            """, (ticket_number,))
-            
-        row = cursor.fetchone()
-        if row:
-            return {
-                "cliente": row[0],
-                "descricao": row[1]
-            }
-        return None
-        
-    except Exception as e:
-        print(f"❌ Erro ao verificar duplicata no SQL Server: {e}")
-        # Em caso de erro, assumir que existe para evitar duplicação retornando info genérica
-        return {
-            "cliente": "Erro de Conexão/Acesso",
-            "descricao": f"Não foi possível verificar devido ao erro: {str(e)}"
-        }
-    finally:
-        if 'cursor' in locals():
-            cursor.close()
-        if 'conn' in locals():
-            conn.close()
+    raise RuntimeError(
+        "Consulta legada ao SQL Server desativada; duplicatas de PS são verificadas no PostgreSQL/Unico."
+    )
 
 def insert_service_sqlserver(id_entidade, data, total, ticket_number):
-    """
-    Insere registro no SQL Server (serviços) com validação de duplicatas
-    Usa ID da entidade (int) no campo IDCLIENTE
-    Retorna (True, (document, final_os)) se sucesso, (False, error_message) se falha
-    """
-    try:
-        conn = connect_sql_server()
-        cursor = conn.cursor()
-        
-        # 1. Verificar se já existe duplicata
-        client_name = data.get("client_name")
-        duplicate_info = check_duplicate_service_sqlserver(ticket_number, client_name)
-        if duplicate_info:
-            print(f"⚠️ Duplicata detectada no SQL Server para ticket: {ticket_number}")
-            return False, f"Falha ao inserir dados nos bancos - possível duplicata detectada. Atendimento já cadastrado:\n- Cliente: {duplicate_info['cliente']}\n- Descrição: {duplicate_info['descricao']}"
-            
-        # 2. Achar a OS disponível para evitar duplicações de número de OS no banco
-        final_os = find_next_available_os(cursor, ticket_number)
-        
-        today = datetime.today().strftime('%Y-%m-%d')
-
-        # Executar inserção - usando ID da entidade (int) no campo IDCLIENTE e retornar o CODIGO gerado via OUTPUT
-        cursor.execute("""
-            INSERT INTO servicos (
-                IDCLIENTE, CLIENTE, ENDERECO, NUMERO, BAIRRO, CIDADE,
-                ESTADO, TELEFONE, DESCRICAO, VALOR, EMISSAO,
-                VENCIMENTO, TECNICO, PAGAMAENTO, SOLICITANTE, OS
-            ) OUTPUT INSERTED.CODIGO VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (
-            id_entidade,  # Agora usa ID da entidade (int)
-            data.get("client_name")[:50],
-            data.get("address_street", "ENDERECO"),
-            data.get("address_number", "NUMERO"),
-            data.get("address_neighborhood", "CENTRO"),
-            data.get("address_city"),
-            data.get("address_state"),
-            data.get("phone", "(00)0000-0000"),
-            data.get("description_service"),
-            total,
-            today, today,
-            data.get("responsible_name", "TÉCNICO"),
-            'A VISTA',
-            data.get("client_name")[:50],
-            final_os
-        ))
-
-        new_id_row = cursor.fetchone()
-        if not new_id_row or new_id_row[0] is None:
-            raise Exception("Não foi possível recuperar o CODIGO gerado pelo SQL Server via OUTPUT.")
-        new_id = int(new_id_row[0])
-        document = f"PS/{new_id}"
-
-        # Confirmar transação
-        conn.commit()
-        
-        # Verificar se a inserção foi bem-sucedida
-        rows_affected = cursor.rowcount
-        if rows_affected > 0:
-            print(f"✅ Registro inserido no SQL Server: {document} (ID Entidade: {id_entidade}, OS: {final_os})")
-            return True, (document, final_os)
-        else:
-            print(f"❌ Nenhum registro foi inserido no SQL Server: {document}")
-            return False, f"Nenhum registro foi inserido no SQL Server para {document}"
-            
-    except Exception as e:
-        print(f"❌ Erro ao inserir no SQL Server: {e}")
-        if 'conn' in locals():
-            conn.rollback()
-        return False, f"Erro ao inserir no SQL Server: {str(e)}"
-    finally:
-        if 'cursor' in locals():
-            cursor.close()
-        if 'conn' in locals():
-            conn.close()
-
-def format_values(valor, banco):
-    if banco == "sqlserver":
-        # Retorna float com 4 casas decimais (padrão do SQL Server)
-        return round(float(valor), 4)
-    elif banco == "postgres":
-        # Retorna string com vírgula no lugar do ponto (padrão Brasil)
-        return f"{float(valor):.2f}".replace(".", ",")
-    else:
-        raise ValueError("Banco não suportado")
-
-
-
-
-def print_ps():
-    try:
-        data = request.get_json()
-        validate_fields(data)
-        print("dados", data)
-
-        body = data["body"]
-        ticket_number = body.get("ticket_number", "1368")
-        client_social_revenue = body.get("client_social_revenue")
-        total = body.get("total_amount")
-        reprint = data.get("reprint")
-
-        print(reprint)
-
-        # Definir value_pg antes de usar
-        value_pg = format_values(total, "postgres")
-
-        if reprint == True:
-            success, message = generateServiceProvisionPDF(
-                document,
-                ticket_number,
-                body.get("client_name"),
-                body.get("address_street", "ENDERECO"),
-                body.get("address_number", "NUMERO"),
-                body.get("address_neighborhood", "CENTRO"),
-                body.get("phone", "(00)0000-0000"),
-                body.get("responsible_name", "TÉCNICO"),
-                body.get("client_social", "RAZAO SOCIAL"),
-                client_social_revenue,
-                body.get("description_service"),
-                value_pg,
-                solicitado_por=body.get("solicitado_por")
-            )
-            if success:
-                return jsonify({
-                    "message": "Prestação de serviço reimpressa com sucesso!"
-                }), 200
-            else:
-                return jsonify({"error": message}), 500
-
-        value_sql = format_values(total, "sqlserver")
-
-             # Inserir no SQL Server usando ID da entidade
-        sql_success, result_data = insert_service_sqlserver(id_entity, body, value_sql, ticket_number)
-        if not sql_success:
-            error_msg = result_data if result_data else "Falha ao inserir serviço no SQL Server"
-            return jsonify({"error": error_msg}), 500
-            
-        document, final_os = result_data
-        
-        # Inserir no financeiro PostgreSQL usando ID da entidade
-        finance_success = insert_finance_pg(id_entity, document, body.get("ticket_number"), body.get("description_service"), value_sql)
-        if not finance_success:
-            return jsonify({"error": "Falha ao inserir registro no financeiro PostgreSQL"}), 500
- 
-        success, message = generateServiceProvisionPDF(
-            document,
-            final_os,
-            body.get("client_name"),
-            body.get("address_street", "ENDERECO"),
-            body.get("address_number", "NUMERO"),
-            body.get("address_neighborhood", "CENTRO"),
-            body.get("phone", "(00)0000-0000"),
-            body.get("responsible_name", "TÉCNICO"),
-            body.get("client_social", "RAZAO SOCIAL"),
-            client_social_revenue,
-            body.get("description_service"),
-            value_pg,
-            solicitado_por=body.get("solicitado_por")
-        )
-
-        if success:
-            return jsonify({
-                "message": "Prestação de serviço impressa com sucesso!"
-            }), 200
-        else:
-            return jsonify({"error": message}), 500
-    except ValueError as ve:
-        print("VALUE ERROR /ps", ve)
-        return jsonify({ "error": str(ve)}), 400
-    except Exception as e:
-        print("ERROR /ps", e)
-        return jsonify({"error": "Erro Interno no servidor", "details": str(e)}), 500
+    return False, (
+        "Integração legada com SQL Server desativada. "
+        "Use insert_ps_with_transaction_control para registrar a PS no PostgreSQL/Unico."
+    )
 
 def generateServiceProvisionPDF(
     ps_number,
@@ -904,12 +640,8 @@ def print_ps():
             print(f"Erro ao inserir no banco: {e}")
             return jsonify({"error": f"Erro ao processar dados no banco: {str(e)}"}), 500
         
-        # Usar o número sequencial do SQL Server ou fallback
+        # Usar o identificador estável registrado no PostgreSQL/Unico
         ps_number = document if document else f"PS-{int(ticket_id):06d}"
-        
-        # Verificar se a PS já foi impressa (dupla verificação)
-        if ticket.ps_printed:
-            return jsonify({"error": "PS já foi impressa anteriormente para este ticket"}), 400
         
         # Buscar todas as assinaturas digitais do ticket
         signatures_list = []

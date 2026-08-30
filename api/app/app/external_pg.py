@@ -138,6 +138,51 @@ def fetch_external_clients_search(q: str) -> List[Dict[str, Any]]:
 		conn.close()
 
 
+def fetch_ps_financial_records(search: str = "") -> List[Dict[str, Any]]:
+	"""Lista lançamentos de PS cuja fonte de verdade é o financeiro do Unico."""
+	conn = _pg_connect()
+	try:
+		with conn.cursor() as cur:
+			params: list[Any] = ["PS%"]
+			search_sql = ""
+			if search.strip():
+				pattern = f"%{search.strip()}%"
+				search_sql = """
+					AND (
+						f.documento ILIKE %s
+						OR COALESCE(e.nome, '') ILIKE %s
+						OR COALESCE(f.historico, '') ILIKE %s
+					)
+				"""
+				params.extend([pattern, pattern, pattern])
+			cur.execute(
+				f"""
+					SELECT
+						f.id,
+						f.documento,
+						f.identidade,
+						COALESCE(e.nome, '') AS client_name,
+						f.emissao,
+						f.valor,
+						f.saldo,
+						f.status,
+						COALESCE(f.historico, '') AS description
+					FROM financeiro f
+					LEFT JOIN entidade e ON e.id = f.identidade
+					WHERE f.documento ILIKE %s
+					{search_sql}
+					ORDER BY f.emissao DESC NULLS LAST, f.id DESC
+				""",
+				params,
+			)
+			cols = [desc[0] for desc in cur.description]
+			return [dict(zip(cols, row)) for row in cur.fetchall()]
+	except Exception as e:
+		raise ExternalPgError(f"Erro ao listar PS no PostgreSQL Unico: {e}") from e
+	finally:
+		conn.close()
+
+
 def fetch_contract_types() -> List[str]:
 	conn = _pg_connect()
 	try:

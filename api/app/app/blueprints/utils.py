@@ -1,8 +1,4 @@
 try:
-    import pyodbc
-except ImportError:  # ambiente Linux sem driver ODBC
-    pyodbc = None
-try:
     import psycopg2
 except ImportError:
     psycopg2 = None
@@ -13,17 +9,15 @@ from threading import Thread
 
 bp = Blueprint("utils", __name__)
 
+class LegacySqlServerDisabledError(RuntimeError):
+  """Integração SQL Server removida do fluxo atual PostgreSQL/Unico."""
+
+
 def connect_sql_server():
-  if pyodbc is None:
-    raise RuntimeError("pyodbc não está instalado neste ambiente")
-  return pyodbc.connect(
-    'DRIVER={SQL Server};'
-    'SERVER=winserver,1433;'
-    'DATABASE=Chamado;'
-    'UID=sa;'
-    'PWD=C33511861@;'
-    'Encrypt=no;'
-    'TrustServerCertificate=yes;'
+  """Compatibilidade para callers legados, sem tentar abrir conexão ODBC."""
+  raise LegacySqlServerDisabledError(
+    "Integração legada com SQL Server está desativada. "
+    "A aplicação atual usa PostgreSQL/Unico para faturamento e PS."
   )
 
 DATA_BASE_POSTGRES_CONFIG = None  # legado: use get_unico_pg_config / connect_postgres()

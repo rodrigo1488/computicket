@@ -7,6 +7,8 @@ from app import db
 from app.models import RemoteAgent, RemoteAgentAlert, RemoteAgentSample
 from app.remote_monitor_service import (
 	activate,
+	agent_is_live,
+	apply_socket_presence,
 	authenticate_agent,
 	create_enrollment,
 	hash_activation_code,
@@ -80,8 +82,23 @@ class RemoteMonitorServiceTest(unittest.TestCase):
 		self.assertEqual(mark_offline_agents(), 0)
 		self.assertEqual(activated.status, "online")
 		unregister_agent_connection("sid-alive")
+		self.assertEqual(activated.status, "online")
+		self.assertIsNone(
+			RemoteAgentAlert.query.filter_by(
+				agent_id=agent.id, alert_type="offline", resolved_at=None,
+			).first()
+		)
+
+		# Heartbeat HTTP recente continua sendo presença válida mesmo sem um
+		# Socket.IO registrado neste processo.
+		activated.status = "offline"
+		activated.last_seen = utc_now()
+		db.session.commit()
+		self.assertTrue(agent_is_live(activated))
+		self.assertEqual(apply_socket_presence(activated.to_dict(), activated)["status"], "online")
 
 		activated.last_seen = utc_now() - timedelta(seconds=OFFLINE_AFTER_SECONDS + 1)
+		activated.status = "online"
 		db.session.commit()
 		self.assertEqual(mark_offline_agents(), 1)
 		self.assertEqual(activated.status, "offline")

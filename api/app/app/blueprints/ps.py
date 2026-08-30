@@ -10,6 +10,7 @@ from werkzeug.utils import secure_filename
 from sqlalchemy import or_, and_, func
 from ..models import ServiceOrder, Ticket, User
 from .. import db
+from ..external_pg import ExternalPgError, fetch_ps_financial_records
 from ..timezone_utils import get_brasilia_now, brasilia_to_utc
 from ..query_filters import filter_dicts
 
@@ -50,54 +51,34 @@ def index():
 @bp.route('/api/list')
 @login_required
 def list_files():
-    """API para listar arquivos e pastas da pasta PS"""
+    """Lista PS registradas no PostgreSQL/Unico, enriquecidas com dados locais."""
     try:
-        # Caminho base da pasta PS (caminho absoluto)
-        ps_path = Path(__file__).parent.parent.parent / "ps"
-        if not ps_path.exists():
-            return jsonify({"error": "Pasta PS não encontrada"}), 404
-        
-        # Parâmetros
-        subfolder = request.args.get('folder', '')
+        # O financeiro do Unico é a fonte atual. Os modelos locais preservam
+        # metadados/arquivos e registros históricos anteriores à migração.
+        financial_records = fetch_ps_financial_records()
+        tickets = Ticket.query.filter(
+            or_(
+                Ticket.ps_number.isnot(None),
+                Ticket.ps_printed == True,
+            )
+        ).all()
+        orders = ServiceOrder.query.filter(
+            or_(
+                ServiceOrder.ps_number.isnot(None),
+                ServiceOrder.ps_generated == True,
+            )
+        ).all()
+        items = merge_ps_records(financial_records, tickets, orders)
+
         search_term = (request.args.get('search') or request.args.get('q') or '').strip().lower()
-        search_recursive = request.args.get('recursive', 'false').lower() == 'true'
-
-        if subfolder == VIRTUAL_MONTH_FOLDER:
-            items = list_ps_current_month()
-            return jsonify({
-                "items": items,
-                "current_path": subfolder,
-                "parent_path": "",
-                "search_term": search_term,
-                "search_recursive": False,
-                "total": len(items),
-                "page": 1,
-                "per_page": len(items) or 1,
-            })
-        
-        current_path = ps_path / subfolder if subfolder else ps_path
-        
-        if not current_path.exists() or not current_path.is_dir():
-            return jsonify({"error": "Pasta não encontrada"}), 404
-        
-        items = []
-        
-        if search_recursive and search_term:
-            # Busca recursiva em todas as subpastas
-            items = search_files_recursive(ps_path, search_term)
-        else:
-            # Listagem normal da pasta atual
-            items = list_current_folder(current_path, subfolder, search_term)
-
-            # Injetar pasta virtual "PS do mês" apenas na raiz
-            if not subfolder:
-                if not search_term or search_term in VIRTUAL_MONTH_FOLDER_LABEL.lower():
-                    items.insert(0, {
-                        "name": VIRTUAL_MONTH_FOLDER_LABEL,
-                        "type": "folder",
-                        "path": VIRTUAL_MONTH_FOLDER,
-                        "modified": time.time()
-                    })
+        if search_term:
+            items = [
+                item for item in items
+                if search_term in " ".join(
+                    str(item.get(key) or "").lower()
+                    for key in ("ps_number", "client_name", "source", "description")
+                )
+            ]
         
         try:
             page = max(1, int(request.args.get("page", 1)))
@@ -112,17 +93,121 @@ def list_files():
         start = (page - 1) * per_page
         return jsonify({
             "items": items[start:start + per_page],
-            "current_path": subfolder,
-            "parent_path": Path(subfolder).parent.as_posix() if subfolder else "",
             "search_term": search_term,
-            "search_recursive": search_recursive,
             "total": total,
             "page": page,
             "per_page": per_page,
         })
-        
+    except ExternalPgError as e:
+        return jsonify({"error": str(e)}), 503
     except Exception as e:
-        return jsonify({"error": f"Erro ao listar arquivos: {str(e)}"}), 500
+        return jsonify({"error": f"Erro ao listar PS: {str(e)}"}), 500
+
+
+def _ps_key(value):
+    return str(value or "").strip().casefold()
+
+
+def _iso_date(value):
+    return value.isoformat() if hasattr(value, "isoformat") else (str(value) if value else None)
+
+
+def _relative_ps_file(filename):
+    full_path = find_ps_file_path(filename)
+    if not full_path:
+        return None
+    ps_root = Path(__file__).parent.parent.parent / "ps"
+    return full_path.relative_to(ps_root).as_posix()
+
+
+def _ticket_ps_item(ticket):
+    filename = ticket.ps_file or ticket.resolved_ps_filename()
+    return {
+        "ps_number": ticket.ps_number,
+        "name": ticket.ps_number or filename or f"Ticket #{ticket.id}",
+        "type": "Ticket",
+        "source": "Ticket",
+        "source_id": ticket.id,
+        "client_name": ticket.display_client_name(),
+        "value": float(ticket.total_cost or 0),
+        "issued_at": _iso_date(ticket.closed_at or ticket.created_at),
+        "description": ticket.title or "",
+        "path": _relative_ps_file(filename),
+    }
+
+
+def _order_ps_item(order):
+    return {
+        "ps_number": order.ps_number,
+        "name": order.ps_number or order.ps_file or f"OS #{order.codigo}",
+        "type": "Ordem de serviço",
+        "source": "Ordem de serviço",
+        "source_id": order.id,
+        "client_name": order.client_name or "",
+        "value": float(order.value or 0),
+        "issued_at": _iso_date(order.completion_date),
+        "description": order.service_executed or "",
+        "path": _relative_ps_file(order.ps_file),
+    }
+
+
+def merge_ps_records(financial_records, tickets, orders):
+    """Une a fonte Unico ao histórico local sem duplicar a mesma PS."""
+    ticket_items = [_ticket_ps_item(ticket) for ticket in tickets]
+    order_items = [_order_ps_item(order) for order in orders]
+    local_items = ticket_items + order_items
+    local_by_number = {
+        _ps_key(item["ps_number"]): item
+        for item in local_items
+        if _ps_key(item["ps_number"])
+    }
+    merged = []
+    seen = set()
+
+    for record in financial_records:
+        number = record.get("documento")
+        key = _ps_key(number)
+        local = local_by_number.get(key, {})
+        source = local.get("source")
+        if not source:
+            upper = str(number or "").upper()
+            source = "Ordem de serviço" if upper.startswith("PS/OS-") else (
+                "Ticket" if upper.startswith("PS/TICKET-") else "PS legada"
+            )
+        item = {
+            "id": f"unico:{record.get('id')}",
+            "ps_number": number,
+            "name": number,
+            "type": source,
+            "source": source,
+            "source_id": local.get("source_id"),
+            "client_name": record.get("client_name") or local.get("client_name") or "",
+            "value": float(record.get("valor") or local.get("value") or 0),
+            "balance": float(record.get("saldo") or 0),
+            "status": record.get("status"),
+            "issued_at": _iso_date(record.get("emissao") or local.get("issued_at")),
+            "description": record.get("description") or local.get("description") or "",
+            "path": local.get("path"),
+        }
+        merged.append(item)
+        if key:
+            seen.add(key)
+
+    # Compatibilidade: PS antigas podem existir apenas no banco Computicket,
+    # sobretudo quando o identificador vinha da sequência SQL Server removida.
+    for item in local_items:
+        key = _ps_key(item["ps_number"])
+        if key and key in seen:
+            continue
+        item["id"] = f"local:{item['source']}:{item['source_id']}"
+        item["status"] = None
+        item["balance"] = None
+        merged.append(item)
+        if key:
+            seen.add(key)
+
+    merged.sort(key=lambda item: item.get("issued_at") or "", reverse=True)
+    return merged
 
 
 def list_ps_current_month():

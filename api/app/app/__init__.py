@@ -615,6 +615,9 @@ def create_app() -> Flask:
 	# Registrar blueprint de notificações
 	from app.blueprints.notifications import notifications_bp
 	app.register_blueprint(notifications_bp)
+	with app.app_context():
+		from app.notification_service import ensure_vapid_keys
+		ensure_vapid_keys()
 	
 	# Inicializar sistema de monitoramento de localização
 	from app.websocket_monitoring import init_location_monitoring

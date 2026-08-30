@@ -84,6 +84,7 @@ export const DEFAULT_REMOTE_THRESHOLDS: RemoteThresholds = {
   disk: 90,
   temperature: 85,
 };
+export const REMOTE_OFFLINE_AFTER_MS = 90_000;
 
 export const remoteSocketOrigin =
   typeof window === "undefined"
@@ -123,16 +124,23 @@ export function formatMetric(value: number | null, unit = "%", digits = 1) {
 
 export function formatDate(value?: string | null, fallback = "Nunca") {
   if (!value) return fallback;
-  // Datas naive do backend são UTC; sem Z o browser trata como horário local e
-  // o "último contato" pode parecer antigo / Offline.
-  const normalized =
-    /^\d{4}-\d{2}-\d{2}T/.test(value) && !/[zZ]|[+-]\d{2}:?\d{2}$/.test(value)
-      ? `${value}Z`
-      : value;
-  const date = new Date(normalized);
+  const date = new Date(normalizeRemoteDate(value));
   return Number.isNaN(date.getTime())
     ? value
     : date.toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" });
+}
+
+function normalizeRemoteDate(value: string) {
+  // Datas naive do backend são UTC; sem Z o browser as interpreta como locais.
+  return /^\d{4}-\d{2}-\d{2}T/.test(value) && !/[zZ]|[+-]\d{2}:?\d{2}$/.test(value)
+    ? `${value}Z`
+    : value;
+}
+
+function remoteTimestamp(value?: string | null) {
+  if (!value) return null;
+  const timestamp = new Date(normalizeRemoteDate(value)).getTime();
+  return Number.isFinite(timestamp) ? timestamp : null;
 }
 
 export function formatBytes(value: unknown) {
@@ -152,14 +160,26 @@ export function formatUptime(value: unknown) {
   return [days ? `${days}d` : "", hours ? `${hours}h` : "", `${minutes}min`].filter(Boolean).join(" ");
 }
 
-export function statusLabel(agent: Pick<RemoteAgent, "status" | "revoked">) {
+export function statusLabel(agent: Pick<RemoteAgent, "status" | "revoked" | "last_seen">) {
   if (agent.revoked || agent.status === "revoked") return "Revogado";
+  const status = agent.status?.toLowerCase();
+  if (status === "pending" && !agent.last_seen) return "Pendente";
+  const lastSeen = remoteTimestamp(agent.last_seen);
+  if (lastSeen != null) {
+    const isFresh = Date.now() - lastSeen <= REMOTE_OFFLINE_AFTER_MS;
+    if (isFresh) return "Online";
+    if (status === "online") return "Offline";
+  }
   const labels: Record<string, string> = { online: "Online", offline: "Offline", pending: "Pendente" };
-  return labels[agent.status?.toLowerCase()] || agent.status || "Desconhecido";
+  return labels[status] || agent.status || "Desconhecido";
 }
 
 export function mergeAgent(current: RemoteAgent | undefined, update: RemoteAgent | RemoteLiveEvent) {
   if (!current || current.id !== update.id) return current;
+  const currentSeen = remoteTimestamp(current.last_seen);
+  const updateSeen = remoteTimestamp(update.last_seen);
+  const updateIsOlder = currentSeen != null && updateSeen != null && updateSeen < currentSeen;
+  if (updateIsOlder) return current;
   const isLive =
     "metrics" in update &&
     !("snapshot" in update) &&
@@ -187,4 +207,16 @@ export function mergeAgentPage(
 ) {
   if (!current) return current;
   return { ...current, items: current.items.map((agent) => mergeAgent(agent, update) || agent) };
+}
+
+export function reconcileAgentPage(
+  current: PageRes<RemoteAgent> | undefined,
+  incoming: PageRes<RemoteAgent>,
+) {
+  if (!current) return incoming;
+  const previousById = new Map(current.items.map((agent) => [agent.id, agent]));
+  return {
+    ...incoming,
+    items: incoming.items.map((agent) => mergeAgent(previousById.get(agent.id), agent) || agent),
+  };
 }

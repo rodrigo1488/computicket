@@ -2,17 +2,18 @@
 from __future__ import annotations
 
 from functools import wraps
+import os
 from pathlib import Path
 
 from flask import Blueprint, jsonify, request, send_file
 from flask_login import current_user, login_required
-from sqlalchemy import func
 
 from .. import db
 from ..models import RemoteAgent, RemoteAgentAlert, RemoteAgentSample
 from ..remote_monitor_service import (
 	MAX_TELEMETRY_BYTES,
 	activate,
+	agent_is_live,
 	apply_socket_presence,
 	authenticate_agent,
 	create_enrollment,
@@ -65,21 +66,27 @@ def _request_agent():
 @bp.get("/stats")
 @_web_roles
 def stats():
-	from ..remote_monitor_service import connected_agent_ids
-	live_ids = connected_agent_ids()
 	agents = RemoteAgent.query.filter_by(is_revoked=False).all()
-	online = sum(1 for a in agents if a.id in live_ids)
-	pending = sum(1 for a in agents if a.status == "pending" and a.id not in live_ids)
-	offline = sum(1 for a in agents if a.id not in live_ids and a.status != "pending")
-	statuses = dict(db.session.query(RemoteAgent.status, func.count(RemoteAgent.id)).group_by(RemoteAgent.status).all())
+	liveness = {agent.id: agent_is_live(agent) for agent in agents}
+	online = sum(1 for agent in agents if liveness[agent.id])
+	pending = sum(1 for agent in agents if agent.status == "pending" and not liveness[agent.id])
+	offline = sum(1 for agent in agents if agent.status != "pending" and not liveness[agent.id])
+	revoked = RemoteAgent.query.filter_by(is_revoked=True).count()
+	statuses = {
+		"online": online,
+		"offline": offline,
+		"pending": pending,
+		"revoked": revoked,
+	}
 	return jsonify({
 		"total": RemoteAgent.query.count(),
 		"online": online,
 		"offline": offline,
 		"pending": pending,
-		"revoked": RemoteAgent.query.filter_by(is_revoked=True).count(),
+		"revoked": revoked,
 		"open_alerts": RemoteAgentAlert.query.filter_by(resolved_at=None).count(),
 		"by_status": statuses,
+		# Mantido por compatibilidade; representa presença efetiva compartilhada.
 		"socket_online": online,
 	})
 
@@ -244,9 +251,18 @@ def delete_agent(agent_id: int):
 @bp.get("/download")
 @_web_roles
 def download():
-	executable = Path(__file__).resolve().parents[4] / "agents" / "remote_monitor_agent" / "dist" / "ComputicketMonitorAgent.exe"
-	if not executable.is_file():
-		return jsonify({"error": "Instalador do agente ainda não está disponível no servidor."}), 404
+	configured = (os.environ.get("REMOTE_MONITOR_AGENT_PATH") or "").strip()
+	candidates = [Path(configured)] if configured else []
+	candidates.append(Path("/app/artifacts/ComputicketMonitorAgent.exe"))
+	for parent in Path(__file__).resolve().parents:
+		candidates.append(
+			parent / "agents" / "remote_monitor_agent" / "dist" / "ComputicketMonitorAgent.exe"
+		)
+	executable = next((candidate for candidate in candidates if candidate.is_file()), None)
+	if executable is None:
+		return jsonify({
+			"error": "Executável do agente não encontrado na imagem da API. Reconstrua os containers com --build."
+		}), 404
 	return send_file(executable, as_attachment=True, download_name="ComputicketMonitorAgent.exe")
 
 

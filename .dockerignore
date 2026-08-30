@@ -1,0 +1,14 @@
+**
+!api/
+!api/**
+!agents/
+!agents/remote_monitor_agent/
+!agents/remote_monitor_agent/dist/
+!agents/remote_monitor_agent/dist/ComputicketMonitorAgent.exe
+
+api/**/__pycache__/
+api/**/*.py[cod]
+api/.venv/
+api/**/.venv/
+api/**/instance/
+api/**/*.log

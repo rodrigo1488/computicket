@@ -11,6 +11,7 @@ import { ViewAction } from "@/components/ui/RowActions";
 import { PrimaryButton, UnderlineField } from "@/components/ui/UnderlineField";
 import { flask, type PageRes } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
+import { copyText } from "@/lib/clipboard";
 import { cn } from "@/lib/cn";
 import {
   DEFAULT_REMOTE_THRESHOLDS,
@@ -18,6 +19,7 @@ import {
   formatDate,
   mergeAgent,
   metricValue,
+  reconcileAgentPage,
   remoteSocketOrigin,
   statusLabel,
   type RemoteAgent,
@@ -58,10 +60,15 @@ export default function RemoteMonitoringPage() {
 
   const agents = useQuery({
     queryKey: ["remote-agents", q, status],
-    queryFn: () =>
-      flask.get<PageRes<RemoteAgent>>(
+    queryFn: async () => {
+      const incoming = await flask.get<PageRes<RemoteAgent>>(
         `/api/remote-monitor/agents?q=${encodeURIComponent(q)}&status=${encodeURIComponent(status)}&page=1&per_page=200`,
-      ),
+      );
+      return reconcileAgentPage(
+        qc.getQueryData<PageRes<RemoteAgent>>(["remote-agents", q, status]),
+        incoming,
+      );
+    },
     refetchInterval: 15000,
   });
 
@@ -315,6 +322,7 @@ function CreateAgentModal({ open, onClose }: { open: boolean; onClose: () => voi
   const [thresholds, setThresholds] = useState<RemoteThresholds>({ ...DEFAULT_REMOTE_THRESHOLDS });
   const [result, setResult] = useState<CreateResult | null>(null);
   const [copied, setCopied] = useState(false);
+  const [copyError, setCopyError] = useState("");
   const [downloadError, setDownloadError] = useState("");
 
   const clients = useQuery({
@@ -348,6 +356,7 @@ function CreateAgentModal({ open, onClose }: { open: boolean; onClose: () => voi
     setThresholds({ ...DEFAULT_REMOTE_THRESHOLDS });
     setResult(null);
     setCopied(false);
+    setCopyError("");
     setDownloadError("");
     create.reset();
     onClose();
@@ -383,13 +392,20 @@ function CreateAgentModal({ open, onClose }: { open: boolean; onClose: () => voi
             <button
               type="button"
               onClick={async () => {
-                await navigator.clipboard.writeText(result.activation_code);
-                setCopied(true);
+                setCopyError("");
+                try {
+                  await copyText(result.activation_code);
+                  setCopied(true);
+                } catch (error) {
+                  setCopied(false);
+                  setCopyError(error instanceof Error ? error.message : "Não foi possível copiar o código.");
+                }
               }}
               className="mt-3 inline-flex items-center gap-2 text-sm font-medium text-brand"
             >
               <Copy className="h-4 w-4" /> {copied ? "Código copiado" : "Copiar código"}
             </button>
+            {copyError ? <p role="alert" className="mt-2 text-sm text-open">{copyError}</p> : null}
           </div>
           <ol className="list-decimal space-y-1 pl-5 text-sm text-muted">
             <li>Baixe e execute o agente no computador que será monitorado.</li>

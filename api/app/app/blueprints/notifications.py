@@ -1,13 +1,11 @@
 """API de notificações persistentes e assinaturas Web Push."""
 
-import os
-
 from flask import Blueprint, jsonify, request
 from flask_login import current_user, login_required
 
 from app import db
 from app.models import AppNotification, PushSubscription
-from app.notification_service import create_notifications
+from app.notification_service import create_notifications, ensure_vapid_keys
 from app.timezone_utils import get_brasilia_now
 
 
@@ -63,8 +61,8 @@ def mark_notifications_read():
 @notifications_bp.route("/push/config")
 @login_required
 def push_config():
-	public_key = (os.environ.get("VAPID_PUBLIC_KEY") or "").strip()
-	return jsonify({"enabled": bool(public_key), "publicKey": public_key or None})
+	public_key, _ = ensure_vapid_keys()
+	return jsonify({"enabled": True, "publicKey": public_key})
 
 
 @notifications_bp.route("/push/subscribe", methods=["POST"])

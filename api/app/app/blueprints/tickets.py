@@ -9,7 +9,7 @@ from .. import db
 from ..models import Ticket, Client, Contract, Service, User, TimeEntry, TicketProduct, TicketAddon, HelpDeskTicketLink
 from ..external_pg import fetch_external_clients
 from ..timezone_utils import get_brasilia_now, brasilia_to_utc, utc_to_brasilia
-from .utils import connect_postgres, connect_sql_server
+from .utils import connect_postgres
 from ..engine_client import EngineError, admin_request, notify_helpdesk_ticket
 from ..plan_usage_manager import update_plan_usage_from_ticket
 from ..services.faturamento_products import (
@@ -2086,40 +2086,9 @@ def cancel_ps(ticket_id):
 		ticket.ps_printed = False
 		ticket.ps_number = None
 		ticket.ps_file = None
-		db.session.commit()
-		print(f"✅ SQLite atualizado com sucesso")
-		
-		# 2. EXCLUIR DO SQL SERVER
-		print(f"🗑️ Excluindo do SQL Server - PS: {ps_number}")
-		sql_conn = None
-		try:
-			sql_conn = connect_sql_server()
-			sql_cursor = sql_conn.cursor()
-			
-			# Buscar o registro no SQL Server pelo número da PS
-			sql_cursor.execute("SELECT * FROM servicos WHERE OS = ?", (str(ticket_id),))
-			sql_record = sql_cursor.fetchone()
-			
-			if sql_record:
-				print(f"📋 Registro encontrado no SQL Server: {sql_record}")
-				
-				# Excluir o registro
-				sql_cursor.execute("DELETE FROM servicos WHERE OS = ?", (str(ticket_id),))
-				sql_conn.commit()
-				print(f"✅ Registro excluído do SQL Server")
-			else:
-				print(f"⚠️ Registro não encontrado no SQL Server para OS: {ticket_id}")
-				
-		except Exception as e:
-			print(f"❌ Erro ao excluir do SQL Server: {e}")
-			if sql_conn:
-				sql_conn.rollback()
-			raise e
-		finally:
-			if sql_conn:
-				sql_conn.close()
-		
-		# 3. EXCLUIR DO POSTGRESQL (financeiro)
+		db.session.flush()
+
+		# 2. EXCLUIR DO POSTGRESQL/UNICO (financeiro)
 		print(f"🗑️ Excluindo do PostgreSQL - PS: {ps_number}")
 		pg_conn = None
 		try:
@@ -2129,6 +2098,8 @@ def cancel_ps(ticket_id):
 				print(f"✅ Registro excluído do PostgreSQL via agente")
 			else:
 				pg_conn = connect_postgres()
+				if not pg_conn:
+					raise RuntimeError("Não foi possível conectar ao PostgreSQL/Unico")
 				pg_cursor = pg_conn.cursor()
 				
 				# Buscar o registro no PostgreSQL pelo documento
@@ -2153,6 +2124,9 @@ def cancel_ps(ticket_id):
 		finally:
 			if pg_conn:
 				pg_conn.close()
+
+		db.session.commit()
+		print(f"✅ Ticket local atualizado com sucesso")
 		
 		# Log de sucesso
 		print(f"🎉 CANCELAMENTO DE PS CONCLUÍDO COM SUCESSO - Ticket: {ticket_id}")

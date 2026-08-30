@@ -53,6 +53,10 @@ ALIASES = {
 	"solicitante": "solicitante",
 	"criado": "created_at",
 	"criado_em": "created_at",
+	"ps": "ps_number",
+	"origem": "source",
+	"emissao": "issued_at",
+	"arquivo": "path",
 }
 
 

@@ -2,8 +2,8 @@ from flask import Blueprint, render_template, request, jsonify, flash, redirect,
 from flask_login import login_required, current_user
 from .. import db
 from ..models import ServiceOrder
-from .utils import connect_sql_server, connect_postgres
-from .printer import generateServiceProvisionPDF, insert_finance_pg, insert_service_sqlserver, get_id_entity, generateDeliveryReceipt, generateCombinedPSAndDeliveryReceipt
+from .utils import connect_postgres
+from .printer import generateDeliveryReceipt, generateCombinedPSAndDeliveryReceipt
 from ..services.faturamento_products import (
 	search_products as search_products_pg,
 	validate_products,
@@ -493,7 +493,7 @@ def process_finalization():
 					return redirect(url_for("service_orders.list_service_orders"))
 				
 				document, final_os = result_data
-				# Usar o número sequencial do SQL Server
+				# Usar o identificador estável registrado no PostgreSQL/Unico
 				ps_number = document
 				print(f"📄 Número da PS gerado: {ps_number}, OS final: {final_os}")
 				

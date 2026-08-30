@@ -65,21 +65,9 @@ def register_agent_connection(sid: str, agent_id: int) -> None:
 def unregister_agent_connection(sid: str) -> int | None:
 	with _connections_lock:
 		agent_id = _connections.pop(str(sid), None)
-	if agent_id is None:
-		return None
-	# Só marca offline se não restar outro sid do mesmo agente.
-	if agent_id not in connected_agent_ids():
-		agent = db.session.get(RemoteAgent, agent_id)
-		if agent and not agent.is_revoked and agent.status != "offline":
-			now = utc_now()
-			agent.status = "offline"
-			_transition_alert(
-				agent, "offline", True,
-				"Socket do agente desconectado",
-				"critical", now,
-			)
-			db.session.commit()
-			_broadcast_update(agent.to_dict(include_snapshot=True))
+	# Uma queda de transporte não significa que o computador ficou offline:
+	# o agente também envia heartbeat/telemetria por HTTP e pode reconectar logo
+	# em seguida. A manutenção aplica OFFLINE_AFTER_SECONDS sobre last_seen.
 	return agent_id
 
 
@@ -88,18 +76,29 @@ def connected_agent_ids() -> set[int]:
 		return set(_connections.values())
 
 
-def apply_socket_presence(payload: dict, agent: RemoteAgent) -> dict:
-	"""Status exibido = presença Socket.IO (fonte da verdade)."""
+def agent_is_live(agent: RemoteAgent, now: datetime | None = None) -> bool:
+	"""Presença compartilhável entre processos, baseada no último heartbeat."""
+	if agent.is_revoked or agent.last_seen is None:
+		return False
+	now = now or utc_now()
+	last_seen = agent.last_seen
+	if last_seen.tzinfo is not None:
+		last_seen = last_seen.astimezone(timezone.utc).replace(tzinfo=None)
+	if now.tzinfo is not None:
+		now = now.astimezone(timezone.utc).replace(tzinfo=None)
+	return last_seen >= now - timedelta(seconds=OFFLINE_AFTER_SECONDS)
+
+
+def apply_socket_presence(payload: dict, agent: RemoteAgent, now: datetime | None = None) -> dict:
+	"""Combina heartbeat persistido com o socket local apenas para diagnóstico."""
 	if agent.is_revoked:
 		payload["status"] = "revoked"
 		payload["socket_connected"] = False
 		return payload
-	live = agent.id in connected_agent_ids()
-	payload["socket_connected"] = live
-	if live:
+	payload["socket_connected"] = agent.id in connected_agent_ids()
+	if agent_is_live(agent, now):
 		payload["status"] = "online"
-	elif payload.get("status") == "online":
-		# DB ainda online, mas sem socket → offline na UI
+	elif payload.get("status") != "pending":
 		payload["status"] = "offline"
 	return payload
 
@@ -434,15 +433,12 @@ def mark_offline_agents() -> int:
 	heal_connected_agents()
 	now = utc_now()
 	cutoff = now - timedelta(seconds=OFFLINE_AFTER_SECONDS)
-	online_ids = connected_agent_ids()
 	query = RemoteAgent.query.filter(
 		RemoteAgent.is_revoked.is_(False),
 		RemoteAgent.last_seen.isnot(None),
 		RemoteAgent.last_seen < cutoff,
 		RemoteAgent.status != "offline",
 	)
-	if online_ids:
-		query = query.filter(~RemoteAgent.id.in_(online_ids))
 	agents = query.all()
 	for agent in agents:
 		agent.status = "offline"

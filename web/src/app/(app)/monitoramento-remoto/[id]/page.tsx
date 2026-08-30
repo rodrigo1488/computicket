@@ -16,13 +16,14 @@ import {
   Trash2,
 } from "lucide-react";
 import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
+import { useParams } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
 import { io } from "socket.io-client";
 import { PageTitle } from "@/components/layout/AppShell";
 import { Modal } from "@/components/ui/Modal";
 import { flask } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
+import { copyText } from "@/lib/clipboard";
 import { cn } from "@/lib/cn";
 import {
   formatBytes,
@@ -42,7 +43,6 @@ import {
 
 export default function RemoteAgentDetailPage() {
   const params = useParams<{ id: string }>();
-  const router = useRouter();
   const qc = useQueryClient();
   const { user } = useAuth();
   const id = Number(params.id);
@@ -50,10 +50,15 @@ export default function RemoteAgentDetailPage() {
   const [downloadError, setDownloadError] = useState("");
   const [activationCode, setActivationCode] = useState("");
   const [copied, setCopied] = useState(false);
+  const [copyError, setCopyError] = useState("");
 
   const detail = useQuery({
     queryKey: ["remote-agent", id],
-    queryFn: () => flask.get<RemoteAgent>(`/api/remote-monitor/agents/${id}`),
+    queryFn: async () => {
+      const incoming = await flask.get<RemoteAgent>(`/api/remote-monitor/agents/${id}`);
+      const current = qc.getQueryData<RemoteAgent>(["remote-agent", id]);
+      return mergeAgent(current, incoming) || incoming;
+    },
     enabled: Number.isFinite(id),
     refetchInterval: 15000,
   });
@@ -98,6 +103,7 @@ export default function RemoteAgentDetailPage() {
     onSuccess: (data) => {
       setActivationCode(data.activation_code);
       setCopied(false);
+      setCopyError("");
     },
   });
   const revoke = useMutation({
@@ -210,20 +216,34 @@ export default function RemoteAgentDetailPage() {
         <MetadataPanel agent={agent} />
       </div>
 
-      <Modal open={!!activationCode} onClose={() => setActivationCode("")} title="Novo código de ativação">
+      <Modal
+        open={!!activationCode}
+        onClose={() => {
+          setActivationCode("");
+          setCopyError("");
+        }}
+        title="Novo código de ativação"
+      >
         <p className="mb-4 text-sm text-muted">O código expira em 30 minutos e invalida códigos anteriores ainda não utilizados.</p>
         <div className="rounded-2xl border border-brand/20 bg-progress-bg p-5 text-center">
           <code className="block text-2xl font-semibold tracking-[0.12em] text-brand">{activationCode}</code>
           <button
             type="button"
             onClick={async () => {
-              await navigator.clipboard.writeText(activationCode);
-              setCopied(true);
+              setCopyError("");
+              try {
+                await copyText(activationCode);
+                setCopied(true);
+              } catch (error) {
+                setCopied(false);
+                setCopyError(error instanceof Error ? error.message : "Não foi possível copiar o código.");
+              }
             }}
             className="mt-3 inline-flex items-center gap-2 text-sm font-medium text-brand"
           >
             <Copy className="h-4 w-4" /> {copied ? "Código copiado" : "Copiar código"}
           </button>
+          {copyError ? <p role="alert" className="mt-2 text-sm text-open">{copyError}</p> : null}
         </div>
       </Modal>
     </div>

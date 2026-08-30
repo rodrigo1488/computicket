@@ -92,8 +92,8 @@ services:
 
   api:
     build:
-      context: ./api
-      dockerfile: ../infra/api/Dockerfile
+      context: .
+      dockerfile: infra/api/Dockerfile
     restart: unless-stopped
     depends_on:
       postgres:
@@ -117,6 +117,7 @@ services:
       VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
       VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
       VAPID_CONTACT: ${VAPID_CONTACT:-mailto:admin@computicket.local}
+      REMOTE_MONITOR_AGENT_PATH: /app/artifacts/ComputicketMonitorAgent.exe
       # Fallback opcional do agente (preferir Configurações → Uniplus)
       UNIPLUS_AGENT_ENABLED: ${UNIPLUS_AGENT_ENABLED:-0}
       UNIPLUS_AGENT_DEVICE_ID: ${UNIPLUS_AGENT_DEVICE_ID:-}

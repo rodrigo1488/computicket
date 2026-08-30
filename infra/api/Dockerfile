@@ -9,8 +9,6 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 RUN apt-get update && apt-get install -y --no-install-recommends \
       build-essential \
       curl \
-      unixodbc \
-      unixodbc-dev \
       gnupg \
       ca-certificates \
       tzdata \
@@ -18,15 +16,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && echo $TZ > /etc/timezone \
     && rm -rf /var/lib/apt/lists/*
 
-COPY requirements.txt /tmp/requirements.txt
+COPY api/requirements.txt /tmp/requirements.txt
 RUN pip install --no-cache-dir -r /tmp/requirements.txt \
     && rm /tmp/requirements.txt
 
 # Código: api/app contém o pacote Flask (app/) + templates/static
-COPY app/ /app/
+COPY api/app/ /app/
 
 # run.py na raiz da imagem
-COPY run.py /app/run.py
+COPY api/run.py /app/run.py
+
+# Binário Windows compilado do agente de monitoramento remoto.
+COPY agents/remote_monitor_agent/dist/ComputicketMonitorAgent.exe /app/artifacts/ComputicketMonitorAgent.exe
 
 # Garante que `from app import create_app` resolva api/app/app
 ENV PYTHONPATH=/app

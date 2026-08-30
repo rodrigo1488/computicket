@@ -42,6 +42,7 @@ type Service = { id: number; name: string };
 type UserRow = { id: number; name: string; status?: string };
 
 const WEEKDAYS = ["Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom"];
+const MONTH_WEEKDAYS = ["S", "T", "Q", "Q", "S", "S", "D"];
 
 function startOfWeek(d: Date) {
   const x = new Date(d);
@@ -76,6 +77,19 @@ function formatWeekLabel(weekStart: Date) {
   return `${a} – ${b}`;
 }
 
+function startOfMonth(d: Date) {
+  return new Date(d.getFullYear(), d.getMonth(), 1);
+}
+
+function addMonths(d: Date, n: number) {
+  return new Date(d.getFullYear(), d.getMonth() + n, 1);
+}
+
+function formatMonthLabel(d: Date) {
+  const label = d.toLocaleDateString("pt-BR", { month: "long", year: "numeric" });
+  return label.charAt(0).toUpperCase() + label.slice(1);
+}
+
 function eventDayKey(ev: CalEvent) {
   const raw = ev.start || "";
   return raw.slice(0, 10);
@@ -92,6 +106,8 @@ export default function AgendaPage() {
   const qc = useQueryClient();
   const { user } = useAuth();
   const [anchor, setAnchor] = useState(() => startOfWeek(new Date()));
+  const [monthAnchor, setMonthAnchor] = useState(() => startOfMonth(new Date()));
+  const [selectedDayKey, setSelectedDayKey] = useState(() => ymd(new Date()));
   const [open, setOpen] = useState(false);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -104,8 +120,12 @@ export default function AgendaPage() {
   const [formError, setFormError] = useState("");
 
   const weekDays = useMemo(() => Array.from({ length: 7 }, (_, i) => addDays(anchor, i)), [anchor]);
-  const rangeStart = weekDays[0];
-  const rangeEnd = addDays(weekDays[6], 1);
+  const monthDays = useMemo(() => {
+    const gridStart = startOfWeek(monthAnchor);
+    return Array.from({ length: 42 }, (_, i) => addDays(gridStart, i));
+  }, [monthAnchor]);
+  const rangeStart = monthDays[0];
+  const rangeEnd = addDays(monthDays[monthDays.length - 1], 1);
 
   const eventsQuery = useQuery({
     queryKey: ["agenda-cal", ymd(rangeStart), ymd(rangeEnd)],
@@ -195,7 +215,10 @@ export default function AgendaPage() {
   };
 
   const todayKey = ymd(new Date());
-  const events = Array.isArray(eventsQuery.data) ? eventsQuery.data : [];
+  const events = useMemo(
+    () => (Array.isArray(eventsQuery.data) ? eventsQuery.data : []),
+    [eventsQuery.data],
+  );
   const byDay = useMemo(() => {
     const map: Record<string, CalEvent[]> = {};
     for (const ev of events) {
@@ -207,6 +230,33 @@ export default function AgendaPage() {
     }
     return map;
   }, [events]);
+  const selectedEvents = byDay[selectedDayKey] || [];
+  const selectedDate = new Date(`${selectedDayKey}T12:00:00`);
+
+  const changeWeek = (days: number) => {
+    const next = addDays(anchor, days);
+    setAnchor(next);
+    setMonthAnchor(startOfMonth(addDays(next, 3)));
+  };
+
+  const changeMonth = (months: number) => {
+    const next = addMonths(monthAnchor, months);
+    setMonthAnchor(next);
+    setAnchor(startOfWeek(next));
+    setSelectedDayKey(ymd(next));
+  };
+
+  const goToToday = () => {
+    const today = new Date();
+    setAnchor(startOfWeek(today));
+    setMonthAnchor(startOfMonth(today));
+    setSelectedDayKey(ymd(today));
+  };
+
+  const selectCalendarDay = (day: Date) => {
+    setSelectedDayKey(ymd(day));
+    setAnchor(startOfWeek(day));
+  };
 
   return (
     <div>
@@ -225,7 +275,7 @@ export default function AgendaPage() {
       <div className="mb-5 flex flex-wrap items-center gap-3">
         <button
           type="button"
-          onClick={() => setAnchor(addDays(anchor, -7))}
+          onClick={() => changeWeek(-7)}
           className="rounded-xl border border-[#eee] p-2 text-ink hover:bg-[#fafafa]"
           aria-label="Semana anterior"
         >
@@ -234,7 +284,7 @@ export default function AgendaPage() {
         <p className="min-w-[180px] text-center text-sm font-medium text-navy">{formatWeekLabel(anchor)}</p>
         <button
           type="button"
-          onClick={() => setAnchor(addDays(anchor, 7))}
+          onClick={() => changeWeek(7)}
           className="rounded-xl border border-[#eee] p-2 text-ink hover:bg-[#fafafa]"
           aria-label="Próxima semana"
         >
@@ -242,7 +292,7 @@ export default function AgendaPage() {
         </button>
         <button
           type="button"
-          onClick={() => setAnchor(startOfWeek(new Date()))}
+          onClick={goToToday}
           className="rounded-xl border border-[#eee] px-3 py-2 text-sm text-muted hover:text-ink"
         >
           Hoje
@@ -317,6 +367,166 @@ export default function AgendaPage() {
           );
         })}
       </div>
+
+      <section className="mt-8 overflow-hidden rounded-2xl border border-[#eee] bg-white">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#eee] px-4 py-4 sm:px-5">
+          <div>
+            <p className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted">Visão mensal</p>
+            <h2 className="mt-0.5 text-lg font-semibold text-navy">{formatMonthLabel(monthAnchor)}</h2>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => changeMonth(-1)}
+              className="rounded-xl border border-[#eee] p-2 text-ink hover:bg-[#fafafa]"
+              aria-label="Mês anterior"
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              onClick={goToToday}
+              className="rounded-xl border border-[#eee] px-3 py-2 text-sm text-muted hover:text-ink"
+            >
+              Hoje
+            </button>
+            <button
+              type="button"
+              onClick={() => changeMonth(1)}
+              className="rounded-xl border border-[#eee] p-2 text-ink hover:bg-[#fafafa]"
+              aria-label="Próximo mês"
+            >
+              <ChevronRight className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-7 border-b border-[#eee] bg-[#fafafa]">
+          {MONTH_WEEKDAYS.map((weekday, index) => (
+            <div
+              key={`${weekday}-${index}`}
+              className="py-2 text-center text-[10px] font-medium uppercase tracking-[0.08em] text-muted sm:text-xs"
+            >
+              <span className="sm:hidden">{weekday}</span>
+              <span className="hidden sm:inline">{WEEKDAYS[index]}</span>
+            </div>
+          ))}
+        </div>
+
+        <div className="grid grid-cols-7">
+          {monthDays.map((day) => {
+            const key = ymd(day);
+            const dayEvents = byDay[key] || [];
+            const isToday = key === todayKey;
+            const isSelected = key === selectedDayKey;
+            const isCurrentMonth = day.getMonth() === monthAnchor.getMonth();
+            return (
+              <button
+                key={key}
+                type="button"
+                onClick={() => selectCalendarDay(day)}
+                className={cn(
+                  "min-h-20 border-b border-r border-[#eee] p-1.5 text-left transition-colors hover:bg-[#fafafa] sm:min-h-28 sm:p-2",
+                  !isCurrentMonth && "bg-[#fcfcfc] text-muted",
+                  isSelected && "bg-[#f7f9ff] ring-2 ring-inset ring-brand/30",
+                )}
+                aria-label={`${day.toLocaleDateString("pt-BR")}: ${dayEvents.length} agendamento(s)`}
+                aria-pressed={isSelected}
+              >
+                <div className="flex items-center justify-between gap-1">
+                  <span
+                    className={cn(
+                      "flex h-6 w-6 items-center justify-center rounded-full text-xs font-medium sm:h-7 sm:w-7 sm:text-sm",
+                      isToday ? "bg-brand text-white" : isCurrentMonth ? "text-navy" : "text-muted",
+                    )}
+                  >
+                    {day.getDate()}
+                  </span>
+                  {dayEvents.length > 0 ? (
+                    <span className="rounded-full bg-brand/10 px-1.5 py-0.5 text-[10px] font-semibold text-brand">
+                      {dayEvents.length}
+                    </span>
+                  ) : null}
+                </div>
+                <div className="mt-1 hidden space-y-1 sm:block">
+                  {dayEvents.slice(0, 2).map((ev) => (
+                    <div
+                      key={String(ev.id)}
+                      className="truncate rounded-md px-1.5 py-1 text-[10px] text-ink"
+                      style={{ background: ev.color ? `${ev.color}18` : "#f1f3f5" }}
+                    >
+                      {eventTime(ev)} {ev.title}
+                    </div>
+                  ))}
+                  {dayEvents.length > 2 ? <p className="px-1 text-[10px] text-muted">+{dayEvents.length - 2} mais</p> : null}
+                </div>
+                {dayEvents.length > 0 ? (
+                  <div className="mt-2 flex gap-1 sm:hidden">
+                    {dayEvents.slice(0, 3).map((ev) => (
+                      <span
+                        key={String(ev.id)}
+                        className="h-1.5 w-1.5 rounded-full bg-brand"
+                        style={ev.color ? { backgroundColor: ev.color } : undefined}
+                      />
+                    ))}
+                  </div>
+                ) : null}
+              </button>
+            );
+          })}
+        </div>
+
+        <div className="p-4 sm:p-5">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted">Dia selecionado</p>
+              <h3 className="mt-0.5 font-semibold text-navy">
+                {selectedDate.toLocaleDateString("pt-BR", { weekday: "long", day: "numeric", month: "long" })}
+              </h3>
+            </div>
+            <button
+              type="button"
+              onClick={() => openCreate(selectedDate)}
+              className="inline-flex h-9 items-center gap-2 rounded-xl border border-[#eee] px-3 text-sm font-medium text-ink hover:bg-[#fafafa]"
+            >
+              <Plus className="h-4 w-4" />
+              Agendar neste dia
+            </button>
+          </div>
+
+          {selectedEvents.length === 0 ? (
+            <p className="rounded-xl bg-[#fafafa] px-3 py-4 text-sm text-muted">Nenhum agendamento para este dia.</p>
+          ) : (
+            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+              {selectedEvents.map((ev) => {
+                const kind = ev.extendedProps?.type;
+                const isAppt = !kind || kind === "appointment";
+                const client = ev.client_name || ev.extendedProps?.client_name;
+                const tech = ev.user_name || ev.extendedProps?.user_name;
+                return (
+                  <button
+                    key={String(ev.id)}
+                    type="button"
+                    onClick={() => {
+                      if (isAppt) openEdit(ev);
+                    }}
+                    className={cn(
+                      "rounded-xl border border-[#eee] p-3 text-left",
+                      isAppt ? "hover:border-brand/30 hover:bg-[#fafbff]" : "cursor-default",
+                    )}
+                  >
+                    <p className="text-xs font-medium text-brand">{eventTime(ev)}</p>
+                    <p className="mt-0.5 text-sm font-medium text-ink">{ev.title}</p>
+                    {[client, tech].filter(Boolean).length > 0 ? (
+                      <p className="mt-1 text-xs text-muted">{[client, tech].filter(Boolean).join(" · ")}</p>
+                    ) : null}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </section>
 
       <Modal open={open} onClose={() => { setOpen(false); setEditingId(null); }} title={editingId ? "Editar agendamento" : "Novo agendamento"} wide>
         <form
