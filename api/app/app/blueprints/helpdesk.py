@@ -226,11 +226,26 @@ def _execute_ai(operation: str, prompt: str, conversation_id: int | None, callba
         return jsonify({"error": "Não foi possível executar o Copiloto."}), 500
 
 
+_CLOSED_TICKET_STATUSES = ("fechado", "cancelado")
+
+
+def _visible_linked_ticket_id(computicket_id, conversation_status: str | None):
+	"""Chamado fechado/cancelado não fica ativo em conversa reaberta."""
+	if not computicket_id:
+		return None
+	ticket = db.session.get(Ticket, int(computicket_id))
+	if not ticket:
+		return None
+	if ticket.status in _CLOSED_TICKET_STATUSES and conversation_status != "closed":
+		return None
+	return ticket.id
+
+
 def _links_by_engine_ids(ids: list[int]) -> dict[int, int]:
-    if not ids:
-        return {}
-    rows = HelpDeskTicketLink.query.filter(HelpDeskTicketLink.engine_ticket_id.in_(ids)).all()
-    return {row.engine_ticket_id: row.computicket_ticket_id for row in rows}
+	if not ids:
+		return {}
+	rows = HelpDeskTicketLink.query.filter(HelpDeskTicketLink.engine_ticket_id.in_(ids)).all()
+	return {row.engine_ticket_id: row.computicket_ticket_id for row in rows}
 
 
 def _ratings_by_engine_ids(ids: list[int]) -> dict[int, dict]:
@@ -302,7 +317,10 @@ def _with_link(ticket: dict | None) -> dict | None:
     row = HelpDeskTicketLink.query.filter_by(engine_ticket_id=int(engine_id)).first()
     rating = HelpDeskRating.query.filter_by(engine_ticket_id=int(engine_id)).first()
     ticket = dict(ticket)
-    ticket["computicket_ticket_id"] = row.computicket_ticket_id if row else None
+    ticket["computicket_ticket_id"] = _visible_linked_ticket_id(
+        row.computicket_ticket_id if row else None,
+        ticket.get("status"),
+    )
     ticket["rating"] = rating.to_dict() if rating else None
     return _rewrite_ticket_media(ticket)
 
@@ -767,7 +785,10 @@ def list_conversations():
         if not isinstance(ticket, dict):
             continue
         item = dict(ticket)
-        item["computicket_ticket_id"] = links.get(item.get("id"))
+        item["computicket_ticket_id"] = _visible_linked_ticket_id(
+            links.get(item.get("id")),
+            item.get("status"),
+        )
         item["rating"] = ratings.get(item.get("id"))
         rewritten.append(_rewrite_ticket_media(item) or item)
     tickets = rewritten

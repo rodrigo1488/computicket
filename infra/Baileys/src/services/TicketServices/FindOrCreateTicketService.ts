@@ -27,8 +27,9 @@ const FindOrCreateTicketService = async (
   let ticket = await Ticket.findOne({
     where: {
       status: {
-        // Inclui "rating" para não cair no fallback das 2h que forçava pending e quebrava a etapa de avaliação
-        [Op.or]: ["open", "pending", "closed", "rating"]
+        // Não inclui "closed": mensagem nova após resolução é outro assunto.
+        // "rating" permanece para não interromper a pesquisa de satisfação.
+        [Op.or]: ["open", "pending", "rating"]
       },
       contactId: groupContact ? groupContact.id : contact.id,
       companyId,
@@ -68,22 +69,8 @@ const FindOrCreateTicketService = async (
       // Compuchat (u200e/u200c) — não reabrir o ticket para evitar loop de bots B2B.
       return await ShowTicketService(ticket.id, companyId);
     }
-    // Resetar estado de integração/flow para o FlowBuilder poder iniciar de novo
-    await ticket.update({
-      queueId: null,
-      userId: null,
-      status: "pending",
-      sessionStartedAt: new Date(),
-      useIntegration: false,
-      integrationId: whatsapp?.integrationId || null,
-      promptId: whatsapp?.promptId || null,
-      flowWebhook: false,
-      lastFlowId: null,
-      hashFlowId: null,
-      flowStopped: null,
-      chatbot: false,
-      queueOptionId: null
-    });
+    // Cliente voltou depois do encerramento: abre conversa nova, sem o chamado antigo.
+    ticket = null;
   }
 
   if (!ticket && groupContact) {
@@ -95,19 +82,23 @@ const FindOrCreateTicketService = async (
     });
 
     if (ticket) {
-      await ticket.update({
-        status: "open", // Grupos vão direto para "open"
-        userId: null,
-        unreadMessages,
-        queueId: null,
-        companyId
-      });
-      await FindOrCreateATicketTrakingService({
-        ticketId: ticket.id,
-        companyId,
-        whatsappId: ticket.whatsappId,
-        userId: ticket.userId
-      });
+      if (ticket.status === "closed") {
+        ticket = null;
+      } else {
+        await ticket.update({
+          status: "open", // Grupos vão direto para "open"
+          userId: null,
+          unreadMessages,
+          queueId: null,
+          companyId
+        });
+        await FindOrCreateATicketTrakingService({
+          ticketId: ticket.id,
+          companyId,
+          whatsappId: ticket.whatsappId,
+          userId: ticket.userId
+        });
+      }
     }
     const msgIsGroupBlock = await Setting.findOne({
       where: { key: "timeCreateNewTicket" }
@@ -138,6 +129,8 @@ const FindOrCreateTicketService = async (
           integrationId: whatsapp?.integrationId || ticket.integrationId,
           promptId: whatsapp?.promptId || ticket.promptId
         });
+      } else if (ticket.status === "closed") {
+        ticket = null;
       } else {
         await ticket.update({
           status: "pending",
