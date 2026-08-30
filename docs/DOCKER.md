@@ -25,9 +25,9 @@ Credenciais Unico (leituras da API / fallback): **Configurações → Uniplus** 
 # ou: docker compose up -d --build
 ```
 
-O `up.sh` sobe o stack, garante o database `computicket`, aplica `api/migrations/*.sql` e migra `tickets.sqlite3` → Postgres (com `--wipe` se achar o SQLite).
+O `up.sh` sobe o stack, garante o database `computicket`, aplica `api/migrations/*.sql` e, se achar SQLite, pode migrar dados (**sem wipe** por padrão).
 
-Opções: `SKIP_BUILD=1`, `SKIP_MIGRATE=1`, `NO_WIPE=1`, `./up.sh /caminho/tickets.sqlite3`.
+Opções: `SKIP_BUILD=1`, `SKIP_MIGRATE=1`, `FORCE_WIPE=1`, `./up.sh /caminho/tickets.sqlite3`.
 
 Só migrar dados (containers já no ar):
 
@@ -37,7 +37,14 @@ chmod +x migrate.sh
 # ou: ./migrate.sh /caminho/tickets.sqlite3
 ```
 
-O script cria `api/app/.venv` e instala `api/requirements.txt` se faltar `python-dotenv`.
+O script cria `api/app/.venv` e instala deps mínimas (`api/requirements-migrate.txt`).
+
+**Importante:** `docker compose build` / `up -d` **não** apaga Configurações → Uniplus. Essa config fica em `system_config` no Postgres (`computicket` volume). O que apagava era `./migrate.sh` / `./up.sh` com `--wipe` (padrão antigo), que truncava `system_config` e recolocava o SQLite sem `uniplus_pg_*`.
+
+Agora:
+- wipe é **opt-in**: `FORCE_WIPE=1 ./migrate.sh`
+- mesmo com wipe, **`system_config` é preservada**
+- após a 1ª migração, prefira: `SKIP_MIGRATE=1 ./up.sh` ou só `docker compose up -d --build`
 
 Se der erro de `pip` no venv (comum em Ubuntu sem pacotes):
 

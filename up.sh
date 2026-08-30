@@ -9,8 +9,9 @@
 # Variáveis opcionais:
 #   COMPOSE_FILE=docker-compose.yml   (default)
 #   SKIP_BUILD=1                      não passa --build
-#   SKIP_MIGRATE=1                    sobe containers e não migra
-#   NO_WIPE=1                         migra sem --wipe
+#   SKIP_MIGRATE=1                    sobe containers e não migra (recomendado após 1ª migração)
+#   FORCE_WIPE=1                      migra com --wipe (preserva system_config / Uniplus)
+#   NO_WIPE=1                         legado (wipe já é off por padrão)
 #   SQLALCHEMY_DATABASE_URI=...       destino (default localhost:15432/computicket)
 set -euo pipefail
 
@@ -141,9 +142,12 @@ else
     echo "      Fonte: $SQLITE"
     PY="$(ensure_migrate_venv "$ROOT")"
 
-    WIPE_FLAG=(--wipe)
-    if [[ "${NO_WIPE:-0}" == "1" ]]; then
-      WIPE_FLAG=()
+    WIPE_FLAG=()
+    if [[ "${FORCE_WIPE:-0}" == "1" ]]; then
+      echo "      FORCE_WIPE=1 — wipe ativo (system_config preservada)."
+      WIPE_FLAG=(--wipe)
+    else
+      echo "      Sem wipe (padrão). Use FORCE_WIPE=1 só se quiser limpar o destino."
     fi
 
     (

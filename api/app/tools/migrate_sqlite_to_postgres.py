@@ -146,19 +146,29 @@ def _coerce_value(value, type_name: str):
 	return value
 
 
+# Tabelas que NÃO devem ser truncadas/sobrescritas na migração.
+# system_config guarda Uniplus PG host/senha, agent token, etc. — vivem só no Postgres
+# depois do go-live; o SQLite antigo não as tem e um --wipe apagava a UI Uniplus.
+PRESERVE_ON_MIGRATE: set[str] = {
+	"system_config",
+}
+
+
 def count_rows(engine: Engine, table: str) -> int:
 	with engine.connect() as conn:
 		return int(conn.execute(text(f"SELECT COUNT(*) FROM {qname(table)}")).scalar() or 0)
 
 
 def wipe_postgres(engine: Engine, tables: list[str]) -> None:
-	"""TRUNCATE CASCADE das tabelas existentes (ordem inversa)."""
+	"""TRUNCATE CASCADE das tabelas existentes (ordem inversa), preservando config do sistema."""
 	existing = list_tables(engine)
-	targets = [t for t in reversed(tables) if t in existing]
+	targets = [t for t in reversed(tables) if t in existing and t not in PRESERVE_ON_MIGRATE]
+	skipped = [t for t in tables if t in existing and t in PRESERVE_ON_MIGRATE]
+	if skipped:
+		print(f"  preserve: {', '.join(skipped)} (não truncadas)")
 	if not targets:
 		return
 	with engine.begin() as conn:
-		# Desabilita temporariamente FKs via TRUNCATE CASCADE
 		joined = ", ".join(qname(t) for t in targets)
 		conn.execute(text(f"TRUNCATE TABLE {joined} RESTART IDENTITY CASCADE"))
 	print(f"  wipe: {len(targets)} tabelas truncadas")
@@ -371,6 +381,11 @@ def main() -> None:
 	results: list[tuple[str, int, int, int]] = []
 	for table in ordered:
 		src_n = count_rows(src, table)
+		if table in PRESERVE_ON_MIGRATE and count_rows(dst, table) > 0:
+			dst_n = count_rows(dst, table)
+			print(f"  {table}: PRESERVADO no Postgres (sqlite={src_n} postgres={dst_n})")
+			results.append((table, src_n, 0, dst_n))
+			continue
 		try:
 			copied, dst_n = copy_table(src, dst, table)
 			print(f"  {table}: sqlite={src_n} copiados={copied} postgres={dst_n}")
@@ -384,15 +399,18 @@ def main() -> None:
 	nullify_orphan_fks(dst)
 
 	print("\n5) Ajustando sequences...")
-	reset_sequences(dst, ordered)
+	reset_sequences(dst, [t for t in ordered if t not in PRESERVE_ON_MIGRATE])
 
 	print("\n=== Resumo ===")
 	ok = True
 	for table, src_n, copied, dst_n in results:
-		# Após wipe, dst deve == src; sem wipe, dst >= src tipicamente
-		status = "OK" if dst_n == src_n or (not args.wipe and dst_n >= src_n) else "DIFF"
-		if status != "OK":
-			ok = False
+		if table in PRESERVE_ON_MIGRATE:
+			status = "KEEP"
+		else:
+			# Após wipe, dst deve == src; sem wipe, dst >= src tipicamente
+			status = "OK" if dst_n == src_n or (not args.wipe and dst_n >= src_n) else "DIFF"
+			if status != "OK":
+				ok = False
 		print(f"  [{status}] {table}: sqlite={src_n} postgres={dst_n}")
 
 	if ok:

@@ -10,7 +10,10 @@
 #   sudo apt install -y python3-venv python3-pip
 #   rm -rf api/app/.venv && ./migrate.sh
 #
-# Variáveis: NO_WIPE=1, SQLALCHEMY_DATABASE_URI=...
+# Variáveis:
+#   FORCE_WIPE=1  — limpa o Postgres antes de copiar (preserva system_config)
+#   SQLALCHEMY_DATABASE_URI=...
+# Por padrão NÃO faz wipe — rebuild Docker / migrate não apaga Configurações → Uniplus.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -56,9 +59,13 @@ echo
 
 PY="$(ensure_migrate_venv "$ROOT")"
 
-WIPE_FLAG=(--wipe)
-if [[ "${NO_WIPE:-0}" == "1" ]]; then
-  WIPE_FLAG=()
+# Wipe só com FORCE_WIPE=1 (evita apagar Uniplus/SystemConfig em deploys)
+WIPE_FLAG=()
+if [[ "${FORCE_WIPE:-0}" == "1" ]]; then
+  echo "      FORCE_WIPE=1 — limpando destino (system_config será preservada)."
+  WIPE_FLAG=(--wipe)
+else
+  echo "      Sem wipe (padrão). Para limpar tudo: FORCE_WIPE=1 ./migrate.sh"
 fi
 
 (

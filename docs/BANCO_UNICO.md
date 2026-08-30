@@ -23,7 +23,9 @@ Computicket API  --Socket.IO /uniplus-->  Agente (servidor Unico)  -->  Postgres
 | UI | Configurações → aba **Uniplus** |
 | Agente | [`agents/uniplus_agent/README.md`](../agents/uniplus_agent/README.md) |
 
-Prioridade de config: **SystemConfig** (`uniplus_agent_*`) → variáveis de ambiente → desligado.
+Prioridade de config do **agente**: **SystemConfig** (`uniplus_agent_*`) → variáveis de ambiente → desligado.
+
+Config do **Postgres Unico (leituras da API)** fica só em SystemConfig (`uniplus_pg_*`). Rebuild de imagem Docker **não** apaga isso; só some se o volume Postgres for removido (`docker compose down -v`) ou se uma migração antiga com `--wipe` truncar `system_config` (hoje preservada).
 
 **SELECTs** (listar clientes, produtos, OS, etc.) e o fallback legado usam
 `connect_postgres()` / `external_pg`, com host e credenciais em **SystemConfig**
