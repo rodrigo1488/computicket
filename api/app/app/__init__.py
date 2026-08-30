@@ -508,6 +508,10 @@ def create_app() -> Flask:
 		except Exception:
 			pass
 
+	# Migração SQLite→Postgres só precisa do schema (models + create_all).
+	if (os.environ.get("COMPUTICKET_SCHEMA_ONLY") or "").strip().lower() in {"1", "true", "yes", "on"}:
+		return app
+
 	# Blueprints
 	from .blueprints.auth import bp as auth_bp
 	from .blueprints.utils import bp as utils_bp
@@ -582,7 +586,7 @@ def create_app() -> Flask:
 		with app.app_context():
 			from .schema_utils import ensure_column, ensure_tables_from_metadata
 			ensure_tables_from_metadata(["helpdesk_rating"])
-			ensure_column("helpdesk_rating", "sent_at", "DATETIME")
+			ensure_column("helpdesk_rating", "sent_at", "TIMESTAMP")
 	except Exception as _rating_schema_error:
 		app.logger.warning("Não foi possível garantir o schema de avaliações: %s", _rating_schema_error)
 

@@ -302,8 +302,10 @@ def reset_sequences(engine: Engine, tables: list[str]) -> None:
 
 
 def ensure_schema(pg_uri: str) -> None:
-	"""Cria schema no Postgres via create_app + create_all."""
+	"""Cria schema no Postgres via create_app (sem blueprints) + create_all."""
 	os.environ["SQLALCHEMY_DATABASE_URI"] = pg_uri
+	# Evita importar openpyxl/reportlab/pywebpush/etc. só para criar tabelas.
+	os.environ["COMPUTICKET_SCHEMA_ONLY"] = "1"
 	from app import create_app, db
 
 	app = create_app()
