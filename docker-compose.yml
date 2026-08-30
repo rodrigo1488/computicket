@@ -27,7 +27,7 @@ services:
       retries: 10
 
   postgres:
-    image: postgres:16.9
+    image: pgvector/pgvector:pg16
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${COMPUTICKET_DB_USER:-computicket}
@@ -106,6 +106,13 @@ services:
       WHATSAPP_ENGINE_URL: http://whatsapp-engine:4000
       WHATSAPP_ENGINE_ADMIN_EMAIL: ${WHATSAPP_ENGINE_ADMIN_EMAIL:-admin@admin.com}
       WHATSAPP_ENGINE_ADMIN_PASSWORD: ${WHATSAPP_ENGINE_ADMIN_PASSWORD:-123456}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-2.0-flash}
+      GEMINI_EMBEDDING_MODEL: ${GEMINI_EMBEDDING_MODEL:-gemini-embedding-001}
+      GEMINI_EMBEDDING_DIMENSION: "768"
+      GEMINI_TIMEOUT_MS: ${GEMINI_TIMEOUT_MS:-30000}
+      COPILOT_RATE_LIMIT_PER_MINUTE: ${COPILOT_RATE_LIMIT_PER_MINUTE:-20}
+      RAG_MIN_SCORE: ${RAG_MIN_SCORE:-0.35}
       # Fallback opcional do agente (preferir Configurações → Uniplus)
       UNIPLUS_AGENT_ENABLED: ${UNIPLUS_AGENT_ENABLED:-0}
       UNIPLUS_AGENT_DEVICE_ID: ${UNIPLUS_AGENT_DEVICE_ID:-}

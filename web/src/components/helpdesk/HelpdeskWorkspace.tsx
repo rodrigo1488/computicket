@@ -3,8 +3,12 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeftRight,
+  BookOpen,
+  Bot,
   Check,
+  FilePlus2,
   Hand,
+  LoaderCircle,
   Lock,
   MoreVertical,
   Paperclip,
@@ -17,6 +21,8 @@ import {
   Ticket,
   Undo2,
   UserRound,
+  WandSparkles,
+  X,
   Zap,
 } from "lucide-react";
 import Link from "next/link";
@@ -26,6 +32,7 @@ import { io, type Socket } from "socket.io-client";
 import { CloseTicketDialog } from "@/components/tickets/CloseTicketDialog";
 import { TicketCreateDialog } from "@/components/tickets/TicketCreateDialog";
 import { TimeEntryDialog } from "@/components/tickets/TimeEntryDialog";
+import { Modal } from "@/components/ui/Modal";
 import { UserAvatar } from "@/components/ui/UserAvatar";
 import { flask } from "@/lib/api";
 import { cn } from "@/lib/cn";
@@ -37,6 +44,8 @@ import {
   unwrapMessages,
   unwrapQuickMessages,
   type EngineSession,
+  type HelpdeskAiSource,
+  type HelpdeskAiTicketDraft,
   type HelpdeskConversation,
   type HelpdeskMessage,
   type HelpdeskTab,
@@ -52,6 +61,10 @@ const TAB_META: { key: HelpdeskTab; label: string }[] = [
 
 const FILTER_KEY = "computicket.helpdesk.filters";
 const SIGN_KEY = "computicket.helpdesk.sign";
+
+type AiResult =
+  | { kind: "text"; title: string; draft: string; sources: HelpdeskAiSource[] }
+  | { kind: "ticket"; title: string; ticket: HelpdeskAiTicketDraft; sources: HelpdeskAiSource[] };
 
 function formatClock(value?: string | null) {
   if (!value) return "";
@@ -144,6 +157,12 @@ export function HelpdeskWorkspace() {
   const [closeTicketOpen, setCloseTicketOpen] = useState(false);
   const [entryMode, setEntryMode] = useState<"stop" | "add" | null>(null);
   const [ticketFlowLoading, setTicketFlowLoading] = useState(false);
+  const [knowledgeOpen, setKnowledgeOpen] = useState(false);
+  const [knowledgeQuestion, setKnowledgeQuestion] = useState("");
+  const [aiAction, setAiAction] = useState<"reply" | "improve" | "query" | "ticket" | null>(null);
+  const [aiResult, setAiResult] = useState<AiResult | null>(null);
+  const [aiError, setAiError] = useState<string | null>(null);
+  const [ticketDefaults, setTicketDefaults] = useState<HelpdeskAiTicketDraft | null>(null);
   const [sign, setSign] = useState(() => {
     if (typeof window === "undefined") return true;
     return window.localStorage.getItem(SIGN_KEY) !== "0";
@@ -189,6 +208,13 @@ export function HelpdeskWorkspace() {
   useEffect(() => {
     window.localStorage.setItem(SIGN_KEY, sign ? "1" : "0");
   }, [sign]);
+
+  useEffect(() => {
+    setAiResult(null);
+    setAiError(null);
+    setKnowledgeOpen(false);
+    setTicketDefaults(null);
+  }, [activeId]);
 
   const health = useQuery({ queryKey: ["hd-health"], queryFn: helpdesk.health, retry: 1 });
   const session = useQuery({
@@ -552,6 +578,84 @@ export function HelpdeskWorkspace() {
   function insertQuick(item: QuickMessage) {
     setText(item.message);
     setQuickOpen(false);
+  }
+
+  async function suggestReply() {
+    if (!current) return;
+    setAiAction("reply");
+    setAiError(null);
+    try {
+      const result = await helpdesk.aiSuggestReply(current.id);
+      setAiResult({
+        kind: "text",
+        title: "Sugestão de resposta",
+        draft: result.draft || "",
+        sources: result.sources || [],
+      });
+    } catch (e) {
+      setAiError(e instanceof Error ? e.message : "Não foi possível gerar a sugestão");
+    } finally {
+      setAiAction(null);
+    }
+  }
+
+  async function improveText() {
+    if (!current || !text.trim()) return;
+    setAiAction("improve");
+    setAiError(null);
+    try {
+      const result = await helpdesk.aiImprove(current.id, text.trim());
+      setAiResult({
+        kind: "text",
+        title: "Texto melhorado",
+        draft: result.draft || "",
+        sources: result.sources || [],
+      });
+    } catch (e) {
+      setAiError(e instanceof Error ? e.message : "Não foi possível melhorar o texto");
+    } finally {
+      setAiAction(null);
+    }
+  }
+
+  async function askKnowledge() {
+    if (!knowledgeQuestion.trim()) return;
+    setAiAction("query");
+    setAiError(null);
+    try {
+      const result = await helpdesk.aiQuery(knowledgeQuestion.trim(), current?.id);
+      setAiResult({
+        kind: "text",
+        title: "Consulta ao conhecimento",
+        draft: result.draft || "",
+        sources: result.sources || [],
+      });
+      setKnowledgeOpen(false);
+      setKnowledgeQuestion("");
+    } catch (e) {
+      setAiError(e instanceof Error ? e.message : "Não foi possível consultar o conhecimento");
+    } finally {
+      setAiAction(null);
+    }
+  }
+
+  async function suggestTicket() {
+    if (!current) return;
+    setAiAction("ticket");
+    setAiError(null);
+    try {
+      const result = await helpdesk.aiSuggestTicket(current.id);
+      setAiResult({
+        kind: "ticket",
+        title: "Sugestão de chamado",
+        ticket: result.ticket,
+        sources: result.sources || [],
+      });
+    } catch (e) {
+      setAiError(e instanceof Error ? e.message : "Não foi possível gerar o rascunho do chamado");
+    } finally {
+      setAiAction(null);
+    }
   }
 
   return (
@@ -952,6 +1056,67 @@ export function HelpdeskWorkspace() {
                       ))}
                     </div>
                   ) : null}
+                  {aiResult ? (
+                    <AiDraftPanel
+                      result={aiResult}
+                      onDraftChange={(draft) =>
+                        setAiResult((value) => (value?.kind === "text" ? { ...value, draft } : value))
+                      }
+                      onApplyText={() => {
+                        if (aiResult.kind === "text") setText(aiResult.draft);
+                        setAiResult(null);
+                      }}
+                      onApplyTicket={() => {
+                        if (aiResult.kind !== "ticket") return;
+                        setTicketDefaults(aiResult.ticket);
+                        setCreateOpen(true);
+                      }}
+                      onClose={() => setAiResult(null)}
+                    />
+                  ) : null}
+                  {aiError ? (
+                    <div className="mb-2 flex items-start justify-between gap-2 rounded-lg bg-open-bg px-3 py-2 text-xs text-open">
+                      <span>{aiError}</span>
+                      <button type="button" onClick={() => setAiError(null)} aria-label="Fechar erro">
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  ) : null}
+                  <div className="mb-2 flex flex-wrap items-center gap-1.5">
+                    <span className="mr-1 inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-muted">
+                      <Bot className="h-3.5 w-3.5" />
+                      Copiloto
+                    </span>
+                    <AiActionButton
+                      label="Sugerir resposta"
+                      pending={aiAction === "reply"}
+                      disabled={aiAction !== null}
+                      onClick={() => void suggestReply()}
+                    />
+                    <AiActionButton
+                      label="Melhorar texto"
+                      pending={aiAction === "improve"}
+                      disabled={aiAction !== null || !text.trim()}
+                      onClick={() => void improveText()}
+                    />
+                    <AiActionButton
+                      label="Consultar conhecimento"
+                      icon={<BookOpen className="h-3 w-3" />}
+                      pending={aiAction === "query"}
+                      disabled={aiAction !== null}
+                      onClick={() => {
+                        setAiError(null);
+                        setKnowledgeOpen(true);
+                      }}
+                    />
+                    <AiActionButton
+                      label="Gerar ticket"
+                      icon={<FilePlus2 className="h-3 w-3" />}
+                      pending={aiAction === "ticket"}
+                      disabled={aiAction !== null}
+                      onClick={() => void suggestTicket()}
+                    />
+                  </div>
                   <div className="flex items-center gap-2">
                     <Smile className="h-5 w-5 text-muted" />
                     <button
@@ -1073,14 +1238,21 @@ export function HelpdeskWorkspace() {
 
       <TicketCreateDialog
         open={createOpen}
-        onClose={() => setCreateOpen(false)}
-        defaults={{
-          title: `WhatsApp ${contactName(current)}`,
-          description: snippet(current?.lastMessage) || "",
-          solicitante: contactName(current),
-          clientQuery: contactName(current),
+        onClose={() => {
+          setCreateOpen(false);
+          setTicketDefaults(null);
         }}
+        defaults={
+          ticketDefaults || {
+            title: `WhatsApp ${contactName(current)}`,
+            description: snippet(current?.lastMessage) || "",
+            solicitante: contactName(current),
+            clientQuery: contactName(current),
+          }
+        }
         onCreated={(created) => {
+          setAiResult(null);
+          setTicketDefaults(null);
           if (current?.id && created?.id) {
             helpdesk.linkTicket(current.id, created.id).then(() => {
               qc.invalidateQueries({ queryKey: ["hd-conversation", current.id] });
@@ -1089,6 +1261,45 @@ export function HelpdeskWorkspace() {
           }
         }}
       />
+
+      <Modal open={knowledgeOpen} onClose={() => setKnowledgeOpen(false)} title="Consultar conhecimento">
+        <form
+          className="space-y-4"
+          onSubmit={(e) => {
+            e.preventDefault();
+            void askKnowledge();
+          }}
+        >
+          <p className="text-sm text-muted">
+            Faça uma pergunta ao banco de conhecimento. A resposta será exibida como rascunho antes de ir para o campo de mensagem.
+          </p>
+          <label className="block">
+            <span className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted">Pergunta</span>
+            <textarea
+              autoFocus
+              value={knowledgeQuestion}
+              onChange={(e) => setKnowledgeQuestion(e.target.value)}
+              rows={4}
+              className="mt-1 w-full resize-y rounded-lg border border-line px-3 py-2 text-sm outline-none focus:border-brand"
+              placeholder="Ex.: Como orientar o cliente sobre este problema?"
+            />
+          </label>
+          {aiError ? <p className="text-sm text-open">{aiError}</p> : null}
+          <div className="flex justify-end gap-2">
+            <button type="button" onClick={() => setKnowledgeOpen(false)} className="rounded-lg px-3 py-2 text-sm text-muted">
+              Cancelar
+            </button>
+            <button
+              type="submit"
+              disabled={aiAction !== null || !knowledgeQuestion.trim()}
+              className="inline-flex items-center gap-2 rounded-lg bg-brand px-4 py-2 text-sm font-medium text-white disabled:opacity-40"
+            >
+              {aiAction === "query" ? <LoaderCircle className="h-4 w-4 animate-spin" /> : null}
+              {aiAction === "query" ? "Consultando…" : "Consultar"}
+            </button>
+          </div>
+        </form>
+      </Modal>
 
       {linkedTicket && entryMode ? (
         <TimeEntryDialog
@@ -1132,6 +1343,157 @@ export function HelpdeskWorkspace() {
           }}
         />
       ) : null}
+    </div>
+  );
+}
+
+function AiActionButton({
+  label,
+  pending,
+  disabled,
+  icon,
+  onClick,
+}: {
+  label: string;
+  pending: boolean;
+  disabled: boolean;
+  icon?: React.ReactNode;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className="inline-flex items-center gap-1 rounded-full border border-[#d9dee7] bg-white px-2.5 py-1 text-[11px] font-medium text-ink hover:border-brand hover:text-brand disabled:cursor-not-allowed disabled:opacity-40"
+    >
+      {pending ? <LoaderCircle className="h-3 w-3 animate-spin" /> : icon || <WandSparkles className="h-3 w-3" />}
+      {label}
+    </button>
+  );
+}
+
+function sourceHref(source: HelpdeskAiSource) {
+  const explicit = source.href || source.url;
+  if (explicit?.startsWith("/conhecimento") || explicit?.startsWith("/tickets")) return explicit;
+
+  const ticketId =
+    source.ticket_id ||
+    source.metadata?.ticket_id ||
+    (source.source_type === "ticket" ? source.source_id : undefined);
+  if (ticketId) return `/tickets/${ticketId}`;
+
+  const categoryId =
+    source.category_id ||
+    source.metadata?.category_id ||
+    source.knowledge_id ||
+    source.metadata?.knowledge_id;
+  if (categoryId) return `/conhecimento/${categoryId}`;
+  return null;
+}
+
+function AiSources({ sources }: { sources: HelpdeskAiSource[] }) {
+  return (
+    <div className="mt-3 border-t border-line pt-2">
+      <p className="text-[10px] font-semibold uppercase tracking-wide text-muted">Fontes</p>
+      {sources.length ? (
+        <div className="mt-1 flex flex-wrap gap-1.5">
+          {sources.map((source, index) => {
+            const href = sourceHref(source);
+            const label =
+              source.title ||
+              source.name ||
+              source.metadata?.title ||
+              (source.ticket_id || source.metadata?.ticket_id || source.source_type === "ticket"
+                ? `Chamado #${source.ticket_id || source.metadata?.ticket_id || source.source_id}`
+                : `Evidência ${index + 1}`);
+            return href ? (
+              <Link
+                key={`${href}-${index}`}
+                href={href}
+                target="_blank"
+                className="rounded-full bg-progress-bg px-2 py-1 text-[11px] font-medium text-brand hover:underline"
+              >
+                {label}
+              </Link>
+            ) : (
+              <span key={`${label}-${index}`} className="rounded-full bg-[#f3f4f6] px-2 py-1 text-[11px] text-muted">
+                {label}
+              </span>
+            );
+          })}
+        </div>
+      ) : (
+        <p className="mt-1 text-xs text-muted">Sem evidências encontradas para este rascunho.</p>
+      )}
+    </div>
+  );
+}
+
+function AiDraftPanel({
+  result,
+  onDraftChange,
+  onApplyText,
+  onApplyTicket,
+  onClose,
+}: {
+  result: AiResult;
+  onDraftChange: (draft: string) => void;
+  onApplyText: () => void;
+  onApplyTicket: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <div className="mb-2 rounded-xl border border-[#cbd8ed] bg-white p-3 shadow-sm">
+      <div className="flex items-center justify-between gap-2">
+        <p className="flex items-center gap-1.5 text-xs font-semibold text-navy">
+          <Bot className="h-4 w-4 text-brand" />
+          {result.title}
+        </p>
+        <button type="button" onClick={onClose} className="text-muted hover:text-ink" aria-label="Descartar rascunho">
+          <X className="h-4 w-4" />
+        </button>
+      </div>
+      {result.kind === "text" ? (
+        <>
+          <textarea
+            value={result.draft}
+            onChange={(e) => onDraftChange(e.target.value)}
+            rows={4}
+            className="mt-2 max-h-40 w-full resize-y rounded-lg border border-line px-3 py-2 text-sm outline-none focus:border-brand"
+            aria-label="Rascunho do copiloto"
+          />
+          <div className="mt-2 flex justify-end">
+            <button
+              type="button"
+              disabled={!result.draft.trim()}
+              onClick={onApplyText}
+              className="rounded-lg bg-brand px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-40"
+            >
+              Usar no campo de mensagem
+            </button>
+          </div>
+        </>
+      ) : (
+        <>
+          <div className="mt-2 rounded-lg bg-[#f8fafc] p-3 text-xs text-ink">
+            <p className="font-semibold">{result.ticket.title || "Chamado sem título"}</p>
+            <p className="mt-1 whitespace-pre-wrap text-muted">{result.ticket.description || "Sem descrição"}</p>
+            {result.ticket.solicitante ? <p className="mt-2 text-muted">Solicitante: {result.ticket.solicitante}</p> : null}
+          </div>
+          <div className="mt-2 flex justify-end">
+            <button
+              type="button"
+              onClick={onApplyTicket}
+              className="rounded-lg bg-brand px-3 py-1.5 text-xs font-semibold text-white"
+            >
+              Revisar no formulário
+            </button>
+          </div>
+        </>
+      )}
+      <AiSources sources={result.sources} />
+      <p className="mt-2 text-[10px] text-muted">Conteúdo gerado por IA. Revise antes de usar.</p>
     </div>
   );
 }

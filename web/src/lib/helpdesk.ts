@@ -158,6 +158,47 @@ export type TransferPayload = {
   status?: string;
 };
 
+export type HelpdeskAiSource = {
+  id?: number | string;
+  source_id?: number;
+  source_type?: "knowledge_article" | "ticket" | string;
+  title?: string;
+  name?: string;
+  type?: string;
+  snippet?: string;
+  score?: number;
+  url?: string;
+  href?: string;
+  ticket_id?: number;
+  knowledge_id?: number;
+  article_id?: number;
+  category_id?: number;
+  metadata?: {
+    ticket_id?: number;
+    knowledge_id?: number;
+    article_id?: number;
+    category_id?: number;
+    title?: string;
+  };
+};
+
+export type HelpdeskAiDraftRes = {
+  draft: string;
+  sources?: HelpdeskAiSource[];
+};
+
+export type HelpdeskAiTicketDraft = {
+  title: string;
+  description: string;
+  solicitante: string;
+  clientQuery: string;
+};
+
+export type HelpdeskAiTicketRes = {
+  ticket: HelpdeskAiTicketDraft;
+  sources?: HelpdeskAiSource[];
+};
+
 export function unwrapMessages(
   data: MessageListRes | { rows?: HelpdeskMessage[] } | HelpdeskMessage[] | null | undefined,
 ): HelpdeskMessage[] {
@@ -210,6 +251,17 @@ export const helpdesk = {
     flask.put<HelpdeskContactDetail>(`/helpdesk/api/contacts/${id}`, payload),
   linkTicket: (id: number, ticketId: number) =>
     flask.post(`/helpdesk/api/conversations/${id}/link-ticket`, { ticket_id: ticketId }),
+  aiQuery: (question: string, conversationId?: number | null) =>
+    flask.post<HelpdeskAiDraftRes>("/helpdesk/api/ai/query", {
+      question,
+      ...(conversationId ? { conversation_id: conversationId } : {}),
+    }),
+  aiSuggestReply: (id: number) =>
+    flask.post<HelpdeskAiDraftRes>(`/helpdesk/api/conversations/${id}/ai/suggest-reply`),
+  aiImprove: (id: number, text: string) =>
+    flask.post<HelpdeskAiDraftRes>(`/helpdesk/api/conversations/${id}/ai/improve`, { text }),
+  aiSuggestTicket: (id: number) =>
+    flask.post<HelpdeskAiTicketRes>(`/helpdesk/api/conversations/${id}/ai/suggest-ticket`),
   connections: () => flask.get<HelpdeskConnection[] | { whatsapps?: HelpdeskConnection[] }>("/helpdesk/api/connections"),
   connection: (id: number) => flask.get<HelpdeskConnection>(`/helpdesk/api/connections/${id}`),
   createConnection: (payload: ConnectionPayload) => flask.post<HelpdeskConnection>("/helpdesk/api/connections", payload),

@@ -100,6 +100,11 @@ def create_app() -> Flask:
 	from . import models  # noqa: F401
 
 	with app.app_context():
+		# O tipo vector precisa existir antes de o metadata criar knowledge_chunk.
+		if db.engine.url.get_backend_name() == "postgresql":
+			from sqlalchemy import text
+			with db.engine.begin() as conn:
+				conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
 		db.create_all()
 		# Migrações leves SQLite
 		try:
@@ -609,6 +614,10 @@ def create_app() -> Flask:
 	# Manutenção do RMM usa este app já inicializado (sem create_app recursivo).
 	from app.remote_monitor_service import start_remote_monitor_maintenance
 	start_remote_monitor_maintenance(app)
+
+	# Eventos pós-commit e comando `flask rag-reindex`.
+	from .rag_hooks import register_rag
+	register_rag(app)
 
 	@app.route("/")
 	def index():

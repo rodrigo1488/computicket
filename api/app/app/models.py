@@ -3,8 +3,43 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Optional
 from flask_login import UserMixin
+from sqlalchemy.types import Text, TypeDecorator
 from . import db, login_manager
 from .timezone_utils import get_brasilia_now, brasilia_to_utc
+
+
+class Embedding768(TypeDecorator):
+	"""vector(768) no PostgreSQL e JSON em texto no SQLite."""
+
+	impl = Text
+	cache_ok = True
+
+	def load_dialect_impl(self, dialect):
+		if dialect.name == "postgresql":
+			try:
+				from pgvector.sqlalchemy import Vector
+				return dialect.type_descriptor(Vector(768))
+			except ImportError:
+				pass
+		return dialect.type_descriptor(Text())
+
+	def process_bind_param(self, value, dialect):
+		if value is None or dialect.name == "postgresql":
+			return value
+		return json.dumps([float(item) for item in value], separators=(",", ":"))
+
+	def process_result_value(self, value, dialect):
+		if value is None or isinstance(value, list):
+			return value
+		if dialect.name == "postgresql":
+			try:
+				return [float(item) for item in value]
+			except TypeError:
+				return None
+		try:
+			return json.loads(value)
+		except (TypeError, json.JSONDecodeError):
+			return None
 
 # Tabela de associação contrato-serviço (para contratos do PostgreSQL)
 contract_service = db.Table(
@@ -916,6 +951,43 @@ class KnowledgeArticle(db.Model):
 	
 	def __repr__(self) -> str:
 		return f"<KnowledgeArticle {self.title}>"
+
+class KnowledgeChunk(db.Model):
+	"""Trecho sanitizado indexado pelo RAG; nunca contém dados do cofre."""
+	__tablename__ = "knowledge_chunk"
+	__table_args__ = (
+		db.UniqueConstraint("source_type", "source_id", "chunk_index", name="uq_rag_source_chunk"),
+	)
+
+	id = db.Column(db.Integer, primary_key=True)
+	source_type = db.Column(db.String(30), nullable=False, index=True)
+	source_id = db.Column(db.Integer, nullable=False, index=True)
+	chunk_index = db.Column(db.Integer, nullable=False)
+	title = db.Column(db.String(250), nullable=False)
+	content = db.Column(db.Text, nullable=False)
+	fingerprint = db.Column(db.String(64), nullable=False, index=True)
+	source_fingerprint = db.Column(db.String(64), nullable=False, index=True)
+	embedding = db.Column(Embedding768(), nullable=True)
+	created_at = db.Column(db.DateTime, default=get_brasilia_now, nullable=False)
+	updated_at = db.Column(db.DateTime, default=get_brasilia_now, onupdate=get_brasilia_now, nullable=False)
+
+
+class AIAuditLog(db.Model):
+	"""Auditoria operacional sem persistir prompts ou respostas em claro."""
+	__tablename__ = "ai_audit_log"
+
+	id = db.Column(db.Integer, primary_key=True)
+	user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=True, index=True)
+	operation = db.Column(db.String(40), nullable=False, index=True)
+	conversation_id = db.Column(db.Integer, nullable=True, index=True)
+	prompt_hash = db.Column(db.String(64), nullable=False)
+	input_chars = db.Column(db.Integer, nullable=False, default=0)
+	source_count = db.Column(db.Integer, nullable=False, default=0)
+	status = db.Column(db.String(20), nullable=False)
+	error_code = db.Column(db.String(80), nullable=True)
+	duration_ms = db.Column(db.Integer, nullable=False, default=0)
+	created_at = db.Column(db.DateTime, default=get_brasilia_now, nullable=False, index=True)
+
 
 class KnowledgeAttachment(db.Model):
 	"""Modelo para anexos dos artigos do banco de conhecimentos"""

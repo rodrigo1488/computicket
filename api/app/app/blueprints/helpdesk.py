@@ -1,7 +1,12 @@
 """Help Desk WhatsApp — BFF autenticado para o engine Compuchat/Baileys."""
 from __future__ import annotations
 
+import hashlib
+import os
 import random
+import threading
+import time
+from collections import defaultdict, deque
 
 from flask import Blueprint, Response, jsonify, request
 from flask_login import current_user, login_required
@@ -18,13 +23,106 @@ from ..engine_client import (
     ensure_default_queue,
     send_engine_message,
 )
-from ..models import HelpDeskAgentMap, HelpDeskTicketLink, Ticket, User
+from ..models import AIAuditLog, HelpDeskAgentMap, HelpDeskTicketLink, Ticket, User
+from ..services.copilot import CopilotError, answer_question, improve_draft, suggest_reply, suggest_ticket
 
 helpdesk_bp = Blueprint("helpdesk", __name__, url_prefix="/helpdesk")
+
+_ai_rate_lock = threading.Lock()
+_ai_rate_hits: dict[int, deque[float]] = defaultdict(deque)
 
 
 def _fail(exc: EngineError):
     return jsonify({"error": str(exc), "details": exc.payload}), exc.status_code
+
+
+def _ai_rate_allowed(user_id: int) -> bool:
+    """Limiter local por processo; evita dependência externa para esta proteção básica."""
+    try:
+        limit = max(1, min(int(os.environ.get("COPILOT_RATE_LIMIT_PER_MINUTE") or "20"), 120))
+    except ValueError:
+        limit = 20
+    now = time.monotonic()
+    with _ai_rate_lock:
+        hits = _ai_rate_hits[user_id]
+        while hits and now - hits[0] >= 60:
+            hits.popleft()
+        if len(hits) >= limit:
+            return False
+        hits.append(now)
+        return True
+
+
+def _conversation_ai_context(ticket_id: int) -> tuple[str, str]:
+    """Lê somente o histórico recente pelas mesmas rotas autenticadas do engine."""
+    ticket = agent_request("GET", f"/tickets/{ticket_id}", timeout=15) or {}
+    data = agent_request("GET", f"/messages/{ticket_id}", params={"pageNumber": "1"}, timeout=20)
+    normalized = _normalize_messages(data, ticket_id)
+    lines: list[str] = []
+    for item in (normalized.get("messages") or [])[-20:]:
+        if not isinstance(item, dict):
+            continue
+        body = item.get("body") or item.get("message") or item.get("text") or ""
+        if not isinstance(body, str) or not body.strip():
+            continue
+        sender = (
+            item.get("senderName")
+            or item.get("sender_name")
+            or (item.get("contact") or {}).get("name")
+            or ("Agente" if item.get("fromMe") else "Cliente")
+        )
+        lines.append(f"{sender}: {body[:2000]}")
+    contact = ticket.get("contact") if isinstance(ticket, dict) else {}
+    requester = (contact or {}).get("name") if isinstance(contact, dict) else ""
+    return "\n".join(lines)[-16000:], str(requester or "")[:200]
+
+
+def _audit_ai(
+    operation: str,
+    prompt: str,
+    conversation_id: int | None,
+    status: str,
+    started: float,
+    source_count: int = 0,
+    error_code: str | None = None,
+) -> None:
+    try:
+        db.session.add(
+            AIAuditLog(
+                user_id=current_user.id,
+                operation=operation,
+                conversation_id=conversation_id,
+                prompt_hash=hashlib.sha256((prompt or "").encode("utf-8")).hexdigest(),
+                input_chars=len(prompt or ""),
+                source_count=source_count,
+                status=status,
+                error_code=error_code,
+                duration_ms=int((time.monotonic() - started) * 1000),
+            )
+        )
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+
+
+def _execute_ai(operation: str, prompt: str, conversation_id: int | None, callback):
+    started = time.monotonic()
+    if not _ai_rate_allowed(current_user.id):
+        _audit_ai(operation, prompt, conversation_id, "rate_limited", started, error_code="rate_limit")
+        return jsonify({"error": "Limite temporário do Copiloto atingido. Tente novamente em um minuto."}), 429
+    try:
+        result = callback()
+        _audit_ai(operation, prompt, conversation_id, "success", started, len(result.get("sources") or []))
+        return jsonify(result)
+    except EngineError as exc:
+        _audit_ai(operation, prompt, conversation_id, "error", started, error_code="engine_error")
+        return _fail(exc)
+    except CopilotError as exc:
+        _audit_ai(operation, prompt, conversation_id, "error", started, error_code=exc.code)
+        return jsonify({"error": str(exc), "code": exc.code}), exc.status_code
+    except Exception:
+        _audit_ai(operation, prompt, conversation_id, "error", started, error_code="internal_error")
+        return jsonify({"error": "Não foi possível executar o Copiloto."}), 500
 
 
 def _links_by_engine_ids(ids: list[int]) -> dict[int, int]:
@@ -514,6 +612,70 @@ def list_messages(ticket_id: int):
         return jsonify(_normalize_messages(data, ticket_id))
     except EngineError as exc:
         return _fail(exc)
+
+
+@helpdesk_bp.route("/api/ai/query", methods=["POST"])
+@login_required
+def ai_query():
+    payload = request.get_json(silent=True) or {}
+    question = str(payload.get("question") or "").strip()
+    if not question:
+        return jsonify({"error": "question é obrigatório"}), 400
+    if len(question) > 12000:
+        return jsonify({"error": "question excede o limite de 12000 caracteres"}), 400
+    raw_conversation_id = payload.get("conversation_id")
+    try:
+        conversation_id = int(raw_conversation_id) if raw_conversation_id not in (None, "") else None
+    except (TypeError, ValueError):
+        return jsonify({"error": "conversation_id inválido"}), 400
+
+    def run():
+        history = _conversation_ai_context(conversation_id)[0] if conversation_id else ""
+        return answer_question(question, history)
+
+    return _execute_ai("query", question, conversation_id, run)
+
+
+@helpdesk_bp.route("/api/conversations/<int:ticket_id>/ai/suggest-reply", methods=["POST"])
+@login_required
+def ai_suggest_reply(ticket_id: int):
+    payload = request.get_json(silent=True) or {}
+    instruction = str(payload.get("instruction") or payload.get("text") or "").strip()
+    if len(instruction) > 12000:
+        return jsonify({"error": "Texto excede o limite de 12000 caracteres"}), 400
+
+    def run():
+        history, _requester = _conversation_ai_context(ticket_id)
+        return suggest_reply(instruction, history)
+
+    return _execute_ai("suggest_reply", instruction, ticket_id, run)
+
+
+@helpdesk_bp.route("/api/conversations/<int:ticket_id>/ai/improve", methods=["POST"])
+@login_required
+def ai_improve(ticket_id: int):
+    payload = request.get_json(silent=True) or {}
+    text = str(payload.get("text") or "").strip()
+    if not text:
+        return jsonify({"error": "text é obrigatório"}), 400
+    if len(text) > 12000:
+        return jsonify({"error": "text excede o limite de 12000 caracteres"}), 400
+
+    def run():
+        history, _requester = _conversation_ai_context(ticket_id)
+        return improve_draft(text, history)
+
+    return _execute_ai("improve", text, ticket_id, run)
+
+
+@helpdesk_bp.route("/api/conversations/<int:ticket_id>/ai/suggest-ticket", methods=["POST"])
+@login_required
+def ai_suggest_ticket(ticket_id: int):
+    def run():
+        history, requester = _conversation_ai_context(ticket_id)
+        return suggest_ticket(history, requester)
+
+    return _execute_ai("suggest_ticket", f"conversation:{ticket_id}", ticket_id, run)
 
 
 @helpdesk_bp.route("/api/conversations/<int:ticket_id>/messages", methods=["POST"])

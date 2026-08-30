@@ -150,7 +150,9 @@ def agents():
 @bp.route("/agents/<int:agent_id>", methods=["GET", "DELETE"])
 @_web_roles
 def agent_detail(agent_id: int):
-	agent = RemoteAgent.query.get_or_404(agent_id)
+	agent = RemoteAgent.query.get(agent_id)
+	if not agent:
+		return jsonify({"error": "Agente não encontrado."}), 404
 	if request.method == "DELETE":
 		denied = _admin_required()
 		if denied:
@@ -230,7 +232,9 @@ def delete_agent(agent_id: int):
 	denied = _admin_required()
 	if denied:
 		return denied
-	agent = RemoteAgent.query.get_or_404(agent_id)
+	agent = RemoteAgent.query.get(agent_id)
+	if not agent:
+		return jsonify({"error": "Agente não encontrado."}), 404
 	name = agent.name
 	db.session.delete(agent)
 	db.session.commit()

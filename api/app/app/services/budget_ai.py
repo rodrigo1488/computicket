@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 import json
-import os
 import re
 from typing import Any
 
 from ..models import Service
 from ..rich_text_utils import sanitize_rich_html
 from .faturamento_products import search_products
+from .gemini_client import api_key, generation_model, get_client
 
 MIN_PROMPT_LEN = 15
 MAX_PRODUCT_CANDIDATES = 40
@@ -92,11 +92,11 @@ class BudgetAIGenerationError(Exception):
 
 
 def get_gemini_api_key() -> str:
-	return (os.environ.get("GEMINI_API_KEY") or "").strip()
+	return api_key()
 
 
 def get_gemini_model() -> str:
-	return (os.environ.get("GEMINI_MODEL") or "gemini-2.0-flash").strip()
+	return generation_model()
 
 
 def extract_search_terms(prompt: str, limit: int = 8) -> list[str]:
@@ -356,18 +356,17 @@ def test_gemini_connection() -> dict[str, Any]:
 		}
 
 	try:
-		from google import genai
-	except ImportError:
+		client = get_client()
+	except Exception as exc:
 		return {
 			"ok": False,
 			"has_key": True,
 			"package_ok": False,
 			"model": model,
-			"error": "Pacote google-genai não instalado. No servidor: .venv\\Scripts\\pip install google-genai",
+			"error": str(exc),
 		}
 
 	try:
-		client = genai.Client(api_key=api_key)
 		response = client.models.generate_content(
 			model=model,
 			contents='Responda apenas com a palavra OK.',
@@ -410,14 +409,7 @@ def generate_budget_draft(prompt: str, client_name: str | None = None) -> dict[s
 	contents = _build_user_contents(prompt, client_name, products, services)
 
 	try:
-		from google import genai
-	except ImportError as exc:
-		raise BudgetAIConfigError(
-			"Pacote google-genai não instalado. Execute: pip install google-genai"
-		) from exc
-
-	try:
-		client = genai.Client(api_key=api_key)
+		client = get_client()
 		response = client.models.generate_content(
 			model=get_gemini_model(),
 			contents=contents,

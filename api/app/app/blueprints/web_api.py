@@ -1037,7 +1037,10 @@ def knowledge():
 	category_id = request.args.get("category_id", type=int)
 	if category_id:
 		art_q = art_q.filter(KnowledgeArticle.category_id == category_id)
-	status = (request.args.get("status") or "").strip()
+	# A listagem comum nunca expõe rascunhos/arquivados sem pedido explícito.
+	status = (request.args.get("status") or "published").strip()
+	if status != "published" and not current_user.has_role("admin"):
+		status = "published"
 	if status and status != "all":
 		art_q = art_q.filter(KnowledgeArticle.status == status)
 	art_q = art_q.outerjoin(KnowledgeCategory, KnowledgeArticle.category_id == KnowledgeCategory.id)
