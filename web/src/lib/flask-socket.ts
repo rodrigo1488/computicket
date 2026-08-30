@@ -24,7 +24,9 @@ export function flaskSocketOptions(extra: Record<string, unknown> = {}) {
   const { path } = getFlaskSocketConfig();
   return {
     path,
-    transports: ["websocket", "polling"] as ("websocket" | "polling")[],
+    // Polling primeiro: o rewrite Next `/flask/*` costuma falhar no upgrade WS
+    // e gera "WebSocket is closed before the connection is established".
+    transports: ["polling", "websocket"] as ("websocket" | "polling")[],
     withCredentials: true,
     ...extra,
   };

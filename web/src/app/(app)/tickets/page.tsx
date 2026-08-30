@@ -1,12 +1,13 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Hand, Play, Plus, Square } from "lucide-react";
+import { Ban, Hand, Play, Plus, Square } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { PageTitle } from "@/components/layout/AppShell";
 import { TicketCreateDialog } from "@/components/tickets/TicketCreateDialog";
 import { DataTable } from "@/components/ui/DataTable";
+import { Modal } from "@/components/ui/Modal";
 import { Pagination } from "@/components/ui/Pagination";
 import { IconAction, RowActions, ViewAction } from "@/components/ui/RowActions";
 import { StatusBadge } from "@/components/ui/StatusBadge";
@@ -38,6 +39,7 @@ export default function TicketsPage() {
   const qc = useQueryClient();
   const { user } = useAuth();
   const uid = user?.id;
+  const isAdmin = ["admin", "administrador", "administrator"].includes((user?.role || "").toLowerCase());
   const [status, setStatus] = useState("aberto");
   const [assigned, setAssigned] = useState("");
   const [q, setQ] = useState("");
@@ -46,6 +48,8 @@ export default function TicketsPage() {
   const [page, setPage] = useState(1);
   const [err, setErr] = useState("");
   const [createOpen, setCreateOpen] = useState(false);
+  const [cancelTarget, setCancelTarget] = useState<TicketRow | null>(null);
+  const [cancelReason, setCancelReason] = useState("");
   const { colQuery, colFilters, onFiltersChange } = useColFilters();
 
   useEffect(() => setPage(1), [status, assigned, q, dateFrom, dateTo, colFilters]);
@@ -93,7 +97,19 @@ export default function TicketsPage() {
     onSuccess: invalidate,
     onError: onErr,
   });
-  const busy = start.isPending || stop.isPending || assume.isPending;
+  const cancelTicket = useMutation({
+    mutationFn: ({ id, reason }: { id: number; reason: string }) =>
+      flask.post<{ message?: string }>(`/tickets/api/${id}/cancel`, { reason }),
+    onSuccess: (result) => {
+      setCancelTarget(null);
+      setCancelReason("");
+      setErr("");
+      invalidate();
+      if (result.message) window.alert(result.message);
+    },
+    onError: onErr,
+  });
+  const busy = start.isPending || stop.isPending || assume.isPending || cancelTicket.isPending;
 
   return (
     <div>
@@ -255,6 +271,18 @@ export default function TicketsPage() {
                   onClick={() => assume.mutate(t.id)}
                 />
               ) : null}
+              {isAdmin && t.status === "fechado" ? (
+                <IconAction
+                  label="Cancelar"
+                  icon={Ban}
+                  danger
+                  disabled={busy}
+                  onClick={() => {
+                    setCancelReason("");
+                    setCancelTarget(t);
+                  }}
+                />
+              ) : null}
             </RowActions>,
           ];
         })}
@@ -272,6 +300,53 @@ export default function TicketsPage() {
           qc.invalidateQueries({ queryKey: ["tickets"] });
         }}
       />
+      <Modal
+        open={!!cancelTarget}
+        onClose={() => {
+          if (!cancelTicket.isPending) setCancelTarget(null);
+        }}
+        title="Cancelar ticket fechado"
+      >
+        {cancelTarget ? (
+          <div>
+            <div className="rounded-xl bg-open-bg p-4 text-sm text-open">
+              <p className="font-semibold">Ticket #{cancelTarget.id} · {cancelTarget.title}</p>
+              <p className="mt-1">
+                O ticket será marcado como cancelado. Apontamentos e valor serão preservados para auditoria.
+                {cancelTarget.ps_number ? ` A PS ${cancelTarget.ps_number} será removida do Unico.` : ""}
+              </p>
+            </div>
+            <label className="mt-4 block text-sm">
+              <span className="mb-1 block text-[11px] uppercase tracking-wide text-muted">Motivo (opcional)</span>
+              <textarea
+                value={cancelReason}
+                onChange={(event) => setCancelReason(event.target.value)}
+                rows={3}
+                disabled={cancelTicket.isPending}
+                className="w-full rounded-xl border border-[#e5e7eb] px-3 py-2 text-sm"
+              />
+            </label>
+            <div className="mt-5 flex justify-end gap-3">
+              <button
+                type="button"
+                disabled={cancelTicket.isPending}
+                onClick={() => setCancelTarget(null)}
+                className="rounded-xl border border-[#e5e7eb] px-4 py-2 text-sm"
+              >
+                Voltar
+              </button>
+              <button
+                type="button"
+                disabled={cancelTicket.isPending}
+                onClick={() => cancelTicket.mutate({ id: cancelTarget.id, reason: cancelReason.trim() })}
+                className="rounded-xl bg-open px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
+              >
+                {cancelTicket.isPending ? "Cancelando…" : "Confirmar cancelamento"}
+              </button>
+            </div>
+          </div>
+        ) : null}
+      </Modal>
     </div>
   );
 }

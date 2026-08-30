@@ -269,6 +269,9 @@ class Ticket(db.Model):
 	status = db.Column(db.String(20), default="aberto")  # aberto, em_andamento, fechado
 	created_at = db.Column(db.DateTime, default=lambda: brasilia_to_utc(get_brasilia_now()))
 	closed_at = db.Column(db.DateTime)
+	cancelled_at = db.Column(db.DateTime, nullable=True)
+	cancelled_by_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=True)
+	cancellation_reason = db.Column(db.Text, nullable=True)
 	in_progress_started_at = db.Column(db.DateTime)
 
 	client_id = db.Column(db.Integer, db.ForeignKey("client.id"), nullable=True)

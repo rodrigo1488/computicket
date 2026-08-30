@@ -112,6 +112,9 @@ def create_app() -> Flask:
 				conn.execute(text("ALTER TABLE ticket ADD COLUMN IF NOT EXISTS ps_registration_status VARCHAR(24)"))
 				conn.execute(text("ALTER TABLE ticket ADD COLUMN IF NOT EXISTS ps_registration_updated_at TIMESTAMP"))
 				conn.execute(text("ALTER TABLE ticket ADD COLUMN IF NOT EXISTS ps_job_id INTEGER"))
+				conn.execute(text("ALTER TABLE ticket ADD COLUMN IF NOT EXISTS cancelled_at TIMESTAMP"))
+				conn.execute(text("ALTER TABLE ticket ADD COLUMN IF NOT EXISTS cancelled_by_id INTEGER"))
+				conn.execute(text("ALTER TABLE ticket ADD COLUMN IF NOT EXISTS cancellation_reason TEXT"))
 			try:
 				with db.engine.begin() as conn:
 					conn.execute(text(
@@ -167,6 +170,12 @@ def create_app() -> Flask:
 						conn.exec_driver_sql("ALTER TABLE ticket ADD COLUMN ps_registration_updated_at DATETIME")
 					if "ps_job_id" not in t_cols:
 						conn.exec_driver_sql("ALTER TABLE ticket ADD COLUMN ps_job_id INTEGER")
+					if "cancelled_at" not in t_cols:
+						conn.exec_driver_sql("ALTER TABLE ticket ADD COLUMN cancelled_at DATETIME")
+					if "cancelled_by_id" not in t_cols:
+						conn.exec_driver_sql("ALTER TABLE ticket ADD COLUMN cancelled_by_id INTEGER")
+					if "cancellation_reason" not in t_cols:
+						conn.exec_driver_sql("ALTER TABLE ticket ADD COLUMN cancellation_reason TEXT")
 					try:
 						conn.exec_driver_sql(
 							"CREATE UNIQUE INDEX IF NOT EXISTS uq_ticket_ps_number "

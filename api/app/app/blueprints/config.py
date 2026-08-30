@@ -71,7 +71,13 @@ def test_ai_config():
     if denied:
         return denied
     try:
-        from ..services.gemini_client import embed_texts, generation_model, get_client
+        from ..services.gemini_client import (
+            GeminiConfigError,
+            GeminiError,
+            embed_texts,
+            generation_model,
+            get_client,
+        )
 
         response = get_client().models.generate_content(
             model=generation_model(),
@@ -80,10 +86,14 @@ def test_ai_config():
         reply = (getattr(response, "text", None) or "").strip()
         vectors = embed_texts(["Teste de conexão do Copiloto Computicket."])
         if not reply or not vectors:
-            raise RuntimeError("O Gemini retornou uma resposta vazia.")
+            raise GeminiError("O Gemini retornou uma resposta vazia.")
         return jsonify({"success": True, "message": "Geração e embeddings conectados com sucesso."})
+    except GeminiConfigError as exc:
+        return jsonify({"success": False, "error": str(exc)}), 503
+    except GeminiError as exc:
+        return jsonify({"success": False, "error": str(exc)}), 503
     except Exception as exc:
-        return jsonify({"success": False, "error": str(exc)}), 502
+        return jsonify({"success": False, "error": str(exc)}), 503
 
 
 @bp.route("/")

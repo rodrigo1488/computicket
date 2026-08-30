@@ -152,7 +152,7 @@ export function BudgetBuilder({ budget }: { budget?: BudgetDetail | null }) {
   });
   const clients = useQuery({
     queryKey: ["budget-clients"],
-    queryFn: () => flask.get<{ clients: ClientOpt[] }>("/budget/api/clients"),
+    queryFn: () => flask.get<{ clients: ClientOpt[] }>("/api/web/budgets/clients"),
   });
   const services = useQuery({
     queryKey: ["services-all"],
@@ -344,9 +344,14 @@ export function BudgetBuilder({ budget }: { budget?: BudgetDetail | null }) {
                     placeholder="Digite para buscar o cliente…"
                     className="w-full border-0 border-b border-[#d7d7d7] bg-transparent py-2 text-[15px]"
                   />
+                  {clients.isError ? (
+                    <p className="mt-2 text-sm text-open">{(clients.error as Error).message}</p>
+                  ) : null}
                   {clientSearch.trim() ? (
                     <div className="absolute z-10 mt-1 max-h-48 w-full overflow-auto rounded-xl border border-[#eee] bg-white shadow-lg">
-                      {clientOpts.length === 0 ? (
+                      {clients.isLoading ? (
+                        <p className="px-3 py-2 text-sm text-muted">Carregando clientes…</p>
+                      ) : clientOpts.length === 0 ? (
                         <p className="px-3 py-2 text-sm text-muted">Nenhum cliente</p>
                       ) : (
                         clientOpts.map((c) => (

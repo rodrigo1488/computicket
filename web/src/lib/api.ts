@@ -19,6 +19,18 @@ export function asItems<T>(data: T[] | { items?: T[] } | null | undefined): T[] 
   return data.items || [];
 }
 
+function _httpErrorMessage(status: number, data: unknown): string {
+  const payload = data as { error?: string; message?: string } | null;
+  const raw = String(payload?.error || payload?.message || "").trim();
+  const looksHtml = !raw || /^\s*</.test(raw);
+  if (raw && !looksHtml) return raw;
+  if (status === 404) return "Recurso não encontrado.";
+  if (status === 502 || status === 503 || status === 504) {
+    return "Serviço temporariamente indisponível. Tente novamente em instantes.";
+  }
+  return `Erro ${status}`;
+}
+
 export async function api<T = unknown>(
   path: string,
   init: RequestInit = {},
@@ -43,12 +55,7 @@ export async function api<T = unknown>(
     }
   }
   if (!res.ok) {
-    const err =
-      (data as { error?: string } | null)?.error ||
-      (res.status === 502 || res.status === 503 || res.status === 504
-        ? "Engine WhatsApp indisponível. Tente novamente em instantes."
-        : `Erro ${res.status}`);
-    throw new Error(err);
+    throw new Error(_httpErrorMessage(res.status, data));
   }
   return data as T;
 }

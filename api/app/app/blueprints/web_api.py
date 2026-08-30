@@ -1271,6 +1271,26 @@ def budgets_meta():
 	})
 
 
+@bp.route("/budgets/clients")
+@login_required
+def budgets_clients():
+	clients = [
+		{"id": client.id, "name": client.name, "type": "internal"}
+		for client in Client.query.order_by(Client.name).all()
+	]
+	try:
+		external_clients = fetch_external_clients() or []
+	except Exception:
+		external_clients = []
+	for client in external_clients:
+		clients.append({
+			"id": client["id"],
+			"name": client["name"],
+			"type": "external",
+		})
+	return jsonify({"success": True, "clients": clients})
+
+
 @bp.route("/config")
 @login_required
 def config():

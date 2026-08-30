@@ -12,7 +12,7 @@ MAX_HISTORY_CHARS = 16000
 
 
 class CopilotError(RuntimeError):
-	def __init__(self, message: str, code: str = "gemini_error", status_code: int = 502):
+	def __init__(self, message: str, code: str = "gemini_error", status_code: int = 503):
 		super().__init__(message)
 		self.code = code
 		self.status_code = status_code

@@ -5,7 +5,7 @@ from flask import Flask
 
 from app import db
 from app.models import KnowledgeArticle, KnowledgeCategory, KnowledgeChunk, User
-from app.services.copilot import answer_question
+from app.services.copilot import CopilotError, answer_question
 from app.services.config_secrets import decrypt_secret, encrypt_secret
 from app.services.gemini_client import GeminiError
 from app.services.rag import chunk_text, hybrid_search, index_source, sanitize_for_rag
@@ -50,6 +50,11 @@ class RAGServiceTest(unittest.TestCase):
 		encrypted = encrypt_secret("AIza-chave-de-teste")
 		self.assertNotIn("AIza-chave-de-teste", encrypted)
 		self.assertEqual(decrypt_secret(encrypted), "AIza-chave-de-teste")
+
+	def test_copilot_upstream_failure_is_unavailable_not_bad_gateway(self):
+		err = CopilotError("Falha ao consultar o Gemini: timeout")
+		self.assertEqual(err.status_code, 503)
+		self.assertEqual(err.code, "gemini_error")
 
 	def test_answer_without_sources_does_not_call_generation(self):
 		with (

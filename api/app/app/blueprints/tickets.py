@@ -1,4 +1,4 @@
-from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify, send_file
+from flask import Blueprint, current_app, render_template, request, redirect, url_for, flash, jsonify, send_file
 from flask_login import login_required, current_user
 from datetime import datetime
 import os
@@ -2546,6 +2546,8 @@ def _serialize_ticket_card(ticket: Ticket) -> dict:
 		"hourly_rate": hourly,
 		"value": value,
 		"total_cost": float(ticket.total_cost or 0),
+		"ps_printed": bool(ticket.ps_printed),
+		"ps_number": ticket.ps_number,
 	}
 
 
@@ -2955,6 +2957,90 @@ def api_close_ticket(ticket_id: int):
 	db.session.commit()
 	notify_helpdesk_ticket(ticket.id, _helpdesk_close_message(ticket))
 	return jsonify(_serialize_ticket_detail(ticket))
+
+
+def _delete_ticket_ps_from_unico(ps_number: str) -> None:
+	from ..uniplus_jobs import agent_enabled, enqueue_and_wait
+
+	if agent_enabled():
+		enqueue_and_wait("delete_finance_ps", {"document": ps_number, "ps_number": ps_number})
+		return
+
+	conn = connect_postgres()
+	if not conn:
+		raise RuntimeError("Não foi possível conectar ao PostgreSQL/Unico")
+	cursor = None
+	try:
+		cursor = conn.cursor()
+		cursor.execute("DELETE FROM financeiro WHERE documento = %s", (ps_number,))
+		conn.commit()
+	except Exception:
+		conn.rollback()
+		raise
+	finally:
+		if cursor:
+			cursor.close()
+		conn.close()
+
+
+@bp.route("/api/<int:ticket_id>/cancel", methods=["POST"])
+@login_required
+def api_cancel_closed_ticket(ticket_id: int):
+	if not current_user.has_role("admin"):
+		return jsonify({"error": "Apenas administradores podem cancelar tickets fechados."}), 403
+
+	ticket = Ticket.query.get_or_404(ticket_id)
+	if ticket.status == "cancelado" and not ticket.ps_number:
+		return jsonify({
+			"success": True,
+			"already_cancelled": True,
+			"message": f"Ticket #{ticket_id} já estava cancelado.",
+			"ticket": _serialize_ticket_detail(ticket),
+		})
+	if ticket.status not in ("fechado", "cancelado"):
+		return jsonify({"error": "Apenas tickets fechados podem ser cancelados por esta ação."}), 400
+
+	data = request.get_json(silent=True) or {}
+	reason = (data.get("reason") or "").strip()
+	ps_number = ticket.ps_number
+
+	try:
+		if ps_number:
+			_delete_ticket_ps_from_unico(ps_number)
+
+		cancelled_at = get_brasilia_now()
+		ticket.status = "cancelado"
+		ticket.cancelled_at = brasilia_to_utc(cancelled_at)
+		ticket.cancelled_by_id = current_user.id
+		ticket.cancellation_reason = reason or None
+		ticket.ps_printed = False
+		ticket.ps_number = None
+		ticket.ps_file = None
+		ticket.ps_registration_status = "cancelled"
+		ticket.ps_registration_updated_at = cancelled_at.replace(tzinfo=None)
+		ticket.ps_job_id = None
+		db.session.commit()
+	except Exception as exc:
+		db.session.rollback()
+		current_app.logger.exception("Falha ao cancelar ticket fechado #%s", ticket_id)
+		return jsonify({
+			"error": f"Não foi possível cancelar o ticket: {exc}",
+			"details": "O ticket local foi preservado. Verifique a conexão com o Unico.",
+		}), 502
+
+	notify_helpdesk_ticket(
+		ticket.id,
+		f"Ticket #{ticket.id} cancelado por {current_user.name}."
+		+ (f"\nMotivo: {reason}" if reason else ""),
+	)
+	return jsonify({
+		"success": True,
+		"message": (
+			f"Ticket #{ticket.id} cancelado com sucesso"
+			+ (f" e PS {ps_number} removida do Unico." if ps_number else ".")
+		),
+		"ticket": _serialize_ticket_detail(ticket),
+	})
 
 
 @bp.route("/api/<int:ticket_id>/addons", methods=["GET", "POST"])

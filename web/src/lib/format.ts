@@ -57,6 +57,8 @@ export type TicketCard = {
   hourly_rate?: number;
   value?: number;
   total_cost?: number;
+  ps_printed?: boolean;
+  ps_number?: string | null;
 };
 
 export type TicketAddon = {
