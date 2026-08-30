@@ -13,12 +13,13 @@ const nextConfig: NextConfig = {
         { source: "/orcamentos/publico/:token", destination: `${flaskOrigin}/orcamentos/publico/:token` },
         { source: "/orcamentos/publico/:token/:path*", destination: `${flaskOrigin}/orcamentos/publico/:token/:path*` },
         { source: "/orcamentos/logo", destination: `${flaskOrigin}/orcamentos/logo` },
+        // beforeFiles: `/socket.io/` não pode cair no App Router (308/404 no polling).
+        { source: "/socket.io", destination: `${engineOrigin}/socket.io` },
+        { source: "/socket.io/", destination: `${engineOrigin}/socket.io/` },
+        { source: "/socket.io/:path*", destination: `${engineOrigin}/socket.io/:path*` },
       ],
       afterFiles: [
         { source: "/flask/:path*", destination: `${flaskOrigin}/:path*` },
-        // Socket.IO do WhatsApp engine (same-origin → WSS em HTTPS; evita Mixed Content).
-        { source: "/socket.io", destination: `${engineOrigin}/socket.io` },
-        { source: "/socket.io/:path*", destination: `${engineOrigin}/socket.io/:path*` },
       ],
     };
   },

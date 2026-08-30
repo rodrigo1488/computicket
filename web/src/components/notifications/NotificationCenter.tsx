@@ -8,7 +8,7 @@ import { io } from "socket.io-client";
 import { flask } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import { flaskSocketOptions, getFlaskSocketConfig } from "@/lib/flask-socket";
-import { resolveEngineSocketUrl } from "@/lib/helpdesk";
+import { engineSocketOptions, resolveEngineSocketUrl } from "@/lib/helpdesk";
 
 type AppNotification = {
   id: number;
@@ -265,10 +265,7 @@ export function NotificationCenter() {
       if (disposed || !session?.token || !session.engineUrl) return;
       engineSocket?.disconnect();
       const engineUrl = resolveEngineSocketUrl(session.engineUrl);
-      engineSocket = io(engineUrl, {
-        transports: ["websocket", "polling"],
-        query: { token: session.token },
-      });
+      engineSocket = io(engineUrl, engineSocketOptions(session.token));
       engineSocket.on("connect", () => {
         engineSocket?.emit("joinTickets", "pending");
         engineSocket?.emit("joinTickets", "open");

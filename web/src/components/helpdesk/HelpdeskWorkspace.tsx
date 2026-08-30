@@ -43,6 +43,7 @@ import type { TicketDetail } from "@/lib/format";
 import {
   helpdesk,
   publicMediaUrl,
+  engineSocketOptions,
   resolveEngineSocketUrl,
   unwrapConnections,
   unwrapMessages,
@@ -860,10 +861,7 @@ export function HelpdeskWorkspace() {
   useEffect(() => {
     const engine: EngineSession | undefined = session.data;
     if (!engine?.token || !engine.engineUrl) return;
-    const socket = io(resolveEngineSocketUrl(engine.engineUrl), {
-      transports: ["websocket", "polling"],
-      query: { token: engine.token },
-    });
+    const socket = io(resolveEngineSocketUrl(engine.engineUrl), engineSocketOptions(engine.token));
     socketRef.current = socket;
     const refresh = () => {
       qc.invalidateQueries({ queryKey: ["hd-list"] });

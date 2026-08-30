@@ -24,6 +24,8 @@ export function flaskSocketOptions(extra: Record<string, unknown> = {}) {
   const { path } = getFlaskSocketConfig();
   return {
     path,
+    // Sem barra extra: `/flask/socket.io?EIO=4` casa o rewrite; `/socket.io/` 404/308.
+    addTrailingSlash: false,
     // Polling primeiro: o rewrite Next `/flask/*` costuma falhar no upgrade WS
     // e gera "WebSocket is closed before the connection is established".
     transports: ["polling", "websocket"] as ("websocket" | "polling")[],

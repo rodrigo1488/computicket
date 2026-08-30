@@ -200,6 +200,16 @@ export function resolveEngineSocketUrl(engineUrl: string): string {
   }
 }
 
+export function engineSocketOptions(token: string, extra: Record<string, unknown> = {}) {
+  return {
+    path: "/socket.io",
+    addTrailingSlash: false,
+    transports: ["polling", "websocket"] as ("websocket" | "polling")[],
+    query: { token },
+    ...extra,
+  };
+}
+
 export type ConversationListRes = {
   tickets: HelpdeskConversation[];
   count: number;
