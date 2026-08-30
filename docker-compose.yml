@@ -103,6 +103,7 @@ services:
     environment:
       SECRET_KEY: ${SECRET_KEY:-computicket-dev-secret-change-me}
       SQLALCHEMY_DATABASE_URI: postgresql+psycopg2://${COMPUTICKET_DB_USER:-computicket}:${COMPUTICKET_DB_PASS:-computicket}@postgres:5432/${COMPUTICKET_APP_DB:-computicket}
+      COMPUTICKET_PUBLIC_URL: ${COMPUTICKET_PUBLIC_URL:-http://localhost:3000}
       WHATSAPP_ENGINE_URL: http://whatsapp-engine:4000
       WHATSAPP_ENGINE_ADMIN_EMAIL: ${WHATSAPP_ENGINE_ADMIN_EMAIL:-admin@admin.com}
       WHATSAPP_ENGINE_ADMIN_PASSWORD: ${WHATSAPP_ENGINE_ADMIN_PASSWORD:-123456}
@@ -113,6 +114,9 @@ services:
       GEMINI_TIMEOUT_MS: ${GEMINI_TIMEOUT_MS:-30000}
       COPILOT_RATE_LIMIT_PER_MINUTE: ${COPILOT_RATE_LIMIT_PER_MINUTE:-20}
       RAG_MIN_SCORE: ${RAG_MIN_SCORE:-0.35}
+      VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
+      VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
+      VAPID_CONTACT: ${VAPID_CONTACT:-mailto:admin@computicket.local}
       # Fallback opcional do agente (preferir Configurações → Uniplus)
       UNIPLUS_AGENT_ENABLED: ${UNIPLUS_AGENT_ENABLED:-0}
       UNIPLUS_AGENT_DEVICE_ID: ${UNIPLUS_AGENT_DEVICE_ID:-}

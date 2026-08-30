@@ -16,6 +16,115 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 import os
 
+_helpdesk_message_versions = {}
+_helpdesk_poll_initialized = False
+
+
+def verificar_novas_mensagens_helpdesk():
+    """Consulta o motor para que Web Push funcione mesmo sem navegador aberto."""
+    global _helpdesk_poll_initialized
+    app = create_app()
+    with app.app_context():
+        try:
+            from app.blueprints.helpdesk import _normalize_messages
+            from app.engine_client import admin_request
+            from app.models import AppNotification, HelpDeskAgentMap, User
+            from app.notification_service import create_notifications
+
+            active = []
+            for status in ("pending", "open"):
+                page = 1
+                while page <= 20:
+                    data = admin_request(
+                        "GET",
+                        "/tickets",
+                        params={"status": status, "showAll": "true", "pageNumber": str(page)},
+                    )
+                    chunk = data.get("tickets") if isinstance(data, dict) else data
+                    active.extend(item for item in (chunk or []) if isinstance(item, dict))
+                    if not (isinstance(data, dict) and data.get("hasMore")):
+                        break
+                    page += 1
+
+            current_versions = {}
+            for ticket in active:
+                try:
+                    if int(ticket.get("unreadMessages") or 0) <= 0:
+                        continue
+                    ticket_id = int(ticket["id"])
+                except (KeyError, TypeError, ValueError):
+                    continue
+
+                version = "|".join(
+                    str(value or "")
+                    for value in (
+                        ticket.get("updatedAt"),
+                        ticket.get("unreadMessages"),
+                        ticket.get("lastMessage"),
+                    )
+                )
+                current_versions[ticket_id] = version
+                if not _helpdesk_poll_initialized or _helpdesk_message_versions.get(ticket_id) == version:
+                    continue
+
+                raw = admin_request("GET", f"/messages/{ticket_id}", params={"pageNumber": "1"})
+                messages = _normalize_messages(raw, ticket_id).get("messages") or []
+                incoming = next((item for item in reversed(messages) if not item.get("fromMe")), None)
+                if not incoming or incoming.get("id") is None:
+                    continue
+
+                message_id = str(incoming["id"])
+
+                engine_user_id = ticket.get("userId")
+                if engine_user_id is None and isinstance(ticket.get("user"), dict):
+                    engine_user_id = ticket["user"].get("id")
+                mapping = (
+                    HelpDeskAgentMap.query.filter_by(engine_user_id=int(engine_user_id)).first()
+                    if engine_user_id
+                    else None
+                )
+                if mapping:
+                    recipients = [mapping.computicket_user_id]
+                else:
+                    recipients = [
+                        user.id
+                        for user in User.query.filter(
+                            User.status == "1",
+                            User.role.in_(["admin", "administrador", "tecnico"]),
+                        ).all()
+                    ]
+                recipients = [
+                    user_id
+                    for user_id in recipients
+                    if not AppNotification.query.filter_by(
+                        user_id=user_id,
+                        entity_type="message",
+                        entity_id=message_id,
+                    ).first()
+                ]
+                if not recipients:
+                    continue
+
+                contact = ticket.get("contact") if isinstance(ticket.get("contact"), dict) else {}
+                contact_name = contact.get("name") or contact.get("number") or "Novo contato"
+                body = incoming.get("body") or ticket.get("lastMessage") or "Nova mensagem"
+                create_notifications(
+                    recipients,
+                    notification_type="message",
+                    title=f"Nova mensagem de {contact_name}",
+                    message=str(body)[:1000],
+                    url=f"/helpdesk?c={ticket_id}",
+                    entity_type="message",
+                    entity_id=message_id,
+                )
+
+            _helpdesk_message_versions.clear()
+            _helpdesk_message_versions.update(current_versions)
+            _helpdesk_poll_initialized = True
+        except Exception as e:
+            app.logger.warning("Falha ao verificar novas mensagens do helpdesk: %s", e)
+
+
 def enviar_lembretes_automaticos():
     """Função para enviar lembretes automaticamente - 30 minutos antes de cada evento"""
     print(f"🕕 [{datetime.now()}] Verificando agendamentos que precisam de lembretes...")
@@ -27,10 +136,11 @@ def enviar_lembretes_automaticos():
             from app.timezone_utils import get_brasilia_now, brasilia_to_utc
             agora_brasilia = get_brasilia_now()
             agora_utc = brasilia_to_utc(agora_brasilia)
+            agora_utc_db = agora_utc.replace(tzinfo=None)
             
-            # Janela alvo: entre 25 e 35 minutos ANTES de agora (em UTC)
-            tempo_limite_inferior = agora_utc - timedelta(minutes=35)
-            tempo_limite_superior = agora_utc - timedelta(minutes=25)
+            # Janela alvo: agendamentos que começarão entre 25 e 35 minutos.
+            tempo_limite_inferior = agora_utc_db + timedelta(minutes=25)
+            tempo_limite_superior = agora_utc_db + timedelta(minutes=35)
             
             print(f"📅 Verificando agendamentos entre {tempo_limite_inferior.strftime('%H:%M')} e {tempo_limite_superior.strftime('%H:%M')}")
             
@@ -51,21 +161,32 @@ def enviar_lembretes_automaticos():
                 
                 # Verificar se realmente está 30 minutos antes (com margem de erro)
                 # Usar base UTC para diferença
-                diferenca_minutos = (appointment.appointment_date - agora_utc).total_seconds() / 60
+                diferenca_minutos = (appointment.appointment_date - agora_utc_db).total_seconds() / 60
                 print(f"⏰ Tempo restante: {diferenca_minutos:.1f} minutos")
                 
                 # Só processar se estiver entre 20-40 minutos antes (margem de segurança)
                 if 20 <= diferenca_minutos <= 40:
+                    from app.notification_service import create_notifications
+                    create_notifications(
+                        [appointment.user_id],
+                        notification_type="appointment",
+                        title="Agendamento em breve",
+                        message=f"{appointment.title} começa em aproximadamente {int(diferenca_minutos)} minutos.",
+                        url="/agenda",
+                        entity_type="appointment_reminder",
+                        entity_id=appointment.id,
+                    )
+
                     # Enviar email de lembrete
                     if enviar_email_lembrete_automatico(appointment):
                         emails_enviados += 1
                         print(f"✅ Email enviado para: {appointment.user.name}")
-                        
-                        # Marcar como lembrente enviado
-                        appointment.reminder_sent = True
-                        db.session.commit()
                     else:
                         print(f"❌ Falha ao enviar email para: {appointment.user.name}")
+
+                    # O push e o pop-up não dependem do envio de e-mail.
+                    appointment.reminder_sent = True
+                    db.session.commit()
                     
                     # Criar ticket automaticamente (só se não existir)
                     if criar_ticket_automatico_scheduler(appointment):
@@ -346,6 +467,16 @@ def criar_ticket_automatico_scheduler(appointment):
         
         db.session.add(ticket)
         db.session.commit()
+        from app.notification_service import create_notifications
+        create_notifications(
+            [ticket.assigned_to_id],
+            notification_type="ticket",
+            title=f"Ticket #{ticket.id} criado pelo agendamento",
+            message=ticket.title,
+            url=f"/tickets/{ticket.id}",
+            entity_type="ticket",
+            entity_id=ticket.id,
+        )
         
         print(f"✅ Ticket criado com sucesso: ID {ticket.id}")
         return True
@@ -365,6 +496,8 @@ def run_scheduler():
     
     # Agendar execução a cada minuto para verificar agendamentos
     schedule.every().minute.do(enviar_lembretes_automaticos)
+    schedule.every(15).seconds.do(verificar_novas_mensagens_helpdesk)
+    verificar_novas_mensagens_helpdesk()
     
     print("⏰ Scheduler configurado para executar a cada minuto (verifica agendamentos 30min antes)")
     

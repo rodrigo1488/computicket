@@ -459,6 +459,16 @@ def create_ticket():
 		
 		import logging
 		logging.warning(f"✅ TICKET CRIADO - ID: {ticket.id}, Título: {ticket.title}, User: {current_user.name}")
+		from ..notification_service import create_notifications, ticket_recipient_ids
+		create_notifications(
+			ticket_recipient_ids(ticket.assigned_to_id),
+			notification_type="ticket",
+			title=f"Novo ticket #{ticket.id}",
+			message=f"{ticket.title} · {ticket.display_client_name() or 'Cliente não informado'}",
+			url=f"/tickets/{ticket.id}",
+			entity_type="ticket",
+			entity_id=ticket.id,
+		)
 		
 		# Enviar email de notificação para o técnico se atribuído
 		if assigned_to_id:
@@ -2741,6 +2751,16 @@ def api_create_ticket():
 	)
 	db.session.add(ticket)
 	db.session.commit()
+	from ..notification_service import create_notifications, ticket_recipient_ids
+	create_notifications(
+		ticket_recipient_ids(ticket.assigned_to_id),
+		notification_type="ticket",
+		title=f"Novo ticket #{ticket.id}",
+		message=f"{ticket.title} · {ticket.display_client_name() or 'Cliente não informado'}",
+		url=f"/tickets/{ticket.id}",
+		entity_type="ticket",
+		entity_id=ticket.id,
+	)
 	return jsonify(_serialize_ticket_detail(ticket)), 201
 
 

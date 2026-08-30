@@ -3,6 +3,7 @@
 import { useEffect } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { AppSidebar } from "@/components/layout/AppSidebar";
+import { NotificationCenter } from "@/components/notifications/NotificationCenter";
 import { useAuth } from "@/lib/auth-context";
 import { cn } from "@/lib/cn";
 
@@ -43,6 +44,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           {children}
         </div>
       </main>
+      <NotificationCenter />
     </div>
   );
 }

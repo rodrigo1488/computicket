@@ -23,6 +23,25 @@ if [[ ! -f "$COMPOSE_FILE" ]]; then
   exit 1
 fi
 
+if ! command -v docker >/dev/null 2>&1; then
+  echo "[ERRO] Docker não encontrado no PATH."
+  exit 1
+fi
+
+# Acesso ao socket (usuário precisa estar no grupo docker, ou usar sudo)
+if ! docker info >/dev/null 2>&1; then
+  echo "[ERRO] Sem permissão no Docker (socket /var/run/docker.sock)."
+  echo
+  echo "Corrija com (uma vez, como root/sudo):"
+  echo "  sudo usermod -aG docker \"\$USER\""
+  echo "  # depois: saia e entre de novo no SSH (ou: newgrp docker)"
+  echo
+  echo "Ou rode agora com:"
+  echo "  sudo ./up.sh"
+  echo
+  exit 1
+fi
+
 DB_USER="${COMPUTICKET_DB_USER:-computicket}"
 DB_PASS="${COMPUTICKET_DB_PASS:-computicket}"
 APP_DB="${COMPUTICKET_APP_DB:-computicket}"
@@ -31,6 +50,9 @@ URI="${SQLALCHEMY_DATABASE_URI:-postgresql+psycopg2://${DB_USER}:${DB_PASS}@loca
 export SQLALCHEMY_DATABASE_URI="$URI"
 
 APP_DIR="$ROOT/api/app"
+# shellcheck source=infra/postgres/ensure-migrate-venv.sh
+source "$ROOT/infra/postgres/ensure-migrate-venv.sh"
+
 BUILD_FLAG=(--build)
 if [[ "${SKIP_BUILD:-0}" == "1" ]]; then
   BUILD_FLAG=()
@@ -117,14 +139,7 @@ else
   else
     echo "[5/5] Migrando SQLite -> Postgres"
     echo "      Fonte: $SQLITE"
-    PY="python3"
-    if [[ -x "$APP_DIR/.venv/bin/python" ]]; then
-      PY="$APP_DIR/.venv/bin/python"
-    elif command -v python3 >/dev/null 2>&1; then
-      PY="python3"
-    elif command -v python >/dev/null 2>&1; then
-      PY="python"
-    fi
+    PY="$(ensure_migrate_venv "$ROOT")"
 
     WIPE_FLAG=(--wipe)
     if [[ "${NO_WIPE:-0}" == "1" ]]; then
@@ -136,6 +151,7 @@ else
       "$PY" tools/migrate_sqlite_to_postgres.py "${WIPE_FLAG[@]}" --sqlite "$SQLITE" --uri "$URI"
     )
     echo "      Migração SQLite concluída."
+    echo "      Verificar: docker compose exec -T postgres psql -U $DB_USER -d $APP_DB -c \"SELECT COUNT(*) FROM ticket;\""
   fi
 fi
 

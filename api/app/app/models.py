@@ -93,6 +93,67 @@ class User(UserMixin, db.Model):
 		return f"<User {self.email} ({self.role}) status={self.status}>"
 
 
+class AppNotification(db.Model):
+	"""Notificação persistente exibida no sistema e enviada por Web Push."""
+
+	__tablename__ = "app_notification"
+
+	id = db.Column(db.Integer, primary_key=True)
+	user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False, index=True)
+	notification_type = db.Column(db.String(30), nullable=False, index=True)
+	title = db.Column(db.String(200), nullable=False)
+	message = db.Column(db.Text, nullable=False)
+	url = db.Column(db.String(500), nullable=True)
+	entity_type = db.Column(db.String(30), nullable=True)
+	entity_id = db.Column(db.String(100), nullable=True)
+	read_at = db.Column(db.DateTime, nullable=True, index=True)
+	created_at = db.Column(db.DateTime, nullable=False, default=get_brasilia_now, index=True)
+
+	user = db.relationship(
+		"User",
+		backref=db.backref("app_notifications", lazy=True, cascade="all, delete-orphan"),
+	)
+
+	def to_dict(self) -> Dict[str, Any]:
+		return {
+			"id": self.id,
+			"type": self.notification_type,
+			"title": self.title,
+			"message": self.message,
+			"url": self.url,
+			"entity_type": self.entity_type,
+			"entity_id": self.entity_id,
+			"read": self.read_at is not None,
+			"created_at": self.created_at.isoformat() if self.created_at else None,
+		}
+
+
+class PushSubscription(db.Model):
+	"""Assinatura Web Push vinculada a um navegador do usuário."""
+
+	__tablename__ = "push_subscription"
+	__table_args__ = (db.UniqueConstraint("endpoint", name="uq_push_subscription_endpoint"),)
+
+	id = db.Column(db.Integer, primary_key=True)
+	user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False, index=True)
+	endpoint = db.Column(db.Text, nullable=False)
+	p256dh = db.Column(db.Text, nullable=False)
+	auth = db.Column(db.Text, nullable=False)
+	created_at = db.Column(db.DateTime, nullable=False, default=get_brasilia_now)
+	updated_at = db.Column(db.DateTime, nullable=False, default=get_brasilia_now, onupdate=get_brasilia_now)
+
+	user = db.relationship(
+		"User",
+		backref=db.backref("push_subscriptions", lazy=True, cascade="all, delete-orphan"),
+	)
+
+	def subscription_info(self) -> Dict[str, Any]:
+		return {
+			"endpoint": self.endpoint,
+			"keys": {"p256dh": self.p256dh, "auth": self.auth},
+		}
+
+
 @login_manager.user_loader
 def load_user(user_id: str) -> Optional["User"]:
 	return User.query.get(int(user_id))
@@ -839,6 +900,52 @@ class HelpDeskTicketLink(db.Model):
 	created_at = db.Column(db.DateTime, default=lambda: brasilia_to_utc(get_brasilia_now()))
 
 	ticket = db.relationship("Ticket", backref="helpdesk_links")
+
+
+class HelpDeskRating(db.Model):
+	"""Pesquisa de satisfação enviada ao encerrar uma conversa do Help Desk."""
+	__tablename__ = "helpdesk_rating"
+	__table_args__ = (
+		db.CheckConstraint("score IS NULL OR (score >= 1 AND score <= 5)", name="ck_helpdesk_rating_score"),
+	)
+
+	id = db.Column(db.Integer, primary_key=True)
+	engine_ticket_id = db.Column(db.Integer, unique=True, nullable=False, index=True)
+	computicket_ticket_id = db.Column(db.Integer, db.ForeignKey("ticket.id"), nullable=True, index=True)
+	token = db.Column(db.String(64), unique=True, nullable=False, index=True)
+	score = db.Column(db.Integer, nullable=True)
+	comment = db.Column(db.Text, nullable=True)
+	agent_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=True, index=True)
+	agent_name = db.Column(db.String(200), nullable=True)
+	customer_name = db.Column(db.String(200), nullable=True)
+	requested_at = db.Column(db.DateTime, nullable=False, default=lambda: brasilia_to_utc(get_brasilia_now()))
+	sent_at = db.Column(db.DateTime, nullable=True, index=True)
+	responded_at = db.Column(db.DateTime, nullable=True, index=True)
+
+	ticket = db.relationship("Ticket", backref=db.backref("helpdesk_ratings", lazy=True))
+	agent = db.relationship("User", backref=db.backref("helpdesk_ratings", lazy=True))
+
+	@property
+	def answered(self) -> bool:
+		return self.score is not None and self.responded_at is not None
+
+	def to_dict(self, include_comment: bool = True) -> Dict[str, Any]:
+		data = {
+			"id": self.id,
+			"engine_ticket_id": self.engine_ticket_id,
+			"computicket_ticket_id": self.computicket_ticket_id,
+			"score": self.score,
+			"answered": self.answered,
+			"agent_id": self.agent_id,
+			"agent_name": self.agent_name,
+			"customer_name": self.customer_name,
+			"requested_at": self.requested_at.isoformat() if self.requested_at else None,
+			"sent_at": self.sent_at.isoformat() if self.sent_at else None,
+			"responded_at": self.responded_at.isoformat() if self.responded_at else None,
+		}
+		if include_comment:
+			data["comment"] = self.comment or ""
+		return data
 
 
 class PasswordVault(db.Model):

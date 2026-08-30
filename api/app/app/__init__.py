@@ -577,6 +577,15 @@ def create_app() -> Flask:
 	except Exception as _e:
 		print(f"⚠️ Não foi possível verificar/adicionar schema de planos: {_e}")
 
+	# Pesquisa de satisfação do Help Desk (SQLite e PostgreSQL).
+	try:
+		with app.app_context():
+			from .schema_utils import ensure_column, ensure_tables_from_metadata
+			ensure_tables_from_metadata(["helpdesk_rating"])
+			ensure_column("helpdesk_rating", "sent_at", "DATETIME")
+	except Exception as _rating_schema_error:
+		app.logger.warning("Não foi possível garantir o schema de avaliações: %s", _rating_schema_error)
+
 	# Tabelas do monitoramento remoto (SQLite e PostgreSQL).
 	try:
 		with app.app_context():

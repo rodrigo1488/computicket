@@ -74,6 +74,30 @@ export type HelpdeskConnection = {
   queues?: HelpdeskQueue[];
 };
 
+export type HelpdeskRating = {
+  id: number;
+  engine_ticket_id: number;
+  computicket_ticket_id?: number | null;
+  score?: number | null;
+  comment?: string;
+  answered: boolean;
+  agent_id?: number | null;
+  agent_name?: string | null;
+  customer_name?: string | null;
+  requested_at?: string | null;
+  sent_at?: string | null;
+  responded_at?: string | null;
+};
+
+export type HelpdeskRatingSummary = {
+  average: number;
+  responded: number;
+  pending: number;
+  response_rate: number;
+  distribution: Record<string, number>;
+  recent: HelpdeskRating[];
+};
+
 export type HelpdeskConversation = {
   id: number;
   status: string;
@@ -89,6 +113,8 @@ export type HelpdeskConversation = {
   whatsapp?: { name?: string; type?: string } | null;
   tags?: HelpdeskTag[];
   computicket_ticket_id?: number | null;
+  rating?: HelpdeskRating | null;
+  rating_warning?: string;
 };
 
 export type HelpdeskMessage = {
@@ -237,6 +263,9 @@ export const helpdesk = {
   pending: (id: number) => flask.put<HelpdeskConversation>(`/helpdesk/api/conversations/${id}/pending`),
   resolve: (id: number) => flask.put<HelpdeskConversation>(`/helpdesk/api/conversations/${id}/resolve`),
   reopen: (id: number) => flask.put<HelpdeskConversation>(`/helpdesk/api/conversations/${id}/reopen`),
+  resendRating: (id: number) =>
+    flask.post<{ message: string; rating: HelpdeskRating }>(`/helpdesk/api/conversations/${id}/rating/resend`),
+  ratingSummary: () => flask.get<HelpdeskRatingSummary>("/helpdesk/api/ratings/summary"),
   transfer: (id: number, payload: TransferPayload) =>
     flask.put<HelpdeskConversation>(`/helpdesk/api/conversations/${id}/transfer`, payload),
   assignees: () => flask.get<HelpdeskAssignee[]>("/helpdesk/api/assignees"),

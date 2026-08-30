@@ -18,6 +18,7 @@ import {
   Send,
   Settings,
   Smile,
+  Star,
   Ticket,
   Undo2,
   UserRound,
@@ -230,6 +231,12 @@ export function HelpdeskWorkspace() {
     enabled: !!health.data?.ok,
     refetchInterval: 15000,
   });
+  const ratingSummary = useQuery({
+    queryKey: ["hd-rating-summary"],
+    queryFn: helpdesk.ratingSummary,
+    enabled: !!health.data?.ok,
+    refetchInterval: 60000,
+  });
 
   const queues = useQuery({
     queryKey: ["hd-queues"],
@@ -340,6 +347,7 @@ export function HelpdeskWorkspace() {
     qc.invalidateQueries({ queryKey: ["hd-list"] });
     qc.invalidateQueries({ queryKey: ["hd-list-counts"] });
     qc.invalidateQueries({ queryKey: ["hd-overview"] });
+    qc.invalidateQueries({ queryKey: ["hd-rating-summary"] });
     if (id) {
       qc.invalidateQueries({ queryKey: ["hd-conversation", id] });
       qc.invalidateQueries({ queryKey: ["hd-messages", id] });
@@ -357,10 +365,19 @@ export function HelpdeskWorkspace() {
   });
   const resolve = useMutation({
     mutationFn: (id: number) => helpdesk.resolve(id),
-    onSuccess: () => {
+    onSuccess: (ticket) => {
       setActiveId(null);
       setTab("closed");
       invalidateInbox();
+      if (ticket.rating_warning) setError(ticket.rating_warning);
+    },
+    onError: (e: Error) => setError(e.message),
+  });
+  const resendRating = useMutation({
+    mutationFn: (id: number) => helpdesk.resendRating(id),
+    onSuccess: (_, id) => {
+      invalidateInbox(id);
+      setError(null);
     },
     onError: (e: Error) => setError(e.message),
   });
@@ -774,6 +791,13 @@ export function HelpdeskWorkspace() {
             {unread ? ` · ${unread} não lida` : ""}
             {waitingReply ? ` · ${waitingReply} aguardando resposta` : ""}
           </p>
+          {tab === "closed" && ratingSummary.data ? (
+            <p className="mx-3 mb-2 rounded-lg bg-[#fff8df] px-3 py-2 text-[11px] text-[#765a00]">
+              <Star className="mr-1 inline h-3.5 w-3.5 fill-[#f6b91a] text-[#f6b91a]" />
+              Média {ratingSummary.data.average.toFixed(1)} · {ratingSummary.data.responded} avaliações ·{" "}
+              {ratingSummary.data.response_rate.toFixed(0)}% de respostas
+            </p>
+          ) : null}
 
           {engineDown ? (
             <div className="mx-3 mb-2 rounded-lg bg-open-bg px-3 py-2 text-xs text-open">
@@ -855,6 +879,16 @@ export function HelpdeskWorkspace() {
                       <span className={cn("mt-1 inline-flex rounded px-1.5 py-0.5 text-[10px] font-medium", chipItem.className)}>
                         {chipItem.label}
                       </span>
+                      {c.rating?.answered ? (
+                        <span className="ml-1 inline-flex items-center gap-0.5 rounded bg-[#fff8df] px-1.5 py-0.5 text-[10px] font-semibold text-[#765a00]">
+                          <Star className="h-3 w-3 fill-[#f6b91a] text-[#f6b91a]" />
+                          {c.rating.score}/5
+                        </span>
+                      ) : c.rating ? (
+                        <span className="ml-1 inline-flex rounded bg-[#f3f4f6] px-1.5 py-0.5 text-[10px] text-muted">
+                          Aguardando avaliação
+                        </span>
+                      ) : null}
                       <span className="mt-0.5 block truncate text-xs text-muted">{snippet(c.lastMessage)}</span>
                     </span>
                     {(c.unreadMessages || 0) > 0 ? (
@@ -966,6 +1000,34 @@ export function HelpdeskWorkspace() {
                   </button>
                 </div>
               </header>
+
+              {current.status === "closed" && current.rating ? (
+                <div className="flex shrink-0 items-center justify-between gap-3 border-b border-[#e6e0d6] bg-[#fffdf5] px-4 py-2 text-xs">
+                  {current.rating.answered ? (
+                    <div className="min-w-0">
+                      <span className="inline-flex items-center gap-1 font-semibold text-[#765a00]">
+                        <Star className="h-4 w-4 fill-[#f6b91a] text-[#f6b91a]" />
+                        Atendimento avaliado com {current.rating.score}/5
+                      </span>
+                      {current.rating.comment ? (
+                        <span className="ml-2 text-muted">“{current.rating.comment}”</span>
+                      ) : null}
+                    </div>
+                  ) : (
+                    <>
+                      <span className="text-muted">Pesquisa enviada; aguardando resposta do cliente.</span>
+                      <button
+                        type="button"
+                        onClick={() => resendRating.mutate(current.id)}
+                        disabled={resendRating.isPending}
+                        className="shrink-0 font-semibold text-brand hover:underline disabled:opacity-50"
+                      >
+                        {resendRating.isPending ? "Reenviando…" : "Reenviar pesquisa"}
+                      </button>
+                    </>
+                  )}
+                </div>
+              ) : null}
 
               <div
                 ref={threadRef}

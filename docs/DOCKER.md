@@ -29,6 +29,34 @@ O `up.sh` sobe o stack, garante o database `computicket`, aplica `api/migrations
 
 Opções: `SKIP_BUILD=1`, `SKIP_MIGRATE=1`, `NO_WIPE=1`, `./up.sh /caminho/tickets.sqlite3`.
 
+Só migrar dados (containers já no ar):
+
+```bash
+chmod +x migrate.sh
+./migrate.sh
+# ou: ./migrate.sh /caminho/tickets.sqlite3
+```
+
+O script cria `api/app/.venv` e instala `api/requirements.txt` se faltar `python-dotenv`.
+
+Verificar após migrar:
+
+```bash
+docker compose exec -T postgres psql -U computicket -d computicket -c "SELECT COUNT(*) FROM ticket;"
+```
+
+### Permissão Docker no Linux
+
+Se aparecer `permission denied ... docker.sock`, o usuário precisa do grupo `docker`:
+
+```bash
+sudo usermod -aG docker "$USER"
+# saia e entre de novo no SSH (ou: newgrp docker)
+./up.sh
+```
+
+Alternativa pontual: `sudo ./up.sh` (menos ideal no dia a dia).
+
 UI: http://localhost:3000  
 API: http://localhost:5000  
 

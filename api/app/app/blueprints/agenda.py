@@ -403,6 +403,16 @@ def novo_agendamento():
             db.session.commit()
             
             print(f"✅ Agendamento salvo com sucesso: ID {appointment.id}")
+            from ..notification_service import create_notifications
+            create_notifications(
+                [appointment.user_id],
+                notification_type="appointment",
+                title="Novo agendamento",
+                message=f"{appointment.title} · {appointment.get_formatted_date()}",
+                url="/agenda",
+                entity_type="appointment",
+                entity_id=appointment.id,
+            )
             
             # Enviar email de confirmação
             email_enviado = enviar_email_confirmacao(appointment)

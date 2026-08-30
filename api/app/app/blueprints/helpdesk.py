@@ -4,12 +4,16 @@ from __future__ import annotations
 import hashlib
 import os
 import random
+import secrets
 import threading
 import time
 from collections import defaultdict, deque
+from datetime import datetime, timezone
 
 from flask import Blueprint, Response, jsonify, request
 from flask_login import current_user, login_required
+from sqlalchemy import func
+from sqlalchemy.exc import IntegrityError
 
 from .. import db
 from ..engine_client import (
@@ -23,7 +27,7 @@ from ..engine_client import (
     ensure_default_queue,
     send_engine_message,
 )
-from ..models import AIAuditLog, HelpDeskAgentMap, HelpDeskTicketLink, Ticket, User
+from ..models import AIAuditLog, HelpDeskAgentMap, HelpDeskRating, HelpDeskTicketLink, Ticket, User
 from ..services.copilot import CopilotError, answer_question, improve_draft, suggest_reply, suggest_ticket
 
 helpdesk_bp = Blueprint("helpdesk", __name__, url_prefix="/helpdesk")
@@ -132,6 +136,66 @@ def _links_by_engine_ids(ids: list[int]) -> dict[int, int]:
     return {row.engine_ticket_id: row.computicket_ticket_id for row in rows}
 
 
+def _ratings_by_engine_ids(ids: list[int]) -> dict[int, dict]:
+    if not ids:
+        return {}
+    rows = HelpDeskRating.query.filter(HelpDeskRating.engine_ticket_id.in_(ids)).all()
+    return {row.engine_ticket_id: row.to_dict() for row in rows}
+
+
+def _get_or_create_rating(engine_ticket_id: int, conversation: dict | None = None) -> HelpDeskRating:
+    rating = HelpDeskRating.query.filter_by(engine_ticket_id=engine_ticket_id).first()
+    if rating:
+        return rating
+
+    link = HelpDeskTicketLink.query.filter_by(engine_ticket_id=engine_ticket_id).first()
+    contact = (conversation or {}).get("contact")
+    customer_name = contact.get("name") if isinstance(contact, dict) else None
+    engine_user_id = _conversation_user_id(conversation or {})
+    agent_map = (
+        HelpDeskAgentMap.query.filter_by(engine_user_id=engine_user_id).first()
+        if engine_user_id is not None
+        else None
+    )
+    assigned_agent = User.query.get(agent_map.computicket_user_id) if agent_map else None
+    agent = assigned_agent or current_user
+    rating = HelpDeskRating(
+        engine_ticket_id=engine_ticket_id,
+        computicket_ticket_id=link.computicket_ticket_id if link else None,
+        token=secrets.token_urlsafe(32),
+        agent_id=agent.id,
+        agent_name=(agent.name or "")[:200] or None,
+        customer_name=str(customer_name or "")[:200] or None,
+    )
+    db.session.add(rating)
+    try:
+        db.session.commit()
+        return rating
+    except IntegrityError:
+        db.session.rollback()
+        concurrent = HelpDeskRating.query.filter_by(engine_ticket_id=engine_ticket_id).first()
+        if concurrent:
+            return concurrent
+        raise
+
+
+def _rating_public_url(rating: HelpDeskRating) -> str:
+    base = (os.environ.get("COMPUTICKET_PUBLIC_URL") or "http://localhost:3000").rstrip("/")
+    return f"{base}/avaliar-atendimento/{rating.token}"
+
+
+def _send_rating_invitation(rating: HelpDeskRating) -> None:
+    if rating.answered:
+        return
+    send_engine_message(
+        rating.engine_ticket_id,
+        "Como foi o seu atendimento? Sua opinião nos ajuda a melhorar.\n"
+        f"Avalie de 1 a 5 estrelas: {_rating_public_url(rating)}",
+    )
+    rating.sent_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    db.session.commit()
+
+
 def _with_link(ticket: dict | None) -> dict | None:
     if not ticket:
         return ticket
@@ -139,8 +203,10 @@ def _with_link(ticket: dict | None) -> dict | None:
     if engine_id is None:
         return ticket
     row = HelpDeskTicketLink.query.filter_by(engine_ticket_id=int(engine_id)).first()
+    rating = HelpDeskRating.query.filter_by(engine_ticket_id=int(engine_id)).first()
     ticket = dict(ticket)
     ticket["computicket_ticket_id"] = row.computicket_ticket_id if row else None
+    ticket["rating"] = rating.to_dict() if rating else None
     return ticket
 
 
@@ -579,9 +645,12 @@ def list_conversations():
         return _fail(exc)
     tickets = data.get("tickets") if isinstance(data, dict) else data
     tickets = tickets or []
-    links = _links_by_engine_ids([t.get("id") for t in tickets if t.get("id") is not None])
+    engine_ids = [t.get("id") for t in tickets if t.get("id") is not None]
+    links = _links_by_engine_ids(engine_ids)
+    ratings = _ratings_by_engine_ids(engine_ids)
     for ticket in tickets:
         ticket["computicket_ticket_id"] = links.get(ticket.get("id"))
+        ticket["rating"] = ratings.get(ticket.get("id"))
     if isinstance(data, dict):
         data["tickets"] = tickets
         return jsonify(data)
@@ -862,10 +931,130 @@ def reopen_conversation(ticket_id: int):
 @login_required
 def resolve_conversation(ticket_id: int):
     try:
+        try:
+            conversation = agent_request("GET", f"/tickets/{ticket_id}") or {}
+        except EngineError:
+            conversation = {}
         ticket = agent_request("PUT", f"/tickets/{ticket_id}", json={"status": "closed"})
-        return jsonify(_with_link(ticket.get("ticket") if isinstance(ticket, dict) and "ticket" in ticket else ticket))
+        result = ticket.get("ticket") if isinstance(ticket, dict) and "ticket" in ticket else ticket
+        result = _with_link(result)
+        try:
+            rating = _get_or_create_rating(ticket_id, conversation if isinstance(conversation, dict) else None)
+            _send_rating_invitation(rating)
+            result = dict(result or {})
+            result["rating"] = rating.to_dict()
+        except Exception:
+            db.session.rollback()
+            result = dict(result or {})
+            result["rating_warning"] = "Conversa encerrada, mas não foi possível enviar a pesquisa de satisfação."
+        return jsonify(result)
     except EngineError as exc:
         return _fail(exc)
+
+
+@helpdesk_bp.route("/api/conversations/<int:ticket_id>/rating/resend", methods=["POST"])
+@login_required
+def resend_rating(ticket_id: int):
+    try:
+        conversation = agent_request("GET", f"/tickets/{ticket_id}") or {}
+        if isinstance(conversation, dict) and conversation.get("status") != "closed":
+            return jsonify({"error": "A pesquisa só pode ser enviada após encerrar a conversa."}), 400
+        rating = _get_or_create_rating(ticket_id, conversation if isinstance(conversation, dict) else None)
+        if rating.answered:
+            return jsonify({"error": "Esta avaliação já foi respondida."}), 409
+        if rating.sent_at:
+            elapsed = datetime.now(timezone.utc).replace(tzinfo=None) - rating.sent_at.replace(tzinfo=None)
+            if elapsed.total_seconds() < 60:
+                return jsonify({"error": "Aguarde um minuto antes de reenviar a pesquisa."}), 429
+        _send_rating_invitation(rating)
+        return jsonify({"message": "Pesquisa de satisfação reenviada.", "rating": rating.to_dict()})
+    except EngineError as exc:
+        return _fail(exc)
+
+
+@helpdesk_bp.route("/api/ratings/summary")
+@login_required
+def rating_summary():
+    sent = HelpDeskRating.query.filter(HelpDeskRating.sent_at.isnot(None))
+    answered = sent.filter(HelpDeskRating.score.isnot(None))
+    responded = answered.count()
+    total = sent.count()
+    average = answered.with_entities(func.avg(HelpDeskRating.score)).scalar()
+    grouped = (
+        answered.with_entities(HelpDeskRating.score, func.count(HelpDeskRating.id))
+        .group_by(HelpDeskRating.score)
+        .all()
+    )
+    recent = answered.order_by(HelpDeskRating.responded_at.desc()).limit(10).all()
+    return jsonify(
+        {
+            "average": round(float(average or 0), 2),
+            "responded": responded,
+            "pending": max(total - responded, 0),
+            "response_rate": round((responded / total * 100) if total else 0, 1),
+            "distribution": {str(score): 0 for score in range(1, 6)}
+            | {str(score): count for score, count in grouped},
+            "recent": [rating.to_dict() for rating in recent],
+        }
+    )
+
+
+@helpdesk_bp.route("/api/ratings/public/<token>")
+def public_rating(token: str):
+    rating = HelpDeskRating.query.filter_by(token=token).first()
+    if not rating:
+        return jsonify({"error": "Pesquisa de satisfação não encontrada."}), 404
+    if request.method == "GET":
+        return jsonify(
+            {
+                "answered": rating.answered,
+                "score": rating.score,
+                "customer_name": rating.customer_name,
+            }
+        )
+
+
+@helpdesk_bp.route("/api/ratings/public/<token>", methods=["POST"])
+def submit_public_rating(token: str):
+    rating = HelpDeskRating.query.filter_by(token=token).first()
+    if not rating:
+        return jsonify({"error": "Pesquisa de satisfação não encontrada."}), 404
+    if rating.answered:
+        return jsonify({"error": "Esta avaliação já foi enviada."}), 409
+
+    payload = request.get_json(silent=True) or {}
+    try:
+        score = int(payload.get("score"))
+    except (TypeError, ValueError):
+        return jsonify({"error": "Informe uma nota de 1 a 5."}), 400
+    if score < 1 or score > 5:
+        return jsonify({"error": "A nota deve estar entre 1 e 5."}), 400
+    comment = str(payload.get("comment") or "").strip()
+    if len(comment) > 1000:
+        return jsonify({"error": "O comentário deve ter no máximo 1000 caracteres."}), 400
+
+    from ..timezone_utils import brasilia_to_utc, get_brasilia_now
+
+    responded_at = brasilia_to_utc(get_brasilia_now())
+    updated = (
+        HelpDeskRating.query.filter(
+            HelpDeskRating.id == rating.id,
+            HelpDeskRating.responded_at.is_(None),
+        )
+        .update(
+            {
+                HelpDeskRating.score: score,
+                HelpDeskRating.comment: comment or None,
+                HelpDeskRating.responded_at: responded_at,
+            },
+            synchronize_session=False,
+        )
+    )
+    if not updated:
+        db.session.rollback()
+        return jsonify({"error": "Esta avaliação já foi enviada."}), 409
+    db.session.commit()
+    return jsonify({"message": "Obrigado pela sua avaliação!", "score": score})
 
 
 @helpdesk_bp.route("/api/conversations/<int:ticket_id>/link-ticket", methods=["POST"])

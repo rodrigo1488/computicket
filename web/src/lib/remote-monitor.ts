@@ -88,7 +88,8 @@ export const DEFAULT_REMOTE_THRESHOLDS: RemoteThresholds = {
 export const remoteSocketOrigin =
   typeof window === "undefined"
     ? "http://127.0.0.1:5000"
-    : process.env.NEXT_PUBLIC_FLASK_URL || "http://127.0.0.1:5000";
+    : process.env.NEXT_PUBLIC_FLASK_URL ||
+      `${window.location.protocol}//${window.location.hostname}:5000`;
 
 function finiteNumber(value: unknown): number | null {
   const number = typeof value === "number" ? value : Number(value);
