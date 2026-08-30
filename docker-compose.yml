@@ -126,6 +126,8 @@ services:
     volumes:
       - computicket_api_instance:/app/instance
       - computicket_api_uploads:/app/app/static/uploads
+      # Bind no host para preservar/copiar PDFs legados sem perder no rebuild
+      - ./data/ps:/app/ps
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import socket; s=socket.create_connection(('127.0.0.1',5000),3); s.close()\""]
       interval: 15s

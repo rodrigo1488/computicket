@@ -32,7 +32,7 @@ COPY agents/remote_monitor_agent/dist/ComputicketMonitorAgent.exe /app/artifacts
 # Garante que `from app import create_app` resolva api/app/app
 ENV PYTHONPATH=/app
 
-RUN mkdir -p /app/instance /app/app/static/uploads
+RUN mkdir -p /app/instance /app/app/static/uploads /app/ps/ps-do-dia
 
 EXPOSE 5000
 

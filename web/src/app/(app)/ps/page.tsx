@@ -17,6 +17,7 @@ type Item = {
   name: string;
   source: string;
   client_name: string;
+  technician_name?: string | null;
   issued_at?: string | null;
   value: number;
   path?: string | null;
@@ -49,18 +50,26 @@ export default function PSPage() {
       <PageTitle>PS</PageTitle>
       {error ? <p className="mb-4 text-sm text-open">{(error as Error).message}</p> : null}
       <DataTable
-        id="ps"
-        searchPlaceholder="Buscar por PS, cliente ou origem…"
+        id="ps-v2"
+        searchPlaceholder="Buscar por PS, cliente, técnico ou origem…"
         searchValue={q}
         onSearch={setQ}
         onFiltersChange={onFiltersChange}
-        columns={["PS", "Origem", "Cliente", "Emissão", "Valor", "Arquivo"]}
+        columnMeta={{
+          Cliente: { field: "client_name" },
+          Valor: { field: "value" },
+          Técnico: { field: "technician_name" },
+          Origem: { field: "source", filter: "select" },
+          Ações: { sortable: false, filter: false },
+        }}
+        columns={["PS", "Cliente", "Valor", "Técnico", "Origem", "Emissão", "Ações"]}
         rows={(data?.items || []).map((i) => [
           i.ps_number || i.name,
-          i.source,
           i.client_name || "—",
-          formatDate(i.issued_at),
           formatBRL(i.value),
+          i.technician_name || "—",
+          i.source,
+          formatDate(i.issued_at),
           <RowActions key={i.id}>
             {i.path ? (
               <>
@@ -84,7 +93,9 @@ export default function PSPage() {
                 />
               </>
             ) : (
-              "—"
+              <span className="text-xs text-muted" title="PDF não encontrado em /app/ps">
+                Sem PDF
+              </span>
             )}
           </RowActions>,
         ])}

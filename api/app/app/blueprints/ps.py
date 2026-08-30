@@ -24,22 +24,74 @@ VIRTUAL_MONTH_FOLDER_LABEL = "PS do mês"
 share_tokens = {}
 
 
+def _ps_root() -> Path:
+    return Path(__file__).parent.parent.parent / "ps"
+
+
+def _ps_lookup_names(*values: str | None) -> list[str]:
+    """Gera nomes de arquivo candidatos (legado PS/123 → PS_123.pdf incluso)."""
+    names: list[str] = []
+    seen: set[str] = set()
+
+    def add(name: str | None) -> None:
+        raw = (name or "").strip()
+        if not raw or raw in seen:
+            return
+        seen.add(raw)
+        names.append(raw)
+
+    for value in values:
+        raw = (value or "").strip()
+        if not raw:
+            continue
+        add(raw)
+        add(Path(raw).name)
+        underscored = raw.replace("\\", "/").replace("/", "_")
+        add(underscored)
+        add(Path(underscored).name)
+        if not raw.lower().endswith(".pdf"):
+            add(f"{underscored}.pdf")
+            add(f"{raw.replace('/', '_')}.pdf")
+            add(f"{Path(raw).name}.pdf")
+        # PS/TICKET-2983 → também TICKET-2983.pdf
+        if "/" in raw.replace("\\", "/"):
+            tail = raw.replace("\\", "/").rsplit("/", 1)[-1]
+            add(f"{tail}.pdf")
+            add(tail)
+    return names
+
+
 def find_ps_file_path(filename: str) -> Path | None:
     if not filename:
         return None
-    ps_path = Path(__file__).parent.parent.parent / "ps"
-    
-    # Try literal path relative to ps/
-    literal_path = ps_path / filename
-    if literal_path.exists() and literal_path.is_file() and literal_path.resolve().is_relative_to(ps_path.resolve()):
-        return literal_path
-        
-    # If not found, try searching for the base filename recursively
-    base_name = Path(filename).name
-    for path in ps_path.rglob(base_name):
-        if path.is_file() and path.resolve().is_relative_to(ps_path.resolve()):
-            return path
-            
+    ps_path = _ps_root()
+    if not ps_path.exists():
+        return None
+    try:
+        ps_resolved = ps_path.resolve()
+    except OSError:
+        return None
+
+    for candidate in _ps_lookup_names(filename):
+        literal_path = ps_path / candidate
+        try:
+            if (
+                literal_path.exists()
+                and literal_path.is_file()
+                and literal_path.resolve().is_relative_to(ps_resolved)
+            ):
+                return literal_path
+        except OSError:
+            pass
+
+        base_name = Path(candidate).name
+        try:
+            for path in ps_path.rglob(base_name):
+                if path.is_file() and path.resolve().is_relative_to(ps_resolved):
+                    return path
+        except OSError:
+            continue
+
     return None
 
 @bp.route('/')
@@ -76,7 +128,7 @@ def list_files():
                 item for item in items
                 if search_term in " ".join(
                     str(item.get(key) or "").lower()
-                    for key in ("ps_number", "client_name", "source", "description")
+                    for key in ("ps_number", "client_name", "technician_name", "source", "description")
                 )
             ]
         
@@ -112,16 +164,21 @@ def _iso_date(value):
     return value.isoformat() if hasattr(value, "isoformat") else (str(value) if value else None)
 
 
-def _relative_ps_file(filename):
-    full_path = find_ps_file_path(filename)
-    if not full_path:
-        return None
-    ps_root = Path(__file__).parent.parent.parent / "ps"
-    return full_path.relative_to(ps_root).as_posix()
+def _relative_ps_file(*candidates: str | None):
+    for candidate in candidates:
+        full_path = find_ps_file_path(candidate) if candidate else None
+        if not full_path:
+            continue
+        try:
+            return full_path.relative_to(_ps_root()).as_posix()
+        except ValueError:
+            continue
+    return None
 
 
 def _ticket_ps_item(ticket):
     filename = ticket.ps_file or ticket.resolved_ps_filename()
+    tech = ticket.assigned_to_user.name if getattr(ticket, "assigned_to_user", None) else None
     return {
         "ps_number": ticket.ps_number,
         "name": ticket.ps_number or filename or f"Ticket #{ticket.id}",
@@ -129,10 +186,11 @@ def _ticket_ps_item(ticket):
         "source": "Ticket",
         "source_id": ticket.id,
         "client_name": ticket.display_client_name(),
+        "technician_name": tech or "",
         "value": float(ticket.total_cost or 0),
         "issued_at": _iso_date(ticket.closed_at or ticket.created_at),
         "description": ticket.title or "",
-        "path": _relative_ps_file(filename),
+        "path": _relative_ps_file(filename, ticket.ps_number, ticket.ps_file),
     }
 
 
@@ -144,10 +202,11 @@ def _order_ps_item(order):
         "source": "Ordem de serviço",
         "source_id": order.id,
         "client_name": order.client_name or "",
+        "technician_name": order.technician_name or "",
         "value": float(order.value or 0),
         "issued_at": _iso_date(order.completion_date),
         "description": order.service_executed or "",
-        "path": _relative_ps_file(order.ps_file),
+        "path": _relative_ps_file(order.ps_file, order.ps_number),
     }
 
 
@@ -174,6 +233,7 @@ def merge_ps_records(financial_records, tickets, orders):
             source = "Ordem de serviço" if upper.startswith("PS/OS-") else (
                 "Ticket" if upper.startswith("PS/TICKET-") else "PS legada"
             )
+        path = local.get("path") or _relative_ps_file(number, local.get("ps_number"))
         item = {
             "id": f"unico:{record.get('id')}",
             "ps_number": number,
@@ -182,12 +242,13 @@ def merge_ps_records(financial_records, tickets, orders):
             "source": source,
             "source_id": local.get("source_id"),
             "client_name": record.get("client_name") or local.get("client_name") or "",
+            "technician_name": local.get("technician_name") or "",
             "value": float(record.get("valor") or local.get("value") or 0),
             "balance": float(record.get("saldo") or 0),
             "status": record.get("status"),
             "issued_at": _iso_date(record.get("emissao") or local.get("issued_at")),
             "description": record.get("description") or local.get("description") or "",
-            "path": local.get("path"),
+            "path": path,
         }
         merged.append(item)
         if key:
@@ -235,7 +296,7 @@ def list_ps_current_month():
         .all()
     )
 
-    ps_root = Path(__file__).parent.parent.parent / "ps"
+    ps_root = _ps_root()
     items = []
 
     for order in orders:
@@ -243,7 +304,7 @@ def list_ps_current_month():
         if not file_name:
             continue
 
-        full_path = find_ps_file_path(file_name)
+        full_path = find_ps_file_path(file_name) or find_ps_file_path(order.ps_number or "")
         file_ext = Path(file_name).suffix.lower()
         mime_type, _ = mimetypes.guess_type(str(full_path) if full_path else file_name)
 

@@ -25,6 +25,10 @@ instance/
 *.sqlite3
 signatures/
 ngrok-v3-stable-windows-amd64/
+data/ps/**
+!data/ps/.gitkeep
+!data/ps/ps-do-dia/
+!data/ps/ps-do-dia/.gitkeep
 
 # OS / IDE
 .DS_Store

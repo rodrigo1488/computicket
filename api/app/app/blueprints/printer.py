@@ -280,7 +280,9 @@ def generateServiceProvisionPDF(
 ):
     try:
         new_ps = ps_number.replace("/","_")
-        output_path = os.path.join(os.getcwd(),"ps", "ps-do-dia", f"{new_ps}.pdf")
+        output_dir = os.path.join(os.getcwd(), "ps", "ps-do-dia")
+        os.makedirs(output_dir, exist_ok=True)
+        output_path = os.path.join(output_dir, f"{new_ps}.pdf")
         c = canvas.Canvas(output_path, pagesize=A4)
         width, height = A4
         y = height - 30 * mm
@@ -813,7 +815,9 @@ def generateCombinedPSAndDeliveryReceipt(
 ):
     """Gera PS e recibo de entrega no mesmo PDF (dividindo a folha A4)"""
     try:
-        output_path = os.path.join(os.getcwd(), "ps", "ps-do-dia", f"ps-recibo-{os_number}.pdf")
+        output_dir = os.path.join(os.getcwd(), "ps", "ps-do-dia")
+        os.makedirs(output_dir, exist_ok=True)
+        output_path = os.path.join(output_dir, f"ps-recibo-{os_number}.pdf")
         c = canvas.Canvas(output_path, pagesize=A4)
         width, height = A4
         
@@ -1053,7 +1057,9 @@ def generateDeliveryReceipt(
 ):
     """Gera recibo de entrega de equipamento (versão individual - mantida para compatibilidade)"""
     try:
-        output_path = os.path.join(os.getcwd(), "ps", "ps-do-dia", f"recibo-entrega-{os_number}.pdf")
+        output_dir = os.path.join(os.getcwd(), "ps", "ps-do-dia")
+        os.makedirs(output_dir, exist_ok=True)
+        output_path = os.path.join(output_dir, f"recibo-entrega-{os_number}.pdf")
         c = canvas.Canvas(output_path, pagesize=A4)
         width, height = A4
         y = height - 30 * mm
