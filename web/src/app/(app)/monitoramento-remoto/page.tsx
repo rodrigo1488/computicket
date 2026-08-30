@@ -206,8 +206,15 @@ export default function RemoteMonitoringPage() {
               <ul className="divide-y divide-[#f3f4f6]">
                 {visible.map((agent) => {
                   const metrics = agent.snapshot?.metrics;
+                  const alerts = agent.open_alerts?.length ?? 0;
                   return (
-                    <li key={agent.id} className="flex flex-wrap items-center gap-4 px-5 py-4">
+                    <li
+                      key={agent.id}
+                      className={cn(
+                        "flex flex-wrap items-center gap-4 px-5 py-4",
+                        alerts > 0 ? "bg-open-bg/60" : statusLabel(agent) === "Online" ? "bg-done-bg/25" : undefined,
+                      )}
+                    >
                       <div className="min-w-0 flex-1">
                         <Link
                           href={`/monitoramento-remoto/${agent.id}`}
@@ -234,6 +241,12 @@ export default function RemoteMonitoringPage() {
                         <p className="uppercase tracking-wide">Último contato</p>
                         <p className="mt-0.5 text-ink">{formatDate(agent.last_seen)}</p>
                       </div>
+                      {alerts > 0 ? (
+                        <span className="inline-flex items-center gap-1 text-xs font-medium text-open">
+                          <AlertTriangle className="h-3.5 w-3.5" />
+                          {alerts}
+                        </span>
+                      ) : null}
                       <div className="flex items-center gap-1">
                         <ViewAction href={`/monitoramento-remoto/${agent.id}`} />
                         {isAdmin ? (

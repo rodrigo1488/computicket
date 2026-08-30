@@ -31,15 +31,15 @@ export type NavItem = {
 };
 
 export const NAV_ITEMS: NavItem[] = [
-  { href: "/tickets", label: "Tickets", icon: Ticket },
   { href: "/dashboard", label: "Dashboard", icon: BarChart3 },
+  { href: "/helpdesk", label: "Help Desk", icon: Headset },
+  { href: "/tickets", label: "Tickets", icon: Ticket },
   { href: "/agenda", label: "Agenda", icon: CalendarDays },
   { href: "/ordens-servico", label: "Ordens de Serviço", icon: ClipboardList },
   { href: "/clientes", label: "Clientes", icon: Users },
   { href: "/servicos", label: "Serviços", icon: Cog },
   { href: "/contratos", label: "Contratos", icon: FileSignature },
   { href: "/planos", label: "Planos", icon: Layers },
-  { href: "/helpdesk", label: "Help Desk", icon: Headset },
   { href: "/monitoramento", label: "Monitoramento", icon: MapPin, techOnly: true },
   { href: "/monitoramento-remoto", label: "Monitoramento remoto", icon: Monitor, techOnly: true },
   { href: "/relatorios", label: "Relatórios", icon: PieChart },

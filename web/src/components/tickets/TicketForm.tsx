@@ -16,6 +16,8 @@ export type TicketFormDefaults = {
   description?: string;
   solicitante?: string;
   clientQuery?: string;
+  external_client_id?: number | null;
+  external_client_name?: string | null;
 };
 
 export function TicketForm({
@@ -35,10 +37,18 @@ export function TicketForm({
   const [title, setTitle] = useState(ticket?.title || defaults?.title || "");
   const [description, setDescription] = useState(ticket?.description || defaults?.description || "");
   const [solicitante, setSolicitante] = useState(ticket?.solicitante || defaults?.solicitante || "");
-  const [clientId, setClientId] = useState<string>(ticket?.external_client_id ? String(ticket.external_client_id) : "");
+  const [clientId, setClientId] = useState<string>(
+    ticket?.external_client_id
+      ? String(ticket.external_client_id)
+      : defaults?.external_client_id
+        ? String(defaults.external_client_id)
+        : "",
+  );
   const [serviceId, setServiceId] = useState<string>(ticket?.service_id ? String(ticket.service_id) : "");
   const [assigned, setAssigned] = useState<string>(ticket?.technician?.id ? String(ticket.technician.id) : "");
-  const [q, setQ] = useState(defaults?.clientQuery || "");
+  const [q, setQ] = useState(
+    defaults?.clientQuery || defaults?.external_client_name || "",
+  );
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const [contractMsg, setContractMsg] = useState("");
@@ -56,6 +66,16 @@ export function TicketForm({
     queryFn: () => flask.get<PageRes<UserRow> | UserRow[]>("/api/web/users?status=1&per_page=200"),
   });
 
+  const clientOptions = (() => {
+    const items = clients.data?.items || [];
+    const prefId = defaults?.external_client_id;
+    const prefName = defaults?.external_client_name;
+    if (prefId && prefName && !items.some((c) => c.id === prefId)) {
+      return [{ id: prefId, name: prefName }, ...items];
+    }
+    return items;
+  })();
+
   useEffect(() => {
     if (ticket) {
       setTitle(ticket.title);
@@ -63,7 +83,18 @@ export function TicketForm({
       setSolicitante(ticket.solicitante || "");
       return;
     }
-    if (defaults) return;
+    if (defaults) {
+      if (defaults.title) setTitle(defaults.title);
+      if (defaults.description != null) setDescription(defaults.description);
+      if (defaults.solicitante != null) setSolicitante(defaults.solicitante);
+      if (defaults.external_client_id) {
+        setClientId(String(defaults.external_client_id));
+        setQ(defaults.clientQuery || defaults.external_client_name || "");
+      } else if (defaults.clientQuery) {
+        setQ(defaults.clientQuery);
+      }
+      return;
+    }
     if (typeof window === "undefined") return;
     const sp = new URLSearchParams(window.location.search);
     const fromChat = sp.get("title");
@@ -151,7 +182,7 @@ export function TicketForm({
           className="mt-1 w-full border-0 border-b border-[#d7d7d7] bg-transparent py-2"
         >
           <option value="">Selecione</option>
-          {(clients.data?.items || []).map((c) => (
+          {(clientOptions || []).map((c) => (
             <option key={c.id} value={c.id}>
               {c.name}
             </option>

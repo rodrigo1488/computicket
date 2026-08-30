@@ -103,8 +103,14 @@ services:
     environment:
       SECRET_KEY: ${SECRET_KEY:-computicket-dev-secret-change-me}
       SQLALCHEMY_DATABASE_URI: postgresql+psycopg2://${COMPUTICKET_DB_USER:-computicket}:${COMPUTICKET_DB_PASS:-computicket}@postgres:5432/${COMPUTICKET_APP_DB:-computicket}
+      # Em produção: https://computicket.space (nunca localhost / whatsapp-engine).
       COMPUTICKET_PUBLIC_URL: ${COMPUTICKET_PUBLIC_URL:-http://localhost:3000}
       WHATSAPP_ENGINE_URL: http://whatsapp-engine:4000
+      # URL do Socket.IO no browser. Vazio = deriva de COMPUTICKET_PUBLIC_URL / Origin
+      # (same-origin; Next faz proxy de /socket.io). Em prod: https://computicket.space
+      # NÃO use http://whatsapp-engine:4000 aqui.
+      WHATSAPP_ENGINE_PUBLIC_URL: ${WHATSAPP_ENGINE_PUBLIC_URL:-}
+      COMPUTICKET_WHATSAPP_PORT: ${COMPUTICKET_WHATSAPP_PORT:-4000}
       WHATSAPP_ENGINE_ADMIN_EMAIL: ${WHATSAPP_ENGINE_ADMIN_EMAIL:-admin@admin.com}
       WHATSAPP_ENGINE_ADMIN_PASSWORD: ${WHATSAPP_ENGINE_ADMIN_PASSWORD:-123456}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
@@ -141,13 +147,16 @@ services:
       dockerfile: ../infra/web/Dockerfile
       args:
         FLASK_URL: http://api:5000
+        WHATSAPP_ENGINE_URL: http://whatsapp-engine:4000
     restart: unless-stopped
     depends_on:
       - api
+      - whatsapp-engine
     ports:
       - "${COMPUTICKET_WEB_PORT:-3000}:3000"
     environment:
       FLASK_URL: http://api:5000
+      WHATSAPP_ENGINE_URL: http://whatsapp-engine:4000
       NODE_ENV: production
 
 volumes:

@@ -7,9 +7,11 @@ FROM node:20-alpine AS builder
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
-# Rewrites do Next apontam para a API no compose
+# Rewrites do Next: API Flask + Socket.IO do WhatsApp engine
 ARG FLASK_URL=http://api:5000
+ARG WHATSAPP_ENGINE_URL=http://whatsapp-engine:4000
 ENV FLASK_URL=$FLASK_URL
+ENV WHATSAPP_ENGINE_URL=$WHATSAPP_ENGINE_URL
 ENV NEXT_TELEMETRY_DISABLED=1
 RUN npm run build
 
@@ -18,7 +20,9 @@ WORKDIR /app
 ENV NODE_ENV=production \
     NEXT_TELEMETRY_DISABLED=1 \
     PORT=3000 \
-    HOSTNAME=0.0.0.0
+    HOSTNAME=0.0.0.0 \
+    FLASK_URL=http://api:5000 \
+    WHATSAPP_ENGINE_URL=http://whatsapp-engine:4000
 
 COPY --from=builder /app/package.json ./
 COPY --from=builder /app/package-lock.json* ./

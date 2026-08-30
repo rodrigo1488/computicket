@@ -138,6 +138,68 @@ export type EngineSession = {
   engineUrl: string;
 };
 
+const DOCKER_ONLY_HOSTS = new Set([
+  "whatsapp-engine",
+  "baileys",
+  "api",
+  "web",
+  "postgres",
+  "redis",
+]);
+
+function isLoopbackHost(host: string): boolean {
+  const h = host.toLowerCase();
+  return h === "localhost" || h === "127.0.0.1" || h === "::1" || h === "[::1]";
+}
+
+function isBrowserUnreachableHost(host: string): boolean {
+  const h = host.toLowerCase();
+  if (!h || DOCKER_ONLY_HOSTS.has(h)) return true;
+  // Nomes de serviço Docker (sem ponto) não resolvem no browser.
+  if (!h.includes(".") && !isLoopbackHost(h)) return true;
+  return false;
+}
+
+/**
+ * URL do Socket.IO do engine WhatsApp para o browser.
+ * Nunca devolve hostname Docker; em páginas HTTPS força https (WSS) e
+ * prefere same-origin (proxy Next `/socket.io` → whatsapp-engine).
+ */
+export function resolveEngineSocketUrl(engineUrl: string): string {
+  if (typeof window === "undefined") return engineUrl;
+
+  const page = new URL(window.location.href);
+  const pageIsHttps = page.protocol === "https:";
+  const configured = (process.env.NEXT_PUBLIC_WHATSAPP_ENGINE_URL || "").trim().replace(/\/$/, "");
+
+  try {
+    const raw = (configured || engineUrl || page.origin).trim() || page.origin;
+    let url = new URL(raw, page.origin);
+    const host = url.hostname.toLowerCase();
+    const loopbackFromRemote =
+      isLoopbackHost(host) && !isLoopbackHost(page.hostname);
+
+    if (isBrowserUnreachableHost(host) || loopbackFromRemote) {
+      url = new URL(page.origin);
+    }
+
+    if (pageIsHttps) {
+      url.protocol = "https:";
+      // TLS público costuma estar só em 443 — não forçar :4000 no domínio do site.
+      if (url.port === "4000" || url.port === "80" || url.port === "3000") {
+        url.port = "";
+      }
+      if (isBrowserUnreachableHost(url.hostname)) {
+        url = new URL(page.origin);
+      }
+    }
+
+    return url.origin;
+  } catch {
+    return page.origin;
+  }
+}
+
 export type ConversationListRes = {
   tickets: HelpdeskConversation[];
   count: number;
@@ -218,6 +280,24 @@ export type HelpdeskAiTicketDraft = {
   description: string;
   solicitante: string;
   clientQuery: string;
+  external_client_id?: number | null;
+  external_client_name?: string | null;
+};
+
+export type HelpdeskContactClientLink = {
+  id: number;
+  engine_contact_id: number;
+  contact_number?: string | null;
+  external_client_id: number;
+  external_client_name: string;
+  created_at?: string | null;
+  updated_at?: string | null;
+};
+
+export type HelpdeskContactClientLinkRes = {
+  linked: boolean;
+  link: HelpdeskContactClientLink | null;
+  ok?: boolean;
 };
 
 export type HelpdeskAiTicketRes = {
@@ -233,6 +313,28 @@ export function unwrapMessages(
   if ("messages" in data && Array.isArray(data.messages)) return data.messages;
   if ("rows" in data && Array.isArray(data.rows)) return data.rows;
   return [];
+}
+
+/** Reescreve URL interna do engine (whatsapp-engine:4000/public/...) para o proxy Flask. */
+export function publicMediaUrl(url?: string | null): string | null {
+  if (!url) return null;
+  const raw = url.trim();
+  if (!raw || /nopicture/i.test(raw)) return null;
+  if (raw.includes("/helpdesk/api/media/")) {
+    const idx = raw.indexOf("/helpdesk/api/media/");
+    return `/flask${raw.slice(idx)}`;
+  }
+  const publicIdx = raw.indexOf("/public/");
+  if (publicIdx >= 0) {
+    const path = raw.slice(publicIdx + "/public/".length).split(/[?#]/)[0];
+    if (!path || path.split("/").includes("..")) return null;
+    return `/flask/helpdesk/api/media/${path}`;
+  }
+  if (raw.startsWith("public/")) {
+    return `/flask/helpdesk/api/media/${raw.slice("public/".length).split(/[?#]/)[0]}`;
+  }
+  if (/^https?:\/\//i.test(raw)) return raw;
+  return raw;
 }
 
 export const helpdesk = {
@@ -278,6 +380,14 @@ export const helpdesk = {
   contact: (id: number) => flask.get<HelpdeskContactDetail>(`/helpdesk/api/contacts/${id}`),
   updateContact: (id: number, payload: { name?: string; email?: string; extraInfo?: { id?: number; name?: string; value?: string }[] }) =>
     flask.put<HelpdeskContactDetail>(`/helpdesk/api/contacts/${id}`, payload),
+  contactClientLink: (id: number) =>
+    flask.get<HelpdeskContactClientLinkRes>(`/helpdesk/api/contacts/${id}/client-link`),
+  upsertContactClientLink: (
+    id: number,
+    payload: { external_client_id: number; external_client_name: string; contact_number?: string },
+  ) => flask.put<HelpdeskContactClientLinkRes>(`/helpdesk/api/contacts/${id}/client-link`, payload),
+  deleteContactClientLink: (id: number) =>
+    flask.delete<HelpdeskContactClientLinkRes>(`/helpdesk/api/contacts/${id}/client-link`),
   linkTicket: (id: number, ticketId: number) =>
     flask.post(`/helpdesk/api/conversations/${id}/link-ticket`, { ticket_id: ticketId }),
   aiQuery: (question: string, conversationId?: number | null) =>

@@ -43,7 +43,11 @@ export async function api<T = unknown>(
     }
   }
   if (!res.ok) {
-    const err = (data as { error?: string } | null)?.error || `Erro ${res.status}`;
+    const err =
+      (data as { error?: string } | null)?.error ||
+      (res.status === 502 || res.status === 503 || res.status === 504
+        ? "Engine WhatsApp indisponível. Tente novamente em instantes."
+        : `Erro ${res.status}`);
     throw new Error(err);
   }
   return data as T;

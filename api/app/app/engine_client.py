@@ -6,7 +6,7 @@ import secrets
 import threading
 import time
 from typing import Any, Optional
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlparse
 
 import requests
 from flask_login import current_user
@@ -23,6 +23,18 @@ _agent_tokens: dict[int, tuple[str, float]] = {}
 _agent_lock = threading.Lock()
 TOKEN_TTL_SEC = 12 * 60
 
+# Hostnames só resolvíveis dentro da rede Docker — o browser não alcança.
+_DOCKER_ONLY_HOSTS = frozenset(
+    {
+        "whatsapp-engine",
+        "baileys",
+        "api",
+        "web",
+        "postgres",
+        "redis",
+    }
+)
+
 
 class EngineError(Exception):
     def __init__(self, message: str, status_code: int = 502, payload: Any = None):
@@ -33,6 +45,101 @@ class EngineError(Exception):
 
 def engine_url() -> str:
     return (os.environ.get("WHATSAPP_ENGINE_URL") or "http://127.0.0.1:4000").rstrip("/")
+
+
+def _engine_listen_port() -> str:
+    explicit = (os.environ.get("COMPUTICKET_WHATSAPP_PORT") or "").strip()
+    if explicit:
+        return explicit
+    parsed = urlparse(engine_url())
+    return str(parsed.port or 4000)
+
+
+def _is_browser_unreachable_host(hostname: str | None) -> bool:
+    host = (hostname or "").strip().lower()
+    if not host:
+        return True
+    if host in _DOCKER_ONLY_HOSTS:
+        return True
+    # Nomes de serviço Docker típicos (sem ponto) não resolvem no browser.
+    if "." not in host and host not in {"localhost"}:
+        return True
+    return False
+
+
+def _prefer_https(scheme: str, *hints: str | None) -> str:
+    base = (scheme or "http").lower()
+    for hint in hints:
+        if not hint:
+            continue
+        parsed = urlparse(hint if "://" in hint else f"https://{hint}")
+        if (parsed.scheme or "").lower() == "https":
+            return "https"
+    return base
+
+
+def _format_public_origin(scheme: str, host: str, port: int | None) -> str:
+    """Monta origem pública; em HTTPS omite portas de engine/dev (usa 443 + proxy)."""
+    sch = (scheme or "http").lower()
+    if sch == "https" and port in (None, 80, 443, 3000, 4000):
+        return f"https://{host}"
+    if port and port not in (80, 443):
+        return f"{sch}://{host}:{port}"
+    return f"{sch}://{host}"
+
+
+def engine_public_url(*, browser_origin: str | None = None) -> str:
+    """URL do Socket.IO/engine que o browser consegue abrir.
+
+    ``WHATSAPP_ENGINE_URL`` costuma ser ``http://whatsapp-engine:4000`` (só Docker).
+    O token devolvido ao front precisa de um host público (LAN/localhost/proxy
+    same-origin em ``COMPUTICKET_PUBLIC_URL``, ex.: ``https://computicket.space``).
+
+    Nunca devolve hostname Docker, mesmo que ``WHATSAPP_ENGINE_PUBLIC_URL`` esteja
+    mal configurada.
+    """
+    explicit = (os.environ.get("WHATSAPP_ENGINE_PUBLIC_URL") or "").strip().rstrip("/")
+    public = (os.environ.get("COMPUTICKET_PUBLIC_URL") or "").strip().rstrip("/")
+    listen_port = int(_engine_listen_port() or "4000")
+
+    candidates: list[str] = []
+    if explicit:
+        candidates.append(explicit)
+    if browser_origin:
+        candidates.append(browser_origin)
+    if public:
+        candidates.append(public)
+
+    for candidate in candidates:
+        parsed = urlparse(candidate if "://" in candidate else f"http://{candidate}")
+        host = parsed.hostname
+        if not host or _is_browser_unreachable_host(host):
+            continue
+        scheme = _prefer_https(parsed.scheme or "http", browser_origin, public)
+        # URL explícita com porta própria (ex. localhost:4000 em dev) — respeitar.
+        # Origem do site (3000/443) → same-origin; Next faz proxy de /socket.io.
+        port = parsed.port
+        if explicit and candidate.rstrip("/") == explicit.rstrip("/") and port == listen_port:
+            if scheme == "https":
+                # Em HTTPS público, :4000 quase nunca tem TLS; preferir same-origin.
+                if public:
+                    pub = urlparse(public if "://" in public else f"https://{public}")
+                    if pub.hostname and not _is_browser_unreachable_host(pub.hostname):
+                        return _format_public_origin("https", pub.hostname, pub.port)
+                if browser_origin:
+                    bo = urlparse(
+                        browser_origin if "://" in browser_origin else f"https://{browser_origin}"
+                    )
+                    if bo.hostname and not _is_browser_unreachable_host(bo.hostname):
+                        return _format_public_origin("https", bo.hostname, bo.port)
+            return _format_public_origin(scheme, host, port)
+        return _format_public_origin(scheme, host, port)
+
+    internal = engine_url()
+    parsed = urlparse(internal)
+    if not _is_browser_unreachable_host(parsed.hostname):
+        return internal.rstrip("/")
+    return f"http://127.0.0.1:{listen_port}"
 
 
 def engine_admin_email() -> str:

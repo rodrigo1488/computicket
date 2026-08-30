@@ -136,8 +136,14 @@ export const update = async (
 ): Promise<Response> => {
   const contactData: ContactData = req.body;
   const { companyId } = req.user;
+  const { contactId } = req.params;
 
-  contactData.number = contactData.number.replace(/\D/g, '');
+  // Carrega contato sem blob de sessão; evita 502 no BFF/proxy ao salvar nome/e-mail/obs.
+  const existing = await ShowContactService(contactId, companyId);
+  contactData.number = String(contactData.number || existing.number || "").replace(
+    /\D/g,
+    ""
+  );
 
   const schema = Yup.object().shape({
     name: Yup.string(),
@@ -153,14 +159,14 @@ export const update = async (
     throw new AppError(err.message);
   }
 
-  contactData.number = contactData.number.replace(/\D/g, "");
-
-  await CheckIsValidContact(contactData.number, companyId);
-  const validNumber = await CheckContactNumber(contactData.number, companyId);
-  const number = validNumber.jid.replace(/\D/g, "");
-  contactData.number = number;
-
-  const { contactId } = req.params;
+  // Só valida no WhatsApp se o número mudou — salva nome/e-mail/obs sem depender da sessão.
+  if (contactData.number && contactData.number !== existing.number) {
+    await CheckIsValidContact(contactData.number, companyId);
+    const validNumber = await CheckContactNumber(contactData.number, companyId);
+    contactData.number = validNumber.jid.replace(/\D/g, "");
+  } else {
+    contactData.number = existing.number;
+  }
 
   const contact = await UpdateContactService({
     contactData,

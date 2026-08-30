@@ -902,6 +902,34 @@ class HelpDeskTicketLink(db.Model):
 	ticket = db.relationship("Ticket", backref="helpdesk_links")
 
 
+class HelpDeskContactClientLink(db.Model):
+	"""Vínculo contato WhatsApp (engine) ↔ cliente Unico/external."""
+	__tablename__ = "helpdesk_contact_client_link"
+
+	id = db.Column(db.Integer, primary_key=True)
+	engine_contact_id = db.Column(db.Integer, unique=True, nullable=False, index=True)
+	contact_number = db.Column(db.String(50), nullable=True, index=True)
+	external_client_id = db.Column(db.Integer, nullable=False, index=True)
+	external_client_name = db.Column(db.String(200), nullable=False)
+	created_at = db.Column(db.DateTime, default=lambda: brasilia_to_utc(get_brasilia_now()))
+	updated_at = db.Column(
+		db.DateTime,
+		default=lambda: brasilia_to_utc(get_brasilia_now()),
+		onupdate=lambda: brasilia_to_utc(get_brasilia_now()),
+	)
+
+	def to_dict(self) -> Dict[str, Any]:
+		return {
+			"id": self.id,
+			"engine_contact_id": self.engine_contact_id,
+			"contact_number": self.contact_number,
+			"external_client_id": self.external_client_id,
+			"external_client_name": self.external_client_name,
+			"created_at": self.created_at.isoformat() if self.created_at else None,
+			"updated_at": self.updated_at.isoformat() if self.updated_at else None,
+		}
+
+
 class HelpDeskRating(db.Model):
 	"""Pesquisa de satisfação enviada ao encerrar uma conversa do Help Desk."""
 	__tablename__ = "helpdesk_rating"

@@ -6,7 +6,6 @@ import {
   AlertTriangle,
   ArrowRight,
   CheckCircle2,
-  CircleGauge,
   CircleHelp,
   Clock3,
   Cpu,
@@ -18,11 +17,11 @@ import {
   MessageCircle,
   Monitor,
   RefreshCw,
+  Star,
   Thermometer,
   TicketCheck,
   Tickets,
   UserCheck,
-  Users,
   Wrench,
   type LucideIcon,
 } from "lucide-react";
@@ -56,6 +55,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { flask, type PageRes } from "@/lib/api";
 import { cn } from "@/lib/cn";
 import { formatBRL, formatHours } from "@/lib/format";
+import { helpdesk } from "@/lib/helpdesk";
 import {
   formatDate,
   formatMetric,
@@ -66,7 +66,6 @@ import {
   statusLabel,
   type RemoteAgent,
   type RemoteLiveEvent,
-  type RemoteStats,
 } from "@/lib/remote-monitor";
 
 type DashTab = "tickets" | "helpdesk" | "monitoramento";
@@ -515,6 +514,12 @@ function HelpdeskDash() {
     queryFn: () => flask.get<HdDash>("/api/web/dashboard/helpdesk"),
     retry: 1,
   });
+  const ratings = useQuery({
+    queryKey: ["dashboard-helpdesk-ratings"],
+    queryFn: helpdesk.ratingSummary,
+    retry: 1,
+    refetchInterval: 60000,
+  });
   const [queuePage, setQueuePage] = useState(1);
   const [userPage, setUserPage] = useState(1);
   const perPage = 20;
@@ -529,6 +534,7 @@ function HelpdeskDash() {
 
   const data = query.data;
   const summary = data.summary;
+  const ratingSummary = ratings.data;
   const queues = data.queues || [];
   const users = data.users || [];
   const connections = data.connections || [];
@@ -553,6 +559,30 @@ function HelpdeskDash() {
           hint={`${connections.length} cadastrada${connections.length === 1 ? "" : "s"}`}
           icon={Headphones}
           tone="done"
+        />
+      </div>
+
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-3">
+        <MetricCard
+          label="Média das avaliações"
+          value={ratingSummary ? ratingSummary.average.toFixed(1) : "—"}
+          hint="Nota média das pesquisas respondidas"
+          icon={Star}
+          tone="brand"
+        />
+        <MetricCard
+          label="Avaliações"
+          value={ratingSummary ? ratingSummary.responded : "—"}
+          hint={ratingSummary ? `${ratingSummary.pending} pendente${ratingSummary.pending === 1 ? "" : "s"}` : "Pesquisas de satisfação respondidas"}
+          icon={CheckCircle2}
+          tone="done"
+        />
+        <MetricCard
+          label="% de respostas"
+          value={ratingSummary ? `${ratingSummary.response_rate.toFixed(0)}%` : "—"}
+          hint="Taxa de resposta das pesquisas enviadas"
+          icon={MessageCircle}
+          tone="progress"
         />
       </div>
 
@@ -627,17 +657,25 @@ function HelpdeskDash() {
   );
 }
 
-function agentStatusTone(agent: RemoteAgent) {
+function agentStatusBadge(agent: RemoteAgent) {
   const label = statusLabel(agent);
-  if (label === "Online") return { badge: "bg-done-bg text-done", card: "border-done/20" };
-  if (label === "Pendente") return { badge: "bg-progress-bg text-progress", card: "border-progress/20" };
-  if (label === "Revogado") return { badge: "bg-open-bg text-open", card: "border-open/20" };
-  return { badge: "bg-[#f3f4f6] text-muted", card: "border-line" };
+  if (label === "Online") return "bg-done-bg text-done";
+  if (label === "Pendente") return "bg-progress-bg text-progress";
+  if (label === "Revogado") return "bg-open-bg text-open";
+  return "bg-[#f3f4f6] text-muted";
+}
+
+function agentCardTone(agent: RemoteAgent) {
+  const alerts = agent.open_alerts?.length ?? 0;
+  if (alerts > 0) return "border-open/40 bg-open-bg/70";
+  if (statusLabel(agent) === "Online") return "border-done/25 bg-done-bg/40";
+  if (statusLabel(agent) === "Pendente") return "border-progress/20 bg-progress-bg/30";
+  return "border-line bg-white";
 }
 
 function MetricChip({ icon, label, value }: { icon: ReactNode; label: string; value: string }) {
   return (
-    <div className="rounded-xl bg-[#f7f8fa] px-3 py-2.5">
+    <div className="rounded-xl bg-white/80 px-3 py-2.5">
       <div className="flex items-center gap-1.5 text-[11px] text-muted"><span className="text-brand">{icon}</span>{label}</div>
       <p className="mt-1 text-sm font-semibold tabular-nums text-navy">{value}</p>
     </div>
@@ -647,10 +685,9 @@ function MetricChip({ icon, label, value }: { icon: ReactNode; label: string; va
 function MachineCard({ agent }: { agent: RemoteAgent }) {
   const metrics = agent.snapshot?.metrics;
   const alerts = agent.open_alerts?.length ?? 0;
-  const tone = agentStatusTone(agent);
   return (
     <Link href={`/monitoramento-remoto/${agent.id}`} className="group">
-      <Card className={cn("h-full transition hover:-translate-y-0.5 hover:border-brand/30 hover:shadow-md", tone.card, alerts > 0 && "border-open/25")}>
+      <Card className={cn("h-full transition hover:-translate-y-0.5 hover:border-brand/30 hover:shadow-md", agentCardTone(agent))}>
         <CardHeader>
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
@@ -658,7 +695,7 @@ function MachineCard({ agent }: { agent: RemoteAgent }) {
               <CardDescription className="mt-1 truncate">{agent.external_client_name}</CardDescription>
               <p className="mt-1 truncate text-xs text-muted">{agent.device_id || "Aguardando ativação"}</p>
             </div>
-            <span className={cn("inline-flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium", tone.badge)}>
+            <span className={cn("inline-flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium", agentStatusBadge(agent))}>
               <span className="h-1.5 w-1.5 rounded-full bg-current" /> {statusLabel(agent)}
             </span>
           </div>
@@ -670,7 +707,7 @@ function MachineCard({ agent }: { agent: RemoteAgent }) {
             <MetricChip icon={<HardDrive className="h-3.5 w-3.5" />} label="Disco" value={formatMetric(metricValue(metrics, "disk"), "%", 0)} />
             <MetricChip icon={<Thermometer className="h-3.5 w-3.5" />} label="Temp." value={formatMetric(metricValue(metrics, "temperature"), "°C", 0)} />
           </div>
-          <div className="mt-4 flex items-center justify-between gap-2 border-t border-line pt-3 text-xs text-muted">
+          <div className="mt-4 flex items-center justify-between gap-2 border-t border-line/80 pt-3 text-xs text-muted">
             <span className="truncate">Último contato: {formatDate(agent.last_seen)}</span>
             {alerts ? (
               <span className="inline-flex shrink-0 items-center gap-1 font-medium text-open"><AlertTriangle className="h-3.5 w-3.5" />{alerts}</span>
@@ -688,11 +725,6 @@ function MonitoramentoDash() {
   const queryClient = useQueryClient();
   const [page, setPage] = useState(1);
   const perPage = 12;
-  const stats = useQuery({
-    queryKey: ["remote-monitor-stats"],
-    queryFn: () => flask.get<RemoteStats>("/api/remote-monitor/stats"),
-    refetchInterval: 15000,
-  });
   const agents = useQuery({
     queryKey: ["remote-agents-dash", page],
     queryFn: async () => {
@@ -706,7 +738,6 @@ function MonitoramentoDash() {
     const socket = io(`${remoteSocketOrigin}/remote-monitor-view`, { transports: ["websocket", "polling"], withCredentials: true });
     const update = (payload: RemoteAgent | RemoteLiveEvent) => {
       queryClient.setQueriesData<PageRes<RemoteAgent>>({ queryKey: ["remote-agents-dash"] }, (current) => mergeAgentPage(current, payload));
-      if ("status" in payload) queryClient.invalidateQueries({ queryKey: ["remote-monitor-stats"] });
     };
     socket.on("telemetry_update", update);
     socket.on("live_telemetry", update);
@@ -728,22 +759,13 @@ function MonitoramentoDash() {
         </Link>
       </div>
 
-      {(stats.error || agents.error) ? (
+      {agents.error ? (
         <ErrorState
           title="Parte do monitoramento está indisponível"
-          error={stats.error || agents.error}
-          onRetry={() => { stats.refetch(); agents.refetch(); }}
+          error={agents.error}
+          onRetry={() => { agents.refetch(); }}
         />
       ) : null}
-
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
-        <MetricCard label="Agentes" value={stats.data?.total ?? "—"} hint="Total cadastrado" icon={Monitor} />
-        <MetricCard label="Online" value={stats.data?.online ?? "—"} hint="Agentes conectados" icon={Activity} tone="done" />
-        <MetricCard label="Offline" value={stats.data?.offline ?? "—"} hint="Sem conexão atual" icon={CircleGauge} />
-        <MetricCard label="Pendentes" value={stats.data?.pending ?? "—"} hint="Aguardando ativação" icon={Clock3} tone="progress" />
-        <MetricCard label="Revogados" value={stats.data?.revoked ?? "—"} hint="Acesso revogado" icon={Users} />
-        <MetricCard label="Alertas abertos" value={stats.data?.open_alerts ?? "—"} hint="Requerem atenção" icon={AlertTriangle} tone="open" />
-      </div>
 
       {agents.isLoading ? (
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">

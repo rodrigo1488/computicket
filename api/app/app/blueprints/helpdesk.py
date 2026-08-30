@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+import mimetypes
 import os
 import random
 import secrets
@@ -9,7 +10,9 @@ import threading
 import time
 from collections import defaultdict, deque
 from datetime import datetime, timezone
+from urllib.parse import urlparse
 
+import requests
 from flask import Blueprint, Response, jsonify, request
 from flask_login import current_user, login_required
 from sqlalchemy import func
@@ -21,13 +24,22 @@ from ..engine_client import (
     admin_request,
     agent_request,
     engine_health,
+    engine_public_url,
     engine_url,
     ensure_agent_map,
     ensure_agent_session,
     ensure_default_queue,
     send_engine_message,
 )
-from ..models import AIAuditLog, HelpDeskAgentMap, HelpDeskRating, HelpDeskTicketLink, Ticket, User
+from ..models import (
+    AIAuditLog,
+    HelpDeskAgentMap,
+    HelpDeskContactClientLink,
+    HelpDeskRating,
+    HelpDeskTicketLink,
+    Ticket,
+    User,
+)
 from ..services.copilot import CopilotError, answer_question, improve_draft, suggest_reply, suggest_ticket
 
 helpdesk_bp = Blueprint("helpdesk", __name__, url_prefix="/helpdesk")
@@ -36,8 +48,93 @@ _ai_rate_lock = threading.Lock()
 _ai_rate_hits: dict[int, deque[float]] = defaultdict(deque)
 
 
+_CONTACT_STRIP_KEYS = frozenset(
+    {"session", "qrcode", "facebookUserToken", "tokenStore", "gupshupApiKey"}
+)
+
+
 def _fail(exc: EngineError):
-    return jsonify({"error": str(exc), "details": exc.payload}), exc.status_code
+    status = int(exc.status_code or 502)
+    message = (str(exc) or "").strip() or f"Erro do engine ({status})"
+    if status >= 500 and "indispon" not in message.lower():
+        message = f"Engine WhatsApp indisponível: {message}"
+    return jsonify({"error": message, "details": exc.payload}), status
+
+
+def _rewrite_engine_media_url(url: str | None) -> str | None:
+    """Converte URL interna do engine (/public/...) no proxy público do BFF.
+
+    O engine grava BACKEND_URL=http://whatsapp-engine:4000 — inacessível no browser.
+    O cliente deve usar /flask/helpdesk/api/media/... (rewrite Next → Flask).
+    """
+    if not url or not isinstance(url, str):
+        return None
+    raw = url.strip()
+    if not raw or "nopicture" in raw.lower():
+        return None
+    if "/helpdesk/api/media/" in raw:
+        idx = raw.find("/helpdesk/api/media/")
+        return f"/flask{raw[idx:]}"
+
+    public_path: str | None = None
+    if "/public/" in raw:
+        public_path = raw.split("/public/", 1)[1]
+    elif raw.startswith("public/"):
+        public_path = raw[7:]
+    elif raw.startswith("/"):
+        # Caminho relativo já público do engine sem host
+        parsed = urlparse(raw)
+        if parsed.path.startswith("/public/"):
+            public_path = parsed.path[len("/public/") :]
+
+    if public_path is not None:
+        public_path = public_path.split("?", 1)[0].split("#", 1)[0].lstrip("/")
+        if not public_path or ".." in public_path.split("/"):
+            return None
+        return f"/flask/helpdesk/api/media/{public_path}"
+
+    # CDN/externo alcançável pelo browser
+    if raw.startswith("http://") or raw.startswith("https://"):
+        return raw
+    return raw
+
+
+def _sanitize_contact(data):
+    """Remove blobs de sessão Baileys e reescreve profilePicUrl para o proxy."""
+    if not isinstance(data, dict):
+        return data
+    out = dict(data)
+    wa = out.get("whatsapp")
+    if isinstance(wa, dict):
+        out["whatsapp"] = {k: v for k, v in wa.items() if k not in _CONTACT_STRIP_KEYS}
+    if "profilePicUrl" in out:
+        out["profilePicUrl"] = _rewrite_engine_media_url(out.get("profilePicUrl"))
+    return out
+
+
+def _rewrite_message_media(msg):
+    if not isinstance(msg, dict):
+        return msg
+    out = dict(msg)
+    if "mediaUrl" in out:
+        out["mediaUrl"] = _rewrite_engine_media_url(out.get("mediaUrl"))
+    contact = out.get("contact")
+    if isinstance(contact, dict):
+        out["contact"] = _sanitize_contact(contact)
+    quoted = out.get("quotedMsg")
+    if isinstance(quoted, dict):
+        out["quotedMsg"] = _rewrite_message_media(quoted)
+    return out
+
+
+def _rewrite_ticket_media(ticket: dict | None) -> dict | None:
+    if not isinstance(ticket, dict):
+        return ticket
+    out = dict(ticket)
+    contact = out.get("contact")
+    if isinstance(contact, dict):
+        out["contact"] = _sanitize_contact(contact)
+    return out
 
 
 def _ai_rate_allowed(user_id: int) -> bool:
@@ -201,13 +298,13 @@ def _with_link(ticket: dict | None) -> dict | None:
         return ticket
     engine_id = ticket.get("id")
     if engine_id is None:
-        return ticket
+        return _rewrite_ticket_media(ticket)
     row = HelpDeskTicketLink.query.filter_by(engine_ticket_id=int(engine_id)).first()
     rating = HelpDeskRating.query.filter_by(engine_ticket_id=int(engine_id)).first()
     ticket = dict(ticket)
     ticket["computicket_ticket_id"] = row.computicket_ticket_id if row else None
     ticket["rating"] = rating.to_dict() if rating else None
-    return ticket
+    return _rewrite_ticket_media(ticket)
 
 
 def _require_admin():
@@ -365,6 +462,7 @@ def _normalize_messages(data, ticket_id: int) -> dict:
             )
         }
         ticket = _with_link(slim)
+    messages = [_rewrite_message_media(m) for m in messages]
     return {"messages": messages, "ticket": ticket, "count": count, "hasMore": has_more, "ticketId": ticket_id}
 
 
@@ -508,12 +606,28 @@ def health():
 def engine_token():
     try:
         session = ensure_agent_session()
+        # Preferir Origin/Referer do browser (atrás do proxy Next /flask) para
+        # montar um host alcançável; WHATSAPP_ENGINE_URL interno (Docker) não serve.
+        origin = (request.headers.get("Origin") or "").strip()
+        referer = (request.headers.get("Referer") or "").strip()
+        xf_host = (request.headers.get("X-Forwarded-Host") or "").strip()
+        xf_proto = (request.headers.get("X-Forwarded-Proto") or "").strip().lower()
+        if origin:
+            browser_origin = origin
+        elif xf_host:
+            host = xf_host.split(",")[0].strip()
+            if "://" in host:
+                browser_origin = host
+            else:
+                browser_origin = f"{xf_proto or 'https'}://{host}"
+        else:
+            browser_origin = referer
         return jsonify(
             {
                 "token": session.token,
                 "companyId": session.company_id,
                 "engineUserId": session.engine_user_id,
-                "engineUrl": engine_url(),
+                "engineUrl": engine_public_url(browser_origin=browser_origin or None),
             }
         )
     except EngineError as exc:
@@ -648,9 +762,15 @@ def list_conversations():
     engine_ids = [t.get("id") for t in tickets if t.get("id") is not None]
     links = _links_by_engine_ids(engine_ids)
     ratings = _ratings_by_engine_ids(engine_ids)
+    rewritten: list[dict] = []
     for ticket in tickets:
-        ticket["computicket_ticket_id"] = links.get(ticket.get("id"))
-        ticket["rating"] = ratings.get(ticket.get("id"))
+        if not isinstance(ticket, dict):
+            continue
+        item = dict(ticket)
+        item["computicket_ticket_id"] = links.get(item.get("id"))
+        item["rating"] = ratings.get(item.get("id"))
+        rewritten.append(_rewrite_ticket_media(item) or item)
+    tickets = rewritten
     if isinstance(data, dict):
         data["tickets"] = tickets
         return jsonify(data)
@@ -1379,7 +1499,7 @@ def delete_quick_message(item_id: int):
 def show_contact(contact_id: int):
     try:
         data = agent_request("GET", f"/contacts/{contact_id}")
-        return jsonify(data)
+        return jsonify(_sanitize_contact(data))
     except EngineError as exc:
         return _fail(exc)
 
@@ -1389,7 +1509,7 @@ def show_contact(contact_id: int):
 def update_contact(contact_id: int):
     payload = request.get_json(silent=True) or {}
     try:
-        existing = agent_request("GET", f"/contacts/{contact_id}") or {}
+        existing = _sanitize_contact(agent_request("GET", f"/contacts/{contact_id}") or {})
         body = {
             "name": (payload.get("name") or existing.get("name") or "").strip(),
             "number": existing.get("number") or payload.get("number") or "",
@@ -1397,9 +1517,86 @@ def update_contact(contact_id: int):
             "extraInfo": payload.get("extraInfo") if "extraInfo" in payload else (existing.get("extraInfo") or []),
         }
         data = agent_request("PUT", f"/contacts/{contact_id}", json=body)
-        return jsonify(data)
+        return jsonify(_sanitize_contact(data))
     except EngineError as exc:
         return _fail(exc)
+
+
+def _contact_client_link_payload(row: HelpDeskContactClientLink | None):
+    if not row:
+        return {"linked": False, "link": None}
+    return {"linked": True, "link": row.to_dict()}
+
+
+@helpdesk_bp.route("/api/contacts/<int:contact_id>/client-link")
+@login_required
+def get_contact_client_link(contact_id: int):
+    row = HelpDeskContactClientLink.query.filter_by(engine_contact_id=contact_id).first()
+    return jsonify(_contact_client_link_payload(row))
+
+
+@helpdesk_bp.route("/api/contacts/<int:contact_id>/client-link", methods=["PUT", "POST"])
+@login_required
+def upsert_contact_client_link(contact_id: int):
+    payload = request.get_json(silent=True) or {}
+    try:
+        external_client_id = int(payload.get("external_client_id"))
+    except (TypeError, ValueError):
+        return jsonify({"error": "external_client_id é obrigatório"}), 400
+
+    name = (payload.get("external_client_name") or payload.get("name") or "").strip()
+    if not name:
+        try:
+            from ..external_pg import ExternalPgError, fetch_external_clients
+
+            clients = fetch_external_clients()
+            selected = next((c for c in clients if c.get("id") == external_client_id), None)
+            name = (selected or {}).get("name") or ""
+        except Exception:
+            name = ""
+    if not name:
+        return jsonify({"error": "external_client_name é obrigatório"}), 400
+
+    contact_number = (payload.get("contact_number") or payload.get("number") or "").strip() or None
+    if not contact_number:
+        try:
+            existing = _sanitize_contact(agent_request("GET", f"/contacts/{contact_id}") or {})
+            contact_number = (existing.get("number") or "").strip() or None
+        except EngineError:
+            contact_number = None
+
+    row = HelpDeskContactClientLink.query.filter_by(engine_contact_id=contact_id).first()
+    if row:
+        row.external_client_id = external_client_id
+        row.external_client_name = name[:200]
+        if contact_number:
+            row.contact_number = contact_number[:50]
+    else:
+        row = HelpDeskContactClientLink(
+            engine_contact_id=contact_id,
+            contact_number=(contact_number[:50] if contact_number else None),
+            external_client_id=external_client_id,
+            external_client_name=name[:200],
+        )
+        db.session.add(row)
+
+    try:
+        db.session.commit()
+    except IntegrityError:
+        db.session.rollback()
+        return jsonify({"error": "Não foi possível salvar o vínculo"}), 409
+
+    return jsonify(_contact_client_link_payload(row))
+
+
+@helpdesk_bp.route("/api/contacts/<int:contact_id>/client-link", methods=["DELETE"])
+@login_required
+def delete_contact_client_link(contact_id: int):
+    row = HelpDeskContactClientLink.query.filter_by(engine_contact_id=contact_id).first()
+    if row:
+        db.session.delete(row)
+        db.session.commit()
+    return jsonify({"linked": False, "link": None, "ok": True})
 
 
 @helpdesk_bp.route("/api/agents")
@@ -1467,10 +1664,16 @@ def update_agent(user_id: int):
 @helpdesk_bp.route("/api/media/<path:filename>")
 @login_required
 def proxy_media(filename: str):
+    safe = (filename or "").replace("\\", "/").lstrip("/")
+    if not safe or ".." in safe.split("/"):
+        return jsonify({"error": "Caminho inválido"}), 400
     try:
-        content = admin_request("GET", f"/public/{filename}", timeout=60)
-    except EngineError as exc:
-        return _fail(exc)
-    if not isinstance(content, (bytes, bytearray)):
-        return jsonify({"error": "Mídia inválida"}), 502
-    return Response(content, mimetype="application/octet-stream")
+        res = requests.get(f"{engine_url()}/public/{safe}", timeout=60)
+    except requests.RequestException as exc:
+        return jsonify({"error": f"Engine WhatsApp indisponível: {exc}"}), 503
+    if res.status_code == 404:
+        return jsonify({"error": "Mídia não encontrada"}), 404
+    if res.status_code >= 400:
+        return jsonify({"error": f"Falha ao obter mídia ({res.status_code})"}), 502
+    mime = mimetypes.guess_type(safe)[0] or res.headers.get("Content-Type") or "application/octet-stream"
+    return Response(res.content, mimetype=mime)

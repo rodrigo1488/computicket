@@ -165,11 +165,12 @@ export const initIO = (httpServer: Server): SocketIO => {
             canUserAccessTicket(ticket, userWithQueues || user);
 
           if (mayJoin) {
-            let c: number;
-            if ((c = counters.incrementCounter(`ticket-${ticketId}`)) === 1) {
-              socket.join(ticketId);
-            }
-            logger.debug(`joinChatbox[${c}]: Channel: ${ticketId} by user ${user.id}`);
+            // Cada socket precisa dar join na própria room (Socket.IO não compartilha membership).
+            // O contador global antigo só deixava o 1º socket entrar — Helpdesk + NotificationCenter
+            // no mesmo browser (ou 2 usuários) faziam o 2º nunca receber appMessage.
+            counters.incrementCounter(`ticket-${ticketId}`);
+            socket.join(ticketId);
+            logger.debug(`joinChatbox: Channel: ${ticketId} by user ${user.id} socket ${socket.id}`);
           } else {
             logger.info(`Invalid attempt to join channel of ticket ${ticketId} by user ${user.id}`);
           }
@@ -185,50 +186,41 @@ export const initIO = (httpServer: Server): SocketIO => {
         return;
       }
 
-      let c: number;
-      // o último que sair apaga a luz
-
-      if ((c = counters.decrementCounter(`ticket-${ticketId}`)) === 0) {
-        socket.leave(ticketId);
-      }
-      logger.debug(`leaveChatbox[${c}]: Channel: ${ticketId} by user ${user.id}`)
+      counters.decrementCounter(`ticket-${ticketId}`);
+      socket.leave(ticketId);
+      logger.debug(`leaveChatbox: Channel: ${ticketId} by user ${user.id} socket ${socket.id}`);
     });
 
     socket.on("joinNotification", async () => {
-      let c: number;
-      if ((c = counters.incrementCounter("notification")) === 1) {
-        if (user.profile === "admin") {
-          socket.join(`company-${user.companyId}-notification`);
-        } else {
-          user.queues.forEach((queue) => {
-            logger.debug(`User ${user.id} of company ${user.companyId} joined queue ${queue.id} channel.`);
-            socket.join(`queue-${queue.id}-notification`);
-          });
-          if (user.allTicket === "enabled") {
-            socket.join("queue-null-notification");
-          }
-
+      counters.incrementCounter(`notification-${socket.id}`);
+      if (user.profile === "admin") {
+        socket.join(`company-${user.companyId}-notification`);
+      } else {
+        user.queues.forEach((queue) => {
+          logger.debug(`User ${user.id} of company ${user.companyId} joined queue ${queue.id} channel.`);
+          socket.join(`queue-${queue.id}-notification`);
+        });
+        if (user.allTicket === "enabled") {
+          socket.join("queue-null-notification");
         }
       }
-      logger.debug(`joinNotification[${c}]: User: ${user.id}`);
+      logger.debug(`joinNotification: User: ${user.id} socket ${socket.id}`);
     });
     
     socket.on("leaveNotification", async () => {
-      let c: number;
-      if ((c = counters.decrementCounter("notification")) === 0) {
-        if (user.profile === "admin") {
-          socket.leave(`company-${user.companyId}-notification`);
-        } else {
-          user.queues.forEach((queue) => {
-            logger.debug(`User ${user.id} of company ${user.companyId} leaved queue ${queue.id} channel.`);
-            socket.leave(`queue-${queue.id}-notification`);
-          });
-          if (user.allTicket === "enabled") {
-            socket.leave("queue-null-notification");
-          }
+      counters.decrementCounter(`notification-${socket.id}`);
+      if (user.profile === "admin") {
+        socket.leave(`company-${user.companyId}-notification`);
+      } else {
+        user.queues.forEach((queue) => {
+          logger.debug(`User ${user.id} of company ${user.companyId} leaved queue ${queue.id} channel.`);
+          socket.leave(`queue-${queue.id}-notification`);
+        });
+        if (user.allTicket === "enabled") {
+          socket.leave("queue-null-notification");
         }
       }
-      logger.debug(`leaveNotification[${c}]: User: ${user.id}`);
+      logger.debug(`leaveNotification: User: ${user.id} socket ${socket.id}`);
     });
  
     // Salas por status: admin usa company-${id}-${status}; atendentes usam queue-${queueId}-${status}
@@ -237,37 +229,35 @@ export const initIO = (httpServer: Server): SocketIO => {
     const queueTicketStatuses = ["pending", "open", "closed", "group", "rating"];
 
     socket.on("joinTickets", (status: string) => {
-      if (counters.incrementCounter(`status-${status}`) === 1) {
-        if (user.profile === "admin") {
-          logger.debug(`Admin ${user.id} of company ${user.companyId} joined ${status} tickets channel.`);
-          socket.join(`company-${user.companyId}-${status}`);
-        } else if (queueTicketStatuses.includes(status)) {
-          user.queues.forEach((queue) => {
-            logger.debug(`User ${user.id} of company ${user.companyId} joined queue ${queue.id} ${status} tickets channel.`);
-            socket.join(`queue-${queue.id}-${status}`);
-          });
-          if (user.allTicket === "enabled") {
-            socket.join(`queue-null-${status}`);
-          }
-        } else {
-          logger.debug(`User ${user.id} cannot subscribe to ${status}`);
+      counters.incrementCounter(`status-${status}-${socket.id}`);
+      if (user.profile === "admin") {
+        logger.debug(`Admin ${user.id} of company ${user.companyId} joined ${status} tickets channel.`);
+        socket.join(`company-${user.companyId}-${status}`);
+      } else if (queueTicketStatuses.includes(status)) {
+        user.queues.forEach((queue) => {
+          logger.debug(`User ${user.id} of company ${user.companyId} joined queue ${queue.id} ${status} tickets channel.`);
+          socket.join(`queue-${queue.id}-${status}`);
+        });
+        if (user.allTicket === "enabled") {
+          socket.join(`queue-null-${status}`);
         }
+      } else {
+        logger.debug(`User ${user.id} cannot subscribe to ${status}`);
       }
     });
     
     socket.on("leaveTickets", (status: string) => {
-      if (counters.decrementCounter(`status-${status}`) === 0) {
-        if (user.profile === "admin") {
-          logger.debug(`Admin ${user.id} of company ${user.companyId} leaved ${status} tickets channel.`);
-          socket.leave(`company-${user.companyId}-${status}`);
-        } else if (queueTicketStatuses.includes(status)) {
-          user.queues.forEach((queue) => {
-            logger.debug(`User ${user.id} of company ${user.companyId} leaved queue ${queue.id} ${status} tickets channel.`);
-            socket.leave(`queue-${queue.id}-${status}`);
-          });
-          if (user.allTicket === "enabled") {
-            socket.leave(`queue-null-${status}`);
-          }
+      counters.decrementCounter(`status-${status}-${socket.id}`);
+      if (user.profile === "admin") {
+        logger.debug(`Admin ${user.id} of company ${user.companyId} leaved ${status} tickets channel.`);
+        socket.leave(`company-${user.companyId}-${status}`);
+      } else if (queueTicketStatuses.includes(status)) {
+        user.queues.forEach((queue) => {
+          logger.debug(`User ${user.id} of company ${user.companyId} leaved queue ${queue.id} ${status} tickets channel.`);
+          socket.leave(`queue-${queue.id}-${status}`);
+        });
+        if (user.allTicket === "enabled") {
+          socket.leave(`queue-null-${status}`);
         }
       }
     });

@@ -33,6 +33,7 @@ import { io, type Socket } from "socket.io-client";
 import { CloseTicketDialog } from "@/components/tickets/CloseTicketDialog";
 import { TicketCreateDialog } from "@/components/tickets/TicketCreateDialog";
 import { TimeEntryDialog } from "@/components/tickets/TimeEntryDialog";
+import { FloatingMenu } from "@/components/ui/FloatingMenu";
 import { Modal } from "@/components/ui/Modal";
 import { UserAvatar } from "@/components/ui/UserAvatar";
 import { flask } from "@/lib/api";
@@ -41,12 +42,15 @@ import { useAuth } from "@/lib/auth-context";
 import type { TicketDetail } from "@/lib/format";
 import {
   helpdesk,
+  publicMediaUrl,
+  resolveEngineSocketUrl,
   unwrapConnections,
   unwrapMessages,
   unwrapQuickMessages,
   type EngineSession,
   type HelpdeskAiSource,
   type HelpdeskAiTicketDraft,
+  type HelpdeskContactClientLink,
   type HelpdeskConversation,
   type HelpdeskMessage,
   type HelpdeskTab,
@@ -85,6 +89,23 @@ function contactName(c?: HelpdeskConversation | null) {
   return c?.contact?.name || c?.contact?.number || "Contato";
 }
 
+function ticketDefaultsFromConversation(
+  conversation?: HelpdeskConversation | null,
+  link?: HelpdeskContactClientLink | null,
+  base?: Partial<HelpdeskAiTicketDraft> | null,
+): HelpdeskAiTicketDraft {
+  const solicitante = (base?.solicitante || contactName(conversation)).trim();
+  const linkedName = link?.external_client_name?.trim() || "";
+  return {
+    title: base?.title || `WhatsApp ${contactName(conversation)}`,
+    description: base?.description ?? (snippet(conversation?.lastMessage) || ""),
+    solicitante,
+    clientQuery: linkedName || base?.clientQuery || solicitante,
+    external_client_id: link?.external_client_id ?? base?.external_client_id ?? null,
+    external_client_name: linkedName || base?.external_client_name || null,
+  };
+}
+
 function snippet(text?: string | null) {
   if (!text) return "";
   return text.replace(/\s+/g, " ").trim().slice(0, 90);
@@ -109,6 +130,135 @@ function asTab(raw: string | null): HelpdeskTab {
   if (raw === "open" || raw === "pending" || raw === "closed") return raw;
   return "pending";
 }
+
+function isTempMessageId(id?: string | null) {
+  return !!id && String(id).startsWith("temp-");
+}
+
+function sameInternalFlags(a: HelpdeskMessage, b: HelpdeskMessage) {
+  return !!(a.isInternal || a.isPrivate) === !!(b.isInternal || b.isPrivate);
+}
+
+function normalizeMessageBody(value?: string | null) {
+  return (value || "").replace(/\r\n/g, "\n").replace(/[ \t]+/g, " ").trim();
+}
+
+function isMediaMessage(m: HelpdeskMessage) {
+  if (m.mediaUrl) return true;
+  const t = (m.mediaType || "").toLowerCase();
+  if (!t || t === "conversation" || t === "chat") return false;
+  return /^(image|audio|video|application|document|sticker|ptt)/.test(t);
+}
+
+type AppMessagePayload = {
+  ticket?: { id?: number | string } | null;
+  message?: (HelpdeskMessage & { ticketId?: number | string; ticket?: { id?: number | string } | null }) | null;
+};
+
+function resolveAppMessageTicketId(payload: AppMessagePayload): number | null {
+  const raw =
+    payload.ticket?.id ?? payload.message?.ticketId ?? payload.message?.ticket?.id ?? null;
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+/** Mantém placeholders otimistas que ainda não chegaram no GET /messages (envio assíncrono). */
+function retainOptimisticMessages(fetched: HelpdeskMessage[], previous?: HelpdeskMessage[]) {
+  const temps = (previous || []).filter((m) => isTempMessageId(m.id));
+  if (!temps.length) return fetched;
+  let next = fetched;
+  for (const temp of temps) {
+    const settled = next.some(
+      (m) =>
+        !isTempMessageId(m.id) &&
+        !!m.fromMe === !!temp.fromMe &&
+        sameInternalFlags(m, temp) &&
+        isMediaMessage(m) === isMediaMessage(temp) &&
+        (!isMediaMessage(temp) ? normalizeMessageBody(m.body) === normalizeMessageBody(temp.body) : true),
+    );
+    if (!settled) next = [...next, temp];
+  }
+  return next;
+}
+
+/** Insere/substitui mensagem no thread sem duplicar (id real ou placeholder temp-). */
+function mergeMessageIntoThread(prev: HelpdeskMessage[] | undefined, incoming: HelpdeskMessage): HelpdeskMessage[] {
+  const current = prev || [];
+  const nextMsg: HelpdeskMessage = {
+    ...incoming,
+    id: String(incoming.id),
+    mediaUrl: publicMediaUrl(incoming.mediaUrl) || incoming.mediaUrl,
+  };
+  const byId = current.findIndex((m) => String(m.id) === nextMsg.id);
+  if (byId >= 0) {
+    const copy = [...current];
+    const prevUrl = copy[byId].mediaUrl;
+    if (prevUrl?.startsWith("blob:") && prevUrl !== nextMsg.mediaUrl) URL.revokeObjectURL(prevUrl);
+    copy[byId] = { ...copy[byId], ...nextMsg };
+    return copy;
+  }
+
+  const replaceTemp = (idx: number) => {
+    const copy = [...current];
+    const prevUrl = copy[idx].mediaUrl;
+    if (prevUrl?.startsWith("blob:") && prevUrl !== nextMsg.mediaUrl) URL.revokeObjectURL(prevUrl);
+    copy[idx] = { ...copy[idx], ...nextMsg };
+    return copy;
+  };
+
+  const textTemps = current
+    .map((m, idx) => ({ m, idx }))
+    .filter(
+      ({ m }) =>
+        isTempMessageId(m.id) &&
+        !!m.fromMe === !!nextMsg.fromMe &&
+        sameInternalFlags(m, nextMsg) &&
+        !isMediaMessage(m) &&
+        !isMediaMessage(nextMsg),
+    );
+  const textTempExact = textTemps.find(
+    ({ m }) => normalizeMessageBody(m.body) === normalizeMessageBody(nextMsg.body),
+  );
+  if (textTempExact) return replaceTemp(textTempExact.idx);
+  // Eco do socket pode normalizar o body; se só há um otimista de texto, substitui.
+  if (nextMsg.fromMe && textTemps.length === 1) return replaceTemp(textTemps[0].idx);
+
+  if (isMediaMessage(nextMsg)) {
+    const mediaTemp = current.findIndex(
+      (m) =>
+        isTempMessageId(m.id) &&
+        !!m.fromMe === !!nextMsg.fromMe &&
+        sameInternalFlags(m, nextMsg) &&
+        isMediaMessage(m),
+    );
+    if (mediaTemp >= 0) return replaceTemp(mediaTemp);
+  }
+
+  return [...current, nextMsg];
+}
+
+function extractSentMessage(data: unknown): HelpdeskMessage | null {
+  if (!data || typeof data !== "object") return null;
+  const d = data as Record<string, unknown>;
+  if (d.message && typeof d.message === "object") return extractSentMessage(d.message);
+  if (d.id != null && (typeof d.body === "string" || d.mediaUrl != null || d.fromMe != null)) {
+    return {
+      id: String(d.id),
+      body: typeof d.body === "string" ? d.body : undefined,
+      fromMe: d.fromMe !== false,
+      mediaUrl: (d.mediaUrl as string | null | undefined) ?? null,
+      mediaType: (d.mediaType as string | null | undefined) ?? null,
+      createdAt: typeof d.createdAt === "string" ? d.createdAt : undefined,
+      ack: typeof d.ack === "number" ? d.ack : undefined,
+      isInternal: !!(d.isInternal || d.isPrivate),
+      isPrivate: !!(d.isPrivate || d.isInternal),
+      quotedMsg: (d.quotedMsg as HelpdeskMessage | null | undefined) ?? null,
+    };
+  }
+  return null;
+}
+
+type MessagesCache = { messages?: HelpdeskMessage[]; [key: string]: unknown };
 
 function readStoredFilters() {
   if (typeof window === "undefined") return { queues: [] as number[], unassigned: true };
@@ -161,6 +311,7 @@ export function HelpdeskWorkspace() {
   const [knowledgeOpen, setKnowledgeOpen] = useState(false);
   const [knowledgeQuestion, setKnowledgeQuestion] = useState("");
   const [aiAction, setAiAction] = useState<"reply" | "improve" | "query" | "ticket" | null>(null);
+  const [aiMenuAnchor, setAiMenuAnchor] = useState<HTMLElement | null>(null);
   const [aiResult, setAiResult] = useState<AiResult | null>(null);
   const [aiError, setAiError] = useState<string | null>(null);
   const [ticketDefaults, setTicketDefaults] = useState<HelpdeskAiTicketDraft | null>(null);
@@ -231,12 +382,6 @@ export function HelpdeskWorkspace() {
     enabled: !!health.data?.ok,
     refetchInterval: 15000,
   });
-  const ratingSummary = useQuery({
-    queryKey: ["hd-rating-summary"],
-    queryFn: helpdesk.ratingSummary,
-    enabled: !!health.data?.ok,
-    refetchInterval: 60000,
-  });
 
   const queues = useQuery({
     queryKey: ["hd-queues"],
@@ -292,8 +437,14 @@ export function HelpdeskWorkspace() {
   const messages = useQuery({
     queryKey: ["hd-messages", activeId],
     queryFn: async () => {
-      const res = await helpdesk.messages(activeId as number);
-      return { ...res, messages: unwrapMessages(res) };
+      const ticketId = activeId as number;
+      const res = await helpdesk.messages(ticketId);
+      const fetched = unwrapMessages(res);
+      const prev = qc.getQueryData<MessagesCache>(["hd-messages", ticketId]);
+      return {
+        ...res,
+        messages: retainOptimisticMessages(fetched, prev?.messages),
+      };
     },
     enabled: !!activeId,
   });
@@ -303,6 +454,11 @@ export function HelpdeskWorkspace() {
     queryKey: ["hd-contact", contactId],
     queryFn: () => helpdesk.contact(contactId as number),
     enabled: !!contactId && contactOpen,
+  });
+  const contactClientLink = useQuery({
+    queryKey: ["hd-contact-client-link", contactId],
+    queryFn: () => helpdesk.contactClientLink(contactId as number),
+    enabled: !!contactId,
   });
 
   const tickets = useMemo(() => {
@@ -347,7 +503,7 @@ export function HelpdeskWorkspace() {
     qc.invalidateQueries({ queryKey: ["hd-list"] });
     qc.invalidateQueries({ queryKey: ["hd-list-counts"] });
     qc.invalidateQueries({ queryKey: ["hd-overview"] });
-    qc.invalidateQueries({ queryKey: ["hd-rating-summary"] });
+    qc.invalidateQueries({ queryKey: ["dashboard-helpdesk-ratings"] });
     if (id) {
       qc.invalidateQueries({ queryKey: ["hd-conversation", id] });
       qc.invalidateQueries({ queryKey: ["hd-messages", id] });
@@ -471,26 +627,97 @@ export function HelpdeskWorkspace() {
     onError: (e: Error) => setError(e.message),
   });
   const send = useMutation({
-    mutationFn: () => {
-      const body = withAgentSignature(text, user?.name, sign, isInternal);
-      return helpdesk.send(activeId as number, body, { isInternal });
-    },
-    onSuccess: () => {
+    mutationFn: (vars: { ticketId: number; body: string; isInternal: boolean; rawText: string }) =>
+      helpdesk.send(vars.ticketId, vars.body, { isInternal: vars.isInternal }),
+    onMutate: async (vars) => {
+      // Limpa o draft antes do await para bloquear reenvio (Enter duplo) no mesmo ciclo.
       setText("");
       setIsInternal(false);
-      qc.invalidateQueries({ queryKey: ["hd-messages", activeId] });
-      qc.invalidateQueries({ queryKey: ["hd-list"] });
+      setError(null);
+      await qc.cancelQueries({ queryKey: ["hd-messages", vars.ticketId] });
+      const previous = qc.getQueryData<MessagesCache>(["hd-messages", vars.ticketId]);
+      const tempId = `temp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const optimistic: HelpdeskMessage = {
+        id: tempId,
+        body: vars.body,
+        fromMe: true,
+        createdAt: new Date().toISOString(),
+        ack: 0,
+        ...(vars.isInternal ? { isInternal: true, isPrivate: true } : {}),
+      };
+      qc.setQueryData<MessagesCache>(["hd-messages", vars.ticketId], (prev) => ({
+        ...prev,
+        messages: mergeMessageIntoThread(prev?.messages, optimistic),
+      }));
+      return { previous, ticketId: vars.ticketId, tempId, rawText: vars.rawText, wasInternal: vars.isInternal };
     },
-    onError: (e: Error) => setError(e.message),
+    onSuccess: (data, vars) => {
+      const sent = extractSentMessage(data);
+      if (sent) {
+        qc.setQueryData<MessagesCache>(["hd-messages", vars.ticketId], (prev) => ({
+          ...prev,
+          messages: mergeMessageIntoThread(prev?.messages, sent),
+        }));
+      }
+      // Não invalidar hd-messages aqui: o POST costuma retornar antes do job persistir a msg.
+      qc.invalidateQueries({ queryKey: ["hd-list"] });
+      qc.invalidateQueries({ queryKey: ["hd-list-counts"] });
+      qc.invalidateQueries({ queryKey: ["hd-overview"] });
+    },
+    onError: (e: Error, _vars, ctx) => {
+      if (ctx?.previous && ctx.ticketId) {
+        qc.setQueryData(["hd-messages", ctx.ticketId], ctx.previous);
+      }
+      if (ctx?.rawText != null) setText(ctx.rawText);
+      if (ctx?.wasInternal) setIsInternal(true);
+      setError(e.message);
+    },
   });
   const sendFile = useMutation({
-    mutationFn: (file: File) =>
-      helpdesk.sendMedia(activeId as number, file, withAgentSignature(text, user?.name, sign, isInternal)),
-    onSuccess: () => {
+    mutationFn: (vars: { ticketId: number; file: File; body: string; rawText: string }) =>
+      helpdesk.sendMedia(vars.ticketId, vars.file, vars.body),
+    onMutate: async (vars) => {
       setText("");
-      qc.invalidateQueries({ queryKey: ["hd-messages", activeId] });
+      setError(null);
+      await qc.cancelQueries({ queryKey: ["hd-messages", vars.ticketId] });
+      const previous = qc.getQueryData<MessagesCache>(["hd-messages", vars.ticketId]);
+      const tempId = `temp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const mediaType = vars.file.type || "application/octet-stream";
+      const objectUrl = mediaType.startsWith("image/") ? URL.createObjectURL(vars.file) : null;
+      const optimistic: HelpdeskMessage = {
+        id: tempId,
+        body: vars.body || vars.file.name,
+        fromMe: true,
+        createdAt: new Date().toISOString(),
+        ack: 0,
+        mediaType,
+        mediaUrl: objectUrl,
+      };
+      qc.setQueryData<MessagesCache>(["hd-messages", vars.ticketId], (prev) => ({
+        ...prev,
+        messages: mergeMessageIntoThread(prev?.messages, optimistic),
+      }));
+      return { previous, ticketId: vars.ticketId, tempId, objectUrl, rawText: vars.rawText };
     },
-    onError: (e: Error) => setError(e.message),
+    onSuccess: (data, vars) => {
+      const sent = extractSentMessage(data);
+      if (sent) {
+        qc.setQueryData<MessagesCache>(["hd-messages", vars.ticketId], (prev) => ({
+          ...prev,
+          messages: mergeMessageIntoThread(prev?.messages, sent),
+        }));
+      }
+      // Media sync costuma persistir antes do 200; ainda assim evita refetch que apague o otimista.
+      qc.invalidateQueries({ queryKey: ["hd-list"] });
+    },
+    onError: (e: Error, _vars, ctx) => {
+      if (ctx?.objectUrl) URL.revokeObjectURL(ctx.objectUrl);
+      if (ctx?.previous && ctx.ticketId) {
+        qc.setQueryData(["hd-messages", ctx.ticketId], ctx.previous);
+      }
+      if (ctx?.rawText != null) setText(ctx.rawText);
+      setError(e.message);
+    },
   });
   const saveContact = useMutation({
     mutationFn: (payload: { name: string; email: string; notes: string }) => {
@@ -507,16 +734,24 @@ export function HelpdeskWorkspace() {
     onError: (e: Error) => setError(e.message),
   });
 
+  const threadTailId = messages.data?.messages?.length
+    ? messages.data.messages[messages.data.messages.length - 1]?.id
+    : null;
+
   useEffect(() => {
     const el = threadRef.current;
     if (!el) return;
-    el.scrollTop = el.scrollHeight;
-  }, [messages.data?.messages?.length, activeId]);
+    const pin = () => {
+      el.scrollTop = el.scrollHeight;
+    };
+    pin();
+    requestAnimationFrame(pin);
+  }, [messages.data?.messages?.length, threadTailId, activeId]);
 
   useEffect(() => {
     const engine: EngineSession | undefined = session.data;
     if (!engine?.token || !engine.engineUrl) return;
-    const socket = io(engine.engineUrl, {
+    const socket = io(resolveEngineSocketUrl(engine.engineUrl), {
       transports: ["websocket", "polling"],
       query: { token: engine.token },
     });
@@ -525,24 +760,25 @@ export function HelpdeskWorkspace() {
       qc.invalidateQueries({ queryKey: ["hd-list"] });
       qc.invalidateQueries({ queryKey: ["hd-list-counts"] });
       qc.invalidateQueries({ queryKey: ["hd-overview"] });
+      qc.invalidateQueries({ queryKey: ["helpdesk-nav-badge"] });
     };
     socket.on("connect", () => {
       socket.emit("joinTickets", "pending");
       socket.emit("joinTickets", "open");
       socket.emit("joinTickets", "closed");
       socket.emit("joinNotification");
+      if (activeIdRef.current) socket.emit("joinChatBox", String(activeIdRef.current));
     });
     socket.on(`company-${engine.companyId}-ticket`, refresh);
-    socket.on(`company-${engine.companyId}-appMessage`, (payload: { ticket?: HelpdeskConversation; message?: HelpdeskMessage }) => {
+    socket.on(`company-${engine.companyId}-appMessage`, (payload: AppMessagePayload) => {
       refresh();
-      const ticketId = payload?.ticket?.id;
+      const ticketId = resolveAppMessageTicketId(payload);
       const openId = activeIdRef.current;
-      if (ticketId && ticketId === openId && payload.message) {
-        qc.setQueryData(["hd-messages", openId], (prev: { messages?: HelpdeskMessage[] } | undefined) => {
-          const current = prev?.messages || [];
-          if (current.some((m) => m.id === payload.message?.id)) return prev;
-          return { ...prev, messages: [...current, payload.message as HelpdeskMessage] };
-        });
+      if (ticketId && openId && ticketId === openId && payload.message?.id) {
+        qc.setQueryData<MessagesCache>(["hd-messages", openId], (prev) => ({
+          ...prev,
+          messages: mergeMessageIntoThread(prev?.messages, payload.message as HelpdeskMessage),
+        }));
       }
     });
     socket.on(`company-${engine.companyId}-whatsappSession`, () => {
@@ -662,10 +898,11 @@ export function HelpdeskWorkspace() {
     setAiError(null);
     try {
       const result = await helpdesk.aiSuggestTicket(current.id);
+      const link = contactClientLink.data?.link || null;
       setAiResult({
         kind: "ticket",
         title: "Sugestão de chamado",
-        ticket: result.ticket,
+        ticket: ticketDefaultsFromConversation(current, link, result.ticket),
         sources: result.sources || [],
       });
     } catch (e) {
@@ -791,13 +1028,6 @@ export function HelpdeskWorkspace() {
             {unread ? ` · ${unread} não lida` : ""}
             {waitingReply ? ` · ${waitingReply} aguardando resposta` : ""}
           </p>
-          {tab === "closed" && ratingSummary.data ? (
-            <p className="mx-3 mb-2 rounded-lg bg-[#fff8df] px-3 py-2 text-[11px] text-[#765a00]">
-              <Star className="mr-1 inline h-3.5 w-3.5 fill-[#f6b91a] text-[#f6b91a]" />
-              Média {ratingSummary.data.average.toFixed(1)} · {ratingSummary.data.responded} avaliações ·{" "}
-              {ratingSummary.data.response_rate.toFixed(0)}% de respostas
-            </p>
-          ) : null}
 
           {engineDown ? (
             <div className="mx-3 mb-2 rounded-lg bg-open-bg px-3 py-2 text-xs text-open">
@@ -834,7 +1064,7 @@ export function HelpdeskWorkspace() {
                     )}
                   >
                     <span className="relative shrink-0">
-                      <UserAvatar name={contactName(c)} src={c.contact?.profilePicUrl} size="sm" />
+                      <UserAvatar name={contactName(c)} src={publicMediaUrl(c.contact?.profilePicUrl)} size="sm" />
                       {c.user?.name ? (
                         <span
                           className="absolute -bottom-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-navy text-[8px] font-bold text-white ring-2 ring-white"
@@ -909,15 +1139,17 @@ export function HelpdeskWorkspace() {
               key={current.id}
               className="flex min-h-0 flex-1 basis-0 flex-col overflow-hidden"
             >
-              <header className="flex shrink-0 items-center justify-between gap-3 border-b border-[#e6e0d6] bg-white px-4 py-2.5">
-                <div className="flex min-w-0 items-center gap-3">
+              <header className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-2 border-b border-[#e6e0d6] bg-white px-4 py-2.5">
+                <div className="flex min-w-0 flex-1 basis-44 flex-col gap-1 overflow-hidden">
                   <button
                     type="button"
                     className="flex min-w-0 items-center gap-3 text-left"
                     onClick={() => setContactOpen(true)}
                     title="Ver contato"
                   >
-                    <UserAvatar name={contactName(current)} src={current.contact?.profilePicUrl} />
+                    <span className="shrink-0">
+                      <UserAvatar name={contactName(current)} src={publicMediaUrl(current.contact?.profilePicUrl)} />
+                    </span>
                     <div className="min-w-0">
                       <p className="truncate text-sm font-semibold text-ink">
                         {contactName(current)} #{current.id}
@@ -931,20 +1163,20 @@ export function HelpdeskWorkspace() {
                   {current.computicket_ticket_id ? (
                     <Link
                       href={`/tickets/${current.computicket_ticket_id}`}
-                      className="shrink-0 rounded-md bg-progress-bg px-2 py-1 text-[11px] font-semibold text-brand hover:underline"
+                      className="ml-[3.25rem] w-fit max-w-[calc(100%-3.25rem)] truncate rounded-md bg-progress-bg px-2 py-0.5 text-[11px] font-semibold text-brand hover:underline"
                     >
                       Chamado #{current.computicket_ticket_id}
                     </Link>
                   ) : null}
                 </div>
-                <div className="relative flex shrink-0 items-center gap-2">
+                <div className="relative ml-auto flex max-w-full flex-wrap items-center justify-end gap-2">
                   {current.status === "pending" ? (
                     <button
                       type="button"
                       onClick={() => assume.mutate(current.id)}
                       className="inline-flex items-center gap-1 rounded-lg border border-line px-3 py-1.5 text-xs font-medium text-ink hover:bg-[#f7f7f7]"
                     >
-                      <Hand className="h-3.5 w-3.5" />
+                      <Hand className="h-3.5 w-3.5 shrink-0" />
                       Assumir
                     </button>
                   ) : null}
@@ -954,7 +1186,7 @@ export function HelpdeskWorkspace() {
                       onClick={() => setTransferOpen(true)}
                       className="inline-flex items-center gap-1 rounded-lg border border-line px-3 py-1.5 text-xs font-medium text-ink hover:bg-[#f7f7f7]"
                     >
-                      <ArrowLeftRight className="h-3.5 w-3.5" />
+                      <ArrowLeftRight className="h-3.5 w-3.5 shrink-0" />
                       Transferir
                     </button>
                   ) : null}
@@ -964,17 +1196,22 @@ export function HelpdeskWorkspace() {
                       onClick={() => giveBack.mutate(current.id)}
                       className="inline-flex items-center gap-1 rounded-lg border border-line px-3 py-1.5 text-xs font-medium text-ink hover:bg-[#f7f7f7]"
                     >
-                      <Undo2 className="h-3.5 w-3.5" />
+                      <Undo2 className="h-3.5 w-3.5 shrink-0" />
                       Devolver
                     </button>
                   ) : null}
                   {current.status !== "closed" ? (
                     <button
                       type="button"
-                      onClick={() => setCreateOpen(true)}
+                      onClick={() => {
+                        setTicketDefaults(
+                          ticketDefaultsFromConversation(current, contactClientLink.data?.link || null),
+                        );
+                        setCreateOpen(true);
+                      }}
                       className="inline-flex items-center gap-1 rounded-lg border border-line px-3 py-1.5 text-xs font-medium text-ink hover:bg-[#f7f7f7]"
                     >
-                      <Ticket className="h-3.5 w-3.5" />
+                      <Ticket className="h-3.5 w-3.5 shrink-0" />
                       Abrir chamado
                     </button>
                   ) : null}
@@ -985,7 +1222,7 @@ export function HelpdeskWorkspace() {
                       onClick={handleResolverClick}
                       className="inline-flex items-center gap-1 rounded-lg bg-brand px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50"
                     >
-                      <Check className="h-3.5 w-3.5" />
+                      <Check className="h-3.5 w-3.5 shrink-0" />
                       {ticketFlowLoading ? "Carregando…" : "Resolver"}
                     </button>
                   ) : null}
@@ -1071,7 +1308,7 @@ export function HelpdeskWorkspace() {
                               m.mediaType?.startsWith("image") ? (
                                 // eslint-disable-next-line @next/next/no-img-element
                                 <img
-                                  src={m.mediaUrl}
+                                  src={publicMediaUrl(m.mediaUrl) || m.mediaUrl}
                                   alt=""
                                   className="mb-1 block max-h-56 max-w-full rounded-md object-contain"
                                   onLoad={() => {
@@ -1080,7 +1317,12 @@ export function HelpdeskWorkspace() {
                                   }}
                                 />
                               ) : (
-                                <a href={m.mediaUrl} target="_blank" rel="noreferrer" className="mb-1 block text-xs text-brand underline">
+                                <a
+                                  href={publicMediaUrl(m.mediaUrl) || m.mediaUrl}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="mb-1 block text-xs text-brand underline"
+                                >
                                   Abrir anexo
                                 </a>
                               )
@@ -1100,7 +1342,17 @@ export function HelpdeskWorkspace() {
                   className="relative shrink-0 border-t border-[#e6e0d6] bg-[#f0f2f5] px-3 py-2"
                   onSubmit={(e) => {
                     e.preventDefault();
-                    if (text.trim()) send.mutate();
+                    if (send.isPending || !activeId || !text.trim()) return;
+                    const rawText = text;
+                    const sendingInternal = isInternal;
+                    const body = withAgentSignature(rawText, user?.name, sign, sendingInternal);
+                    if (!body.trim()) return;
+                    send.mutate({
+                      ticketId: activeId,
+                      body,
+                      isInternal: sendingInternal,
+                      rawText,
+                    });
                   }}
                 >
                   {quickMatches.length ? (
@@ -1130,7 +1382,13 @@ export function HelpdeskWorkspace() {
                       }}
                       onApplyTicket={() => {
                         if (aiResult.kind !== "ticket") return;
-                        setTicketDefaults(aiResult.ticket);
+                        setTicketDefaults(
+                          ticketDefaultsFromConversation(
+                            current,
+                            contactClientLink.data?.link || null,
+                            aiResult.ticket,
+                          ),
+                        );
                         setCreateOpen(true);
                       }}
                       onClose={() => setAiResult(null)}
@@ -1144,41 +1402,6 @@ export function HelpdeskWorkspace() {
                       </button>
                     </div>
                   ) : null}
-                  <div className="mb-2 flex flex-wrap items-center gap-1.5">
-                    <span className="mr-1 inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-muted">
-                      <Bot className="h-3.5 w-3.5" />
-                      Copiloto
-                    </span>
-                    <AiActionButton
-                      label="Sugerir resposta"
-                      pending={aiAction === "reply"}
-                      disabled={aiAction !== null}
-                      onClick={() => void suggestReply()}
-                    />
-                    <AiActionButton
-                      label="Melhorar texto"
-                      pending={aiAction === "improve"}
-                      disabled={aiAction !== null || !text.trim()}
-                      onClick={() => void improveText()}
-                    />
-                    <AiActionButton
-                      label="Consultar conhecimento"
-                      icon={<BookOpen className="h-3 w-3" />}
-                      pending={aiAction === "query"}
-                      disabled={aiAction !== null}
-                      onClick={() => {
-                        setAiError(null);
-                        setKnowledgeOpen(true);
-                      }}
-                    />
-                    <AiActionButton
-                      label="Gerar ticket"
-                      icon={<FilePlus2 className="h-3 w-3" />}
-                      pending={aiAction === "ticket"}
-                      disabled={aiAction !== null}
-                      onClick={() => void suggestTicket()}
-                    />
-                  </div>
                   <div className="flex items-center gap-2">
                     <Smile className="h-5 w-5 text-muted" />
                     <button
@@ -1198,13 +1421,88 @@ export function HelpdeskWorkspace() {
                     >
                       <Paperclip className="h-5 w-5" />
                     </button>
+                    <button
+                      type="button"
+                      onClick={(e) => setAiMenuAnchor((cur) => (cur ? null : e.currentTarget))}
+                      className={cn(
+                        "text-muted hover:text-ink",
+                        (aiMenuAnchor || aiAction) && "text-brand",
+                      )}
+                      aria-label="Copiloto"
+                      title="Copiloto"
+                      aria-expanded={!!aiMenuAnchor}
+                      aria-haspopup="menu"
+                    >
+                      {aiAction ? (
+                        <LoaderCircle className="h-5 w-5 animate-spin" />
+                      ) : (
+                        <Bot className="h-5 w-5" />
+                      )}
+                    </button>
+                    {aiMenuAnchor ? (
+                      <FloatingMenu
+                        anchor={aiMenuAnchor}
+                        width={220}
+                        onClose={() => setAiMenuAnchor(null)}
+                      >
+                        <div className="border-b border-[#e5e7eb] px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted">
+                          Copiloto
+                        </div>
+                        <AiMenuItem
+                          label="Sugerir resposta"
+                          pending={aiAction === "reply"}
+                          disabled={aiAction !== null}
+                          onClick={() => {
+                            setAiMenuAnchor(null);
+                            void suggestReply();
+                          }}
+                        />
+                        <AiMenuItem
+                          label="Melhorar texto"
+                          pending={aiAction === "improve"}
+                          disabled={aiAction !== null || !text.trim()}
+                          onClick={() => {
+                            setAiMenuAnchor(null);
+                            void improveText();
+                          }}
+                        />
+                        <AiMenuItem
+                          label="Consultar conhecimento"
+                          icon={<BookOpen className="h-3.5 w-3.5" />}
+                          pending={aiAction === "query"}
+                          disabled={aiAction !== null}
+                          onClick={() => {
+                            setAiMenuAnchor(null);
+                            setAiError(null);
+                            setKnowledgeOpen(true);
+                          }}
+                        />
+                        <AiMenuItem
+                          label="Gerar ticket"
+                          icon={<FilePlus2 className="h-3.5 w-3.5" />}
+                          pending={aiAction === "ticket"}
+                          disabled={aiAction !== null}
+                          onClick={() => {
+                            setAiMenuAnchor(null);
+                            void suggestTicket();
+                          }}
+                        />
+                      </FloatingMenu>
+                    ) : null}
                     <input
                       ref={fileRef}
                       type="file"
                       className="hidden"
                       onChange={(e) => {
                         const file = e.target.files?.[0];
-                        if (file) sendFile.mutate(file);
+                        if (file && activeId) {
+                          sendFile.mutate({
+                            ticketId: activeId,
+                            file,
+                            body: withAgentSignature(text, user?.name, sign, isInternal),
+                            rawText: text,
+                          });
+                        }
                         e.target.value = "";
                       }}
                     />
@@ -1280,8 +1578,13 @@ export function HelpdeskWorkspace() {
             loading={contact.isLoading}
             error={contact.isError ? (contact.error as Error).message : null}
             saving={saveContact.isPending}
+            clientLink={contactClientLink.data?.link || null}
+            clientLinkLoading={contactClientLink.isLoading}
             onClose={() => setContactOpen(false)}
             onSave={(payload) => saveContact.mutate(payload)}
+            onLinked={() => {
+              qc.invalidateQueries({ queryKey: ["hd-contact-client-link", contactId] });
+            }}
           />
         ) : null}
       </div>
@@ -1305,12 +1608,8 @@ export function HelpdeskWorkspace() {
           setTicketDefaults(null);
         }}
         defaults={
-          ticketDefaults || {
-            title: `WhatsApp ${contactName(current)}`,
-            description: snippet(current?.lastMessage) || "",
-            solicitante: contactName(current),
-            clientQuery: contactName(current),
-          }
+          ticketDefaults ||
+          ticketDefaultsFromConversation(current, contactClientLink.data?.link || null)
         }
         onCreated={(created) => {
           setAiResult(null);
@@ -1409,7 +1708,7 @@ export function HelpdeskWorkspace() {
   );
 }
 
-function AiActionButton({
+function AiMenuItem({
   label,
   pending,
   disabled,
@@ -1425,11 +1724,16 @@ function AiActionButton({
   return (
     <button
       type="button"
+      role="menuitem"
       onClick={onClick}
       disabled={disabled}
-      className="inline-flex items-center gap-1 rounded-full border border-[#d9dee7] bg-white px-2.5 py-1 text-[11px] font-medium text-ink hover:border-brand hover:text-brand disabled:cursor-not-allowed disabled:opacity-40"
+      className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-ink hover:bg-[#f5f5f5] disabled:cursor-not-allowed disabled:opacity-40"
     >
-      {pending ? <LoaderCircle className="h-3 w-3 animate-spin" /> : icon || <WandSparkles className="h-3 w-3" />}
+      {pending ? (
+        <LoaderCircle className="h-3.5 w-3.5 shrink-0 animate-spin" />
+      ) : (
+        icon || <WandSparkles className="h-3.5 w-3.5 shrink-0" />
+      )}
       {label}
     </button>
   );
@@ -1651,22 +1955,49 @@ function ContactDrawer({
   loading,
   error,
   saving,
+  clientLink,
+  clientLinkLoading,
   onClose,
   onSave,
+  onLinked,
 }: {
   conversation: HelpdeskConversation;
-  detail?: { name?: string; number?: string; email?: string; extraInfo?: { name?: string; value?: string }[] };
+  detail?: {
+    name?: string;
+    number?: string;
+    email?: string;
+    profilePicUrl?: string | null;
+    extraInfo?: { name?: string; value?: string }[];
+  };
   loading: boolean;
   error: string | null;
   saving: boolean;
+  clientLink: HelpdeskContactClientLink | null;
+  clientLinkLoading: boolean;
   onClose: () => void;
   onSave: (payload: { name: string; email: string; notes: string }) => void;
+  onLinked: () => void;
 }) {
   const [name, setName] = useState(detail?.name || conversation.contact?.name || "");
   const [email, setEmail] = useState(detail?.email || conversation.contact?.email || "");
   const [notes, setNotes] = useState(
     detail?.extraInfo?.find((e) => (e.name || "").toLowerCase() === "observações")?.value || "",
   );
+  const [clientQ, setClientQ] = useState("");
+  const [selectedClientId, setSelectedClientId] = useState("");
+  const [linkError, setLinkError] = useState<string | null>(null);
+  const [linkBusy, setLinkBusy] = useState(false);
+  const photo =
+    publicMediaUrl(detail?.profilePicUrl) || publicMediaUrl(conversation.contact?.profilePicUrl);
+
+  const clients = useQuery({
+    queryKey: ["clients", "hd-contact-link", clientQ],
+    queryFn: () =>
+      flask.get<{ items: { id: number; name: string }[] }>(
+        `/api/web/clients?q=${encodeURIComponent(clientQ)}&per_page=30`,
+      ),
+    enabled: !clientLink && clientQ.trim().length >= 1,
+  });
 
   useEffect(() => {
     if (!detail) return;
@@ -1674,6 +2005,53 @@ function ContactDrawer({
     setEmail(detail.email || "");
     setNotes(detail.extraInfo?.find((e) => (e.name || "").toLowerCase() === "observações")?.value || "");
   }, [detail, conversation.contact?.name]);
+
+  useEffect(() => {
+    setClientQ("");
+    setSelectedClientId("");
+    setLinkError(null);
+  }, [conversation.contact?.id, clientLink?.id]);
+
+  async function linkClient() {
+    const contactId = conversation.contact?.id;
+    if (!contactId || !selectedClientId) return;
+    const chosen = (clients.data?.items || []).find((c) => String(c.id) === selectedClientId) || null;
+    if (!chosen) {
+      setLinkError("Selecione um cliente da lista");
+      return;
+    }
+    setLinkBusy(true);
+    setLinkError(null);
+    try {
+      await helpdesk.upsertContactClientLink(contactId, {
+        external_client_id: chosen.id,
+        external_client_name: chosen.name,
+        contact_number: detail?.number || conversation.contact?.number || undefined,
+      });
+      setClientQ("");
+      setSelectedClientId("");
+      onLinked();
+    } catch (e) {
+      setLinkError(e instanceof Error ? e.message : "Falha ao vincular cliente");
+    } finally {
+      setLinkBusy(false);
+    }
+  }
+
+  async function unlinkClient() {
+    const contactId = conversation.contact?.id;
+    if (!contactId || !clientLink) return;
+    setLinkBusy(true);
+    setLinkError(null);
+    try {
+      await helpdesk.deleteContactClientLink(contactId);
+      onLinked();
+    } catch (e) {
+      setLinkError(e instanceof Error ? e.message : "Falha ao desvincular cliente");
+    } finally {
+      setLinkBusy(false);
+    }
+  }
 
   return (
     <aside className="flex min-h-0 w-[320px] shrink-0 flex-col overflow-hidden border-l border-[#ececec] bg-white">
@@ -1693,9 +2071,27 @@ function ContactDrawer({
           onSave({ name: name.trim(), email: email.trim(), notes });
         }}
       >
-        <p className="text-xs text-muted">Número: {detail?.number || conversation.contact?.number || "—"}</p>
+        <div className="flex flex-col items-center gap-2 py-2">
+          <UserAvatar
+            name={name || conversation.contact?.name || conversation.contact?.number}
+            src={photo}
+            size="xl"
+          />
+          <p className="text-center text-sm font-semibold text-ink">
+            {name || conversation.contact?.name || "Contato"}
+          </p>
+          <p className="text-center text-xs text-muted">
+            {detail?.number || conversation.contact?.number || "—"}
+          </p>
+        </div>
         {loading ? <p className="text-sm text-muted">Carregando dados…</p> : null}
-        {error ? <p className="text-xs text-open">{error}</p> : null}
+        {error ? (
+          <p className="text-xs text-open">
+            {/^Erro 50[234]$/i.test(error) || /indispon/i.test(error)
+              ? "Não foi possível carregar o contato (engine WhatsApp indisponível). Você ainda pode editar e salvar com os dados da conversa."
+              : error}
+          </p>
+        ) : null}
         <label className="block">
           <span className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted">Nome</span>
           <input
@@ -1721,6 +2117,66 @@ function ContactDrawer({
             className="mt-1 w-full resize-y border-0 border-b border-[#d7d7d7] py-2 text-sm"
           />
         </label>
+
+        <div className="space-y-2 border-t border-[#ececec] pt-4">
+          <span className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted">
+            Cliente do sistema
+          </span>
+          {clientLinkLoading ? (
+            <p className="text-sm text-muted">Carregando vínculo…</p>
+          ) : clientLink ? (
+            <div className="space-y-2">
+              <p className="text-sm text-ink">{clientLink.external_client_name}</p>
+              <p className="text-xs text-muted">ID #{clientLink.external_client_id}</p>
+              <button
+                type="button"
+                disabled={linkBusy || !conversation.contact?.id}
+                onClick={() => void unlinkClient()}
+                className="text-xs font-medium text-open hover:underline disabled:opacity-40"
+              >
+                {linkBusy ? "Desvinculando…" : "Desvincular cliente"}
+              </button>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              <label className="block">
+                <span className="sr-only">Buscar cliente</span>
+                <input
+                  value={clientQ}
+                  onChange={(e) => {
+                    setClientQ(e.target.value);
+                    setSelectedClientId("");
+                  }}
+                  placeholder="Buscar cliente…"
+                  className="mt-1 w-full border-0 border-b border-[#d7d7d7] py-2 text-sm"
+                />
+              </label>
+              <select
+                value={selectedClientId}
+                onChange={(e) => setSelectedClientId(e.target.value)}
+                className="w-full border-0 border-b border-[#d7d7d7] bg-transparent py-2 text-sm"
+                disabled={!clientQ.trim()}
+              >
+                <option value="">{clientQ.trim() ? "Selecione" : "Digite para buscar"}</option>
+                {(clients.data?.items || []).map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                disabled={linkBusy || !selectedClientId || !conversation.contact?.id}
+                onClick={() => void linkClient()}
+                className="rounded-lg border border-line px-3 py-1.5 text-xs font-medium text-ink hover:bg-[#f7f7f7] disabled:opacity-40"
+              >
+                {linkBusy ? "Vinculando…" : "Vincular cliente"}
+              </button>
+            </div>
+          )}
+          {linkError ? <p className="text-xs text-open">{linkError}</p> : null}
+        </div>
+
         <button
           type="submit"
           disabled={saving || !conversation.contact?.id}

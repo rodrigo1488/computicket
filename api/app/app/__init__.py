@@ -590,6 +590,18 @@ def create_app() -> Flask:
 	except Exception as _rating_schema_error:
 		app.logger.warning("Não foi possível garantir o schema de avaliações: %s", _rating_schema_error)
 
+	# Vínculo contato WhatsApp ↔ cliente Unico (SQLite e PostgreSQL).
+	try:
+		with app.app_context():
+			from .models import HelpDeskContactClientLink  # noqa: F401
+			from .schema_utils import ensure_tables_from_metadata
+			ensure_tables_from_metadata(["helpdesk_contact_client_link"])
+	except Exception as _contact_link_schema_error:
+		app.logger.warning(
+			"Não foi possível garantir o schema de vínculo contato↔cliente: %s",
+			_contact_link_schema_error,
+		)
+
 	# Tabelas do monitoramento remoto (SQLite e PostgreSQL).
 	try:
 		with app.app_context():

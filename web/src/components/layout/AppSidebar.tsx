@@ -79,6 +79,7 @@ export function AppSidebar() {
     },
     enabled: Boolean(user?.id),
     refetchInterval: HELPDESK_POLL_MS,
+    refetchOnWindowFocus: true,
     retry: 0,
   });
   const staleCount = stale.data?.count ?? 0;
@@ -100,20 +101,24 @@ export function AppSidebar() {
         collapsed ? "w-[72px]" : "w-[260px]",
       )}
     >
-      <div className={cn("flex items-center pt-3", collapsed ? "justify-center px-2" : "justify-end px-3")}>
+      <div
+        className={cn(
+          "flex items-center pb-3 pt-3",
+          collapsed ? "flex-col gap-2 px-2" : "justify-between gap-2 px-4",
+        )}
+      >
+        {!collapsed && <Logo collapsed={collapsed} />}
         <button
           type="button"
           onClick={toggleCollapsed}
           title={collapsed ? "Expandir menu" : "Recolher menu"}
           aria-label={collapsed ? "Expandir menu" : "Recolher menu"}
           aria-expanded={!collapsed}
-          className="inline-flex h-7 w-7 items-center justify-center rounded-md text-white/55 hover:bg-white/10 hover:text-white"
+          className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-white/55 hover:bg-white/10 hover:text-white"
         >
           {collapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
         </button>
-      </div>
-      <div className={cn("pb-3 pt-1", collapsed ? "px-2" : "px-4")}>
-        <Logo collapsed={collapsed} />
+        {collapsed && <Logo collapsed={collapsed} />}
       </div>
       <nav className={cn("no-scrollbar flex-1 space-y-1 overflow-y-auto pb-4", collapsed ? "px-2" : "px-3")}>
         {items.map((item) => {

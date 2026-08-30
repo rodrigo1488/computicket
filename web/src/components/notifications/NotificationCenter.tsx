@@ -1,11 +1,13 @@
 "use client";
 
+import { useQueryClient } from "@tanstack/react-query";
 import { Bell, CalendarDays, MessageCircle, Ticket, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { io } from "socket.io-client";
 import { flask } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
+import { resolveEngineSocketUrl } from "@/lib/helpdesk";
 import { remoteSocketOrigin } from "@/lib/remote-monitor";
 
 type AppNotification = {
@@ -28,6 +30,7 @@ type EngineMessageEvent = {
     id?: number;
     contact?: { name?: string; number?: string };
     lastMessage?: string;
+    unreadMessages?: number;
   };
 };
 
@@ -62,13 +65,60 @@ function notificationTone(type: string) {
   return "bg-line text-navy";
 }
 
+function stableNotificationId(messageId: string | number): number {
+  const digits = String(messageId).replace(/\D/g, "").slice(-9);
+  const n = Number(digits);
+  return Number.isFinite(n) && n > 0 ? n : -Math.abs(hashString(String(messageId)));
+}
+
+function hashString(value: string): number {
+  let h = 0;
+  for (let i = 0; i < value.length; i += 1) h = (Math.imul(31, h) + value.charCodeAt(i)) | 0;
+  return h || 1;
+}
+
+/** Conversa aberta e aba visível → não tocar toast/som. */
+function isHelpdeskConversationFocused(ticketId?: number | null): boolean {
+  if (typeof window === "undefined") return false;
+  if (!window.location.pathname.startsWith("/helpdesk")) return false;
+  if (document.hidden) return false;
+  if (ticketId == null) return false;
+  const openId = Number(new URLSearchParams(window.location.search).get("c"));
+  return Number.isFinite(openId) && openId === ticketId;
+}
+
+function playMessageSound() {
+  try {
+    const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!AudioCtx) return;
+    const ctx = new AudioCtx();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(880, ctx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(1175, ctx.currentTime + 0.08);
+    gain.gain.setValueAtTime(0.0001, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.09, ctx.currentTime + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.22);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start();
+    osc.stop(ctx.currentTime + 0.24);
+    osc.onended = () => void ctx.close().catch(() => undefined);
+  } catch {
+    /* autoplay bloqueado ou AudioContext indisponível */
+  }
+}
+
 export function NotificationCenter() {
   const { user } = useAuth();
   const router = useRouter();
+  const queryClient = useQueryClient();
   const [items, setItems] = useState<AppNotification[]>([]);
   const [pushConfig, setPushConfig] = useState<PushConfig | null>(null);
   const [permission, setPermission] = useState<NotificationPermission | "unsupported">("unsupported");
   const timers = useRef(new Map<number, ReturnType<typeof setTimeout>>());
+  const seenMessageIds = useRef(new Set<string>());
 
   const dismiss = useCallback((id: number) => {
     const timer = timers.current.get(id);
@@ -80,11 +130,77 @@ export function NotificationCenter() {
   const show = useCallback((notification: AppNotification) => {
     setItems((current) => {
       if (current.some((item) => item.id === notification.id)) return current;
+      if (
+        notification.entity_id &&
+        current.some((item) => item.entity_id === notification.entity_id)
+      ) {
+        return current;
+      }
       return [...current.slice(-3), notification];
     });
     const timer = setTimeout(() => dismiss(notification.id), 8000);
     timers.current.set(notification.id, timer);
   }, [dismiss]);
+
+  const markMessageSeen = useCallback((messageId: string) => {
+    seenMessageIds.current.add(messageId);
+    window.setTimeout(() => seenMessageIds.current.delete(messageId), 60_000);
+  }, []);
+
+  const bumpHelpdeskBadge = useCallback(() => {
+    queryClient.setQueriesData<{ count: number }>({ queryKey: ["helpdesk-nav-badge"] }, (prev) => ({
+      count: Math.max(0, (prev?.count ?? 0) + 1),
+    }));
+    void queryClient.invalidateQueries({ queryKey: ["helpdesk-nav-badge"] });
+  }, [queryClient]);
+
+  const handleIncomingHelpdeskMessage = useCallback(
+    (payload: EngineMessageEvent) => {
+      if (!payload?.message || payload.message.fromMe) return;
+      const messageId = payload.message.id;
+      if (messageId == null) return;
+      const entityId = String(messageId);
+      if (seenMessageIds.current.has(entityId)) return;
+      markMessageSeen(entityId);
+
+      const ticketId = payload.ticket?.id;
+      bumpHelpdeskBadge();
+
+      // Conversa aberta e aba em foco: sem toast/som (lista/badge já atualizam).
+      if (isHelpdeskConversationFocused(ticketId)) return;
+
+      const contact =
+        payload.ticket?.contact?.name ||
+        payload.ticket?.contact?.number ||
+        "Novo contato";
+      const body =
+        payload.message.body ||
+        payload.ticket?.lastMessage ||
+        (payload.message.mediaType ? `Nova mídia: ${payload.message.mediaType}` : "Nova mensagem");
+      const url = ticketId ? `/helpdesk?c=${ticketId}` : "/helpdesk";
+
+      show({
+        id: stableNotificationId(entityId),
+        type: "message",
+        title: `Nova mensagem de ${contact}`,
+        message: body,
+        url,
+        entity_type: "message",
+        entity_id: entityId,
+      });
+      playMessageSound();
+
+      flask
+        .post("/api/notifications/external-message", {
+          id: entityId,
+          title: `Nova mensagem de ${contact}`,
+          message: body,
+          url,
+        })
+        .catch(() => undefined);
+    },
+    [bumpHelpdeskBadge, markMessageSeen, show],
+  );
 
   useEffect(() => {
     if (!user) return;
@@ -110,21 +226,41 @@ export function NotificationCenter() {
       transports: ["websocket", "polling"],
       withCredentials: true,
     });
-    socket.on("app_notification", show);
+    const onAppNotification = (notification: AppNotification) => {
+      if (
+        notification.type === "message" &&
+        notification.entity_id &&
+        seenMessageIds.current.has(notification.entity_id)
+      ) {
+        return;
+      }
+      if (notification.type === "message" && notification.entity_id) {
+        markMessageSeen(notification.entity_id);
+      }
+      show(notification);
+      if (notification.type === "message") {
+        playMessageSound();
+        bumpHelpdeskBadge();
+      }
+    };
+    socket.on("app_notification", onAppNotification);
     return () => {
-      socket.off("app_notification", show);
+      socket.off("app_notification", onAppNotification);
       socket.disconnect();
     };
-  }, [user, show]);
+  }, [user, show, markMessageSeen, bumpHelpdeskBadge]);
 
   useEffect(() => {
     if (!user) return;
     let disposed = false;
     let engineSocket: ReturnType<typeof io> | null = null;
+    let refreshTimer: ReturnType<typeof setInterval> | null = null;
 
-    flask.get<EngineSession>("/helpdesk/api/engine-token").then((session) => {
+    const connectEngine = (session: EngineSession) => {
       if (disposed || !session?.token || !session.engineUrl) return;
-      engineSocket = io(session.engineUrl, {
+      engineSocket?.disconnect();
+      const engineUrl = resolveEngineSocketUrl(session.engineUrl);
+      engineSocket = io(engineUrl, {
         transports: ["websocket", "polling"],
         query: { token: session.token },
       });
@@ -135,45 +271,33 @@ export function NotificationCenter() {
       });
       engineSocket.on(
         `company-${session.companyId}-appMessage`,
-        async (payload: EngineMessageEvent) => {
-          if (!payload?.message || payload.message.fromMe) return;
-          const messageId = payload.message.id;
-          if (messageId == null) return;
-          const contact =
-            payload.ticket?.contact?.name ||
-            payload.ticket?.contact?.number ||
-            "Novo contato";
-          const body =
-            payload.message.body ||
-            payload.ticket?.lastMessage ||
-            (payload.message.mediaType ? `Nova mídia: ${payload.message.mediaType}` : "Nova mensagem");
-          try {
-            await flask.post("/api/notifications/external-message", {
-              id: String(messageId),
-              title: `Nova mensagem de ${contact}`,
-              message: body,
-              url: payload.ticket?.id ? `/helpdesk?c=${payload.ticket.id}` : "/helpdesk",
-            });
-          } catch {
-            show({
-              id: -Date.now(),
-              type: "message",
-              title: `Nova mensagem de ${contact}`,
-              message: body,
-              url: payload.ticket?.id ? `/helpdesk?c=${payload.ticket.id}` : "/helpdesk",
-            });
-          }
+        (payload: EngineMessageEvent) => {
+          handleIncomingHelpdeskMessage(payload);
         },
       );
-    }).catch(() => {
-      // O helpdesk pode estar desabilitado; tickets e agenda continuam funcionando.
-    });
+    };
+
+    const loadSession = () => {
+      flask
+        .get<EngineSession>("/helpdesk/api/engine-token")
+        .then((session) => {
+          if (!disposed) connectEngine(session);
+        })
+        .catch(() => {
+          // O helpdesk pode estar desabilitado; tickets e agenda continuam funcionando.
+        });
+    };
+
+    loadSession();
+    // Token do engine expira; reconecta periodicamente para manter badge/toast fora do Help Desk.
+    refreshTimer = setInterval(loadSession, 8 * 60 * 1000);
 
     return () => {
       disposed = true;
+      if (refreshTimer) clearInterval(refreshTimer);
       engineSocket?.disconnect();
     };
-  }, [user, show]);
+  }, [user, handleIncomingHelpdeskMessage]);
 
   useEffect(() => () => {
     for (const timer of timers.current.values()) clearTimeout(timer);
