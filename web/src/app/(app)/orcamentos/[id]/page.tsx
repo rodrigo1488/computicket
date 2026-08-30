@@ -6,6 +6,7 @@ import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { PageTitle } from "@/components/layout/AppShell";
 import type { BudgetDetail } from "@/components/budgets/BudgetBuilder";
+import { TableLoadingRows } from "@/components/ui/table-loading";
 import { flask } from "@/lib/api";
 import {
   exportBudgetPdf,
@@ -24,6 +25,31 @@ function budgetStatus(s?: string) {
 }
 
 const periodLabel: Record<string, string> = { monthly: "Mensal", quarterly: "Trimestral", yearly: "Anual" };
+
+function BudgetDetailLoading() {
+  return (
+    <div>
+      <PageTitle>Orçamento</PageTitle>
+      <section className="rounded-2xl border border-[#eee] p-5">
+        <h2 className="mb-4 text-lg font-semibold text-navy">Itens</h2>
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-sm" aria-busy="true">
+            <thead>
+              <tr className="border-b border-[#eee] text-muted">
+                {["Descrição", "Qtd", "Valor", "Total"].map((column) => (
+                  <th key={column} className="py-2 pr-3 font-medium">{column}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              <TableLoadingRows columns={4} rows={5} />
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+  );
+}
 
 export default function VerOrcamentoPage() {
   const params = useParams<{ id: string }>();
@@ -99,7 +125,7 @@ export default function VerOrcamentoPage() {
     }
   }
 
-  if (isLoading) return <p className="text-muted">Carregando orçamento…</p>;
+  if (isLoading) return <BudgetDetailLoading />;
   if (error) return <p className="text-open">{(error as Error).message}</p>;
   if (!data) return <p className="text-muted">Orçamento não encontrado</p>;
 

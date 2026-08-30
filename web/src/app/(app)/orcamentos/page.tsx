@@ -42,9 +42,10 @@ export default function OrcamentosPage() {
 
   useEffect(() => setPage(1), [q, colFilters]);
 
-  const { data } = useQuery({
+  const { data, isLoading, isFetching } = useQuery({
     queryKey: ["budgets", q, page, colQuery],
     queryFn: () => flask.get<PageRes<B>>(`/api/web/budgets?q=${encodeURIComponent(q)}&page=${page}&per_page=12${colQuery}`),
+    placeholderData: (previousData) => previousData,
   });
 
   const remove = useMutation({
@@ -70,6 +71,8 @@ export default function OrcamentosPage() {
       </div>
       <DataTable
         id="orcamentos"
+        loading={isLoading}
+        refreshing={isFetching}
         searchPlaceholder="Buscar por título, cliente, status…"
         searchValue={q}
         onSearch={setQ}

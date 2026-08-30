@@ -31,9 +31,10 @@ export default function UsuariosPage() {
 
   useEffect(() => setPage(1), [q, colFilters]);
 
-  const { data } = useQuery({
+  const { data, isLoading, isFetching } = useQuery({
     queryKey: ["users", q, page, colQuery],
     queryFn: () => flask.get<PageRes<U>>(`/api/web/users?q=${encodeURIComponent(q)}&status=all&page=${page}&per_page=25${colQuery}`),
+    placeholderData: (previousData) => previousData,
   });
 
   const save = useMutation({
@@ -101,6 +102,8 @@ export default function UsuariosPage() {
       </div>
       <DataTable
         id="usuarios"
+        loading={isLoading}
+        refreshing={isFetching}
         searchPlaceholder="Buscar por nome, e-mail…"
         searchValue={q}
         onSearch={setQ}

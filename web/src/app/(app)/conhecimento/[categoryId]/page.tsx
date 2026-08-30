@@ -71,13 +71,14 @@ export default function ConhecimentoCategoriaPage() {
 
   useEffect(() => setPage(1), [q, colFilters]);
 
-  const { data, isLoading, error } = useQuery({
+  const { data, isLoading, isFetching, error } = useQuery({
     queryKey: ["knowledge-arts", categoryId, q, page, colQuery],
     queryFn: () =>
       flask.get<Res>(
         `/api/web/knowledge?kind=articles&category_id=${categoryId}&q=${encodeURIComponent(q)}&page=${page}&per_page=25${colQuery}`,
       ),
     enabled: Number.isFinite(categoryId),
+    placeholderData: (previousData) => previousData,
   });
 
   const cat = data?.category;
@@ -153,11 +154,12 @@ export default function ConhecimentoCategoriaPage() {
         </button>
       </div>
 
-      {isLoading ? <p className="mb-4 text-sm text-muted">Carregando artigos…</p> : null}
       {error ? <p className="mb-4 text-sm text-open">{(error as Error).message}</p> : null}
 
       <DataTable
         id="conhecimento-artigos"
+        loading={isLoading}
+        refreshing={isFetching}
         searchPlaceholder="Buscar por título, tags…"
         searchValue={q}
         onSearch={setQ}

@@ -272,10 +272,11 @@ export default function RelatoriosPage() {
   const { colFilters, onFiltersChange } = useColFilters();
   const perPage = 25;
 
-  const { data, isLoading, error } = useQuery({
+  const { data, isLoading, isFetching, error } = useQuery({
     queryKey: ["reports", applied.start, applied.end],
     queryFn: () =>
       flask.get<Reports>(`/api/web/reports?start=${encodeURIComponent(applied.start)}&end=${encodeURIComponent(applied.end)}`),
+    placeholderData: (previousData) => previousData,
   });
 
   useEffect(() => {
@@ -453,8 +454,6 @@ export default function RelatoriosPage() {
         ))}
       </div>
 
-      {isLoading ? <p className="text-sm text-muted">Carregando relatórios…</p> : null}
-
       {tab === "hours-client" ? (
         <>
           <ExportBar
@@ -467,6 +466,8 @@ export default function RelatoriosPage() {
           />
           <DataTable
             id="relatorios-horas-cliente"
+            loading={isLoading}
+            refreshing={isFetching}
             key="hours-client"
             searchPlaceholder="Buscar por cliente, tipo…"
             searchValue={tableQ}
@@ -504,6 +505,8 @@ export default function RelatoriosPage() {
           <ExportBar onExcel={exportExcel} exporting={exporting} />
           <DataTable
             id="relatorios-horas-tecnico"
+            loading={isLoading}
+            refreshing={isFetching}
             key="hours-technician"
             searchPlaceholder="Buscar por técnico…"
             searchValue={tableQ}
@@ -544,6 +547,8 @@ export default function RelatoriosPage() {
           <ExportBar onExcel={exportExcel} exporting={exporting} />
           <DataTable
             id="relatorios-faturamento"
+            loading={isLoading}
+            refreshing={isFetching}
             key="billing-technician"
             searchPlaceholder="Buscar por técnico…"
             searchValue={tableQ}
@@ -582,6 +587,8 @@ export default function RelatoriosPage() {
           <ExportBar onExcel={exportExcel} exporting={exporting} />
           <DataTable
             id="relatorios-tickets-tecnico"
+            loading={isLoading}
+            refreshing={isFetching}
             key="tickets-technician"
             searchPlaceholder="Buscar por técnico…"
             searchValue={tableQ}
@@ -624,6 +631,8 @@ export default function RelatoriosPage() {
           <ExportBar onExcel={exportExcel} exporting={exporting} />
           <DataTable
             id="relatorios-tickets-cliente"
+            loading={isLoading}
+            refreshing={isFetching}
             key="tickets-client"
             searchPlaceholder="Buscar por cliente…"
             searchValue={tableQ}
@@ -690,6 +699,8 @@ export default function RelatoriosPage() {
           <ExportBar onExcel={exportExcel} exporting={exporting} />
           <DataTable
             id="relatorios-servicos"
+            loading={isLoading}
+            refreshing={isFetching}
             key="service-performance"
             searchPlaceholder="Buscar por serviço…"
             searchValue={tableQ}

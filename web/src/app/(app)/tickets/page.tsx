@@ -55,7 +55,7 @@ export default function TicketsPage() {
     queryFn: () => flask.get<PageRes<UserOpt>>("/api/web/users?status=1&per_page=100"),
   });
 
-  const { data, isLoading, error } = useQuery({
+  const { data, isLoading, isFetching, error } = useQuery({
     queryKey: ["tickets", status, assigned, q, dateFrom, dateTo, page, colQuery],
     queryFn: () =>
       flask.get<PageRes<TicketRow>>(
@@ -69,6 +69,7 @@ export default function TicketsPage() {
           per_page: 20,
         })}${colQuery}`,
       ),
+    placeholderData: (previousData) => previousData,
   });
 
   const invalidate = () => {
@@ -175,12 +176,13 @@ export default function TicketsPage() {
         </div>
       </div>
 
-      {isLoading ? <p className="mb-4 text-sm text-muted">Carregando tickets…</p> : null}
       {error ? <p className="mb-4 text-sm text-open">{(error as Error).message}</p> : null}
       {err ? <p className="mb-4 text-sm text-open">{err}</p> : null}
 
       <DataTable
         id="tickets"
+        loading={isLoading}
+        refreshing={isFetching}
         searchPlaceholder="Buscar por título ou cliente…"
         searchValue={q}
         onSearch={setQ}

@@ -42,9 +42,10 @@ export default function PlanosPage() {
 
   useEffect(() => setPage(1), [q, colFilters]);
 
-  const { data } = useQuery({
+  const { data, isLoading, isFetching } = useQuery({
     queryKey: ["plans", q, page, colQuery],
     queryFn: () => flask.get<Plans>(`/api/web/plans?q=${encodeURIComponent(q)}&page=${page}&per_page=25${colQuery}`),
+    placeholderData: (previousData) => previousData,
   });
   const systems = data?.items || data?.systems || [];
 
@@ -69,6 +70,8 @@ export default function PlanosPage() {
       </div>
       <DataTable
         id="planos"
+        loading={isLoading}
+        refreshing={isFetching}
         searchPlaceholder="Buscar por sistema, descrição…"
         searchValue={q}
         onSearch={setQ}

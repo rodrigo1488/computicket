@@ -65,7 +65,7 @@ function CofreClienteInner() {
 
   useEffect(() => setPage(1), [q, colFilters]);
 
-  const { data, isLoading, error } = useQuery({
+  const { data, isLoading, isFetching, error } = useQuery({
     queryKey: ["vault-client", clientId, isExternal, q, page, colQuery],
     queryFn: () =>
       flask.get<VaultClientRes>(
@@ -74,6 +74,7 @@ function CofreClienteInner() {
         }`,
       ),
     enabled: Number.isFinite(clientId),
+    placeholderData: (previousData) => previousData,
   });
 
   const invalidate = () => qc.invalidateQueries({ queryKey: ["vault-client", clientId] });
@@ -164,11 +165,12 @@ function CofreClienteInner() {
         </button>
       </div>
 
-      {isLoading ? <p className="mb-4 text-sm text-muted">Carregando senhas…</p> : null}
       {error ? <p className="mb-4 text-sm text-open">{(error as Error).message}</p> : null}
 
       <DataTable
         id="cofre-senhas"
+        loading={isLoading}
+        refreshing={isFetching}
         searchPlaceholder="Buscar por máquina, AnyDesk…"
         searchValue={q}
         onSearch={setQ}

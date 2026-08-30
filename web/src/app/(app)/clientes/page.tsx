@@ -47,10 +47,11 @@ export default function ClientesPage() {
 
   useEffect(() => setPage(1), [q, colFilters]);
 
-  const { data, isLoading, error } = useQuery({
+  const { data, isLoading, isFetching, error } = useQuery({
     queryKey: ["clients-page", q, page, colQuery],
     queryFn: () =>
       flask.get<PageRes<Client>>(`/api/web/clients?q=${encodeURIComponent(q)}&page=${page}&per_page=25${colQuery}`),
+    placeholderData: (previousData) => previousData,
   });
 
   const save = useMutation({
@@ -103,7 +104,6 @@ export default function ClientesPage() {
           Novo cliente
         </button>
       </div>
-      {isLoading ? <p className="mb-4 text-sm text-muted">Carregando clientes…</p> : null}
       {error ? <p className="mb-4 text-sm text-open">{(error as Error).message}</p> : null}
       {!isLoading && !error && (data?.total || 0) === 0 ? (
         <p className="mb-4 text-sm text-muted">
@@ -113,6 +113,8 @@ export default function ClientesPage() {
       ) : null}
       <DataTable
         id="clientes"
+        loading={isLoading}
+        refreshing={isFetching}
         searchPlaceholder="Buscar por nome, documento…"
         searchValue={q}
         onSearch={setQ}

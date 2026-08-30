@@ -66,7 +66,7 @@ function locationLabel(t: Tech) {
 
 export default function MonitoramentoPage() {
   const qc = useQueryClient();
-  const { data, error, dataUpdatedAt } = useQuery({
+  const { data, error, dataUpdatedAt, isLoading, isFetching } = useQuery({
     queryKey: ["monitoring"],
     queryFn: () => flask.get<{ technicians?: Tech[] } | Tech[]>("/monitoring/api/technicians"),
     retry: false,
@@ -131,6 +131,8 @@ export default function MonitoramentoPage() {
       </div>
       <DataTable
         id="monitoramento"
+        loading={isLoading}
+        refreshing={isFetching}
         searchPlaceholder="Buscar por técnico, status…"
         searchValue={q}
         onSearch={setQ}

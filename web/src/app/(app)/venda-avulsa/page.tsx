@@ -38,10 +38,11 @@ export default function VendaAvulsaPage() {
   const [createOpen, setCreateOpen] = useState(false);
   const { colQuery, colFilters, onFiltersChange } = useColFilters();
   useEffect(() => setPage(1), [q, colFilters]);
-  const { data, error } = useQuery({
+  const { data, error, isLoading, isFetching } = useQuery({
     queryKey: ["vendas-avulsas", q, page, colQuery],
     queryFn: () =>
       flask.get<Res>(`/tickets/api/vendas-avulsas-list?q=${encodeURIComponent(q)}&page=${page}&per_page=25${colQuery}`),
+    placeholderData: (previousData) => previousData,
   });
   const rows = data?.sales || data?.items || [];
 
@@ -67,6 +68,8 @@ export default function VendaAvulsaPage() {
       {error ? <p className="mb-4 text-sm text-open">{(error as Error).message}</p> : null}
       <DataTable
         id="venda-avulsa"
+        loading={isLoading}
+        refreshing={isFetching}
         searchPlaceholder="Buscar por cliente, documento…"
         searchValue={q}
         onSearch={setQ}

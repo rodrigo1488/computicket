@@ -19,6 +19,7 @@ import {
 } from "react";
 import { cn } from "@/lib/cn";
 import { FloatingMenu } from "@/components/ui/FloatingMenu";
+import { TableLoadingOverlay, TableLoadingRows } from "@/components/ui/table-loading";
 import type { ColFilter } from "@/lib/api";
 
 export type KpiTone = "default" | "open" | "progress" | "done" | "brand";
@@ -66,6 +67,9 @@ export type DataTableProps = {
   hideSearch?: boolean;
   hideColumnPicker?: boolean;
   selectable?: boolean;
+  loading?: boolean;
+  refreshing?: boolean;
+  skeletonRows?: number;
 };
 
 const STORAGE_PREFIX = "datatable:";
@@ -203,6 +207,9 @@ export function DataTable({
   hideSearch = false,
   hideColumnPicker = false,
   selectable = true,
+  loading = false,
+  refreshing = false,
+  skeletonRows = 7,
 }: DataTableProps) {
   const [draft, setDraft] = useState(searchValue || "");
   const [appliedQ, setAppliedQ] = useState(searchValue || "");
@@ -295,6 +302,8 @@ export function DataTable({
 
   const allSelected = processed.length > 0 && processed.every(({ index }) => selected.has(index));
   const someSelected = processed.some(({ index }) => selected.has(index));
+  const initialLoading = loading && rows.length === 0;
+  const updating = refreshing && !initialLoading;
 
   const runSearch = () => {
     const next = draft.trim();
@@ -353,11 +362,13 @@ export function DataTable({
                 value={draft}
                 onChange={(e) => setDraft(e.target.value)}
                 placeholder={searchPlaceholder}
+                disabled={loading || refreshing}
                 className="h-10 min-w-[220px] max-w-md flex-1 rounded-lg border border-[#e5e7eb] bg-white px-3 text-sm text-ink placeholder:text-[#9ca3af]"
               />
               <button
                 type="submit"
-                className="inline-flex h-10 shrink-0 items-center gap-2 rounded-lg bg-brand px-4 text-sm font-medium text-white hover:bg-brand/90"
+                disabled={loading || refreshing}
+                className="inline-flex h-10 shrink-0 items-center gap-2 rounded-lg bg-brand px-4 text-sm font-medium text-white hover:bg-brand/90 disabled:cursor-wait disabled:opacity-60"
               >
                 <Search className="h-4 w-4" />
                 Buscar
@@ -367,12 +378,13 @@ export function DataTable({
           {hideColumnPicker ? null : (
             <button
               type="button"
+              disabled={loading || refreshing}
               onClick={(e) =>
                 setOpen((cur) =>
                   cur?.kind === "cols" ? null : { kind: "cols", el: e.currentTarget },
                 )
               }
-              className="inline-flex h-10 items-center gap-2 rounded-lg border border-[#e5e7eb] bg-white px-3 text-sm text-ink hover:bg-[#fafafa]"
+              className="inline-flex h-10 items-center gap-2 rounded-lg border border-[#e5e7eb] bg-white px-3 text-sm text-ink hover:bg-[#fafafa] disabled:cursor-wait disabled:opacity-60"
             >
               <Columns3 className="h-4 w-4 text-[#6b7280]" />
               Personalizar Colunas
@@ -458,8 +470,8 @@ export function DataTable({
         />
       ) : null}
 
-      <div className="overflow-x-auto rounded-2xl border border-[#eee]">
-        <table className="w-full text-left text-sm">
+      <div className="relative overflow-x-auto rounded-2xl border border-[#eee]">
+        <table className="w-full text-left text-sm" aria-busy={loading || refreshing}>
           <thead>
             <tr className="border-b border-[#eee] bg-[#f7f7f8] text-ink">
               {selectable ? (
@@ -467,6 +479,7 @@ export function DataTable({
                   <input
                     type="checkbox"
                     className="accent-brand"
+                    disabled={loading || refreshing}
                     checked={allSelected}
                     ref={(el) => {
                       if (el) el.indeterminate = !allSelected && someSelected;
@@ -504,6 +517,7 @@ export function DataTable({
                         <span>{name}</span>
                         <button
                           type="button"
+                          disabled={loading || refreshing}
                           onClick={() => toggleSort(i)}
                           className={cn(
                             "rounded p-0.5 hover:bg-[#ececec]",
@@ -522,6 +536,7 @@ export function DataTable({
                         {canFilter ? (
                           <button
                             type="button"
+                            disabled={loading || refreshing}
                             onClick={(e) => {
                               setFilterDraft(filters[i] || { op: "contains", value: "" });
                               setOpen({ kind: "filter", col: i, el: e.currentTarget });
@@ -543,7 +558,12 @@ export function DataTable({
             </tr>
           </thead>
           <tbody>
-            {processed.length === 0 ? (
+            {initialLoading ? (
+              <TableLoadingRows
+                columns={visibleIdx.length + (selectable ? 1 : 0)}
+                rows={skeletonRows}
+              />
+            ) : processed.length === 0 ? (
               <tr>
                 <td
                   className="px-4 py-6 text-sm text-muted"
@@ -589,6 +609,7 @@ export function DataTable({
             )}
           </tbody>
         </table>
+        {updating ? <TableLoadingOverlay /> : null}
       </div>
     </div>
   );

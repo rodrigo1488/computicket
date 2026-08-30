@@ -27,10 +27,11 @@ export default function ServicosPage() {
 
   useEffect(() => setPage(1), [q, colFilters]);
 
-  const { data } = useQuery({
+  const { data, isLoading, isFetching } = useQuery({
     queryKey: ["services", q, page, colQuery],
     queryFn: () =>
       flask.get<PageRes<S>>(`/api/web/services?q=${encodeURIComponent(q)}&page=${page}&per_page=25${colQuery}`),
+    placeholderData: (previousData) => previousData,
   });
 
   const save = useMutation({
@@ -73,6 +74,8 @@ export default function ServicosPage() {
       </div>
       <DataTable
         id="servicos"
+        loading={isLoading}
+        refreshing={isFetching}
         searchPlaceholder="Buscar por nome, descrição…"
         searchValue={q}
         onSearch={setQ}

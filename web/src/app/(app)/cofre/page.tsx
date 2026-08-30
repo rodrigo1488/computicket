@@ -36,7 +36,7 @@ export default function CofrePage() {
 
   useEffect(() => setPage(1), [q, colFilters, withPasswords]);
 
-  const { data, isLoading, error } = useQuery({
+  const { data, isLoading, isFetching, error } = useQuery({
     queryKey: ["vault-clients", q, page, colQuery, withPasswords],
     queryFn: () =>
       flask.get<VaultRes>(
@@ -44,6 +44,7 @@ export default function CofrePage() {
           withPasswords ? "&with_passwords=true" : ""
         }`,
       ),
+    placeholderData: (previousData) => previousData,
   });
 
   return (
@@ -67,11 +68,12 @@ export default function CofrePage() {
         Mostrar apenas clientes com senhas salvas
       </label>
 
-      {isLoading ? <p className="mb-4 text-sm text-muted">Carregando clientes…</p> : null}
       {error ? <p className="mb-4 text-sm text-open">{(error as Error).message}</p> : null}
 
       <DataTable
         id="cofre-clientes"
+        loading={isLoading}
+        refreshing={isFetching}
         searchPlaceholder="Buscar por nome, telefone ou documento…"
         searchValue={q}
         onSearch={setQ}

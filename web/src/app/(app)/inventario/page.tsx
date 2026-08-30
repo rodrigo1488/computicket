@@ -32,10 +32,11 @@ export default function InventarioPage() {
 
   useEffect(() => setPage(1), [q, colFilters]);
 
-  const { data } = useQuery({
+  const { data, isLoading, isFetching } = useQuery({
     queryKey: ["inventory", q, page, colQuery],
     queryFn: () =>
       flask.get<PageRes<Item>>(`/api/web/inventory?q=${encodeURIComponent(q)}&page=${page}&per_page=20${colQuery}`),
+    placeholderData: (previousData) => previousData,
   });
 
   const save = useMutation({
@@ -61,6 +62,8 @@ export default function InventarioPage() {
       <PageTitle>Inventário</PageTitle>
       <DataTable
         id="inventario"
+        loading={isLoading}
+        refreshing={isFetching}
         searchPlaceholder="Buscar por título, serial ou UUID…"
         searchValue={q}
         onSearch={setQ}

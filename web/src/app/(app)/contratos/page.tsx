@@ -38,12 +38,13 @@ export default function ContratosPage() {
 
   useEffect(() => setPage(1), [q, colFilters]);
 
-  const { data, error, isLoading } = useQuery({
+  const { data, error, isLoading, isFetching } = useQuery({
     queryKey: ["contracts", q, page, colQuery],
     queryFn: () =>
       flask.get<PageRes<Contract> & { error?: string }>(
         `/api/web/contracts?q=${encodeURIComponent(q)}&page=${page}&per_page=25${colQuery}`,
       ),
+    placeholderData: (previousData) => previousData,
   });
   const items = data?.items || [];
 
@@ -72,7 +73,6 @@ export default function ContratosPage() {
   return (
     <div>
       <PageTitle>Contratos</PageTitle>
-      {isLoading ? <p className="mb-4 text-sm text-muted">Carregando contratos…</p> : null}
       {error ? (
         <p className="mb-4 text-sm text-open">
           Não foi possível listar os contratos. {(error as Error).message}
@@ -81,6 +81,8 @@ export default function ContratosPage() {
         <>
           <DataTable
             id="contratos"
+            loading={isLoading}
+            refreshing={isFetching}
             searchPlaceholder="Buscar por contrato…"
             searchValue={q}
             onSearch={setQ}

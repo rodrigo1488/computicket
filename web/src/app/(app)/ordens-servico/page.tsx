@@ -61,9 +61,10 @@ export default function OSPage() {
   const [view, setView] = useState<OsRow | null>(null);
   const { colQuery, colFilters, onFiltersChange } = useColFilters();
   useEffect(() => setPage(1), [q, colFilters]);
-  const { data, error, isLoading } = useQuery({
+  const { data, error, isLoading, isFetching } = useQuery({
     queryKey: ["os", q, page, colQuery],
     queryFn: () => flask.get<Res>(`/api/web/service-orders?q=${encodeURIComponent(q)}&page=${page}&per_page=20${colQuery}`),
+    placeholderData: (previousData) => previousData,
   });
 
   const [open, setOpen] = useState(false);
@@ -185,11 +186,12 @@ export default function OSPage() {
           Finalizar ordem
         </button>
       </div>
-      {isLoading ? <p className="mb-4 text-sm text-muted">Carregando ordens…</p> : null}
       {error ? <p className="mb-4 text-sm text-open">{(error as Error).message}</p> : null}
       {successMsg ? <p className="mb-4 text-sm text-done">{successMsg}</p> : null}
       <DataTable
         id="ordens-servico"
+        loading={isLoading}
+        refreshing={isFetching}
         searchPlaceholder="Buscar por código, cliente, técnico…"
         searchValue={q}
         onSearch={setQ}

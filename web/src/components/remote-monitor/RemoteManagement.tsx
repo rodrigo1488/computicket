@@ -22,6 +22,7 @@ import {
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Modal } from "@/components/ui/Modal";
 import { PrimaryButton, UnderlineField } from "@/components/ui/UnderlineField";
+import { TableLoadingOverlay, TableLoadingRows } from "@/components/ui/table-loading";
 import { flask } from "@/lib/api";
 import { cn } from "@/lib/cn";
 import {
@@ -332,8 +333,8 @@ export function RemoteManagement({ agent }: { agent: RemoteAgent }) {
         {filesError ? <InlineAlert>{filesError}</InlineAlert> : null}
         {!available ? <InlineAlert>O gerenciador fica disponível somente quando o agente está online.</InlineAlert> : null}
 
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[720px] text-left text-sm">
+        <div className="relative overflow-x-auto">
+          <table className="w-full min-w-[720px] text-left text-sm" aria-busy={filesBusy}>
             <thead className="bg-[#f7f7f8] text-xs uppercase tracking-wide text-muted">
               <tr>
                 <th className="px-4 py-3 sm:px-5">Nome</th>
@@ -344,6 +345,7 @@ export function RemoteManagement({ agent }: { agent: RemoteAgent }) {
               </tr>
             </thead>
             <tbody>
+              {filesBusy && !directory ? <TableLoadingRows columns={5} rows={6} /> : null}
               {directory?.entries.map((entry) => (
                 <tr
                   key={entry.path}
@@ -379,6 +381,7 @@ export function RemoteManagement({ agent }: { agent: RemoteAgent }) {
               ) : null}
             </tbody>
           </table>
+          {filesBusy && directory ? <TableLoadingOverlay label="Atualizando arquivos" /> : null}
         </div>
         <p className="border-t border-line px-4 py-3 text-xs text-muted sm:px-5">
           {selected ? `Selecionado: ${selected.path}` : "Selecione um item; pressione Enter ou dê duplo clique para abrir uma pasta."}
@@ -447,12 +450,13 @@ function CommandHistory({ commands, loading, error }: { commands: RemoteCommand[
         <History className="h-5 w-5 text-brand" />
         <h2 id="commands-title" className="text-lg font-semibold text-navy">Histórico de comandos</h2>
       </div>
-      <div className="overflow-x-auto rounded-2xl border border-line bg-white">
-        <table className="w-full min-w-[760px] text-left text-sm">
+      <div className="relative overflow-x-auto rounded-2xl border border-line bg-white">
+        <table className="w-full min-w-[760px] text-left text-sm" aria-busy={loading}>
           <thead className="bg-[#f7f7f8] text-xs uppercase tracking-wide text-muted">
             <tr><th className="px-4 py-3">Tipo</th><th className="px-3 py-3">Solicitante</th><th className="px-3 py-3">Status</th><th className="px-3 py-3">Solicitado</th><th className="px-3 py-3">Finalizado / erro</th></tr>
           </thead>
           <tbody>
+            {loading && !commands.length ? <TableLoadingRows columns={5} rows={5} /> : null}
             {commands.map((command) => (
               <tr key={command.id} className="border-t border-line">
                 <td className="px-4 py-3 font-medium text-ink">{commandTypeLabel(command.command_type)} <span className="text-xs text-muted">#{command.id}</span></td>
@@ -465,7 +469,7 @@ function CommandHistory({ commands, loading, error }: { commands: RemoteCommand[
             {!loading && !commands.length ? <tr><td colSpan={5} className="px-4 py-8 text-center text-muted">Nenhum comando auditado.</td></tr> : null}
           </tbody>
         </table>
-        {loading ? <p className="p-4 text-sm text-muted">Carregando histórico…</p> : null}
+        {loading && commands.length ? <TableLoadingOverlay label="Atualizando histórico" /> : null}
         {error ? <p role="alert" className="p-4 text-sm text-open">{error.message}</p> : null}
       </div>
     </section>

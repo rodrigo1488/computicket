@@ -35,9 +35,10 @@ export default function PSPage() {
   const [page, setPage] = useState(1);
   const { colQuery, colFilters, onFiltersChange } = useColFilters();
   useEffect(() => setPage(1), [q, colFilters]);
-  const { data, error } = useQuery({
+  const { data, error, isLoading, isFetching } = useQuery({
     queryKey: ["ps", q, page, colQuery],
     queryFn: () => flask.get<PageRes<Item>>(`/ps/api/list?q=${encodeURIComponent(q)}&page=${page}&per_page=25${colQuery}`),
+    placeholderData: (previousData) => previousData,
   });
 
   const remove = useMutation({
@@ -51,6 +52,8 @@ export default function PSPage() {
       {error ? <p className="mb-4 text-sm text-open">{(error as Error).message}</p> : null}
       <DataTable
         id="ps-v2"
+        loading={isLoading}
+        refreshing={isFetching}
         searchPlaceholder="Buscar por PS, cliente, técnico ou origem…"
         searchValue={q}
         onSearch={setQ}
