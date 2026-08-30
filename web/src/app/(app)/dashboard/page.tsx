@@ -350,7 +350,7 @@ function RankingChart({
                   dataKey={valueKey}
                   position="right"
                   className="fill-muted text-[11px]"
-                  formatter={(value: number) => formatter(Number(value))}
+                  formatter={(value) => formatter(Number(value ?? 0))}
                 />
               </Bar>
             </BarChart>
