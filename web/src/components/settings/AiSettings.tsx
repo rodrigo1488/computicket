@@ -36,7 +36,7 @@ export function AiSettings() {
   useEffect(() => {
     if (!data) return;
     setApiKey("");
-    setModel(data.model || "gemini-2.0-flash");
+    setModel(data.model || "gemini-3.6-flash");
     setEmbeddingModel(data.embedding_model || "gemini-embedding-001");
   }, [data]);
 
@@ -132,7 +132,7 @@ export function AiSettings() {
           label="Modelo de geração"
           value={model}
           onChange={setModel}
-          placeholder="gemini-2.0-flash"
+          placeholder="gemini-3.6-flash"
         />
         <UnderlineField
           label="Modelo de embeddings"

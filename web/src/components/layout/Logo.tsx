@@ -10,20 +10,20 @@ export function Logo({ collapsed }: { collapsed: boolean }) {
     >
       {collapsed ? (
         <Image
-          src="/logo-icon.png"
+          src="/logo-light.jpg"
           alt="Computicket"
           width={80}
-          height={67}
-          className="mx-auto h-10 w-10 object-contain"
+          height={80}
+          className="mx-auto h-10 w-10 object-cover object-top"
           priority
         />
       ) : (
         <Image
-          src="/logo-sidebar.png"
+          src="/logo-light.jpg"
           alt="Computicket — Ticket Management System"
           width={500}
-          height={120}
-          className="h-auto w-full max-w-[174px] object-contain object-left"
+          height={500}
+          className="h-12 w-auto max-w-[168px] object-contain object-left"
           priority
         />
       )}

@@ -15,7 +15,22 @@ def _admin_only():
 
 
 def _ai_config_payload():
-    from ..services.gemini_client import embedding_model, generation_model
+    from ..services.gemini_client import (
+        DEFAULT_GENERATION_MODEL,
+        _DEPRECATED_GENERATION_MODELS,
+        embedding_model,
+        generation_model,
+    )
+
+    saved_raw = (SystemConfig.get("gemini_model", "") or "").strip()
+    bare = saved_raw.split("/", 1)[-1] if saved_raw.startswith("models/") else saved_raw
+    if bare in _DEPRECATED_GENERATION_MODELS:
+        SystemConfig.set(
+            "gemini_model",
+            DEFAULT_GENERATION_MODEL,
+            "Modelo Gemini para geração",
+            "ai",
+        )
 
     saved_key = bool(SystemConfig.get("gemini_api_key", ""))
     env_key = bool((os.environ.get("GEMINI_API_KEY") or "").strip())
@@ -44,6 +59,7 @@ def ai_config():
         return jsonify({"success": False, "error": "Configuração inválida."}), 400
 
     from ..services.config_secrets import encrypt_secret
+    from ..services.gemini_client import _normalize_generation_model
 
     if payload.get("clear_api_key"):
         row = SystemConfig.query.filter_by(key="gemini_api_key").first()
@@ -58,7 +74,12 @@ def ai_config():
             "ai",
         )
     if model:
-        SystemConfig.set("gemini_model", model, "Modelo Gemini para geração", "ai")
+        SystemConfig.set(
+            "gemini_model",
+            _normalize_generation_model(model),
+            "Modelo Gemini para geração",
+            "ai",
+        )
     if embedding:
         SystemConfig.set("gemini_embedding_model", embedding, "Modelo Gemini para embeddings", "ai")
     return jsonify({"success": True, **_ai_config_payload()})

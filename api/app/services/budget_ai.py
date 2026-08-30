@@ -96,7 +96,18 @@ def get_gemini_api_key() -> str:
 
 
 def get_gemini_model() -> str:
-	return (os.environ.get("GEMINI_MODEL") or "gemini-2.0-flash").strip()
+	raw = (os.environ.get("GEMINI_MODEL") or "gemini-3.6-flash").strip()
+	deprecated = {
+		"gemini-2.0-flash",
+		"gemini-2.0-flash-001",
+		"gemini-2.5-flash",
+		"gemini-2.5-flash-lite",
+		"gemini-1.5-flash",
+		"gemini-1.5-pro",
+		"gemini-pro",
+	}
+	bare = raw.split("/", 1)[-1] if raw.startswith("models/") else raw
+	return "gemini-3.6-flash" if bare in deprecated else bare
 
 
 def extract_search_terms(prompt: str, limit: int = 8) -> list[str]:

@@ -6,17 +6,21 @@ const GEMINI_BASE_URL =
 
 const GEMINI_API_VERSION = process.env.GEMINI_API_VERSION?.trim() || "v1beta";
 
-/** Modelo estável recomendado na API Google AI (maio/2025+). */
-const GEMINI_FALLBACK_MODEL = "gemini-2.5-flash";
+/** Modelo atual recomendado pela API Google AI (jul/2026+). */
+const GEMINI_FALLBACK_MODEL = "gemini-3.6-flash";
 
-/** Nomes legados do app → IDs atuais suportados pela API. */
+/** Nomes legados / descontinuados → ID atual. */
 const GEMINI_MODEL_ALIASES: Record<string, string> = {
-  "gemini-1.5-flash": "gemini-2.5-flash",
-  "gemini-1.5-flash-8b": "gemini-2.5-flash-lite",
-  "gemini-1.5-pro": "gemini-2.5-pro",
-  "gemini-1.5-pro-latest": "gemini-2.5-pro",
-  "gemini-2.0-flash": "gemini-2.5-flash",
-  "gemini-2.0-flash-lite": "gemini-2.5-flash-lite"
+  "gemini-1.5-flash": GEMINI_FALLBACK_MODEL,
+  "gemini-1.5-flash-8b": "gemini-3.5-flash-lite",
+  "gemini-1.5-pro": GEMINI_FALLBACK_MODEL,
+  "gemini-1.5-pro-latest": GEMINI_FALLBACK_MODEL,
+  "gemini-2.0-flash": GEMINI_FALLBACK_MODEL,
+  "gemini-2.0-flash-lite": "gemini-3.5-flash-lite",
+  "gemini-2.5-flash": GEMINI_FALLBACK_MODEL,
+  "gemini-2.5-flash-lite": "gemini-3.5-flash-lite",
+  "gemini-2.5-pro": GEMINI_FALLBACK_MODEL,
+  "gemini-pro": GEMINI_FALLBACK_MODEL
 };
 
 export const getGeminiApiKey = (): string => process.env.GEMINI_API_KEY?.trim() || "";
@@ -34,8 +38,9 @@ export const resolveGeminiModel = (model?: string): string => {
   if (!raw) {
     return GEMINI_FALLBACK_MODEL;
   }
-  const key = raw.toLowerCase();
-  return GEMINI_MODEL_ALIASES[key] || raw;
+  const bare = raw.startsWith("models/") ? raw.slice("models/".length) : raw;
+  const key = bare.toLowerCase();
+  return GEMINI_MODEL_ALIASES[key] || bare;
 };
 
 export const getGeminiApiUrl = (model?: string): string => {
@@ -84,7 +89,7 @@ export const interpretGeminiError = (error: any): string => {
   if (status === 404) {
     const hint = detail
       ? detail
-      : "Modelo não encontrado na API. Use gemini-2.5-flash ou defina GEMINI_DEFAULT_MODEL=gemini-2.5-flash.";
+      : "Modelo não encontrado na API. Use gemini-3.6-flash ou defina GEMINI_DEFAULT_MODEL=gemini-3.6-flash.";
     return hint;
   }
   if (status === 400) {

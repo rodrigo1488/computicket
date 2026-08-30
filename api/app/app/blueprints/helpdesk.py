@@ -824,11 +824,31 @@ def list_messages(ticket_id: int):
         return _fail(exc)
 
 
+def _format_ai_chat_history(raw) -> str:
+    """Histórico curto da sessão (dashboard/chat); não persiste conteúdo bruto."""
+    if isinstance(raw, str):
+        return raw.strip()[:16000]
+    if not isinstance(raw, list):
+        return ""
+    lines: list[str] = []
+    for item in raw[-12:]:
+        if not isinstance(item, dict):
+            continue
+        content = str(item.get("content") or item.get("text") or "").strip()
+        if not content:
+            continue
+        role = str(item.get("role") or "").strip().lower()
+        label = "Usuário" if role in ("user", "human") else "Assistente"
+        lines.append(f"{label}: {content[:2000]}")
+    return "\n".join(lines)[-16000:]
+
+
 @helpdesk_bp.route("/api/ai/query", methods=["POST"])
+@helpdesk_bp.route("/api/ai/chat", methods=["POST"])
 @login_required
 def ai_query():
     payload = request.get_json(silent=True) or {}
-    question = str(payload.get("question") or "").strip()
+    question = str(payload.get("question") or payload.get("message") or "").strip()
     if not question:
         return jsonify({"error": "question é obrigatório"}), 400
     if len(question) > 12000:
@@ -839,11 +859,17 @@ def ai_query():
     except (TypeError, ValueError):
         return jsonify({"error": "conversation_id inválido"}), 400
 
+    session_history = _format_ai_chat_history(payload.get("history") or payload.get("messages") or "")
+
     def run():
-        history = _conversation_ai_context(conversation_id)[0] if conversation_id else ""
+        if conversation_id:
+            history = _conversation_ai_context(conversation_id)[0]
+        else:
+            history = session_history
         return answer_question(question, history)
 
-    return _execute_ai("query", question, conversation_id, run)
+    operation = "chat" if request.path.rstrip("/").endswith("/chat") else "query"
+    return _execute_ai(operation, question, conversation_id, run)
 
 
 @helpdesk_bp.route("/api/conversations/<int:ticket_id>/ai/suggest-reply", methods=["POST"])

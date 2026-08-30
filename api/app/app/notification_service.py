@@ -85,30 +85,61 @@ def create_notifications(
 	url: str | None = None,
 	entity_type: str | None = None,
 	entity_id: str | int | None = None,
+	send_push: bool = True,
 ) -> list[AppNotification]:
-	notifications = [
-		AppNotification(
+	"""Cria notificações com dedupe por (user_id, entity_type, entity_id)."""
+	entity_key = str(entity_id) if entity_id is not None else None
+	created: list[AppNotification] = []
+
+	for user_id in _unique_user_ids(user_ids):
+		if entity_type and entity_key:
+			existing = AppNotification.query.filter_by(
+				user_id=user_id,
+				entity_type=entity_type,
+				entity_id=entity_key,
+			).first()
+			if existing:
+				continue
+		notification = AppNotification(
 			user_id=user_id,
 			notification_type=notification_type,
 			title=title,
 			message=message,
 			url=url,
 			entity_type=entity_type,
-			entity_id=str(entity_id) if entity_id is not None else None,
+			entity_id=entity_key,
 		)
-		for user_id in _unique_user_ids(user_ids)
-	]
-	if not notifications:
+		db.session.add(notification)
+		created.append(notification)
+
+	if not created:
 		return []
 
-	db.session.add_all(notifications)
 	db.session.commit()
 
-	for notification in notifications:
+	for notification in created:
 		payload = notification.to_dict()
-		socketio.emit("app_notification", payload, room=f"agent_{notification.user_id}")
-		_send_web_push(notification.user_id, payload)
-	return notifications
+		room = f"agent_{notification.user_id}"
+		socketio.emit("app_notification", payload, room=room)
+		# Evita toast in-app + push do SO ao mesmo tempo quando o usuário está online.
+		if send_push and not _user_has_active_socket(room):
+			_send_web_push(notification.user_id, payload)
+	return created
+
+
+def _user_has_active_socket(room: str) -> bool:
+	"""True se há cliente Socket.IO na room (aba aberta)."""
+	try:
+		manager = getattr(socketio.server, "manager", None)
+		if manager is None:
+			return False
+		participants = manager.get_participants("/", room)
+		# get_participants pode ser gerador/lista de (sid, ...)
+		for _ in participants:
+			return True
+	except Exception:
+		return False
+	return False
 
 
 def _send_web_push(user_id: int, payload: dict) -> None:

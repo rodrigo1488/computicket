@@ -6,6 +6,7 @@ import {
   BookOpen,
   Bot,
   Check,
+  ChevronDown,
   FilePlus2,
   Hand,
   LoaderCircle,
@@ -300,18 +301,26 @@ function extractSentMessage(data: unknown): HelpdeskMessage | null {
 type MessagesCache = { messages?: HelpdeskMessage[]; [key: string]: unknown };
 
 function readStoredFilters() {
-  if (typeof window === "undefined") return { queues: [] as number[], unassigned: true, mine: false };
+  if (typeof window === "undefined") {
+    return { queues: [] as number[], unassigned: true, unassignedOnly: false, mine: false };
+  }
   try {
     const raw = window.localStorage.getItem(FILTER_KEY);
-    if (!raw) return { queues: [] as number[], unassigned: true, mine: false };
-    const parsed = JSON.parse(raw) as { queues?: number[]; unassigned?: boolean; mine?: boolean };
+    if (!raw) return { queues: [] as number[], unassigned: true, unassignedOnly: false, mine: false };
+    const parsed = JSON.parse(raw) as {
+      queues?: number[];
+      unassigned?: boolean;
+      unassignedOnly?: boolean;
+      mine?: boolean;
+    };
     return {
       queues: Array.isArray(parsed.queues) ? parsed.queues.map(Number).filter((n) => Number.isFinite(n)) : [],
       unassigned: parsed.unassigned !== false,
+      unassignedOnly: parsed.unassignedOnly === true,
       mine: parsed.mine === true,
     };
   } catch {
-    return { queues: [] as number[], unassigned: true, mine: false };
+    return { queues: [] as number[], unassigned: true, unassignedOnly: false, mine: false };
   }
 }
 
@@ -326,7 +335,9 @@ function applyQueueVisibility(
   rows: HelpdeskConversation[],
   selectedQueues: number[],
   includeUnassigned: boolean,
+  unassignedOnly = false,
 ) {
+  if (unassignedOnly) return rows.filter((t) => t.queueId == null);
   if (selectedQueues.length && includeUnassigned) return rows;
   if (selectedQueues.length && !includeUnassigned) return rows.filter((t) => t.queueId != null);
   if (!selectedQueues.length && !includeUnassigned) return rows.filter((t) => t.queueId != null);
@@ -351,7 +362,11 @@ export function HelpdeskWorkspace() {
       .map((s) => Number(s.trim()))
       .filter((n) => Number.isFinite(n) && n > 0),
   );
-  const [includeUnassigned, setIncludeUnassigned] = useState(() => params.get("unassigned") !== "0");
+  const [includeUnassigned, setIncludeUnassigned] = useState(() => {
+    const raw = params.get("unassigned");
+    return raw !== "0" && raw !== "only";
+  });
+  const [unassignedOnly, setUnassignedOnly] = useState(() => params.get("unassigned") === "only");
   const [mineOnly, setMineOnly] = useState(() => params.get("mine") === "1");
   const [search, setSearch] = useState(() => params.get("q") || "");
   const [filtersReady, setFiltersReady] = useState(false);
@@ -398,7 +413,8 @@ export function HelpdeskWorkspace() {
     }
     const stored = readStoredFilters();
     if (stored.queues.length) setSelectedQueues(stored.queues);
-    setIncludeUnassigned(stored.unassigned);
+    setIncludeUnassigned(stored.unassignedOnly ? true : stored.unassigned);
+    setUnassignedOnly(stored.unassignedOnly);
     setMineOnly(stored.mine);
     setFiltersReady(true);
     // URL vazia: hidrata do localStorage só no cliente
@@ -410,16 +426,32 @@ export function HelpdeskWorkspace() {
     const q = new URLSearchParams();
     q.set("status", tab);
     if (selectedQueues.length) q.set("queues", selectedQueues.join(","));
-    if (!includeUnassigned) q.set("unassigned", "0");
+    if (unassignedOnly) q.set("unassigned", "only");
+    else if (!includeUnassigned) q.set("unassigned", "0");
     if (mineOnly) q.set("mine", "1");
     if (debouncedSearch.trim()) q.set("q", debouncedSearch.trim());
     if (activeId) q.set("c", String(activeId));
     router.replace(`/helpdesk?${q}`, { scroll: false });
     window.localStorage.setItem(
       FILTER_KEY,
-      JSON.stringify({ queues: selectedQueues, unassigned: includeUnassigned, mine: mineOnly }),
+      JSON.stringify({
+        queues: selectedQueues,
+        unassigned: includeUnassigned,
+        unassignedOnly,
+        mine: mineOnly,
+      }),
     );
-  }, [tab, selectedQueues, includeUnassigned, mineOnly, debouncedSearch, activeId, router, filtersReady]);
+  }, [
+    tab,
+    selectedQueues,
+    includeUnassigned,
+    unassignedOnly,
+    mineOnly,
+    debouncedSearch,
+    activeId,
+    router,
+    filtersReady,
+  ]);
 
   useEffect(() => {
     window.localStorage.setItem(SIGN_KEY, sign ? "1" : "0");
@@ -555,22 +587,23 @@ export function HelpdeskWorkspace() {
       if (isAssignedToEngineUser(row, engineUserId)) byId.set(row.id, row);
     }
     return sortInboxConversations(
-      applyQueueVisibility([...byId.values()], selectedQueues, includeUnassigned),
+      applyQueueVisibility([...byId.values()], selectedQueues, includeUnassigned, unassignedOnly),
     );
   }, [
     minePending.data?.tickets,
     mineOpen.data?.tickets,
     selectedQueues,
     includeUnassigned,
+    unassignedOnly,
     engineUserId,
   ]);
 
   const tickets = useMemo(() => {
     if (mineOnly) return mineTickets;
     return sortInboxConversations(
-      applyQueueVisibility(list.data?.tickets || [], selectedQueues, includeUnassigned),
+      applyQueueVisibility(list.data?.tickets || [], selectedQueues, includeUnassigned, unassignedOnly),
     );
-  }, [mineOnly, mineTickets, list.data?.tickets, selectedQueues, includeUnassigned]);
+  }, [mineOnly, mineTickets, list.data?.tickets, selectedQueues, includeUnassigned, unassignedOnly]);
 
   const listIsError = mineOnly
     ? minePending.isError || mineOpen.isError
@@ -599,7 +632,18 @@ export function HelpdeskWorkspace() {
 
   const unread = overview.data?.summary?.newMessages || 0;
   const waitingReply = tickets.filter((t) => (t.unreadMessages || 0) > 0).length;
-  const allSelected = selectedQueues.length === 0 && includeUnassigned;
+  const allSelected = selectedQueues.length === 0 && includeUnassigned && !unassignedOnly;
+  const queueFilterValue = unassignedOnly
+    ? "none"
+    : selectedQueues.length >= 1
+      ? String(selectedQueues[0])
+      : "all";
+  const selectedQueueMeta = (queues.data || []).find((q) => String(q.id) === queueFilterValue);
+  const queueFilterCount = unassignedOnly
+    ? (queueCounts.get("none") ?? 0)
+    : selectedQueues.length >= 1
+      ? (queueCounts.get(selectedQueues[0]) ?? 0)
+      : (countSource.data?.tickets?.length ?? 0);
   const connected = (connections.data || []).some((c) => (c.status || "").toLowerCase() === "connected");
   const connectionLabel = connections.isError
     ? "Status da conexão indisponível"
@@ -956,8 +1000,24 @@ export function HelpdeskWorkspace() {
 
   const engineDown = health.isFetched && !health.data?.ok;
 
-  function toggleQueue(id: number) {
-    setSelectedQueues((cur) => (cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id]));
+  function setQueueFilter(value: string) {
+    if (value === "all") {
+      setSelectedQueues([]);
+      setIncludeUnassigned(true);
+      setUnassignedOnly(false);
+      return;
+    }
+    if (value === "none") {
+      setSelectedQueues([]);
+      setIncludeUnassigned(true);
+      setUnassignedOnly(true);
+      return;
+    }
+    const id = Number(value);
+    if (!Number.isFinite(id) || id <= 0) return;
+    setSelectedQueues([id]);
+    setIncludeUnassigned(false);
+    setUnassignedOnly(false);
   }
 
   function insertQuick(item: QuickMessage) {
@@ -1110,63 +1170,69 @@ export function HelpdeskWorkspace() {
             </label>
           </div>
 
-          <div className="flex flex-wrap gap-1 px-3 pb-2">
-            <button
-              type="button"
-              onClick={() => setMineOnly((v) => !v)}
-              className={cn(
-                "rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase",
-                mineOnly ? "bg-navy text-white" : "bg-[#f3f4f6] text-muted",
-              )}
-              title="Suas conversas em atendimento e todas as aguardando"
-            >
-              Meus
-              <span className="ml-1 opacity-80">{mineTickets.length}</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setSelectedQueues([]);
-                setIncludeUnassigned(true);
-                setMineOnly(false);
-              }}
-              className={cn(
-                "rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase",
-                allSelected && !mineOnly ? "bg-brand text-white" : "bg-[#f3f4f6] text-muted",
-              )}
-            >
-              Todas
-              <span className="ml-1 opacity-80">{countSource.data?.tickets?.length ?? 0}</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setIncludeUnassigned((v) => !v)}
-              className={cn(
-                "rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase",
-                includeUnassigned ? "bg-[#6b7280] text-white" : "bg-[#f3f4f6] text-muted",
-              )}
-            >
-              Sem fila
-              <span className="ml-1 opacity-80">{queueCounts.get("none") ?? 0}</span>
-            </button>
-            {(queues.data || []).map((q) => {
-              const on = selectedQueues.includes(q.id);
-              return (
-                <button
-                  key={q.id}
-                  type="button"
-                  onClick={() => toggleQueue(q.id)}
-                  className={cn(
-                    "rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase",
-                    on ? "text-white" : "border border-line bg-white text-muted",
-                  )}
-                  style={on ? { background: q.color || "#3b82f6" } : { borderColor: q.color || "#d1d5db" }}
-                >
-                  {q.name}
-                  <span className="ml-1 opacity-80">{queueCounts.get(q.id) ?? 0}</span>
-                </button>
-              );
-            })}
+          <div className="space-y-1.5 px-3 pb-2">
+            <div className="flex rounded-lg border border-line bg-[#f3f4f6] p-0.5">
+              <button
+                type="button"
+                onClick={() => setMineOnly(true)}
+                className={cn(
+                  "flex-1 rounded-md px-2 py-1 text-[11px] font-semibold uppercase tracking-wide transition-colors",
+                  mineOnly ? "bg-navy text-white shadow-sm" : "text-muted hover:text-ink",
+                )}
+                title="Suas conversas em atendimento e todas as aguardando"
+              >
+                Meus
+                <span className="ml-1 opacity-80">{mineTickets.length}</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setMineOnly(false)}
+                className={cn(
+                  "flex-1 rounded-md px-2 py-1 text-[11px] font-semibold uppercase tracking-wide transition-colors",
+                  !mineOnly ? "bg-brand text-white shadow-sm" : "text-muted hover:text-ink",
+                )}
+              >
+                Todas
+                <span className="ml-1 opacity-80">{countSource.data?.tickets?.length ?? 0}</span>
+              </button>
+            </div>
+
+            <label className="relative block">
+              <span className="sr-only">Filtrar por fila</span>
+              {selectedQueueMeta?.color || queueFilterValue === "none" ? (
+                <span
+                  className="pointer-events-none absolute left-2.5 top-1/2 h-2 w-2 -translate-y-1/2 rounded-full"
+                  style={{
+                    background:
+                      queueFilterValue === "none" ? "#6b7280" : selectedQueueMeta?.color || "#3b82f6",
+                  }}
+                />
+              ) : null}
+              <select
+                value={queueFilterValue}
+                onChange={(e) => setQueueFilter(e.target.value)}
+                className={cn(
+                  "w-full appearance-none rounded-lg border border-line bg-[#fafafa] py-1.5 pr-14 text-xs font-medium text-ink outline-none focus:border-brand",
+                  selectedQueueMeta?.color || queueFilterValue === "none" ? "pl-6" : "pl-2.5",
+                )}
+              >
+                <option value="all">
+                  Todas as filas ({countSource.data?.tickets?.length ?? 0})
+                </option>
+                <option value="none">Sem fila ({queueCounts.get("none") ?? 0})</option>
+                {(queues.data || []).map((q) => (
+                  <option key={q.id} value={q.id}>
+                    {q.name} ({queueCounts.get(q.id) ?? 0})
+                  </option>
+                ))}
+              </select>
+              <span className="pointer-events-none absolute right-2 top-1/2 flex -translate-y-1/2 items-center gap-1">
+                <span className="rounded-full bg-[#eef2ff] px-1.5 py-0.5 text-[10px] font-semibold text-brand">
+                  {queueFilterCount}
+                </span>
+                <ChevronDown className="h-3.5 w-3.5 text-muted" />
+              </span>
+            </label>
           </div>
           <p className="px-3 pb-2 text-[11px] text-muted">
             {mineOnly ? "Filtro Meus · " : ""}
@@ -1193,7 +1259,9 @@ export function HelpdeskWorkspace() {
                   ? "Nenhuma conversa sua ou em aguardando"
                   : allSelected
                     ? "Nenhuma conversa nesta aba"
-                    : "Nenhuma conversa nestas filas"}
+                    : unassignedOnly
+                      ? "Nenhuma conversa sem fila"
+                      : "Nenhuma conversa nestas filas"}
               </p>
             ) : (
               tickets.map((c) => {

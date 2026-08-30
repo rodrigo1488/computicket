@@ -8,7 +8,6 @@ import { io } from "socket.io-client";
 import { flask } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import { flaskSocketOptions, getFlaskSocketConfig } from "@/lib/flask-socket";
-import { engineSocketOptions, resolveEngineSocketUrl } from "@/lib/helpdesk";
 
 type AppNotification = {
   id: number;
@@ -23,16 +22,14 @@ type AppNotification = {
 };
 
 type PushConfig = { enabled: boolean; publicKey?: string | null };
-type EngineSession = { token: string; companyId: number; engineUrl: string };
-type EngineMessageEvent = {
-  message?: { id?: number | string; body?: string; fromMe?: boolean; mediaType?: string };
-  ticket?: {
-    id?: number;
-    contact?: { name?: string; number?: string };
-    lastMessage?: string;
-    unreadMessages?: number;
-  };
-};
+
+/** Dedupe global — sobrevive Strict Mode / remount e evita toast duplicado. */
+const seenMessageIds = new Set<string>();
+
+function markMessageSeen(messageId: string) {
+  seenMessageIds.add(messageId);
+  window.setTimeout(() => seenMessageIds.delete(messageId), 60_000);
+}
 
 function applicationServerKey(value: string): ArrayBuffer {
   const padding = "=".repeat((4 - (value.length % 4)) % 4);
@@ -63,18 +60,6 @@ function notificationTone(type: string) {
   if (type === "appointment") return "bg-[#fff3e0] text-[#e67e22]";
   if (type === "ticket") return "bg-open-bg text-open";
   return "bg-line text-navy";
-}
-
-function stableNotificationId(messageId: string | number): number {
-  const digits = String(messageId).replace(/\D/g, "").slice(-9);
-  const n = Number(digits);
-  return Number.isFinite(n) && n > 0 ? n : -Math.abs(hashString(String(messageId)));
-}
-
-function hashString(value: string): number {
-  let h = 0;
-  for (let i = 0; i < value.length; i += 1) h = (Math.imul(31, h) + value.charCodeAt(i)) | 0;
-  return h || 1;
 }
 
 /** Conversa aberta e aba visível → não tocar toast/som. */
@@ -118,7 +103,6 @@ export function NotificationCenter() {
   const [pushConfig, setPushConfig] = useState<PushConfig | null>(null);
   const [permission, setPermission] = useState<NotificationPermission | "unsupported">("unsupported");
   const timers = useRef(new Map<number, ReturnType<typeof setTimeout>>());
-  const seenMessageIds = useRef(new Set<string>());
 
   const dismiss = useCallback((id: number) => {
     const timer = timers.current.get(id);
@@ -142,13 +126,7 @@ export function NotificationCenter() {
     timers.current.set(notification.id, timer);
   }, [dismiss]);
 
-  const markMessageSeen = useCallback((messageId: string) => {
-    seenMessageIds.current.add(messageId);
-    window.setTimeout(() => seenMessageIds.current.delete(messageId), 60_000);
-  }, []);
-
   const bumpHelpdeskBadge = useCallback(() => {
-    // Incremento otimista; NÃO invalidar na hora — o GET ainda pode devolver 0 e zerar o badge.
     queryClient.setQueriesData<{ count: number }>({ queryKey: ["helpdesk-nav-badge"] }, (prev) => ({
       count: Math.max(0, (prev?.count ?? 0) + 1),
     }));
@@ -157,52 +135,28 @@ export function NotificationCenter() {
     }, 4000);
   }, [queryClient]);
 
-  const handleIncomingHelpdeskMessage = useCallback(
-    (payload: EngineMessageEvent) => {
-      if (!payload?.message || payload.message.fromMe) return;
-      const messageId = payload.message.id;
-      if (messageId == null) return;
-      const entityId = String(messageId);
-      if (seenMessageIds.current.has(entityId)) return;
-      markMessageSeen(entityId);
+  const showMessageNotification = useCallback(
+    (notification: AppNotification) => {
+      const entityId = notification.entity_id ? String(notification.entity_id) : "";
+      if (entityId) {
+        if (seenMessageIds.has(entityId)) return false;
+        markMessageSeen(entityId);
+      }
+      // Também dedupe por id numérico da notificação persistida.
+      if (notification.id > 0 && seenMessageIds.has(`nid:${notification.id}`)) return false;
+      if (notification.id > 0) markMessageSeen(`nid:${notification.id}`);
 
-      const ticketId = payload.ticket?.id;
+      const ticketId = (() => {
+        const match = String(notification.url || "").match(/[?&]c=(\d+)/);
+        return match ? Number(match[1]) : null;
+      })();
       bumpHelpdeskBadge();
-
-      // Conversa aberta e aba em foco: sem toast/som (lista/badge já atualizam).
-      if (isHelpdeskConversationFocused(ticketId)) return;
-
-      const contact =
-        payload.ticket?.contact?.name ||
-        payload.ticket?.contact?.number ||
-        "Novo contato";
-      const body =
-        payload.message.body ||
-        payload.ticket?.lastMessage ||
-        (payload.message.mediaType ? `Nova mídia: ${payload.message.mediaType}` : "Nova mensagem");
-      const url = ticketId ? `/helpdesk?c=${ticketId}` : "/helpdesk";
-
-      show({
-        id: stableNotificationId(entityId),
-        type: "message",
-        title: `Nova mensagem de ${contact}`,
-        message: body,
-        url,
-        entity_type: "message",
-        entity_id: entityId,
-      });
+      if (isHelpdeskConversationFocused(ticketId)) return true;
+      show(notification);
       playMessageSound();
-
-      flask
-        .post("/api/notifications/external-message", {
-          id: entityId,
-          title: `Nova mensagem de ${contact}`,
-          message: body,
-          url,
-        })
-        .catch(() => undefined);
+      return true;
     },
-    [bumpHelpdeskBadge, markMessageSeen, show],
+    [bumpHelpdeskBadge, show],
   );
 
   useEffect(() => {
@@ -223,29 +177,20 @@ export function NotificationCenter() {
     }
   }, [permission, pushConfig?.publicKey]);
 
+  // Único canal de toast/som/badge para mensagens: Flask `app_notification`
+  // (persistido uma vez pelo webhook Baileys → /engine-inbound).
   useEffect(() => {
     if (!user) return;
     const { url } = getFlaskSocketConfig();
     const socket = io(url, flaskSocketOptions());
     const onAppNotification = (notification: AppNotification) => {
-      if (
-        notification.type === "message" &&
-        notification.entity_id &&
-        seenMessageIds.current.has(notification.entity_id)
-      ) {
+      if (notification.type === "message") {
+        showMessageNotification(notification);
         return;
       }
-      if (notification.type === "message" && notification.entity_id) {
-        markMessageSeen(notification.entity_id);
-      }
       show(notification);
-      if (notification.type === "message") {
-        playMessageSound();
-        bumpHelpdeskBadge();
-      }
     };
     socket.on("connect", () => {
-      // Garante room agent_{id} mesmo se o connect do Flask já passou.
       socket.emit("join_agent_notifications");
     });
     socket.on("app_notification", onAppNotification);
@@ -253,53 +198,7 @@ export function NotificationCenter() {
       socket.off("app_notification", onAppNotification);
       socket.disconnect();
     };
-  }, [user, show, markMessageSeen, bumpHelpdeskBadge]);
-
-  useEffect(() => {
-    if (!user) return;
-    let disposed = false;
-    let engineSocket: ReturnType<typeof io> | null = null;
-    let refreshTimer: ReturnType<typeof setInterval> | null = null;
-
-    const connectEngine = (session: EngineSession) => {
-      if (disposed || !session?.token || !session.engineUrl) return;
-      engineSocket?.disconnect();
-      const engineUrl = resolveEngineSocketUrl(session.engineUrl);
-      engineSocket = io(engineUrl, engineSocketOptions(session.token));
-      engineSocket.on("connect", () => {
-        engineSocket?.emit("joinTickets", "pending");
-        engineSocket?.emit("joinTickets", "open");
-        engineSocket?.emit("joinNotification");
-      });
-      engineSocket.on(
-        `company-${session.companyId}-appMessage`,
-        (payload: EngineMessageEvent) => {
-          handleIncomingHelpdeskMessage(payload);
-        },
-      );
-    };
-
-    const loadSession = () => {
-      flask
-        .get<EngineSession>("/helpdesk/api/engine-token")
-        .then((session) => {
-          if (!disposed) connectEngine(session);
-        })
-        .catch(() => {
-          // O helpdesk pode estar desabilitado; tickets e agenda continuam funcionando.
-        });
-    };
-
-    loadSession();
-    // Token do engine expira; reconecta periodicamente para manter badge/toast fora do Help Desk.
-    refreshTimer = setInterval(loadSession, 8 * 60 * 1000);
-
-    return () => {
-      disposed = true;
-      if (refreshTimer) clearInterval(refreshTimer);
-      engineSocket?.disconnect();
-    };
-  }, [user, handleIncomingHelpdeskMessage]);
+  }, [user, show, showMessageNotification]);
 
   useEffect(() => () => {
     for (const timer of timers.current.values()) clearTimeout(timer);

@@ -38,12 +38,39 @@ def api_key() -> str:
 	return (os.environ.get("GEMINI_API_KEY") or "").strip()
 
 
+_DEPRECATED_GENERATION_MODELS = {
+	"gemini-2.0-flash",
+	"gemini-2.0-flash-001",
+	"gemini-2.0-flash-lite",
+	"gemini-2.5-flash",
+	"gemini-2.5-flash-lite",
+	"gemini-1.5-flash",
+	"gemini-1.5-flash-latest",
+	"gemini-1.5-pro",
+	"gemini-pro",
+}
+
+DEFAULT_GENERATION_MODEL = "gemini-3.6-flash"
+
+
+def _normalize_generation_model(model: str) -> str:
+	name = (model or "").strip()
+	if not name:
+		return DEFAULT_GENERATION_MODEL
+	# Aceita tanto "gemini-3.6-flash" quanto "models/gemini-3.6-flash".
+	bare = name.split("/", 1)[-1] if name.startswith("models/") else name
+	if bare in _DEPRECATED_GENERATION_MODELS:
+		return DEFAULT_GENERATION_MODEL
+	return bare
+
+
 def generation_model() -> str:
-	return (
+	raw = (
 		_saved_setting("gemini_model")
 		or os.environ.get("GEMINI_MODEL")
-		or "gemini-2.0-flash"
-	).strip()
+		or DEFAULT_GENERATION_MODEL
+	)
+	return _normalize_generation_model(raw)
 
 
 def embedding_model() -> str:

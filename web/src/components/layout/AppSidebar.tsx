@@ -97,13 +97,13 @@ export function AppSidebar() {
   return (
     <aside
       className={cn(
-        "flex h-full min-h-0 shrink-0 flex-col overflow-hidden bg-sidebar text-white transition-[width] duration-200",
+        "flex h-full min-h-0 shrink-0 flex-col overflow-hidden border-r border-line bg-sidebar text-ink transition-[width] duration-200",
         collapsed ? "w-[72px]" : "w-[260px]",
       )}
     >
       <div
         className={cn(
-          "flex items-center pb-3 pt-3",
+          "flex items-center border-b border-line pb-3 pt-3",
           collapsed ? "flex-col gap-2 px-2" : "justify-between gap-2 px-4",
         )}
       >
@@ -114,13 +114,13 @@ export function AppSidebar() {
           title={collapsed ? "Expandir menu" : "Recolher menu"}
           aria-label={collapsed ? "Expandir menu" : "Recolher menu"}
           aria-expanded={!collapsed}
-          className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-white/55 hover:bg-white/10 hover:text-white"
+          className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-muted transition-colors hover:bg-sidebar-hover hover:text-navy"
         >
           {collapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
         </button>
         {collapsed && <Logo collapsed={collapsed} />}
       </div>
-      <nav className={cn("no-scrollbar flex-1 space-y-1 overflow-y-auto pb-4", collapsed ? "px-2" : "px-3")}>
+      <nav className={cn("no-scrollbar flex-1 space-y-1 overflow-y-auto py-3", collapsed ? "px-2" : "px-3")}>
         {items.map((item) => {
           const active = pathname === item.href || pathname.startsWith(item.href + "/");
           const Icon = item.icon;
@@ -139,9 +139,11 @@ export function AppSidebar() {
               href={item.href}
               title={title}
               className={cn(
-                "flex items-center rounded-xl py-2.5 text-[14px] transition",
+                "flex items-center rounded-xl py-2.5 text-[14px] transition-colors",
                 collapsed ? "justify-center px-0" : "gap-3 px-3",
-                active ? "bg-brand text-white" : "text-white/70 hover:bg-sidebar-hover hover:text-white",
+                active
+                  ? "bg-progress-bg font-medium text-brand"
+                  : "text-navy/70 hover:bg-sidebar-hover hover:text-navy",
               )}
             >
               {collapsed ? (
@@ -161,30 +163,30 @@ export function AppSidebar() {
           );
         })}
       </nav>
-      <div className={cn("relative border-t border-white/10", collapsed ? "p-2" : "p-4")}>
+      <div className={cn("relative border-t border-line", collapsed ? "p-2" : "p-4")}>
         {menuOpen ? (
           <div
             className={cn(
-              "absolute z-20 overflow-hidden rounded-xl bg-[#111] py-2 shadow-xl",
+              "absolute z-20 overflow-hidden rounded-xl border border-line bg-white py-2 shadow-[0_1px_2px_rgba(15,23,42,0.04)]",
               collapsed ? "fixed bottom-4 left-[80px] z-50 w-52" : "bottom-[76px] left-4 right-4",
             )}
           >
-            <p className="px-4 pb-1 text-[10px] tracking-[0.14em] text-white/40">OPÇÕES</p>
+            <p className="px-4 pb-1 text-[10px] tracking-[0.14em] text-muted">OPÇÕES</p>
             <button
               type="button"
               onClick={() => {
                 setMenuOpen(false);
                 setProfileOpen(true);
               }}
-              className="flex w-full items-center gap-2 bg-white/10 px-4 py-2 text-left text-sm text-white"
+              className="flex w-full items-center gap-2 bg-progress-bg px-4 py-2 text-left text-sm text-navy"
             >
-              <UserRound className="h-4 w-4" />
+              <UserRound className="h-4 w-4 text-brand" />
               Perfil
             </button>
             <button
               type="button"
               onClick={logout}
-              className="flex w-full items-center gap-2 px-4 py-2 text-left text-sm text-red-400 hover:bg-white/10"
+              className="flex w-full items-center gap-2 px-4 py-2 text-left text-sm text-open hover:bg-open-bg"
             >
               <LogOut className="h-4 w-4" />
               Sair
@@ -196,7 +198,7 @@ export function AppSidebar() {
           onClick={() => setMenuOpen((v) => !v)}
           title={user?.name || "Conta"}
           className={cn(
-            "flex w-full items-center rounded-xl p-1 text-left hover:bg-white/5",
+            "flex w-full items-center rounded-xl p-1 text-left transition-colors hover:bg-sidebar-hover",
             collapsed ? "justify-center" : "gap-3",
           )}
         >
@@ -205,8 +207,8 @@ export function AppSidebar() {
             <span className="sr-only">{user?.name}</span>
           ) : (
             <span className="min-w-0">
-              <span className="block truncate text-sm font-medium">{user?.name}</span>
-              <span className="block truncate text-xs text-white/50">{user?.email}</span>
+              <span className="block truncate text-sm font-medium text-navy">{user?.name}</span>
+              <span className="block truncate text-xs text-muted">{user?.email}</span>
             </span>
           )}
         </button>

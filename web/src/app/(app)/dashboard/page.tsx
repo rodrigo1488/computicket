@@ -44,6 +44,7 @@ import {
   YAxis,
 } from "recharts";
 import { io } from "socket.io-client";
+import { DashboardAiChat } from "@/components/dashboard/DashboardAiChat";
 import { PageTitle } from "@/components/layout/AppShell";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -820,6 +821,7 @@ function DashboardInner() {
           <TabsContent value="helpdesk"><HelpdeskDash /></TabsContent>
           <TabsContent value="monitoramento"><MonitoramentoDash /></TabsContent>
         </Tabs>
+        <DashboardAiChat />
       </div>
     </TooltipProvider>
   );

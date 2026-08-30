@@ -12,7 +12,7 @@ Variáveis suportadas:
 - `GEMINI_API_KEY` (obrigatória para embeddings e geração);
 - `AI_CONFIG_ENCRYPTION_KEY` (opcional; chave estável dedicada para proteger a
   API key salva em Configurações → IA; sem ela, usa `SECRET_KEY`);
-- `GEMINI_MODEL` (padrão `gemini-2.0-flash`);
+- `GEMINI_MODEL` (padrão `gemini-3.6-flash`);
 - `GEMINI_EMBEDDING_MODEL` (padrão `gemini-embedding-001`);
 - `GEMINI_EMBEDDING_DIMENSION` (deve ser `768`);
 - `GEMINI_TIMEOUT_MS` (padrão `30000`, máximo `120000`);
@@ -53,13 +53,18 @@ posterior tenta preencher o vetor.
 
 Todas as rotas exigem sessão autenticada:
 
-- `POST /helpdesk/api/ai/query` — `{question, conversation_id?}`;
+- `POST /helpdesk/api/ai/query` — `{question, conversation_id?, history?}`;
+- `POST /helpdesk/api/ai/chat` — alias do query para o Assistente do Dashboard
+  (`{question|message, history?: [{role, content}]}`; histórico curto da sessão);
 - `POST /helpdesk/api/conversations/<id>/ai/suggest-reply` — body opcional;
 - `POST /helpdesk/api/conversations/<id>/ai/improve` — `{text}`;
 - `POST /helpdesk/api/conversations/<id>/ai/suggest-ticket`.
 
 As respostas de texto têm `{draft, sources}`. A sugestão de ticket retorna
 `{ticket: {title, description, solicitante, clientQuery}, sources}`.
+
+O chat do Dashboard usa o mesmo pipeline RAG (`knowledge_chunk`: artigos
+`published` + tickets `fechado`) via `answer_question` / `hybrid_search`.
 
 A auditoria guarda hash SHA-256, quantidade de caracteres, operação, duração,
 status e contagem de fontes. Prompt, histórico e resposta brutos não são

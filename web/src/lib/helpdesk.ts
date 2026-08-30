@@ -405,6 +405,15 @@ export const helpdesk = {
       question,
       ...(conversationId ? { conversation_id: conversationId } : {}),
     }),
+  /** Chat RAG do dashboard: histórico curto da sessão + knowledge_chunk. */
+  aiChat: (
+    question: string,
+    history?: { role: "user" | "assistant"; content: string }[],
+  ) =>
+    flask.post<HelpdeskAiDraftRes>("/helpdesk/api/ai/chat", {
+      question,
+      ...(history?.length ? { history } : {}),
+    }),
   aiSuggestReply: (id: number) =>
     flask.post<HelpdeskAiDraftRes>(`/helpdesk/api/conversations/${id}/ai/suggest-reply`),
   aiImprove: (id: number, text: string) =>
