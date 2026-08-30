@@ -1,6 +1,14 @@
-# Deps mínimas para tools/migrate_sqlite_to_postgres.py
+# Deps para tools/migrate_sqlite_to_postgres.py (create_app + create_all).
+# Sem pywebpush/google-genai/pyodbc para evitar conflitos e builds pesados.
 python-dotenv==1.0.1
-SQLAlchemy>=2.0,<3
-Flask-SQLAlchemy==3.1.1
 Flask==3.0.3
+Flask-SQLAlchemy==3.1.1
+Flask-Login==0.6.3
+Flask-Mail==0.9.1
+Flask-SocketIO==5.3.6
 psycopg2-binary==2.9.9
+pgvector>=0.3.6
+SQLAlchemy>=2.0,<3
+pytz==2023.3
+requests==2.32.3
+cryptography>=47.0.0,<51
