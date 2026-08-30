@@ -1,0 +1,6 @@
+# Deps mínimas para tools/migrate_sqlite_to_postgres.py
+python-dotenv==1.0.1
+SQLAlchemy>=2.0,<3
+Flask-SQLAlchemy==3.1.1
+Flask==3.0.3
+psycopg2-binary==2.9.9

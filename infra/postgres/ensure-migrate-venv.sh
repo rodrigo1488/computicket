@@ -4,7 +4,11 @@
 ensure_migrate_venv() {
   local root="${1:?root obrigatório}"
   local app_dir="$root/api/app"
-  local req="$root/api/requirements.txt"
+  # Preferir deps mínimas da migração (evita conflito pywebpush/cryptography etc.)
+  local req="$root/api/requirements-migrate.txt"
+  if [[ ! -f "$req" ]]; then
+    req="$root/api/requirements.txt"
+  fi
   local venv_dir="$app_dir/.venv"
   local venv_py="$venv_dir/bin/python"
 
@@ -59,13 +63,14 @@ ensure_migrate_venv() {
   fi
 
   if ! "$venv_py" -c "import dotenv, sqlalchemy, psycopg2" >/dev/null 2>&1; then
-    echo "      Instalando dependências (api/requirements.txt) ..." >&2
+    echo "      Instalando dependências ($(basename "$req")) ..." >&2
     "$venv_py" -m pip install -q --upgrade pip
     "$venv_py" -m pip install -q -r "$req"
   fi
 
-  if ! "$venv_py" -c "import dotenv" >/dev/null 2>&1; then
-    echo "[ERRO] Falha ao instalar python-dotenv no venv." >&2
+  if ! "$venv_py" -c "import dotenv, sqlalchemy, psycopg2" >/dev/null 2>&1; then
+    echo "[ERRO] Falha ao instalar deps de migração no venv." >&2
+    echo "       Tente: rm -rf api/app/.venv && ./migrate.sh" >&2
     return 1
   fi
 
