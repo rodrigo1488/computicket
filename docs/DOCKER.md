@@ -21,8 +21,13 @@ Credenciais Unico (leituras da API / fallback): **Configurações → Uniplus** 
 
 ```bash
 # opcional: cp .env.example .env
-docker compose up -d --build
+./up.sh
+# ou: docker compose up -d --build
 ```
+
+O `up.sh` sobe o stack, garante o database `computicket`, aplica `api/migrations/*.sql` e migra `tickets.sqlite3` → Postgres (com `--wipe` se achar o SQLite).
+
+Opções: `SKIP_BUILD=1`, `SKIP_MIGRATE=1`, `NO_WIPE=1`, `./up.sh /caminho/tickets.sqlite3`.
 
 UI: http://localhost:3000  
 API: http://localhost:5000  
