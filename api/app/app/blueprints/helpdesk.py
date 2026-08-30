@@ -256,8 +256,8 @@ def _links_by_engine_ids(ids: list[int]) -> dict[int, int]:
 
 
 def _ratings_by_engine_ids(ids: list[int]) -> dict[int, dict]:
-    if not ids:
-        return {}
+	if not ids:
+		return {}
 	rows = (
 		HelpDeskRating.query.filter(HelpDeskRating.engine_ticket_id.in_(ids))
 		.order_by(HelpDeskRating.id.asc())
