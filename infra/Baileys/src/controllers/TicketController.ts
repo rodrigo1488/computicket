@@ -36,6 +36,7 @@ interface TicketData {
   promptId: number;
   integrationId: number;
   reuseOpenTicket?: boolean;
+  skipComplation?: boolean;
 }
 
 export const overview = async (req: Request, res: Response): Promise<Response> => {

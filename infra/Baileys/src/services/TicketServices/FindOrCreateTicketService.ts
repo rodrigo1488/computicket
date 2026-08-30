@@ -1,5 +1,5 @@
 import { subHours } from "date-fns";
-import { Op } from "sequelize";
+import { Op, UniqueConstraintError } from "sequelize";
 import Contact from "../../models/Contact";
 import Ticket from "../../models/Ticket";
 import ShowTicketService from "./ShowTicketService";
@@ -9,11 +9,39 @@ import Whatsapp from "../../models/Whatsapp";
 import { logger } from "../../utils/logger";
 import AppError from "../../errors/AppError";
 
-interface TicketData {
-  status?: string;
-  companyId?: number;
-  unreadMessages?: number;
-}
+const reopenClosedTicket = async (
+  ticket: Ticket,
+  params: {
+    unreadMessages: number;
+    companyId: number;
+    groupContact?: Contact;
+  }
+): Promise<Ticket> => {
+  await ticket.update({
+    status: params.groupContact ? "open" : "pending",
+    userId: null,
+    unreadMessages: params.unreadMessages,
+    companyId: params.companyId,
+    sessionStartedAt: new Date(),
+    promptId: null,
+    integrationId: ticket.integrationId,
+    useIntegration: false,
+    typebotStatus: false,
+    typebotSessionId: null
+  });
+  await FindOrCreateATicketTrakingService({
+    ticketId: ticket.id,
+    companyId: params.companyId,
+    whatsappId: ticket.whatsappId,
+    userId: ticket.userId
+  });
+  logger.info({
+    msg: "FindOrCreateTicketService: conversa fechada reaberta no mesmo ticket",
+    ticketId: ticket.id,
+    status: ticket.status
+  });
+  return ticket;
+};
 
 const FindOrCreateTicketService = async (
   contact: Contact,
@@ -27,9 +55,7 @@ const FindOrCreateTicketService = async (
   let ticket = await Ticket.findOne({
     where: {
       status: {
-        // Não inclui "closed": mensagem nova após resolução é outro assunto.
-        // "rating" permanece para não interromper a pesquisa de satisfação.
-        [Op.or]: ["open", "pending", "rating"]
+        [Op.or]: ["open", "pending", "rating", "closed"]
       },
       contactId: groupContact ? groupContact.id : contact.id,
       companyId,
@@ -42,19 +68,15 @@ const FindOrCreateTicketService = async (
     where: { id: whatsappId }
   });
 
-  if (ticket) {
-    // Atualizar ticket existente com configurações atualizadas do WhatsApp
-    // IMPORTANTE: NÃO atualizar useIntegration aqui para permitir que execute novamente
-    await ticket.update({ 
-      unreadMessages, 
+  if (ticket && ticket.status !== "closed") {
+    await ticket.update({
+      unreadMessages,
       whatsappId,
-      // Atualizar integração se mudou no WhatsApp
       integrationId: whatsapp?.integrationId || ticket.integrationId,
       promptId: whatsapp?.promptId || ticket.promptId
-      // useIntegration mantém o valor atual do ticket (não forçar true)
     });
 
-    logger.debug('🔄 Ticket existente atualizado com config do WhatsApp', {
+    logger.debug("🔄 Ticket existente atualizado com config do WhatsApp", {
       ticketId: ticket.id,
       integrationId: ticket.integrationId,
       promptId: ticket.promptId,
@@ -65,12 +87,13 @@ const FindOrCreateTicketService = async (
 
   if (ticket?.status === "closed") {
     if (fromMe || isAutomatedInbound) {
-      // Mensagem enviada pelo próprio sistema (eco fromMe) ou automática de outro
-      // Compuchat (u200e/u200c) — não reabrir o ticket para evitar loop de bots B2B.
       return await ShowTicketService(ticket.id, companyId);
     }
-    // Cliente voltou depois do encerramento: abre conversa nova, sem o chamado antigo.
-    ticket = null;
+    ticket = await reopenClosedTicket(ticket, {
+      unreadMessages,
+      companyId,
+      groupContact
+    });
   }
 
   if (!ticket && groupContact) {
@@ -83,10 +106,17 @@ const FindOrCreateTicketService = async (
 
     if (ticket) {
       if (ticket.status === "closed") {
-        ticket = null;
+        if (fromMe || isAutomatedInbound) {
+          return await ShowTicketService(ticket.id, companyId);
+        }
+        ticket = await reopenClosedTicket(ticket, {
+          unreadMessages,
+          companyId,
+          groupContact
+        });
       } else {
         await ticket.update({
-          status: "open", // Grupos vão direto para "open"
+          status: "open",
           userId: null,
           unreadMessages,
           queueId: null,
@@ -105,6 +135,7 @@ const FindOrCreateTicketService = async (
     });
 
     const value = msgIsGroupBlock ? parseInt(msgIsGroupBlock.value, 10) : 7200;
+    void value;
   }
 
   if (!ticket && !groupContact) {
@@ -121,7 +152,6 @@ const FindOrCreateTicketService = async (
     });
 
     if (ticket) {
-      // Não forçar pending se o ticket estiver em avaliação (rating) — fallback legado sem filtro de status
       if (ticket.status === "rating") {
         await ticket.update({
           unreadMessages,
@@ -130,7 +160,13 @@ const FindOrCreateTicketService = async (
           promptId: whatsapp?.promptId || ticket.promptId
         });
       } else if (ticket.status === "closed") {
-        ticket = null;
+        if (fromMe || isAutomatedInbound) {
+          return await ShowTicketService(ticket.id, companyId);
+        }
+        ticket = await reopenClosedTicket(ticket, {
+          unreadMessages,
+          companyId
+        });
       } else {
         await ticket.update({
           status: "pending",
@@ -151,45 +187,62 @@ const FindOrCreateTicketService = async (
   }
 
   if (!ticket) {
-    // Criar ticket herdando configurações do WhatsApp
-    // useIntegration inicia como FALSE para permitir que o FlowBuilder execute
-    // Grupos vão direto para "open", conversas individuais para "pending"
-    ticket = await Ticket.create({
-      contactId: groupContact ? groupContact.id : contact.id,
-      status: groupContact ? "open" : "pending",
-      isGroup: !!groupContact,
-      unreadMessages,
-      whatsappId,
-      // CORREÇÃO: não passar o objeto whatsapp inteiro (causava NaN/conflito de associação)
-      // apenas whatsappId (inteiro) é a coluna real da tabela
-      companyId,
-      // ✅ Herdar integração e prompt do WhatsApp
-      integrationId: whatsapp?.integrationId || null,
-      promptId: whatsapp?.promptId || null,
-      useIntegration: false  // Sempre FALSE para permitir primeira execução
-    });
+    try {
+      ticket = await Ticket.create({
+        contactId: groupContact ? groupContact.id : contact.id,
+        status: groupContact ? "open" : "pending",
+        isGroup: !!groupContact,
+        unreadMessages,
+        whatsappId,
+        companyId,
+        integrationId: whatsapp?.integrationId || null,
+        promptId: whatsapp?.promptId || null,
+        useIntegration: false
+      });
 
-    logger.info('🎫 === TICKET CRIADO ===', {
-      ticketId: ticket.id,
-      contactId: ticket.contactId,
-      whatsappId: ticket.whatsappId,
-      status: ticket.status,
-      isGroup: ticket.isGroup,
-      integrationId: ticket.integrationId,
-      promptId: ticket.promptId,
-      useIntegration: ticket.useIntegration,
-      herdouIntegração: !!whatsapp?.integrationId
-    });
+      logger.info("🎫 === TICKET CRIADO ===", {
+        ticketId: ticket.id,
+        contactId: ticket.contactId,
+        whatsappId: ticket.whatsappId,
+        status: ticket.status,
+        isGroup: ticket.isGroup,
+        integrationId: ticket.integrationId,
+        promptId: ticket.promptId,
+        useIntegration: ticket.useIntegration,
+        herdouIntegração: !!whatsapp?.integrationId
+      });
 
-    await FindOrCreateATicketTrakingService({
-      ticketId: ticket.id,
-      companyId,
-      whatsappId,
-      userId: ticket.userId
-    });
+      await FindOrCreateATicketTrakingService({
+        ticketId: ticket.id,
+        companyId,
+        whatsappId,
+        userId: ticket.userId
+      });
+    } catch (err) {
+      if (!(err instanceof UniqueConstraintError)) {
+        throw err;
+      }
+      ticket = await Ticket.findOne({
+        where: {
+          contactId: groupContact ? groupContact.id : contact.id,
+          companyId,
+          whatsappId
+        },
+        order: [["id", "DESC"]]
+      });
+      if (!ticket) {
+        throw err;
+      }
+      if (ticket.status === "closed" && !fromMe && !isAutomatedInbound) {
+        ticket = await reopenClosedTicket(ticket, {
+          unreadMessages,
+          companyId,
+          groupContact
+        });
+      }
+    }
   }
 
-  // Guard: garantir que ticket e ticket.id são válidos antes de consultar o banco
   if (!ticket || !ticket.id) {
     logger.error("FindOrCreateTicketService: ticket.id está indefinido após todas as tentativas de criação/busca", {
       contactId: contact.id,

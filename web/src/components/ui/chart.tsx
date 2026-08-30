@@ -40,12 +40,14 @@ function ChartTooltipContent({
   label,
   config,
   labelFormatter,
+  valueFormatter,
 }: {
   active?: boolean;
   payload?: TooltipPayload[];
   label?: string | number;
   config: ChartConfig;
   labelFormatter?: (label: string | number) => React.ReactNode;
+  valueFormatter?: (value: number, dataKey: string) => React.ReactNode;
 }) {
   if (!active || !payload?.length) return null;
   return (
@@ -55,13 +57,16 @@ function ChartTooltipContent({
         {payload.map((item) => {
           const key = String(item.dataKey ?? item.name ?? "");
           const entry = config[key];
+          const raw = Number(item.value);
+          const display =
+            valueFormatter && Number.isFinite(raw) ? valueFormatter(raw, key) : (item.value ?? "—");
           return (
             <div key={key} className="flex items-center justify-between gap-5">
               <span className="flex items-center gap-2 text-muted">
                 <span className="h-2 w-2 rounded-full" style={{ background: item.color || entry?.color }} />
                 {entry?.label || item.name}
               </span>
-              <span className="font-mono font-medium tabular-nums text-ink">{item.value ?? "—"}</span>
+              <span className="font-mono font-medium tabular-nums text-ink">{display}</span>
             </div>
           );
         })}

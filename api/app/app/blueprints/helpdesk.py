@@ -1102,18 +1102,26 @@ def resolve_conversation(ticket_id: int):
             conversation = agent_request("GET", f"/tickets/{ticket_id}") or {}
         except EngineError:
             conversation = {}
-        ticket = agent_request("PUT", f"/tickets/{ticket_id}", json={"status": "closed"})
-        result = ticket.get("ticket") if isinstance(ticket, dict) and "ticket" in ticket else ticket
-        result = _with_link(result)
+        rating_warning = None
+        rating = None
         try:
             rating = _get_or_create_rating(ticket_id, conversation if isinstance(conversation, dict) else None)
             _send_rating_invitation(rating)
-            result = dict(result or {})
-            result["rating"] = rating.to_dict()
         except Exception:
             db.session.rollback()
-            result = dict(result or {})
-            result["rating_warning"] = "Conversa encerrada, mas não foi possível enviar a pesquisa de satisfação."
+            rating_warning = "Conversa encerrada, mas não foi possível enviar a pesquisa de satisfação."
+        ticket = agent_request(
+            "PUT",
+            f"/tickets/{ticket_id}",
+            json={"status": "closed", "skipComplation": True},
+        )
+        result = ticket.get("ticket") if isinstance(ticket, dict) and "ticket" in ticket else ticket
+        result = _with_link(result)
+        result = dict(result or {})
+        if rating:
+            result["rating"] = rating.to_dict()
+        if rating_warning:
+            result["rating_warning"] = rating_warning
         return jsonify(result)
     except EngineError as exc:
         return _fail(exc)

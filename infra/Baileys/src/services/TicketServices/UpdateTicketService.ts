@@ -31,6 +31,7 @@ interface TicketData {
   useIntegration?: boolean;
   integrationId?: number | null;
   promptId?: number | null;
+  skipComplation?: boolean;
 }
 
 interface Request {
@@ -55,6 +56,7 @@ const UpdateTicketService = async ({
 
   try {
     let { status } = ticketData;
+    const skipComplation = Boolean(ticketData.skipComplation);
     let { queueId, userId, whatsappId } = ticketData;
     let chatbot: boolean | null = ticketData.chatbot || false;
     let queueOptionId: number | null = ticketData.queueOptionId || null;
@@ -201,7 +203,7 @@ const UpdateTicketService = async ({
         typebotSessionId: null
       });
 
-      if (!isNil(complationMessage) && complationMessage !== "") {
+      if (!skipComplation && !isNil(complationMessage) && complationMessage !== "") {
         const body = `\u200e${complationMessage}`;
         try {
           await SendWhatsAppMessage({ body, ticket });

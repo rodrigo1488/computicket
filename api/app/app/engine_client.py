@@ -385,18 +385,21 @@ def ensure_agent_session(force: bool = False) -> AgentSession:
     return AgentSession(token, mapping.engine_user_id, mapping.company_id, mapping.engine_email)
 
 
-def send_engine_message(engine_ticket_id: int, body: str) -> None:
-    """Envia texto na conversa WhatsApp sem assinatura de agente (evento de sistema)."""
+def send_engine_message(engine_ticket_id: int, body: str, *, internal: bool = False) -> None:
+    """Envia texto na conversa. internal=True grava nota só no Help Desk (não vai ao WhatsApp)."""
     text = (body or "").strip()
     if not text or not engine_ticket_id:
         return
+    payload = {"body": text}
+    if internal:
+        payload["isInternal"] = True
     try:
-        admin_request("POST", f"/messages/{int(engine_ticket_id)}", json={"body": text})
+        admin_request("POST", f"/messages/{int(engine_ticket_id)}", json=payload)
     except EngineError:
-        agent_request("POST", f"/messages/{int(engine_ticket_id)}", json={"body": text})
+        agent_request("POST", f"/messages/{int(engine_ticket_id)}", json=payload)
 
 
-def notify_helpdesk_ticket(computicket_ticket_id: int, body: str) -> None:
+def notify_helpdesk_ticket(computicket_ticket_id: int, body: str, *, internal: bool = False) -> None:
     """Avisa todas as conversas vinculadas ao chamado. Falha do WhatsApp não sobe."""
     from .models import HelpDeskTicketLink
 
@@ -405,7 +408,7 @@ def notify_helpdesk_ticket(computicket_ticket_id: int, body: str) -> None:
     links = HelpDeskTicketLink.query.filter_by(computicket_ticket_id=int(computicket_ticket_id)).all()
     for link in links:
         try:
-            send_engine_message(link.engine_ticket_id, body)
+            send_engine_message(link.engine_ticket_id, body, internal=internal)
         except EngineError:
             continue
 

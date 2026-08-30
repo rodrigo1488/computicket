@@ -11,7 +11,17 @@ export function formatBRL(value?: number | null) {
 }
 
 export function formatHours(value?: number | null) {
-  return `${Number(value || 0).toFixed(1)}h`;
+  const hours = Number(value || 0);
+  if (!Number.isFinite(hours) || hours <= 0) return "0min";
+  if (hours < 1) {
+    const minutes = Math.round(hours * 60);
+    return `${minutes}min`;
+  }
+  const whole = Math.floor(hours);
+  const minutes = Math.round((hours - whole) * 60);
+  if (minutes === 0) return `${whole}h`;
+  if (minutes === 60) return `${whole + 1}h`;
+  return `${whole}h ${minutes}m`;
 }
 
 export function stripHtml(html?: string | null) {

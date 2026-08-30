@@ -35,6 +35,7 @@ import {
   BarChart,
   CartesianGrid,
   Cell,
+  LabelList,
   Line,
   LineChart,
   Pie,
@@ -331,16 +332,27 @@ function RankingChart({
           <EmptyChart>{empty}</EmptyChart>
         ) : (
           <ChartContainer className="h-[250px]">
-            <BarChart data={items} layout="vertical" margin={{ left: 4, right: 20 }}>
+            <BarChart data={items} layout="vertical" margin={{ left: 4, right: 48 }}>
               <CartesianGrid horizontal={false} strokeDasharray="4 4" />
               <XAxis type="number" hide />
               <YAxis dataKey="name" type="category" width={92} tickLine={false} axisLine={false} tick={{ fontSize: 11 }} />
               <RechartsTooltip
                 cursor={{ fill: "#f7f8fa" }}
-                content={<ChartTooltipContent config={config} />}
-                formatter={(value) => formatter(Number(value))}
+                content={
+                  <ChartTooltipContent
+                    config={config}
+                    valueFormatter={(value) => formatter(value)}
+                  />
+                }
               />
-              <Bar dataKey={valueKey} fill={color} radius={[0, 6, 6, 0]} barSize={18} />
+              <Bar dataKey={valueKey} fill={color} radius={[0, 6, 6, 0]} barSize={18}>
+                <LabelList
+                  dataKey={valueKey}
+                  position="right"
+                  className="fill-muted text-[11px]"
+                  formatter={(value: number) => formatter(Number(value))}
+                />
+              </Bar>
             </BarChart>
           </ChartContainer>
         )}

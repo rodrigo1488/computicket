@@ -102,17 +102,6 @@ def format_hours(hours: float) -> str:
 bp = Blueprint("tickets", __name__)
 
 
-def _helpdesk_close_message(ticket: Ticket) -> str:
-	lines = [f"Ticket #{ticket.id} finalizado."]
-	hours = float(ticket.total_hours() or 0)
-	if hours > 0:
-		lines.append(f"Horas apontadas: {format_hours(hours)}")
-	cost = float(ticket.total_cost or 0)
-	if cost > 0:
-		lines.append(f"Custo: R$ {cost:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
-	return "\n".join(lines)
-
-
 def _helpdesk_conversation_payload(ticket: Ticket) -> dict | None:
 	try:
 		link = HelpDeskTicketLink.query.filter_by(computicket_ticket_id=ticket.id).first()
@@ -1301,7 +1290,7 @@ def close_ticket(ticket_id: int):
 	)
 
 	db.session.commit()
-	notify_helpdesk_ticket(ticket.id, _helpdesk_close_message(ticket))
+	notify_helpdesk_ticket(ticket.id, f"Ticket #{ticket.id} encerrado", internal=True)
 	
 	if whatsapp_status:
 		flash(whatsapp_status, "info")
@@ -2510,6 +2499,14 @@ def _fmt_ticket_dt_local_input(dt):
 		return None
 
 
+def _helpdesk_linked_at(ticket: Ticket):
+	"""Momento em que o chamado foi anexado à conversa do Help Desk (se houver)."""
+	link = HelpDeskTicketLink.query.filter_by(computicket_ticket_id=ticket.id).order_by(
+		HelpDeskTicketLink.created_at.asc()
+	).first()
+	return link.created_at if link else None
+
+
 def _ticket_base_price(ticket: Ticket) -> float:
 	if ticket.service and ticket.service.hourly_rate:
 		return float(ticket.service.hourly_rate or 0)
@@ -2620,6 +2617,7 @@ def _serialize_ticket_detail(ticket: Ticket) -> dict:
 		"helpdesk_conversation": _helpdesk_conversation_payload(ticket),
 		"in_progress_started_at": _fmt_ticket_dt_local_input(ticket.in_progress_started_at),
 		"created_at_input": _fmt_ticket_dt_local_input(ticket.created_at),
+		"helpdesk_linked_at": _fmt_ticket_dt_local_input(_helpdesk_linked_at(ticket)),
 	}
 
 
@@ -2955,7 +2953,7 @@ def api_close_ticket(ticket_id: int):
 	ticket.status = "fechado"
 	ticket.closed_at = brasilia_to_utc(get_brasilia_now())
 	db.session.commit()
-	notify_helpdesk_ticket(ticket.id, _helpdesk_close_message(ticket))
+	notify_helpdesk_ticket(ticket.id, f"Ticket #{ticket.id} encerrado", internal=True)
 	return jsonify(_serialize_ticket_detail(ticket))
 
 

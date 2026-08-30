@@ -1733,6 +1733,39 @@ export const transferQueue = async (
   });
 };
 
+const reopenClosedConversation = async (ticket: Ticket, io: ReturnType<typeof getIO>) => {
+  const oldStatus = ticket.status;
+  await ticket.update({ status: "pending", userId: null });
+  await ticket.reload({
+    include: [
+      {
+        model: Queue,
+        as: "queue",
+        include: [{ model: Prompt, as: "prompt" }]
+      },
+      { model: User, as: "user" },
+      { model: Contact, as: "contact" }
+    ]
+  });
+
+  io.to(`company-${ticket.companyId}-${oldStatus}`)
+    .to(`queue-${ticket.queueId}-${oldStatus}`)
+    .emit(`company-${ticket.companyId}-ticket`, {
+      action: "delete",
+      ticket,
+      ticketId: ticket.id
+    });
+
+  io.to(`company-${ticket.companyId}-${ticket.status}`)
+    .to(`queue-${ticket.queueId}-${ticket.status}`)
+    .to(ticket.id.toString())
+    .emit(`company-${ticket.companyId}-ticket`, {
+      action: "update",
+      ticket,
+      ticketId: ticket.id
+    });
+};
+
 export const verifyMediaMessage = async (
   msg: proto.IWebMessageInfo,
   ticket: Ticket,
@@ -1904,6 +1937,10 @@ export const verifyMediaMessage = async (
         ticket,
         ticketId: ticket.id
       });
+  }
+
+  if (!msg.key.fromMe && ticket.status === "closed") {
+    await reopenClosedConversation(ticket, io);
   }
 
   return newMessage;
@@ -2089,6 +2126,10 @@ export const verifyMessage = async (
         ticket,
         ticketId: ticket.id
       });
+  }
+
+  if (!msg.key.fromMe && ticket.status === "closed") {
+    await reopenClosedConversation(ticket, io);
   }
 };
 

@@ -93,6 +93,7 @@ function DateTime24Field({
 type TicketTimes = {
   in_progress_started_at?: string | null;
   created_at_input?: string | null;
+  helpdesk_linked_at?: string | null;
 };
 
 export function TimeEntryDialog({
@@ -131,6 +132,9 @@ export function TimeEntryDialog({
         if (cancelled) return;
         if (mode === "stop" && ticket.in_progress_started_at) {
           setStart(ticket.in_progress_started_at);
+        } else if (mode === "add" && ticket.helpdesk_linked_at) {
+          // Início = horário em que o chamado foi anexado à conversa do Help Desk.
+          setStart(ticket.helpdesk_linked_at);
         } else {
           setStart(now);
         }
