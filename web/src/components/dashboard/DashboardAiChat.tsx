@@ -17,20 +17,36 @@ type ChatMessage = {
 };
 
 const SUGGESTIONS = [
-  "Como abrir um chamado para um cliente?",
-  "Quais procedimentos de atendimento remoto?",
-  "Resuma políticas de SLA do help desk",
+  "Qual a senha/AnyDesk da máquina do cliente X? (abrir no cofre)",
+  "Há orçamento aberto para o cliente Y?",
+  "Resuma o ticket mais recente sobre impressora",
 ];
 
 function sourceHref(source: HelpdeskAiSource) {
   const explicit = source.href || source.url;
-  if (explicit?.startsWith("/conhecimento") || explicit?.startsWith("/tickets")) return explicit;
+  if (
+    explicit?.startsWith("/conhecimento") ||
+    explicit?.startsWith("/tickets") ||
+    explicit?.startsWith("/cofre") ||
+    explicit?.startsWith("/orcamentos")
+  ) {
+    return explicit;
+  }
 
   const ticketId =
     source.ticket_id ||
     source.metadata?.ticket_id ||
     (source.source_type === "ticket" ? source.source_id : undefined);
   if (ticketId) return `/tickets/${ticketId}`;
+
+  if (source.source_type === "password_vault") {
+    const clientId = source.client_id || source.metadata?.client_id;
+    return clientId ? `/cofre/${clientId}` : "/cofre";
+  }
+
+  if (source.source_type === "budget" && source.source_id) {
+    return `/orcamentos/${source.source_id}`;
+  }
 
   const categoryId =
     source.category_id ||
@@ -52,12 +68,15 @@ function Sources({ sources }: { sources: HelpdeskAiSource[] }) {
       <div className="mt-1.5 flex flex-wrap gap-1.5">
         {sources.map((source, index) => {
           const href = sourceHref(source);
-          const label =
-            source.title ||
-            source.name ||
-            (source.source_type === "ticket"
+          const typeLabel =
+            source.source_type === "ticket"
               ? `Chamado #${source.source_id}`
-              : `Artigo #${source.source_id || index + 1}`);
+              : source.source_type === "password_vault"
+                ? `Cofre #${source.source_id}`
+                : source.source_type === "budget"
+                  ? `Orçamento #${source.source_id}`
+                  : `Artigo #${source.source_id || index + 1}`;
+          const label = source.title || source.name || typeLabel;
           const chip = (
             <span className="inline-flex max-w-full truncate rounded-md border border-[#dbe4f3] bg-white px-2 py-0.5 text-[11px] text-navy">
               {label}

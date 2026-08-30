@@ -951,7 +951,7 @@ class HelpDeskRating(db.Model):
 	)
 
 	id = db.Column(db.Integer, primary_key=True)
-	engine_ticket_id = db.Column(db.Integer, unique=True, nullable=False, index=True)
+	engine_ticket_id = db.Column(db.Integer, nullable=False, index=True)
 	computicket_ticket_id = db.Column(db.Integer, db.ForeignKey("ticket.id"), nullable=True, index=True)
 	token = db.Column(db.String(64), unique=True, nullable=False, index=True)
 	score = db.Column(db.Integer, nullable=True)
@@ -1101,7 +1101,10 @@ class KnowledgeArticle(db.Model):
 		return f"<KnowledgeArticle {self.title}>"
 
 class KnowledgeChunk(db.Model):
-	"""Trecho sanitizado indexado pelo RAG; nunca contém dados do cofre."""
+	"""Trecho sanitizado indexado pelo RAG.
+
+	Fontes: artigos, tickets, metadados do cofre (sem senha) e orçamentos.
+	"""
 	__tablename__ = "knowledge_chunk"
 	__table_args__ = (
 		db.UniqueConstraint("source_type", "source_id", "chunk_index", name="uq_rag_source_chunk"),

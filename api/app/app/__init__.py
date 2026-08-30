@@ -630,9 +630,20 @@ def create_app() -> Flask:
 	# Pesquisa de satisfação do Help Desk (SQLite e PostgreSQL).
 	try:
 		with app.app_context():
+			from sqlalchemy import text
 			from .schema_utils import ensure_column, ensure_tables_from_metadata
 			ensure_tables_from_metadata(["helpdesk_rating"])
 			ensure_column("helpdesk_rating", "sent_at", "TIMESTAMP")
+			bind = db.session.get_bind()
+			if bind is not None and bind.dialect.name == "postgresql":
+				db.session.execute(text(
+					"ALTER TABLE helpdesk_rating DROP CONSTRAINT IF EXISTS helpdesk_rating_engine_ticket_id_key"
+				))
+				db.session.execute(text(
+					"CREATE INDEX IF NOT EXISTS ix_helpdesk_rating_engine_ticket_id "
+					"ON helpdesk_rating (engine_ticket_id)"
+				))
+				db.session.commit()
 	except Exception as _rating_schema_error:
 		app.logger.warning("Não foi possível garantir o schema de avaliações: %s", _rating_schema_error)
 

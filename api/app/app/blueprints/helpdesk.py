@@ -241,6 +241,13 @@ def _visible_linked_ticket_id(computicket_id, conversation_status: str | None):
 	return ticket.id
 
 
+def _visible_rating(rating: dict | None, conversation_status: str | None):
+	"""Avaliação da sessão anterior não aparece em conversa reaberta."""
+	if not rating or conversation_status != "closed":
+		return None
+	return rating
+
+
 def _links_by_engine_ids(ids: list[int]) -> dict[int, int]:
 	if not ids:
 		return {}
@@ -251,13 +258,21 @@ def _links_by_engine_ids(ids: list[int]) -> dict[int, int]:
 def _ratings_by_engine_ids(ids: list[int]) -> dict[int, dict]:
     if not ids:
         return {}
-    rows = HelpDeskRating.query.filter(HelpDeskRating.engine_ticket_id.in_(ids)).all()
-    return {row.engine_ticket_id: row.to_dict() for row in rows}
+	rows = (
+		HelpDeskRating.query.filter(HelpDeskRating.engine_ticket_id.in_(ids))
+		.order_by(HelpDeskRating.id.asc())
+		.all()
+	)
+	return {row.engine_ticket_id: row.to_dict() for row in rows}
 
 
 def _get_or_create_rating(engine_ticket_id: int, conversation: dict | None = None) -> HelpDeskRating:
-    rating = HelpDeskRating.query.filter_by(engine_ticket_id=engine_ticket_id).first()
-    if rating:
+    rating = (
+        HelpDeskRating.query.filter_by(engine_ticket_id=engine_ticket_id)
+        .order_by(HelpDeskRating.id.desc())
+        .first()
+    )
+    if rating and not rating.answered:
         return rating
 
     link = HelpDeskTicketLink.query.filter_by(engine_ticket_id=engine_ticket_id).first()
@@ -285,15 +300,40 @@ def _get_or_create_rating(engine_ticket_id: int, conversation: dict | None = Non
         return rating
     except IntegrityError:
         db.session.rollback()
-        concurrent = HelpDeskRating.query.filter_by(engine_ticket_id=engine_ticket_id).first()
+        concurrent = (
+            HelpDeskRating.query.filter_by(engine_ticket_id=engine_ticket_id)
+            .order_by(HelpDeskRating.id.desc())
+            .first()
+        )
         if concurrent:
             return concurrent
         raise
 
 
+_PRODUCTION_SITE = "https://www.computicket.space"
+_LOCAL_HOSTS = {"localhost", "127.0.0.1", "0.0.0.0", "::1"}
+
+
+def _public_site_origin() -> str:
+    """Origem usada em links enviados ao WhatsApp — nunca localhost."""
+    raw = (os.environ.get("COMPUTICKET_PUBLIC_URL") or "").strip().rstrip("/")
+    if raw:
+        parsed = urlparse(raw if "://" in raw else f"https://{raw}")
+        host = (parsed.hostname or "").lower()
+        if host and host not in _LOCAL_HOSTS:
+            if host in {"computicket.space", "www.computicket.space"}:
+                return _PRODUCTION_SITE
+            scheme = (parsed.scheme or "https").lower()
+            if scheme != "https" and "." in host:
+                scheme = "https"
+            if parsed.port and parsed.port not in (80, 443, 3000):
+                return f"{scheme}://{host}:{parsed.port}"
+            return f"{scheme}://{host}"
+    return _PRODUCTION_SITE
+
+
 def _rating_public_url(rating: HelpDeskRating) -> str:
-    base = (os.environ.get("COMPUTICKET_PUBLIC_URL") or "http://localhost:3000").rstrip("/")
-    return f"{base}/avaliar-atendimento/{rating.token}"
+    return f"{_public_site_origin()}/avaliar-atendimento/{rating.token}"
 
 
 def _send_rating_invitation(rating: HelpDeskRating) -> None:
@@ -315,13 +355,17 @@ def _with_link(ticket: dict | None) -> dict | None:
     if engine_id is None:
         return _rewrite_ticket_media(ticket)
     row = HelpDeskTicketLink.query.filter_by(engine_ticket_id=int(engine_id)).first()
-    rating = HelpDeskRating.query.filter_by(engine_ticket_id=int(engine_id)).first()
+    rating = (
+        HelpDeskRating.query.filter_by(engine_ticket_id=int(engine_id))
+        .order_by(HelpDeskRating.id.desc())
+        .first()
+    )
     ticket = dict(ticket)
     ticket["computicket_ticket_id"] = _visible_linked_ticket_id(
         row.computicket_ticket_id if row else None,
         ticket.get("status"),
     )
-    ticket["rating"] = rating.to_dict() if rating else None
+    ticket["rating"] = _visible_rating(rating.to_dict() if rating else None, ticket.get("status"))
     return _rewrite_ticket_media(ticket)
 
 
@@ -789,7 +833,7 @@ def list_conversations():
             links.get(item.get("id")),
             item.get("status"),
         )
-        item["rating"] = ratings.get(item.get("id"))
+        item["rating"] = _visible_rating(ratings.get(item.get("id")), item.get("status"))
         rewritten.append(_rewrite_ticket_media(item) or item)
     tickets = rewritten
     if isinstance(data, dict):

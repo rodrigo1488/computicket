@@ -69,8 +69,8 @@ def answer_question(question: str, history: str = "") -> dict:
 	if not sources:
 		return {
 			"draft": (
-				"Não encontrei evidências suficientes na base de conhecimento ou "
-				"nos tickets fechados para responder com segurança."
+				"Não encontrei evidências suficientes na base de conhecimento, "
+				"tickets, cofre de senhas ou orçamentos para responder com segurança."
 			),
 			"sources": [],
 		}
@@ -79,8 +79,11 @@ def answer_question(question: str, history: str = "") -> dict:
 		(
 			"Você é o Copiloto de suporte do Computicket. Responda em português do Brasil, "
 			"objetivamente. Use as fontes como base factual e não invente credenciais, procedimentos "
-			"ou fatos ausentes. Nunca peça nem reproduza senhas, tokens ou dados pessoais. "
-			"Retorne JSON com o campo draft."
+			"ou fatos ausentes. Fontes podem ser artigos, tickets, metadados do cofre de senhas "
+			"(máquina/AnyDesk/cliente) e orçamentos. "
+			"Nunca peça nem reproduza senhas, tokens ou dados pessoais. "
+			"Se a fonte for do cofre, indique a máquina/cliente e oriente abrir o Cofre — "
+			"nunca invente nem cite a senha. Retorne JSON com o campo draft."
 		),
 		{"type": "object", "properties": {"draft": {"type": "string"}}, "required": ["draft"]},
 	)

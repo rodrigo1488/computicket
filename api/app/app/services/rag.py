@@ -12,12 +12,15 @@ from typing import Iterable
 from sqlalchemy import or_, type_coerce
 
 from .. import db
-from ..models import KnowledgeArticle, KnowledgeChunk, Ticket
+from ..models import Budget, KnowledgeArticle, KnowledgeChunk, PasswordVault, Ticket
 from .gemini_client import GeminiConfigError, GeminiError, embed_texts
 
 SOURCE_ARTICLE = "knowledge_article"
 SOURCE_TICKET = "ticket"
-ALLOWED_SOURCES = {SOURCE_ARTICLE, SOURCE_TICKET}
+SOURCE_VAULT = "password_vault"
+SOURCE_BUDGET = "budget"
+ALLOWED_SOURCES = {SOURCE_ARTICLE, SOURCE_TICKET, SOURCE_VAULT, SOURCE_BUDGET}
+TICKET_INDEX_STATUSES = {"aberto", "em_andamento", "fechado"}
 
 _EMAIL = re.compile(r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", re.I)
 _PHONE = re.compile(r"(?<!\d)(?:\+?55\s*)?(?:\(?\d{2}\)?[\s.-]*)?\d{4,5}[\s.-]?\d{4}(?!\d)")
@@ -99,6 +102,71 @@ def chunk_text(value: str, size: int | None = None, overlap: int | None = None) 
 	return chunks
 
 
+def _ticket_payload(row: Ticket) -> tuple[str, str]:
+	status = (row.status or "").strip().lower()
+	parts = [
+		f"Ticket #{row.id}",
+		row.title or "",
+		f"Status: {status}" if status else "",
+		f"Cliente: {row.display_client_name()}" if row.display_client_name() else "",
+		f"Solicitante: {row.solicitante}" if row.solicitante else "",
+		f"Responsável: {row.assigned_to.name}" if getattr(row, "assigned_to", None) else "",
+		row.description or "",
+	]
+	for product in getattr(row, "products", None) or []:
+		label = getattr(product, "nome", None) or getattr(product, "description", None) or ""
+		if label:
+			parts.append(f"Produto: {label}")
+	for addon in getattr(row, "addons", None) or []:
+		if addon.description:
+			parts.append(f"Adicional: {addon.description}")
+	for entry in getattr(row, "time_entries", None) or []:
+		comment = (getattr(entry, "comment", None) or "").strip()
+		if comment:
+			parts.append(f"Apontamento: {comment}")
+	title = row.title or f"Ticket #{row.id}"
+	return title, " ".join(filter(None, parts))
+
+
+def _vault_payload(row: PasswordVault) -> tuple[str, str]:
+	"""Metadados do cofre — a senha nunca entra no índice."""
+	client = row.get_client_name() or "Cliente"
+	title = f"Cofre: {row.machine_name} — {client}"
+	parts = [
+		title,
+		f"Máquina: {row.machine_name}",
+		f"Cliente: {client}",
+		f"AnyDesk: {row.anydesk_code}" if row.anydesk_code else "",
+		row.description or "",
+		"Credencial disponível no cofre de senhas (não exibir a senha).",
+	]
+	return title, " ".join(filter(None, parts))
+
+
+def _budget_payload(row: Budget) -> tuple[str, str]:
+	client = row.get_client_name() if hasattr(row, "get_client_name") else ""
+	title = row.title or f"Orçamento #{row.id}"
+	parts = [
+		f"Orçamento #{row.id}: {title}",
+		f"Cliente: {client}" if client else "",
+		f"Status: {row.status}" if row.status else "",
+		row.description or "",
+		f"Condições de pagamento: {row.payment_terms}" if row.payment_terms else "",
+	]
+	for item in getattr(row, "items", None) or []:
+		desc = (item.description or "").strip()
+		if not desc:
+			continue
+		qty = item.quantity or 0
+		price = item.unit_price or 0
+		parts.append(f"Item: {desc} — qtd {qty:g} × R$ {price:.2f}")
+	try:
+		parts.append(f"Total: R$ {float(row.total):.2f}")
+	except Exception:
+		pass
+	return title, " ".join(filter(None, parts))
+
+
 def _source_data(source_type: str, source_id: int) -> tuple[str, str] | None:
 	if source_type == SOURCE_ARTICLE:
 		row = db.session.get(KnowledgeArticle, source_id)
@@ -107,9 +175,19 @@ def _source_data(source_type: str, source_id: int) -> tuple[str, str] | None:
 		return row.title, " ".join(filter(None, [row.title, row.summary, row.tags, row.content]))
 	if source_type == SOURCE_TICKET:
 		row = db.session.get(Ticket, source_id)
-		if not row or row.status != "fechado":
+		if not row or (row.status or "").strip().lower() not in TICKET_INDEX_STATUSES:
 			return None
-		return row.title, " ".join(filter(None, [row.title, row.description]))
+		return _ticket_payload(row)
+	if source_type == SOURCE_VAULT:
+		row = db.session.get(PasswordVault, source_id)
+		if not row:
+			return None
+		return _vault_payload(row)
+	if source_type == SOURCE_BUDGET:
+		row = db.session.get(Budget, source_id)
+		if not row:
+			return None
+		return _budget_payload(row)
 	raise ValueError("Tipo de fonte não permitido.")
 
 
@@ -128,6 +206,11 @@ def index_source(source_type: str, source_id: int) -> dict:
 	title, raw = data
 	clean_title = sanitize_for_rag(title)[:250] or f"{source_type} #{source_id}"
 	clean = sanitize_for_rag(raw)
+	# Blindagem extra: nunca indexar o campo password mesmo se vazou no texto.
+	if source_type == SOURCE_VAULT:
+		vault = db.session.get(PasswordVault, source_id)
+		if vault and vault.password:
+			clean = clean.replace(str(vault.password), "[SEGREDO REMOVIDO]")
 	source_hash = fingerprint(f"{clean_title}\n{clean}")
 	if existing and all(row.source_fingerprint == source_hash and row.embedding is not None for row in existing):
 		return {"source_type": source_type, "source_id": source_id, "removed": 0, "indexed": 0, "unchanged": True}
@@ -164,10 +247,22 @@ def index_source(source_type: str, source_id: int) -> dict:
 
 def reindex_all(remove_stale: bool = True) -> dict:
 	article_ids = [row.id for row in KnowledgeArticle.query.filter_by(status="published").all()]
-	ticket_ids = [row.id for row in Ticket.query.filter_by(status="fechado").all()]
-	valid = {(SOURCE_ARTICLE, item) for item in article_ids} | {(SOURCE_TICKET, item) for item in ticket_ids}
+	ticket_ids = [
+		row.id
+		for row in Ticket.query.filter(Ticket.status.in_(tuple(TICKET_INDEX_STATUSES))).all()
+	]
+	vault_ids = [row.id for row in PasswordVault.query.all()]
+	budget_ids = [row.id for row in Budget.query.all()]
+	valid = (
+		{(SOURCE_ARTICLE, item) for item in article_ids}
+		| {(SOURCE_TICKET, item) for item in ticket_ids}
+		| {(SOURCE_VAULT, item) for item in vault_ids}
+		| {(SOURCE_BUDGET, item) for item in budget_ids}
+	)
 	results = [index_source(SOURCE_ARTICLE, item) for item in article_ids]
 	results.extend(index_source(SOURCE_TICKET, item) for item in ticket_ids)
+	results.extend(index_source(SOURCE_VAULT, item) for item in vault_ids)
+	results.extend(index_source(SOURCE_BUDGET, item) for item in budget_ids)
 	removed = 0
 	if remove_stale:
 		for row in KnowledgeChunk.query.all():
@@ -247,6 +342,14 @@ def _source_link(row: KnowledgeChunk) -> dict:
 				"category_id": article.category_id,
 				"href": f"/conhecimento/{article.category_id}",
 			}
+	if row.source_type == SOURCE_VAULT:
+		vault = db.session.get(PasswordVault, row.source_id)
+		if vault:
+			client_id = vault.get_client_id()
+			href = f"/cofre/{client_id}" if client_id else "/cofre"
+			return {"href": href, "client_id": client_id or None}
+	if row.source_type == SOURCE_BUDGET:
+		return {"href": f"/orcamentos/{row.source_id}"}
 	return {}
 
 

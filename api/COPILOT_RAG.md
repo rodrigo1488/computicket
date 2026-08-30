@@ -1,9 +1,11 @@
 # Copiloto RAG
 
-O Copiloto usa somente artigos com `status=published` e tickets com
-`status=fechado`. `SystemConfig`, `PasswordVault` e anexos não fazem parte do
-pipeline. Antes da indexação, HTML ativo, e-mails, telefones, CPF/CNPJ, chaves,
-tokens e padrões comuns de senha são removidos.
+O Copiloto usa artigos com `status=published`, tickets (`aberto`,
+`em_andamento`, `fechado`), **metadados** do cofre de senhas (máquina, AnyDesk,
+cliente, descrição — **nunca a senha**) e orçamentos (título, itens, totais).
+`SystemConfig`, o campo `password` do vault, `internal_notes` de orçamento e
+anexos não entram no pipeline. Antes da indexação, HTML ativo, e-mails,
+telefones, CPF/CNPJ, chaves, tokens e padrões comuns de senha são removidos.
 
 ## Configuração
 

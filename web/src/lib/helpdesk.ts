@@ -259,7 +259,7 @@ export type TransferPayload = {
 export type HelpdeskAiSource = {
   id?: number | string;
   source_id?: number;
-  source_type?: "knowledge_article" | "ticket" | string;
+  source_type?: "knowledge_article" | "ticket" | "password_vault" | "budget" | string;
   title?: string;
   name?: string;
   type?: string;
@@ -268,11 +268,13 @@ export type HelpdeskAiSource = {
   url?: string;
   href?: string;
   ticket_id?: number;
+  client_id?: number;
   knowledge_id?: number;
   article_id?: number;
   category_id?: number;
   metadata?: {
     ticket_id?: number;
+    client_id?: number;
     knowledge_id?: number;
     article_id?: number;
     category_id?: number;

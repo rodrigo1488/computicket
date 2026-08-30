@@ -1352,12 +1352,12 @@ export function HelpdeskWorkspace() {
                       <span className={cn("mt-1 inline-flex rounded px-1.5 py-0.5 text-[10px] font-medium", chipItem.className)}>
                         {chipItem.label}
                       </span>
-                      {c.rating?.answered ? (
+                      {c.status === "closed" && c.rating?.answered ? (
                         <span className="ml-1 inline-flex items-center gap-0.5 rounded bg-[#fff8df] px-1.5 py-0.5 text-[10px] font-semibold text-[#765a00]">
                           <Star className="h-3 w-3 fill-[#f6b91a] text-[#f6b91a]" />
                           {c.rating.score}/5
                         </span>
-                      ) : c.rating ? (
+                      ) : c.status === "closed" && c.rating ? (
                         <span className="ml-1 inline-flex rounded bg-[#f3f4f6] px-1.5 py-0.5 text-[10px] text-muted">
                           Aguardando avaliação
                         </span>

@@ -2,6 +2,7 @@ import { subHours } from "date-fns";
 import { Op, UniqueConstraintError } from "sequelize";
 import Contact from "../../models/Contact";
 import Ticket from "../../models/Ticket";
+import TicketTag from "../../models/TicketTag";
 import ShowTicketService from "./ShowTicketService";
 import FindOrCreateATicketTrakingService from "./FindOrCreateATicketTrakingService";
 import Setting from "../../models/Setting";
@@ -20,15 +21,19 @@ const reopenClosedTicket = async (
   await ticket.update({
     status: params.groupContact ? "open" : "pending",
     userId: null,
+    queueId: null,
     unreadMessages: params.unreadMessages,
     companyId: params.companyId,
     sessionStartedAt: new Date(),
     promptId: null,
-    integrationId: ticket.integrationId,
+    integrationId: null,
     useIntegration: false,
     typebotStatus: false,
-    typebotSessionId: null
+    typebotSessionId: null,
+    chatbot: false,
+    queueOptionId: null,
   });
+  await TicketTag.destroy({ where: { ticketId: ticket.id } });
   await FindOrCreateATicketTrakingService({
     ticketId: ticket.id,
     companyId: params.companyId,

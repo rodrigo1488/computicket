@@ -73,10 +73,11 @@ class RAGServiceTest(unittest.TestCase):
 		category = KnowledgeCategory(name="Rede", created_by_id=user.id)
 		db.session.add(category)
 		db.session.flush()
+		category_id = category.id
 		article = KnowledgeArticle(
 			title="Configurar impressora",
 			content="<p>Reinicie o spooler de impressão.</p>",
-			category_id=category.id,
+			category_id=category_id,
 			status="published",
 			created_by_id=user.id,
 		)
@@ -92,12 +93,80 @@ class RAGServiceTest(unittest.TestCase):
 			self.assertTrue(results)
 			self.assertEqual(results[0]["source_type"], "knowledge_article")
 			self.assertEqual(results[0]["source_id"], article.id)
-			self.assertEqual(results[0]["href"], f"/conhecimento/{category.id}")
+			self.assertEqual(results[0]["href"], f"/conhecimento/{category_id}")
 
 		article.status = "draft"
 		db.session.commit()
 		index_source("knowledge_article", article.id)
 		self.assertEqual(KnowledgeChunk.query.count(), 0)
+
+	def test_vault_indexes_metadata_without_password(self):
+		from app.models import PasswordVault
+
+		user = User(name="Teste", email="vault@example.invalid", password_hash="x")
+		db.session.add(user)
+		db.session.flush()
+		vault = PasswordVault(
+			external_client_id=99,
+			external_client_name="Cliente Vault",
+			machine_name="PC Recepção",
+			anydesk_code="123 456 789",
+			password="SENHA_SECRETA_NUNCA_INDEXAR",
+			description="Acesso remoto do balcão",
+			created_by_id=user.id,
+		)
+		db.session.add(vault)
+		db.session.commit()
+
+		with patch("app.services.rag.embed_texts", side_effect=GeminiError("offline")):
+			index_source("password_vault", vault.id)
+		chunk = KnowledgeChunk.query.filter_by(source_type="password_vault", source_id=vault.id).first()
+		self.assertIsNotNone(chunk)
+		self.assertIn("PC Recepção", chunk.content)
+		self.assertIn("123 456 789", chunk.content)
+		self.assertNotIn("SENHA_SECRETA_NUNCA_INDEXAR", chunk.content)
+		self.assertNotIn("SENHA_SECRETA_NUNCA_INDEXAR", chunk.title)
+		results = hybrid_search("AnyDesk recepção")
+		self.assertTrue(results)
+		self.assertEqual(results[0]["source_type"], "password_vault")
+		self.assertEqual(results[0]["href"], "/cofre/99")
+
+	def test_budget_is_indexed_with_items(self):
+		from app.models import Budget, BudgetItem
+
+		user = User(name="Teste", email="budget@example.invalid", password_hash="x")
+		db.session.add(user)
+		db.session.flush()
+		budget = Budget(
+			title="Upgrade servidor",
+			description="Proposta de upgrade de hardware",
+			external_client_name="Cliente Orçamento",
+			status="sent",
+			payment_terms="30 dias",
+			created_by_id=user.id,
+		)
+		db.session.add(budget)
+		db.session.flush()
+		db.session.add(
+			BudgetItem(
+				budget_id=budget.id,
+				description="SSD NVMe 1TB",
+				quantity=2,
+				unit_price=450.0,
+			)
+		)
+		db.session.commit()
+
+		with patch("app.services.rag.embed_texts", side_effect=GeminiError("offline")):
+			index_source("budget", budget.id)
+		chunk = KnowledgeChunk.query.filter_by(source_type="budget", source_id=budget.id).first()
+		self.assertIsNotNone(chunk)
+		self.assertIn("SSD NVMe", chunk.content)
+		self.assertIn("Upgrade servidor", chunk.title)
+		results = hybrid_search("SSD NVMe orçamento")
+		self.assertTrue(results)
+		self.assertEqual(results[0]["source_type"], "budget")
+		self.assertEqual(results[0]["href"], f"/orcamentos/{budget.id}")
 
 
 if __name__ == "__main__":

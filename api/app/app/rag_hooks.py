@@ -9,38 +9,67 @@ from sqlalchemy import event, inspect
 from sqlalchemy.orm import Session
 
 from . import db
-from .models import KnowledgeArticle, Ticket
+from .models import Budget, BudgetItem, KnowledgeArticle, PasswordVault, Ticket
 
 _executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="rag-index")
 _registered = False
 _PENDING_KEY = "rag_pending_sources"
+_NEW_KEY = "rag_new_sources"
+
+
+def _queue(session: Session, source_type: str, source_id: int | None = None, obj=None) -> None:
+	if source_id is not None:
+		session.info.setdefault(_PENDING_KEY, set()).add((source_type, int(source_id)))
+	elif obj is not None:
+		session.info.setdefault(_NEW_KEY, []).append((source_type, obj))
 
 
 def _record_pending(session: Session, _flush_context, _instances) -> None:
-	pending: set[tuple[str, int]] = session.info.setdefault(_PENDING_KEY, set())
 	for obj in session.new | session.dirty | session.deleted:
 		if isinstance(obj, KnowledgeArticle):
 			if obj.id is not None:
-				pending.add(("knowledge_article", int(obj.id)))
-		elif obj in session.new:
-				# Novos objetos recebem o ID durante o flush; after_flush cobre este caso.
-				session.info.setdefault("rag_new_sources", []).append(("knowledge_article", obj))
-		elif obj in session.deleted:
+				_queue(session, "knowledge_article", obj.id)
+			elif obj in session.new:
+				_queue(session, "knowledge_article", obj=obj)
 			continue
+
+		if isinstance(obj, Ticket):
+			if obj.id is not None:
+				_queue(session, "ticket", obj.id)
+			elif obj in session.new:
+				_queue(session, "ticket", obj=obj)
+			continue
+
+		if isinstance(obj, PasswordVault):
+			if obj.id is not None:
+				_queue(session, "password_vault", obj.id)
+			elif obj in session.new:
+				_queue(session, "password_vault", obj=obj)
+			continue
+
+		if isinstance(obj, Budget):
+			if obj.id is not None:
+				_queue(session, "budget", obj.id)
+			elif obj in session.new:
+				_queue(session, "budget", obj=obj)
+			continue
+
+		if isinstance(obj, BudgetItem):
+			budget_id = getattr(obj, "budget_id", None)
+			if budget_id is not None:
+				_queue(session, "budget", budget_id)
+			elif getattr(obj, "budget", None) is not None:
+				_queue(session, "budget", obj=obj.budget)
+			continue
+
+		# Ignora objetos não relevantes; evita reindexar quando só houve flush sem mudança útil.
 		if obj in session.dirty and not inspect(obj).modified:
 			continue
-		elif isinstance(obj, Ticket) and obj.id is not None:
-			state = inspect(obj)
-			status_changed = state.attrs.status.history.has_changes()
-			if obj.status == "fechado" or status_changed or obj in session.deleted:
-				pending.add(("ticket", int(obj.id)))
-		elif isinstance(obj, Ticket) and obj in session.new and obj.status == "fechado":
-			session.info.setdefault("rag_new_sources", []).append(("ticket", obj))
 
 
 def _record_new_ids(session: Session, _flush_context) -> None:
-	for source_type, obj in session.info.pop("rag_new_sources", []):
-		if obj.id is not None:
+	for source_type, obj in session.info.pop(_NEW_KEY, []):
+		if obj is not None and getattr(obj, "id", None) is not None:
 			session.info.setdefault(_PENDING_KEY, set()).add((source_type, int(obj.id)))
 
 
@@ -70,7 +99,7 @@ def _dispatch_after_commit(session: Session) -> None:
 
 def _clear_after_rollback(session: Session) -> None:
 	session.info.pop(_PENDING_KEY, None)
-	session.info.pop("rag_new_sources", None)
+	session.info.pop(_NEW_KEY, None)
 
 
 def register_rag(app) -> None:
@@ -85,7 +114,7 @@ def register_rag(app) -> None:
 	@app.cli.command("rag-reindex")
 	@click.option("--keep-stale", is_flag=True, help="Não remove chunks de fontes obsoletas.")
 	def rag_reindex(keep_stale: bool) -> None:
-		"""Reindexa artigos publicados e tickets fechados."""
+		"""Reindexa artigos, tickets, cofre (metadados) e orçamentos."""
 		from .services.rag import reindex_all
 
 		result = reindex_all(remove_stale=not keep_stale)

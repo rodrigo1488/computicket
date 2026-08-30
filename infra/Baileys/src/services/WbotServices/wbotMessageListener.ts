@@ -116,6 +116,7 @@ import ListSettingsServiceOne from "../SettingServices/ListSettingsServiceOne";
 import ShowUserService from "../UserServices/ShowUserService";
 import ListQueuesService from "../QueueService/ListQueuesService";
 import Tag from "../../models/Tag";
+import TicketTag from "../../models/TicketTag";
 import ExecuteAppointmentFunction from "../AppointmentAIService/ExecuteAppointmentFunction";
 import DashboardCommandService from "../AiServices/DashboardCommandService";
 import { AIProviderSelector } from "../AiServices/AIProviderSelector";
@@ -1735,7 +1736,15 @@ export const transferQueue = async (
 
 const reopenClosedConversation = async (ticket: Ticket, io: ReturnType<typeof getIO>) => {
   const oldStatus = ticket.status;
-  await ticket.update({ status: "pending", userId: null });
+  await ticket.update({
+    status: "pending",
+    userId: null,
+    queueId: null,
+    chatbot: false,
+    queueOptionId: null,
+    sessionStartedAt: new Date(),
+  });
+  await TicketTag.destroy({ where: { ticketId: ticket.id } });
   await ticket.reload({
     include: [
       {
