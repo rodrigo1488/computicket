@@ -1,10 +1,14 @@
 #!/usr/bin/env bash
 # Migra tickets.sqlite3 -> Postgres (15432). Containers já devem estar no ar.
 #
-# Uso:
+# Uso (na raiz do repo /home/deploy/computicket):
 #   chmod +x migrate.sh
 #   ./migrate.sh
 #   ./migrate.sh /caminho/tickets.sqlite3
+#
+# Se falhar por falta de pip no venv:
+#   sudo apt install -y python3-venv python3-pip
+#   rm -rf api/app/.venv && ./migrate.sh
 #
 # Variáveis: NO_WIPE=1, SQLALCHEMY_DATABASE_URI=...
 set -euo pipefail

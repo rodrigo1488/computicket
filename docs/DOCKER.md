@@ -39,6 +39,14 @@ chmod +x migrate.sh
 
 O script cria `api/app/.venv` e instala `api/requirements.txt` se faltar `python-dotenv`.
 
+Se der erro de `pip` no venv (comum em Ubuntu sem pacotes):
+
+```bash
+sudo apt install -y python3-venv python3-pip
+rm -rf api/app/.venv
+./migrate.sh
+```
+
 Verificar após migrar:
 
 ```bash
