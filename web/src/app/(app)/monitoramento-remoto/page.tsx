@@ -26,6 +26,7 @@ import {
   type RemoteLiveEvent,
   type RemoteThresholds,
 } from "@/lib/remote-monitor";
+import { flaskSocketOptions } from "@/lib/flask-socket";
 
 type Client = { id: number; name: string };
 type CreateResult = { agent: RemoteAgent; activation_code: string };
@@ -73,10 +74,7 @@ export default function RemoteMonitoringPage() {
   });
 
   useEffect(() => {
-    const socket = io(`${remoteSocketOrigin}/remote-monitor-view`, {
-      transports: ["websocket", "polling"],
-      withCredentials: true,
-    });
+    const socket = io(`${remoteSocketOrigin}/remote-monitor-view`, flaskSocketOptions());
     const update = (payload: RemoteAgent | RemoteLiveEvent) => {
       qc.setQueriesData<PageRes<RemoteAgent>>({ queryKey: ["remote-agents"] }, (current) => {
         if (!current) return current;

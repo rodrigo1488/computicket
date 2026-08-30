@@ -13,6 +13,9 @@ from ..remote_monitor_service import (
 	broadcast_live_telemetry,
 	heartbeat,
 	ingest_telemetry,
+	mark_command_result,
+	mark_command_running,
+	push_pending_commands,
 	register_agent_connection,
 	unregister_agent_connection,
 )
@@ -23,7 +26,7 @@ VIEW_ROOM = "remote-monitor"
 
 
 def _auth_payload(auth) -> dict[str, str | None]:
-	"""Extrai device_id/token do handshake (auth dict, query, headers)."""
+	"""Extrai credenciais somente do auth dict do handshake."""
 	auth = auth if isinstance(auth, dict) else {}
 	event = getattr(request, "event", None)
 	if isinstance(event, dict):
@@ -31,21 +34,8 @@ def _auth_payload(auth) -> dict[str, str | None]:
 		if isinstance(extra, dict):
 			auth = {**extra, **auth}
 
-	header_auth = (request.headers.get("Authorization") or "").strip()
-	bearer = ""
-	if header_auth.lower().startswith("bearer "):
-		bearer = header_auth[7:].strip()
-
-	device_id = (
-		(auth.get("device_id") if auth else None)
-		or request.args.get("device_id")
-		or request.headers.get("X-Device-Id")
-	)
-	token = (
-		(auth.get("token") if auth else None)
-		or request.args.get("token")
-		or bearer
-	)
+	device_id = auth.get("device_id")
+	token = auth.get("token")
 	return {
 		"device_id": (str(device_id).strip() if device_id else "") or None,
 		"token": (str(token).strip() if token else "") or None,
@@ -73,6 +63,7 @@ def remote_agent_connect(auth=None):
 	register_agent_connection(request.sid, agent.id)
 	join_room(f"agent:{agent.id}")
 	emit("ready", {"ok": True, "agent_id": agent.id, "device_id": agent.device_uuid})
+	push_pending_commands(agent.id, request.sid)
 
 
 @socketio.on("disconnect", namespace=AGENT_NAMESPACE)
@@ -114,6 +105,39 @@ def remote_agent_heartbeat(data=None):
 	if not agent:
 		return {"ok": False, "error": "Não autenticado"}
 	return {"ok": True, "agent": heartbeat(agent, data if isinstance(data, dict) else {})}
+
+
+@socketio.on("command_started", namespace=AGENT_NAMESPACE)
+def remote_agent_command_started(data):
+	agent = _agent_for_sid()
+	if not agent:
+		return {"ok": False, "error": "Não autenticado"}
+	try:
+		command = mark_command_running(int((data or {}).get("command_id")), agent.id)
+		return {"ok": True, "command": command.to_dict()}
+	except (TypeError, ValueError) as exc:
+		db.session.rollback()
+		return {"ok": False, "error": str(exc)}
+
+
+@socketio.on("command_result", namespace=AGENT_NAMESPACE)
+def remote_agent_command_result(data):
+	agent = _agent_for_sid()
+	if not agent:
+		return {"ok": False, "error": "Não autenticado"}
+	data = data if isinstance(data, dict) else {}
+	try:
+		command = mark_command_result(
+			int(data.get("command_id")),
+			agent.id,
+			status=data.get("status"),
+			result=data.get("result"),
+			error=data.get("error"),
+		)
+		return {"ok": True, "command": command.to_dict()}
+	except (TypeError, ValueError) as exc:
+		db.session.rollback()
+		return {"ok": False, "error": str(exc)}
 
 
 @socketio.on("connect", namespace=VIEW_NAMESPACE)

@@ -18,7 +18,9 @@
     <strong class="{{ 'ok' if state.connected else 'bad' }}">{{ 'Conectado' if state.connected else 'Desconectado' }}</strong>
     <p>Versão {{ version }} · Device ID: <code>{{ cfg.device_id }}</code>
       · evento: <code>{{ state.last_event }}</code></p>
-    <p>Fila local: {{ state.buffered }} snapshot(s){% if state.last_error %}<br>Último erro: {{ state.last_error }}{% endif %}</p>
+    <p>Fila local: {{ state.buffered }} snapshot(s) · {{ state.pending_commands }} comando(s)
+      {% if state.last_command %}<br>Último comando: <code>{{ state.last_command.command_type }} #{{ state.last_command.command_id }}</code> ({{ state.last_command.state }}){% endif %}
+      {% if state.last_error %}<br>Último erro: {{ state.last_error }}{% endif %}</p>
     <p class="{{ 'ok' if state.authenticated else 'bad' }}">Auth Computicket: {{ 'ok (ready)' if state.authenticated else 'pendente/falhou' }}</p>
     <a href="{{ url_for('logs_page') }}">Ver logs</a>
   </div>

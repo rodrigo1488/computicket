@@ -78,20 +78,71 @@ export type RemoteLiveEvent = {
   last_seen?: string | null;
 };
 
+export type RemoteCommandStatus = "pending" | "running" | "done" | "error" | "cancelled";
+
+export type RemoteFileEntry = {
+  name: string;
+  path: string;
+  is_directory: boolean;
+  is_file: boolean;
+  size?: number | null;
+  modified_at?: string | null;
+  hidden?: boolean;
+};
+
+export type RemoteDirectoryResult = {
+  path: string;
+  entries: RemoteFileEntry[];
+  truncated?: boolean;
+};
+
+export type RemoteCommand = {
+  id: number;
+  agent_id: number;
+  command_type: string;
+  payload?: Record<string, unknown>;
+  status: RemoteCommandStatus;
+  requested_by_id?: number;
+  requested_by?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+  started_at?: string | null;
+  finished_at?: string | null;
+  result?: RemoteDirectoryResult | Record<string, unknown> | null;
+  error?: string | null;
+  transfers?: string[];
+};
+
+export type RemoteFileTransfer = {
+  uuid: string;
+  direction: "upload" | "download";
+  remote_path: string;
+  original_filename: string;
+  size?: number;
+  status: string;
+  expires_at?: string | null;
+};
+
+export type RemoteTransferResponse = {
+  command: RemoteCommand;
+  transfer: RemoteFileTransfer;
+};
+
 export const DEFAULT_REMOTE_THRESHOLDS: RemoteThresholds = {
   cpu: 90,
   ram: 90,
   disk: 90,
   temperature: 85,
 };
-export const REMOTE_OFFLINE_AFTER_MS = 90_000;
+export const REMOTE_OFFLINE_AFTER_MS = 30_000;
 
+import { getFlaskSocketConfig } from "@/lib/flask-socket";
+
+/** Origem do Socket.IO Flask (same-origin em produção; ver `flask-socket.ts`). */
 export const remoteSocketOrigin =
   typeof window === "undefined"
-    ? "http://127.0.0.1:5000"
-    : process.env.NEXT_PUBLIC_FLASK_URL ||
-      `${window.location.protocol}//${window.location.hostname}:5000`;
-
+    ? process.env.NEXT_PUBLIC_FLASK_URL || "http://127.0.0.1:5000"
+    : getFlaskSocketConfig().url;
 function finiteNumber(value: unknown): number | null {
   const number = typeof value === "number" ? value : Number(value);
   return Number.isFinite(number) ? number : null;

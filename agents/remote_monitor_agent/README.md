@@ -32,6 +32,29 @@ O fallback sem DPAPI existe apenas para testes/desenvolvimento fora do Windows
 e exige `COMPUTICKET_ALLOW_INSECURE_TOKEN_STORAGE=1`. Ele não deve ser usado
 em publicação.
 
+## Comandos remotos
+
+O agente executa, em uma única fila serial, os comandos `list_directory`,
+`mkdir`, `rename`, `move`, `copy`, `delete`, `upload_file`, `download_file`,
+`reboot` e `shutdown`. Comandos recebidos pelo Socket.IO nunca são executados
+na thread de rede. A fila e os resultados ficam registrados no SQLite para
+deduplicação após reinício; comandos já concluídos têm o resultado reenviado,
+sem nova execução.
+
+Somente caminhos absolutos de volumes Windows (por exemplo, `C:\Dados`) são
+aceitos. Caminhos UNC, namespaces `\\.\`/`\\?\`, NUL e operações destrutivas
+na raiz de volumes são recusados. Exclusão recursiva não segue symlinks nem
+reparse points. Destinos existentes não são sobrescritos. Listagens são
+limitadas a 2.000 entradas e transferências a 50 MiB; os arquivos são
+transferidos por streaming, com TLS verificado.
+
+As permissões são as do usuário que iniciou o executável. Pastas protegidas,
+arquivos em uso e operações de energia podem exigir execução elevada/UAC ou
+ser bloqueados por políticas corporativas. `reboot` e `shutdown` somente
+funcionam no Windows, confirmam o resultado ao servidor antes de chamar
+`shutdown.exe` e usam atraso de cinco segundos. Restrinja o acesso de
+administradores/técnicos no servidor e trate os logs como trilha de auditoria.
+
 ## Coleta
 
 - A cada 1 s: CPU, RAM, volumes, uptime, contadores de rede e conectividade.
@@ -75,3 +98,21 @@ A bandeja permite abrir a UI, reiniciar o agente e sair. A página de
 configuração mostra versão, UUID, conexão e tamanho da fila; a página de logs
 mascara credenciais. A fila remove snapshots apenas após ACK, é drenada após
 reconexão e possui limite de quantidade e retenção de sete dias.
+
+## Ações remotas e arquivos
+
+Administradores e técnicos autorizados podem reiniciar ou desligar a máquina
+e gerenciar arquivos pelo detalhe do agente. Toda solicitação recebe um ID,
+fica auditada no servidor e só aparece como concluída após a resposta do
+agente. Reinício, desligamento e exclusão exigem confirmação explícita.
+
+O gerenciador permite listar unidades e diretórios, criar pastas, renomear,
+mover, copiar, excluir, enviar e baixar arquivos. Caminhos UNC, namespaces de
+dispositivo, raízes de volume e reparse points são bloqueados nas operações
+destrutivas. Transferências são limitadas a 50 MiB, usam arquivos temporários
+e não sobrescrevem destinos existentes.
+
+O executável precisa ter as permissões do usuário Windows que o iniciou.
+Pastas protegidas e os comandos `shutdown.exe` podem exigir execução elevada
+ou uma política corporativa apropriada. O módulo não oferece execução de
+shell ou scripts remotos.

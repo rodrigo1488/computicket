@@ -10,6 +10,7 @@ import requests
 import socketio
 
 import collector
+import command_executor
 import db
 
 VERSION = "1.0.2"
@@ -18,6 +19,7 @@ READY_TIMEOUT_SEC = 12.0
 _STOP = threading.Event()
 _THREADS: list[threading.Thread] = []
 _SIO: socketio.Client | None = None
+_COMMAND_EXECUTOR: command_executor.CommandExecutor | None = None
 _STATE_LOCK = threading.RLock()
 _CACHE_LOCK = threading.RLock()
 _CACHE: dict[str, Any] = {"inventory": None, "pending_updates": None}
@@ -74,6 +76,10 @@ def get_state() -> dict[str, Any]:
         state = dict(_STATE)
     state["buffered"] = db.buffer_count()
     state["device_id"] = db.get_config("device_id")
+    executor = _COMMAND_EXECUTOR
+    command_stats = executor.stats() if executor else {"pending": 0, "last": None}
+    state["pending_commands"] = command_stats["pending"]
+    state["last_command"] = command_stats["last"]
     return state
 
 
@@ -96,6 +102,101 @@ def _log(level: str, message: object) -> None:
     db.add_log(level, safe)
     if level.upper() == "ERROR":
         _set_state(last_error=safe)
+
+
+def _command_credentials() -> tuple[str, str, str]:
+    token = db.get_token()
+    device_id = str(db.get_config("device_id") or "")
+    raw_url = (db.get_config("server_url") or "").strip()
+    if not token or not device_id or not raw_url:
+        raise RuntimeError("Credenciais do agente indisponíveis")
+    return server_origin(raw_url), device_id, token
+
+
+def _command_headers(device_id: str, token: str) -> dict[str, str]:
+    return {"Authorization": f"Bearer {token}", "X-Device-Id": device_id}
+
+
+def _report_command_started(command_id: str) -> bool:
+    payload = {"command_id": command_id}
+    sio = _SIO
+    if sio and sio.connected:
+        with _STATE_LOCK:
+            authenticated = bool(_STATE.get("authenticated"))
+        if authenticated:
+            sio.emit("command_started", payload, namespace=NAMESPACE)
+    try:
+        base, device_id, token = _command_credentials()
+        response = requests.post(
+            f"{base}/api/remote-monitor/agent/commands/{command_id}/started",
+            headers=_command_headers(device_id, token),
+            timeout=(5, 20),
+            verify=True,
+        )
+        response.raise_for_status()
+        return True
+    except Exception as exc:
+        _log("ERROR", f"Falha ao confirmar início do comando {command_id}: {exc}")
+        return False
+
+
+def _report_command_result(
+    command_id: str, status: str, result: dict[str, Any], error: str | None
+) -> bool:
+    payload = {
+        "command_id": command_id,
+        "status": status,
+        "result": result,
+        "error": error,
+    }
+    sio = _SIO
+    if sio and sio.connected:
+        with _STATE_LOCK:
+            authenticated = bool(_STATE.get("authenticated"))
+        if authenticated:
+            sio.emit("command_result", payload, namespace=NAMESPACE)
+    try:
+        base, device_id, token = _command_credentials()
+        response = requests.post(
+            f"{base}/api/remote-monitor/agent/commands/{command_id}/result",
+            headers=_command_headers(device_id, token),
+            json={"status": status, "result": result, "error": error},
+            timeout=(5, 30),
+            verify=True,
+        )
+        response.raise_for_status()
+        _set_state(last_event=f"command_{status}")
+        return True
+    except Exception as exc:
+        _log("ERROR", f"Falha ao enviar resultado do comando {command_id}: {exc}")
+        return False
+
+
+def _fetch_pending_commands() -> int:
+    executor = _COMMAND_EXECUTOR
+    if executor is None:
+        return 0
+    try:
+        base, device_id, token = _command_credentials()
+        response = requests.get(
+            f"{base}/api/remote-monitor/agent/commands",
+            headers=_command_headers(device_id, token),
+            timeout=(5, 30),
+            verify=True,
+        )
+        response.raise_for_status()
+        data = response.json()
+        items = data.get("items", []) if isinstance(data, dict) else []
+        accepted = 0
+        for item in items:
+            if isinstance(item, dict) and executor.enqueue(item, confirmed_pending=True):
+                accepted += 1
+        if accepted:
+            _log("INFO", f"{accepted} comando(s) pendente(s) recebido(s) por HTTP")
+        return accepted
+    except Exception as exc:
+        _log("ERROR", f"Consulta de comandos pendentes falhou: {exc}")
+        return 0
 
 
 def enroll(server_url: str, activation_code: str) -> dict[str, Any]:
@@ -341,6 +442,21 @@ def _socket_loop() -> None:
                 db.acknowledge(int(data["buffer_id"]))
                 _set_state(last_telemetry_at=time.time(), last_event="telemetry_ack")
 
+        @sio.on("remote_command", namespace=NAMESPACE)
+        def remote_command(data: Any) -> None:
+            # O callback de rede apenas valida/enfileira; toda execução ocorre no worker serial.
+            try:
+                if not isinstance(data, dict):
+                    raise ValueError("Payload de comando deve ser objeto")
+                executor = _COMMAND_EXECUTOR
+                if executor is None:
+                    raise RuntimeError("Executor de comandos indisponível")
+                executor.enqueue(data, confirmed_pending=True)
+                _set_state(last_event="command_queued")
+            except Exception as exc:
+                command_id = data.get("id") if isinstance(data, dict) else "desconhecido"
+                _log("ERROR", f"Comando remoto {command_id} rejeitado: {exc}")
+
         try:
             sio.connect(
                 base,
@@ -368,6 +484,7 @@ def _socket_loop() -> None:
                     backoff = 1.0
                     # Descarrega fila imediatamente após auth.
                     _drain(sio)
+                    _fetch_pending_commands()
                     while sio.connected and not _STOP.is_set():
                         with _STATE_LOCK:
                             if not _STATE.get("authenticated"):
@@ -379,6 +496,7 @@ def _socket_loop() -> None:
                             namespace=NAMESPACE,
                         )
                         _http_heartbeat(base, str(device_id or ""), token)
+                        _fetch_pending_commands()
                         _STOP.wait(15)
         except Exception as exc:
             _set_state(
@@ -399,6 +517,7 @@ def _socket_loop() -> None:
         # Mesmo sem socket, tenta esvaziar a fila por HTTP (presença fica offline).
         try:
             _drain(None)
+            _fetch_pending_commands()
         except Exception as exc:
             _log("ERROR", f"Drain HTTP offline: {exc}")
         _STOP.wait(backoff)
@@ -406,10 +525,19 @@ def _socket_loop() -> None:
 
 
 def start_agent() -> None:
-    global _THREADS
+    global _THREADS, _COMMAND_EXECUTOR
     if any(thread.is_alive() for thread in _THREADS):
         return
     _STOP.clear()
+    if _COMMAND_EXECUTOR is None:
+        _COMMAND_EXECUTOR = command_executor.CommandExecutor(
+            db.DB_FILE,
+            _command_credentials,
+            _report_command_started,
+            _report_command_result,
+            _log,
+        )
+    _COMMAND_EXECUTOR.start()
     _THREADS = [
         threading.Thread(target=_collector_loop, name="monitor-collector", daemon=True),
         threading.Thread(target=_maintenance_loop, name="monitor-maintenance", daemon=True),
@@ -429,6 +557,9 @@ def stop_agent() -> None:
             pass
     for thread in _THREADS:
         thread.join(timeout=2)
+    executor = _COMMAND_EXECUTOR
+    if executor:
+        executor.stop()
 
 
 def restart_agent() -> None:

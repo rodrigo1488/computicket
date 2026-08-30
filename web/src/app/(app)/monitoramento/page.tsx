@@ -11,6 +11,7 @@ import { Pagination } from "@/components/ui/Pagination";
 import { IconAction, RowActions } from "@/components/ui/RowActions";
 import { flask } from "@/lib/api";
 import { applyColFilters, applyTextSearch } from "@/lib/col-filters";
+import { flaskSocketOptions, getFlaskSocketConfig } from "@/lib/flask-socket";
 import { cn } from "@/lib/cn";
 import { useColFilters } from "@/lib/use-col-filters";
 
@@ -32,7 +33,7 @@ type Tech = {
 const flaskOrigin =
   typeof window === "undefined"
     ? "http://127.0.0.1:5000"
-    : process.env.NEXT_PUBLIC_FLASK_URL || "http://127.0.0.1:5000";
+    : getFlaskSocketConfig().url;
 
 function parseTechnicians(data: unknown): Tech[] {
   if (Array.isArray(data)) return data as Tech[];
@@ -103,7 +104,7 @@ export default function MonitoramentoPage() {
   const online = techs.filter((t) => t.is_online).length;
 
   useEffect(() => {
-    const socket = io(flaskOrigin, { transports: ["websocket", "polling"], withCredentials: true });
+    const socket = io(flaskOrigin, flaskSocketOptions());
     socket.emit("join_monitoring_room");
     const refresh = () => qc.invalidateQueries({ queryKey: ["monitoring"] });
     socket.on("active_technicians", refresh);

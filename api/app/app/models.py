@@ -1982,6 +1982,18 @@ class RemoteAgent(db.Model):
 	snapshot = db.relationship("RemoteAgentSnapshot", backref="agent", uselist=False, cascade="all, delete-orphan")
 	samples = db.relationship("RemoteAgentSample", backref="agent", lazy="dynamic", cascade="all, delete-orphan")
 	alerts = db.relationship("RemoteAgentAlert", backref="agent", lazy="dynamic", cascade="all, delete-orphan")
+	commands = db.relationship(
+		"RemoteAgentCommand",
+		back_populates="agent",
+		lazy="dynamic",
+		cascade="all, delete-orphan",
+	)
+	file_transfers = db.relationship(
+		"RemoteFileTransfer",
+		back_populates="agent",
+		lazy="dynamic",
+		cascade="all, delete-orphan",
+	)
 
 	def to_dict(self, include_snapshot=False):
 		data = {
@@ -2093,4 +2105,131 @@ class RemoteAgentAlert(db.Model):
 			"opened_at": _remote_utc_iso(self.opened_at),
 			"resolved_at": _remote_utc_iso(self.resolved_at),
 			"updated_at": _remote_utc_iso(self.updated_at),
+		}
+
+
+class RemoteAgentCommand(db.Model):
+	"""Comando remoto auditado, sempre executado pelo agente de destino."""
+	__tablename__ = "remote_agent_command"
+	__table_args__ = (
+		db.CheckConstraint(
+			"status IN ('pending', 'running', 'done', 'error', 'cancelled')",
+			name="ck_remote_agent_command_status",
+		),
+	)
+
+	STATUSES = ("pending", "running", "done", "error", "cancelled")
+
+	id = db.Column(db.Integer, primary_key=True)
+	agent_id = db.Column(db.Integer, db.ForeignKey("remote_agent.id"), nullable=False, index=True)
+	command_type = db.Column(db.String(40), nullable=False, index=True)
+	payload = db.Column(db.JSON, nullable=False, default=dict)
+	status = db.Column(db.String(20), nullable=False, default="pending", index=True)
+	requested_by_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False, index=True)
+	created_at = db.Column(db.DateTime, nullable=False, default=_remote_monitor_now, index=True)
+	updated_at = db.Column(
+		db.DateTime,
+		nullable=False,
+		default=_remote_monitor_now,
+		onupdate=_remote_monitor_now,
+	)
+	started_at = db.Column(db.DateTime, nullable=True)
+	finished_at = db.Column(db.DateTime, nullable=True)
+	result = db.Column(db.JSON, nullable=True)
+	error = db.Column(db.Text, nullable=True)
+	audit_ip = db.Column(db.String(64), nullable=True)
+	audit_user_agent = db.Column(db.String(500), nullable=True)
+
+	agent = db.relationship("RemoteAgent", back_populates="commands")
+	requested_by = db.relationship(
+		"User",
+		backref=db.backref("remote_commands_requested", lazy="dynamic"),
+		foreign_keys=[requested_by_id],
+	)
+	transfers = db.relationship("RemoteFileTransfer", back_populates="command", lazy=True)
+
+	def to_agent_event(self):
+		return {
+			"id": self.id,
+			"command_type": self.command_type,
+			"payload": self.payload or {},
+			"created_at": _remote_utc_iso(self.created_at),
+		}
+
+	def to_dict(self):
+		return {
+			"id": self.id,
+			"agent_id": self.agent_id,
+			"command_type": self.command_type,
+			"payload": self.payload or {},
+			"status": self.status,
+			"requested_by_id": self.requested_by_id,
+			"requested_by": self.requested_by.name if self.requested_by else None,
+			"created_at": _remote_utc_iso(self.created_at),
+			"updated_at": _remote_utc_iso(self.updated_at),
+			"started_at": _remote_utc_iso(self.started_at),
+			"finished_at": _remote_utc_iso(self.finished_at),
+			"result": self.result,
+			"error": self.error,
+			"audit": {
+				"ip": self.audit_ip,
+				"user_agent": self.audit_user_agent,
+			},
+			"transfers": [transfer.public_uuid for transfer in self.transfers],
+		}
+
+
+class RemoteFileTransfer(db.Model):
+	"""Arquivo temporário de RMM; stored_filename nunca contém nome fornecido."""
+	__tablename__ = "remote_file_transfer"
+	__table_args__ = (
+		db.CheckConstraint("direction IN ('upload', 'download')", name="ck_remote_file_transfer_direction"),
+		db.CheckConstraint(
+			"status IN ('pending', 'staging', 'ready', 'error', 'expired')",
+			name="ck_remote_file_transfer_status",
+		),
+	)
+
+	id = db.Column(db.Integer, primary_key=True)
+	public_uuid = db.Column(db.String(36), unique=True, nullable=False, index=True)
+	agent_id = db.Column(db.Integer, db.ForeignKey("remote_agent.id"), nullable=False, index=True)
+	command_id = db.Column(
+		db.Integer,
+		db.ForeignKey("remote_agent_command.id", ondelete="SET NULL"),
+		nullable=True,
+		index=True,
+	)
+	direction = db.Column(db.String(20), nullable=False, index=True)
+	remote_path = db.Column(db.String(4096), nullable=False)
+	original_filename = db.Column(db.String(255), nullable=False)
+	stored_filename = db.Column(db.String(64), nullable=False, unique=True)
+	size = db.Column(db.BigInteger, nullable=False, default=0)
+	status = db.Column(db.String(20), nullable=False, default="pending", index=True)
+	expires_at = db.Column(db.DateTime, nullable=False, index=True)
+	created_at = db.Column(db.DateTime, nullable=False, default=_remote_monitor_now)
+	updated_at = db.Column(
+		db.DateTime,
+		nullable=False,
+		default=_remote_monitor_now,
+		onupdate=_remote_monitor_now,
+	)
+	completed_at = db.Column(db.DateTime, nullable=True)
+
+	agent = db.relationship("RemoteAgent", back_populates="file_transfers")
+	command = db.relationship("RemoteAgentCommand", back_populates="transfers")
+
+	def to_dict(self):
+		return {
+			"uuid": self.public_uuid,
+			"agent_id": self.agent_id,
+			"command_id": self.command_id,
+			"direction": self.direction,
+			"remote_path": self.remote_path,
+			"original_filename": self.original_filename,
+			"size": int(self.size or 0),
+			"status": self.status,
+			"expires_at": _remote_utc_iso(self.expires_at),
+			"created_at": _remote_utc_iso(self.created_at),
+			"updated_at": _remote_utc_iso(self.updated_at),
+			"completed_at": _remote_utc_iso(self.completed_at),
 		}

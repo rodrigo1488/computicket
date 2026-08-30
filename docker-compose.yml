@@ -75,6 +75,8 @@ services:
       ENABLE_AUDIO_TRANSCRIPTION: "false"
       BACKEND_URL: ${WHATSAPP_BACKEND_URL:-http://whatsapp-engine:4000}
       FRONTEND_URL: ${COMPUTICKET_PUBLIC_URL:-http://localhost:3000}
+      COMPUTICKET_API_URL: http://api:5000
+      COMPUTICKET_INTERNAL_TOKEN: ${COMPUTICKET_INTERNAL_TOKEN:-computicket-dev-secret-change-me}
       DB_DIALECT: postgres
       DB_HOST: postgres
       DB_PORT: "5432"
@@ -102,6 +104,7 @@ services:
       - "${COMPUTICKET_API_PORT:-5000}:5000"
     environment:
       SECRET_KEY: ${SECRET_KEY:-computicket-dev-secret-change-me}
+      COMPUTICKET_INTERNAL_TOKEN: ${COMPUTICKET_INTERNAL_TOKEN:-computicket-dev-secret-change-me}
       SQLALCHEMY_DATABASE_URI: postgresql+psycopg2://${COMPUTICKET_DB_USER:-computicket}:${COMPUTICKET_DB_PASS:-computicket}@postgres:5432/${COMPUTICKET_APP_DB:-computicket}
       # Em produção: https://computicket.space (nunca localhost / whatsapp-engine).
       COMPUTICKET_PUBLIC_URL: ${COMPUTICKET_PUBLIC_URL:-http://localhost:3000}
@@ -114,6 +117,7 @@ services:
       WHATSAPP_ENGINE_ADMIN_EMAIL: ${WHATSAPP_ENGINE_ADMIN_EMAIL:-admin@admin.com}
       WHATSAPP_ENGINE_ADMIN_PASSWORD: ${WHATSAPP_ENGINE_ADMIN_PASSWORD:-123456}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      AI_CONFIG_ENCRYPTION_KEY: ${AI_CONFIG_ENCRYPTION_KEY:-}
       GEMINI_MODEL: ${GEMINI_MODEL:-gemini-2.0-flash}
       GEMINI_EMBEDDING_MODEL: ${GEMINI_EMBEDDING_MODEL:-gemini-embedding-001}
       GEMINI_EMBEDDING_DIMENSION: "768"

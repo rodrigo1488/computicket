@@ -124,3 +124,78 @@ def record_external_message():
 		entity_id=external_id,
 	)
 	return jsonify(items[0].to_dict()), 201
+
+
+@notifications_bp.route("/engine-inbound", methods=["POST"])
+def engine_inbound_message():
+	"""Chamado pelo Baileys ao persistir mensagem recebida — toast/push sem esperar o poll."""
+	import os
+
+	expected = (
+		os.environ.get("COMPUTICKET_INTERNAL_TOKEN")
+		or os.environ.get("SECRET_KEY")
+		or ""
+	).strip()
+	provided = (request.headers.get("X-Internal-Token") or "").strip()
+	if not expected or provided != expected:
+		return jsonify({"error": "unauthorized"}), 401
+
+	data = request.get_json(silent=True) or {}
+	if data.get("fromMe"):
+		return jsonify({"ok": True, "skipped": "fromMe"}), 200
+
+	external_id = str(data.get("id") or data.get("messageId") or "").strip()
+	if not external_id:
+		return jsonify({"error": "ID da mensagem é obrigatório."}), 400
+
+	from app.models import AppNotification, HelpDeskAgentMap, User
+
+	ticket_id = data.get("ticketId")
+	engine_user_id = data.get("engineUserId") or data.get("userId")
+	contact_name = (data.get("contactName") or "Novo contato")[:120]
+	body = (data.get("body") or data.get("message") or "Nova mensagem")[:1000]
+	url = f"/helpdesk?c={ticket_id}" if ticket_id else "/helpdesk"
+	title = f"Nova mensagem de {contact_name}"[:200]
+
+	recipients: list[int] = []
+	try:
+		mapped = (
+			HelpDeskAgentMap.query.filter_by(engine_user_id=int(engine_user_id)).first()
+			if engine_user_id is not None
+			else None
+		)
+	except (TypeError, ValueError):
+		mapped = None
+	if mapped:
+		recipients = [mapped.computicket_user_id]
+	else:
+		recipients = [
+			user.id
+			for user in User.query.filter(
+				User.status == "1",
+				User.role.in_(["admin", "administrador", "tecnico"]),
+			).all()
+		]
+
+	recipients = [
+		user_id
+		for user_id in recipients
+		if not AppNotification.query.filter_by(
+			user_id=user_id,
+			entity_type="message",
+			entity_id=external_id,
+		).first()
+	]
+	if not recipients:
+		return jsonify({"ok": True, "created": 0}), 200
+
+	items = create_notifications(
+		recipients,
+		notification_type="message",
+		title=title,
+		message=body,
+		url=url[:500],
+		entity_type="message",
+		entity_id=external_id,
+	)
+	return jsonify({"ok": True, "created": len(items)}), 201

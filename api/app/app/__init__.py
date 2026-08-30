@@ -612,6 +612,8 @@ def create_app() -> Flask:
 				"remote_agent_snapshot",
 				"remote_agent_sample",
 				"remote_agent_alert",
+				"remote_agent_command",
+				"remote_file_transfer",
 			])
 	except Exception as _remote_schema_error:
 		app.logger.warning("Não foi possível garantir o schema de monitoramento remoto: %s", _remote_schema_error)

@@ -42,9 +42,12 @@ export const initIO = (httpServer: Server): SocketIO => {
   const allowedOrigins = [
     "https://www.compuchat.cloud",
     "https://compuchat.cloud",
+    "https://computicket.space",
+    "https://www.computicket.space",
     "http://localhost:3000",
     "http://localhost:3001",
-    process.env.FRONTEND_URL
+    process.env.FRONTEND_URL,
+    process.env.COMPUTICKET_PUBLIC_URL
   ].filter(Boolean);
 
   const isDevNetwork =
@@ -83,6 +86,20 @@ export const initIO = (httpServer: Server): SocketIO => {
 
         if (isAllowed || (isDevNetwork && isPrivateLanOrigin(origin))) {
           return callback(null, true);
+        }
+
+        // Produção: aceitar qualquer origem HTTPS do mesmo host configurado em FRONTEND_URL.
+        try {
+          const frontend = String(process.env.FRONTEND_URL || process.env.COMPUTICKET_PUBLIC_URL || "");
+          if (frontend) {
+            const allowedHost = new URL(frontend.includes("://") ? frontend : `https://${frontend}`).hostname;
+            const originHost = new URL(origin).hostname;
+            if (allowedHost && originHost && allowedHost === originHost) {
+              return callback(null, true);
+            }
+          }
+        } catch {
+          /* ignore */
         }
 
         console.error(`❌ CORS bloqueado: ${origin} não está na lista de permitidas`);

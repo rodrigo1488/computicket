@@ -20,11 +20,13 @@ import { useParams } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
 import { io } from "socket.io-client";
 import { PageTitle } from "@/components/layout/AppShell";
+import { RemoteManagement } from "@/components/remote-monitor/RemoteManagement";
 import { Modal } from "@/components/ui/Modal";
 import { flask } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import { copyText } from "@/lib/clipboard";
 import { cn } from "@/lib/cn";
+import { flaskSocketOptions } from "@/lib/flask-socket";
 import {
   formatBytes,
   formatDate,
@@ -77,10 +79,7 @@ export default function RemoteAgentDetailPage() {
 
   useEffect(() => {
     if (!Number.isFinite(id)) return;
-    const socket = io(`${remoteSocketOrigin}/remote-monitor-view`, {
-      transports: ["websocket", "polling"],
-      withCredentials: true,
-    });
+    const socket = io(`${remoteSocketOrigin}/remote-monitor-view`, flaskSocketOptions());
     socket.on("connect", () => socket.emit("join_agent", { agent_id: id }));
     const update = (payload: RemoteAgent | RemoteLiveEvent) => {
       if (Number(payload.id) !== id) return;
@@ -195,6 +194,8 @@ export default function RemoteAgentDetailPage() {
         </div>
         <p className="mt-2 text-right text-xs text-muted">Última amostra persistida: {formatDate(agent.snapshot?.updated_at)}</p>
       </section>
+
+      <RemoteManagement agent={agent} />
 
       <section className="mt-8" aria-labelledby="history-title">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">

@@ -15,7 +15,7 @@ import { Logo } from "@/components/layout/Logo";
 
 const SIDEBAR_KEY = "computicket.sidebar";
 const STALE_POLL_MS = 90_000;
-const HELPDESK_POLL_MS = 45_000;
+const HELPDESK_POLL_MS = 15_000;
 
 function NavAlertBadge({
   count,

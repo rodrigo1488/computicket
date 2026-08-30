@@ -15,6 +15,14 @@ def on_connect():
         join_room(f"agent_{current_user.id}")
 
 
+@socketio.on("join_agent_notifications")
+def on_join_agent_notifications():
+    """Rejoin explícito — útil após reconnect pelo proxy Next /flask/socket.io."""
+    if current_user.is_authenticated:
+        join_room(f"agent_{current_user.id}")
+        emit("joined_agent_notifications", {"user_id": current_user.id})
+
+
 @socketio.on("disconnect")
 def on_disconnect():
     try:

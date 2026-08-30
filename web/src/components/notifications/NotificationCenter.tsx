@@ -7,8 +7,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { io } from "socket.io-client";
 import { flask } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
+import { flaskSocketOptions, getFlaskSocketConfig } from "@/lib/flask-socket";
 import { resolveEngineSocketUrl } from "@/lib/helpdesk";
-import { remoteSocketOrigin } from "@/lib/remote-monitor";
 
 type AppNotification = {
   id: number;
@@ -148,10 +148,13 @@ export function NotificationCenter() {
   }, []);
 
   const bumpHelpdeskBadge = useCallback(() => {
+    // Incremento otimista; NÃO invalidar na hora — o GET ainda pode devolver 0 e zerar o badge.
     queryClient.setQueriesData<{ count: number }>({ queryKey: ["helpdesk-nav-badge"] }, (prev) => ({
       count: Math.max(0, (prev?.count ?? 0) + 1),
     }));
-    void queryClient.invalidateQueries({ queryKey: ["helpdesk-nav-badge"] });
+    window.setTimeout(() => {
+      void queryClient.invalidateQueries({ queryKey: ["helpdesk-nav-badge"] });
+    }, 4000);
   }, [queryClient]);
 
   const handleIncomingHelpdeskMessage = useCallback(
@@ -222,10 +225,8 @@ export function NotificationCenter() {
 
   useEffect(() => {
     if (!user) return;
-    const socket = io(remoteSocketOrigin, {
-      transports: ["websocket", "polling"],
-      withCredentials: true,
-    });
+    const { url } = getFlaskSocketConfig();
+    const socket = io(url, flaskSocketOptions());
     const onAppNotification = (notification: AppNotification) => {
       if (
         notification.type === "message" &&
@@ -243,6 +244,10 @@ export function NotificationCenter() {
         bumpHelpdeskBadge();
       }
     };
+    socket.on("connect", () => {
+      // Garante room agent_{id} mesmo se o connect do Flask já passou.
+      socket.emit("join_agent_notifications");
+    });
     socket.on("app_notification", onAppNotification);
     return () => {
       socket.off("app_notification", onAppNotification);

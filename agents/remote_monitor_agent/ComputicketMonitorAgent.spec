@@ -14,6 +14,7 @@ a = Analysis(
         "PIL.Image",
         "PIL.ImageDraw",
         "collector",
+        "command_executor",
         "security",
         "tray",
     ],

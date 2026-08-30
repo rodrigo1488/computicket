@@ -6,6 +6,7 @@ from flask import Flask
 from app import db
 from app.models import KnowledgeArticle, KnowledgeCategory, KnowledgeChunk, User
 from app.services.copilot import answer_question
+from app.services.config_secrets import decrypt_secret, encrypt_secret
 from app.services.gemini_client import GeminiError
 from app.services.rag import chunk_text, hybrid_search, index_source, sanitize_for_rag
 
@@ -16,6 +17,7 @@ class RAGServiceTest(unittest.TestCase):
 		self.app.config.update(
 			SQLALCHEMY_DATABASE_URI="sqlite://",
 			SQLALCHEMY_TRACK_MODIFICATIONS=False,
+			SECRET_KEY="test-secret",
 			TESTING=True,
 		)
 		db.init_app(self.app)
@@ -43,6 +45,11 @@ class RAGServiceTest(unittest.TestCase):
 		chunks = chunk_text("frase de teste. " * 200, size=320, overlap=40)
 		self.assertGreater(len(chunks), 1)
 		self.assertTrue(all(len(chunk) <= 320 for chunk in chunks))
+
+	def test_ai_secret_is_encrypted_at_rest(self):
+		encrypted = encrypt_secret("AIza-chave-de-teste")
+		self.assertNotIn("AIza-chave-de-teste", encrypted)
+		self.assertEqual(decrypt_secret(encrypted), "AIza-chave-de-teste")
 
 	def test_answer_without_sources_does_not_call_generation(self):
 		with (

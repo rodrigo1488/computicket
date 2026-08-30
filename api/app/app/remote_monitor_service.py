@@ -4,12 +4,14 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import ntpath
 import os
 import secrets
 import threading
 import time
 import uuid
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Any
 
 from flask import current_app
@@ -20,6 +22,8 @@ from .models import (
 	RemoteAgent,
 	RemoteAgentAlert,
 	RemoteAgentEnrollment,
+	RemoteAgentCommand,
+	RemoteFileTransfer,
 	RemoteAgentSample,
 	RemoteAgentSnapshot,
 )
@@ -30,6 +34,21 @@ MAX_TELEMETRY_BYTES = 512 * 1024
 OFFLINE_AFTER_SECONDS = 90
 LIVE_TOUCH_SECONDS = 10.0
 RETENTION_DAYS = 30
+MAX_PENDING_COMMANDS = 100
+MAX_FILE_BYTES = 50 * 1024 * 1024
+TRANSFER_TTL_HOURS = 24
+ALLOWED_COMMAND_TYPES = frozenset({
+	"reboot",
+	"shutdown",
+	"list_directory",
+	"mkdir",
+	"rename",
+	"move",
+	"copy",
+	"delete",
+	"upload_file",
+	"download_file",
+})
 
 _connections_lock = threading.Lock()
 # sid -> agent_id (presença Socket.IO em memória)
@@ -106,6 +125,11 @@ def apply_socket_presence(payload: dict, agent: RemoteAgent, now: datetime | Non
 def agent_id_for_sid(sid: str) -> int | None:
 	with _connections_lock:
 		return _connections.get(str(sid))
+
+
+def sids_for_agent(agent_id: int) -> list[str]:
+	with _connections_lock:
+		return [sid for sid, current_agent_id in _connections.items() if current_agent_id == int(agent_id)]
 
 
 def normalize_activation_code(code: str | None) -> str:
@@ -240,6 +264,334 @@ def authenticate_agent(device_id: str | None, token: str | None, *, touch: bool 
 		_touch_agent(agent)
 		db.session.commit()
 	return agent
+
+
+def _command_string(value: Any, field: str, *, allow_empty: bool = False, maximum: int = 4096) -> str:
+	if not isinstance(value, str):
+		raise ValueError(f"{field} deve ser texto")
+	value = value.strip()
+	if "\x00" in value:
+		raise ValueError(f"{field} contém caractere inválido")
+	if not allow_empty and not value:
+		raise ValueError(f"{field} é obrigatório")
+	if len(value) > maximum:
+		raise ValueError(f"{field} excede o tamanho permitido")
+	return value
+
+
+def sanitize_windows_path(value: Any, field: str = "path", *, allow_empty: bool = False) -> str:
+	path = _command_string(value, field, allow_empty=allow_empty)
+	if not path and allow_empty:
+		return ""
+	normalized_slashes = path.replace("/", "\\")
+	lowered = normalized_slashes.lower()
+	if lowered.startswith("\\\\.\\") or lowered.startswith("\\\\?\\"):
+		raise ValueError(f"{field} não permite caminhos de dispositivo")
+	if normalized_slashes.startswith("\\\\"):
+		raise ValueError(f"{field} não permite caminhos UNC")
+	drive, tail = ntpath.splitdrive(normalized_slashes)
+	is_drive_absolute = bool(drive) and tail.startswith("\\")
+	if not is_drive_absolute:
+		raise ValueError(f"{field} deve ser um caminho absoluto do Windows")
+	return ntpath.normpath(normalized_slashes)
+
+
+def sanitize_command_payload(command_type: str, payload: Any) -> dict:
+	command_type = str(command_type or "").strip().lower()
+	if command_type not in ALLOWED_COMMAND_TYPES:
+		raise ValueError("Tipo de comando remoto não permitido")
+	if payload is None:
+		payload = {}
+	if not isinstance(payload, dict):
+		raise ValueError("payload deve ser um objeto JSON")
+	if command_type in {"reboot", "shutdown"}:
+		return {}
+	if command_type == "list_directory":
+		return {"path": sanitize_windows_path(payload.get("path", ""), allow_empty=True)}
+	if command_type in {"mkdir", "delete"}:
+		return {"path": sanitize_windows_path(payload.get("path"))}
+	if command_type in {"rename", "move", "copy"}:
+		return {
+			"source_path": sanitize_windows_path(payload.get("source_path"), "source_path"),
+			"destination_path": sanitize_windows_path(payload.get("destination_path"), "destination_path"),
+		}
+	if command_type in {"upload_file", "download_file"}:
+		try:
+			transfer_uuid = str(uuid.UUID(str(payload.get("transfer_uuid") or "")))
+		except (ValueError, TypeError, AttributeError):
+			raise ValueError("transfer_uuid inválido") from None
+		return {
+			"remote_path": sanitize_windows_path(payload.get("remote_path"), "remote_path"),
+			"transfer_uuid": transfer_uuid,
+		}
+	raise ValueError("Tipo de comando remoto não permitido")
+
+
+def enqueue_command(
+	agent: RemoteAgent,
+	command_type: str,
+	payload: Any,
+	requested_by_id: int,
+	*,
+	audit_ip: str | None = None,
+	audit_user_agent: str | None = None,
+	push_immediately: bool = True,
+) -> RemoteAgentCommand:
+	if not agent or not agent.id:
+		raise ValueError("Agente inexistente")
+	if agent.is_revoked:
+		raise ValueError("Não é permitido enviar comandos para agente revogado")
+	pending_count = RemoteAgentCommand.query.filter(
+		RemoteAgentCommand.agent_id == agent.id,
+		RemoteAgentCommand.status.in_(("pending", "running")),
+	).count()
+	if pending_count >= MAX_PENDING_COMMANDS:
+		raise ValueError("Limite da fila pendente deste agente atingido")
+	clean_payload = sanitize_command_payload(command_type, payload)
+	command = RemoteAgentCommand(
+		agent_id=agent.id,
+		command_type=str(command_type).strip().lower(),
+		payload=clean_payload,
+		status="pending",
+		requested_by_id=int(requested_by_id),
+		audit_ip=str(audit_ip or "")[:64] or None,
+		audit_user_agent=str(audit_user_agent or "")[:500] or None,
+	)
+	db.session.add(command)
+	db.session.commit()
+	if push_immediately:
+		push_command(command)
+	return command
+
+
+def push_command(command: RemoteAgentCommand, sid: str | None = None) -> int:
+	"""Envia apenas aos SIDs autenticados do agente, nunca em broadcast."""
+	from . import socketio
+	targets = [str(sid)] if sid else sids_for_agent(command.agent_id)
+	for target_sid in targets:
+		try:
+			socketio.emit(
+				"remote_command",
+				command.to_agent_event(),
+				namespace="/remote-monitor",
+				room=target_sid,
+			)
+		except Exception:
+			current_app.logger.exception(
+				"Falha ao enviar comando %s ao SID autenticado do agente %s",
+				command.id,
+				command.agent_id,
+			)
+	return len(targets)
+
+
+def push_pending_commands(agent_id: int, sid: str) -> int:
+	rows = (
+		RemoteAgentCommand.query
+		.filter_by(agent_id=int(agent_id), status="pending")
+		.order_by(RemoteAgentCommand.id.asc())
+		.limit(MAX_PENDING_COMMANDS)
+		.all()
+	)
+	for command in rows:
+		push_command(command, sid)
+	return len(rows)
+
+
+def command_for_agent(command_id: int, agent_id: int) -> RemoteAgentCommand | None:
+	return RemoteAgentCommand.query.filter_by(id=int(command_id), agent_id=int(agent_id)).first()
+
+
+def mark_command_running(command_id: int, agent_id: int) -> RemoteAgentCommand:
+	command = command_for_agent(command_id, agent_id)
+	if not command:
+		raise ValueError("Comando não encontrado para este agente")
+	if command.status == "running":
+		return command
+	if command.status != "pending":
+		raise ValueError(f"Comando já está em estado terminal: {command.status}")
+	command.status = "running"
+	command.started_at = utc_now()
+	command.updated_at = command.started_at
+	db.session.commit()
+	return command
+
+
+def mark_command_result(
+	command_id: int,
+	agent_id: int,
+	*,
+	status: str,
+	result: Any = None,
+	error: str | None = None,
+) -> RemoteAgentCommand:
+	command = command_for_agent(command_id, agent_id)
+	if not command:
+		raise ValueError("Comando não encontrado para este agente")
+	status = str(status or "").strip().lower()
+	if status not in {"done", "error", "cancelled"}:
+		raise ValueError("Status final inválido")
+	clean_result = _safe_json_object(result, "result") if result is not None else {}
+	clean_error = _command_string(error, "error", allow_empty=True, maximum=4000) if error is not None else None
+	if command.status in {"done", "error", "cancelled"}:
+		if command.status == status and (command.result or {}) == clean_result and (command.error or None) == clean_error:
+			return command
+		raise ValueError(f"Comando já finalizado como {command.status}")
+	if command.status not in {"pending", "running"}:
+		raise ValueError("Transição de comando inválida")
+	if command.command_type == "download_file" and status == "done":
+		transfer_uuid = str(clean_result.get("transfer_uuid") or "")
+		expected_uuid = str((command.payload or {}).get("transfer_uuid") or "")
+		transfer = RemoteFileTransfer.query.filter_by(
+			public_uuid=transfer_uuid,
+			agent_id=agent_id,
+			command_id=command.id,
+			direction="download",
+			status="ready",
+		).first()
+		if transfer_uuid != expected_uuid or not transfer:
+			raise ValueError("Resultado download_file deve referenciar a transferência pronta")
+	command.status = status
+	command.result = clean_result
+	command.error = clean_error
+	command.finished_at = utc_now()
+	command.updated_at = command.finished_at
+	if command.started_at is None:
+		command.started_at = command.finished_at
+	if status in {"error", "cancelled"}:
+		for transfer in command.transfers:
+			if transfer.status not in {"expired"}:
+				transfer.status = "error"
+				transfer.updated_at = command.finished_at
+	db.session.commit()
+	return command
+
+
+def transfer_directory() -> Path:
+	root = Path(current_app.instance_path) / "remote_monitor_transfers"
+	root.mkdir(parents=True, exist_ok=True)
+	return root.resolve()
+
+
+def transfer_file_path(transfer: RemoteFileTransfer) -> Path:
+	if not transfer or not transfer.stored_filename:
+		raise ValueError("Transferência inválida")
+	try:
+		safe_name = str(uuid.UUID(transfer.stored_filename))
+	except (ValueError, TypeError, AttributeError):
+		raise ValueError("Nome interno de transferência inválido") from None
+	root = transfer_directory()
+	path = (root / safe_name).resolve()
+	if path.parent != root:
+		raise ValueError("Caminho interno de transferência inválido")
+	return path
+
+
+def create_file_transfer(
+	agent: RemoteAgent,
+	direction: str,
+	remote_path: Any,
+	original_filename: Any,
+	*,
+	status: str = "pending",
+) -> RemoteFileTransfer:
+	if not agent or not agent.id or agent.is_revoked:
+		raise ValueError("Agente inválido ou revogado")
+	direction = str(direction or "").strip().lower()
+	if direction not in {"upload", "download"}:
+		raise ValueError("Direção de transferência inválida")
+	path = sanitize_windows_path(remote_path, "remote_path")
+	filename = _command_string(original_filename, "original_filename", maximum=255)
+	filename = ntpath.basename(filename.replace("/", "\\"))
+	if not filename or filename in {".", ".."}:
+		raise ValueError("Nome de arquivo inválido")
+	internal_uuid = str(uuid.uuid4())
+	row = RemoteFileTransfer(
+		public_uuid=str(uuid.uuid4()),
+		agent_id=agent.id,
+		direction=direction,
+		remote_path=path,
+		original_filename=filename,
+		stored_filename=internal_uuid,
+		size=0,
+		status=status,
+		expires_at=utc_now() + timedelta(hours=TRANSFER_TTL_HOURS),
+	)
+	db.session.add(row)
+	db.session.commit()
+	return row
+
+
+def save_transfer_stream(transfer: RemoteFileTransfer, stream, *, expected_direction: str) -> RemoteFileTransfer:
+	if transfer.direction != expected_direction:
+		raise ValueError("Direção da transferência não permite envio de conteúdo")
+	if transfer.expires_at <= utc_now():
+		raise ValueError("Transferência expirada")
+	final_path = transfer_file_path(transfer)
+	part_path = final_path.with_name(f"{final_path.name}.part")
+	size = 0
+	try:
+		with part_path.open("wb") as output:
+			while True:
+				chunk = stream.read(1024 * 1024)
+				if not chunk:
+					break
+				size += len(chunk)
+				if size > MAX_FILE_BYTES:
+					raise ValueError("Arquivo excede o limite de 50 MiB")
+				output.write(chunk)
+		if size <= 0:
+			raise ValueError("Arquivo vazio")
+		part_path.replace(final_path)
+	except Exception:
+		try:
+			part_path.unlink(missing_ok=True)
+		except OSError:
+			pass
+		raise
+	transfer.size = size
+	transfer.status = "ready"
+	transfer.completed_at = utc_now()
+	transfer.updated_at = transfer.completed_at
+	db.session.commit()
+	return transfer
+
+
+def transfer_for_agent(public_uuid: str, agent_id: int) -> RemoteFileTransfer | None:
+	try:
+		public_uuid = str(uuid.UUID(str(public_uuid)))
+	except (ValueError, TypeError, AttributeError):
+		return None
+	return RemoteFileTransfer.query.filter_by(public_uuid=public_uuid, agent_id=int(agent_id)).first()
+
+
+def purge_expired_transfers() -> int:
+	rows = RemoteFileTransfer.query.filter(RemoteFileTransfer.expires_at <= utc_now()).all()
+	for transfer in rows:
+		try:
+			transfer_file_path(transfer).unlink(missing_ok=True)
+		except (OSError, ValueError):
+			current_app.logger.warning("Falha ao remover arquivo expirado da transferência %s", transfer.public_uuid)
+		db.session.delete(transfer)
+	db.session.commit()
+	# Remove apenas sobras UUID/.part antigas contidas no diretório dedicado.
+	cutoff = datetime.now().timestamp() - TRANSFER_TTL_HOURS * 60 * 60
+	for path in transfer_directory().iterdir():
+		if not path.is_file() or (path.suffix != ".part" and not _is_uuid_filename(path.name)):
+			continue
+		try:
+			if path.stat().st_mtime <= cutoff:
+				path.unlink()
+		except OSError:
+			current_app.logger.warning("Falha ao remover staging órfão: %s", path.name)
+	return len(rows)
+
+
+def _is_uuid_filename(value: str) -> bool:
+	try:
+		return str(uuid.UUID(value)) == value
+	except (ValueError, TypeError, AttributeError):
+		return False
 
 
 def _safe_json_object(value: Any, field: str) -> dict:
@@ -545,6 +897,7 @@ def start_remote_monitor_maintenance(app) -> bool:
 					mark_offline_agents()
 					if time.monotonic() - last_retention >= 24 * 60 * 60:
 						purge_old_samples()
+						purge_expired_transfers()
 						last_retention = time.monotonic()
 			except Exception:
 				app.logger.exception("Falha na manutenção do monitoramento remoto")

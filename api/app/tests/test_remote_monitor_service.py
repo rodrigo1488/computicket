@@ -1,22 +1,39 @@
 import unittest
 from datetime import timedelta
+from io import BytesIO
+import tempfile
 
 from flask import Flask
 
 from app import db
-from app.models import RemoteAgent, RemoteAgentAlert, RemoteAgentSample
+from app.blueprints.remote_monitor import _confirmation_required
+from app.models import (
+	RemoteAgent,
+	RemoteAgentAlert,
+	RemoteAgentCommand,
+	RemoteAgentSample,
+	RemoteFileTransfer,
+)
 from app.remote_monitor_service import (
 	activate,
 	agent_is_live,
 	apply_socket_presence,
 	authenticate_agent,
+	create_file_transfer,
 	create_enrollment,
+	enqueue_command,
 	hash_activation_code,
 	hash_agent_token,
 	ingest_telemetry,
+	mark_command_result,
+	mark_command_running,
 	mark_offline_agents,
 	purge_old_samples,
 	revoke_agent,
+	save_transfer_stream,
+	sanitize_command_payload,
+	transfer_file_path,
+	transfer_for_agent,
 	utc_now,
 	verify_agent_token,
 )
@@ -24,7 +41,8 @@ from app.remote_monitor_service import (
 
 class RemoteMonitorServiceTest(unittest.TestCase):
 	def setUp(self):
-		self.app = Flask(__name__)
+		self.temp_dir = tempfile.TemporaryDirectory()
+		self.app = Flask(__name__, instance_path=self.temp_dir.name)
 		self.app.config.update(
 			SQLALCHEMY_DATABASE_URI="sqlite://",
 			SQLALCHEMY_TRACK_MODIFICATIONS=False,
@@ -39,6 +57,7 @@ class RemoteMonitorServiceTest(unittest.TestCase):
 		db.session.remove()
 		db.drop_all()
 		self.context.pop()
+		self.temp_dir.cleanup()
 
 	def test_hashing_is_normalized_and_token_comparison_is_exact(self):
 		self.assertEqual(hash_activation_code("ABCD-EF12-3456"), hash_activation_code("abcd ef12 3456"))
@@ -130,6 +149,82 @@ class RemoteMonitorServiceTest(unittest.TestCase):
 		sample.minute_at = utc_now() - timedelta(days=31)
 		db.session.commit()
 		self.assertEqual(purge_old_samples(), 1)
+
+	def test_command_validation_confirmation_isolation_and_idempotency(self):
+		agent_a = RemoteAgent(external_client_id=10, external_client_name="Cliente", name="PC-A", thresholds={})
+		agent_b = RemoteAgent(external_client_id=10, external_client_name="Cliente", name="PC-B", thresholds={})
+		db.session.add_all([agent_a, agent_b])
+		db.session.commit()
+
+		with self.app.test_request_context("/", json={"confirm": False}):
+			response, status = _confirmation_required({"confirm": False})
+			self.assertEqual(status, 400)
+			self.assertIn("confirm=true", response.get_json()["error"])
+		with self.app.test_request_context("/", json={"confirm": True}):
+			self.assertIsNone(_confirmation_required({"confirm": True}))
+
+		self.assertEqual(sanitize_command_payload("list_directory", {"path": ""}), {"path": ""})
+		with self.assertRaises(ValueError):
+			sanitize_command_payload("delete", {"path": r"..\arquivo.txt"})
+		with self.assertRaises(ValueError):
+			sanitize_command_payload("delete", {"path": "\\\\.\\PhysicalDrive0"})
+		with self.assertRaises(ValueError):
+			sanitize_command_payload("delete", {"path": r"\\servidor\compartilhamento\arquivo.txt"})
+		with self.assertRaises(ValueError):
+			sanitize_command_payload("shell", {"command": "whoami"})
+
+		command = enqueue_command(agent_a, "mkdir", {"path": r"C:\Dados\Nova"}, 123)
+		self.assertIsNone(RemoteAgentCommand.query.filter_by(id=command.id, agent_id=agent_b.id).first())
+		running = mark_command_running(command.id, agent_a.id)
+		self.assertEqual(running.status, "running")
+		self.assertEqual(mark_command_running(command.id, agent_a.id).status, "running")
+		with self.assertRaises(ValueError):
+			mark_command_running(command.id, agent_b.id)
+		done = mark_command_result(command.id, agent_a.id, status="done", result={"created": True})
+		self.assertEqual(done.status, "done")
+		self.assertEqual(
+			mark_command_result(command.id, agent_a.id, status="done", result={"created": True}).status,
+			"done",
+		)
+		with self.assertRaises(ValueError):
+			mark_command_result(command.id, agent_a.id, status="error", error="conflito")
+		agent_b.is_revoked = True
+		db.session.commit()
+		with self.assertRaises(ValueError):
+			enqueue_command(agent_b, "reboot", {}, 123)
+
+	def test_transfer_isolation_content_and_download_result_link(self):
+		agent_a = RemoteAgent(external_client_id=10, external_client_name="Cliente", name="PC-A", thresholds={})
+		agent_b = RemoteAgent(external_client_id=10, external_client_name="Cliente", name="PC-B", thresholds={})
+		db.session.add_all([agent_a, agent_b])
+		db.session.commit()
+
+		transfer = create_file_transfer(
+			agent_a,
+			"download",
+			r"C:\Dados\relatorio.txt",
+			"relatorio.txt",
+		)
+		command = enqueue_command(agent_a, "download_file", {
+			"remote_path": transfer.remote_path,
+			"transfer_uuid": transfer.public_uuid,
+		}, 123)
+		transfer.command_id = command.id
+		db.session.commit()
+
+		self.assertIsNone(transfer_for_agent(transfer.public_uuid, agent_b.id))
+		saved = save_transfer_stream(transfer, BytesIO(b"conteudo remoto"), expected_direction="download")
+		self.assertEqual(saved.status, "ready")
+		self.assertEqual(saved.size, len(b"conteudo remoto"))
+		self.assertEqual(transfer_file_path(saved).read_bytes(), b"conteudo remoto")
+		result = mark_command_result(
+			command.id,
+			agent_a.id,
+			status="done",
+			result={"transfer_uuid": transfer.public_uuid},
+		)
+		self.assertEqual(result.status, "done")
+		self.assertEqual(RemoteFileTransfer.query.count(), 1)
 
 
 if __name__ == "__main__":

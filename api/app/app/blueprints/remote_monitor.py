@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from functools import wraps
+import ntpath
 import os
 from pathlib import Path
 
@@ -9,18 +10,35 @@ from flask import Blueprint, jsonify, request, send_file
 from flask_login import current_user, login_required
 
 from .. import db
-from ..models import RemoteAgent, RemoteAgentAlert, RemoteAgentSample
+from ..models import (
+	RemoteAgent,
+	RemoteAgentAlert,
+	RemoteAgentCommand,
+	RemoteAgentSample,
+	RemoteFileTransfer,
+)
 from ..remote_monitor_service import (
+	MAX_FILE_BYTES,
 	MAX_TELEMETRY_BYTES,
 	activate,
 	agent_is_live,
 	apply_socket_presence,
 	authenticate_agent,
+	command_for_agent,
+	create_file_transfer,
 	create_enrollment,
+	enqueue_command,
 	heartbeat,
 	ingest_telemetry,
+	mark_command_result,
+	mark_command_running,
+	push_command,
 	revoke_agent,
+	save_transfer_stream,
 	sanitize_thresholds,
+	transfer_file_path,
+	transfer_for_agent,
+	utc_now,
 )
 
 bp = Blueprint("remote_monitor", __name__, url_prefix="/api/remote-monitor")
@@ -61,6 +79,53 @@ def _bearer_token() -> str | None:
 
 def _request_agent():
 	return authenticate_agent(request.headers.get("X-Device-Id"), _bearer_token())
+
+
+def _active_agent(agent_id: int):
+	agent = db.session.get(RemoteAgent, agent_id)
+	if not agent:
+		return None, (jsonify({"error": "Agente não encontrado."}), 404)
+	if agent.is_revoked:
+		return None, (jsonify({"error": "Agente revogado não pode receber comandos."}), 409)
+	return agent, None
+
+
+def _audit_fields() -> dict:
+	return {
+		"audit_ip": request.remote_addr,
+		"audit_user_agent": request.headers.get("User-Agent"),
+	}
+
+
+def _enqueue_web(agent: RemoteAgent, command_type: str, payload: dict, *, push_immediately: bool = True):
+	try:
+		audit = _audit_fields()
+		command = enqueue_command(
+			agent,
+			command_type,
+			payload,
+			current_user.id,
+			audit_ip=audit["audit_ip"],
+			audit_user_agent=audit["audit_user_agent"],
+			push_immediately=push_immediately,
+		)
+	except ValueError as exc:
+		db.session.rollback()
+		return None, (jsonify({"error": str(exc)}), 400)
+	return command, None
+
+
+def _confirmation_required(data: dict):
+	if data.get("confirm") is not True:
+		return jsonify({"error": "Esta ação crítica exige confirm=true."}), 400
+	return None
+
+
+def _agent_command_error(exc):
+	db.session.rollback()
+	message = str(exc)
+	status = 404 if "não encontrado para este agente" in message else 400
+	return jsonify({"error": message}), status
 
 
 @bp.get("/stats")
@@ -191,6 +256,188 @@ def agent_history(agent_id: int):
 	return jsonify({"items": [row.to_dict() for row in reversed(rows)]})
 
 
+@bp.post("/agents/<int:agent_id>/actions")
+@_web_roles
+def agent_action(agent_id: int):
+	agent, error = _active_agent(agent_id)
+	if error:
+		return error
+	data, error = _json_payload()
+	if error:
+		return error
+	action = str(data.get("action") or data.get("command_type") or "").strip().lower()
+	if action not in {"reboot", "shutdown"}:
+		return jsonify({"error": "Ação remota inválida."}), 400
+	confirmation_error = _confirmation_required(data)
+	if confirmation_error:
+		return confirmation_error
+	command, error = _enqueue_web(agent, action, {})
+	if error:
+		return error
+	return jsonify(command.to_dict()), 201
+
+
+@bp.post("/agents/<int:agent_id>/files/list")
+@_web_roles
+def list_agent_files(agent_id: int):
+	agent, error = _active_agent(agent_id)
+	if error:
+		return error
+	data = request.get_json(silent=True)
+	if data is None:
+		data = {}
+	if not isinstance(data, dict):
+		return jsonify({"error": "Corpo JSON inválido."}), 400
+	command, error = _enqueue_web(agent, "list_directory", {"path": data.get("path", "")})
+	if error:
+		return error
+	return jsonify(command.to_dict()), 201
+
+
+@bp.post("/agents/<int:agent_id>/files/operation")
+@_web_roles
+def agent_file_operation(agent_id: int):
+	agent, error = _active_agent(agent_id)
+	if error:
+		return error
+	data, error = _json_payload()
+	if error:
+		return error
+	operation = str(data.get("operation") or data.get("command_type") or "").strip().lower()
+	if operation not in {"mkdir", "rename", "move", "copy", "delete"}:
+		return jsonify({"error": "Operação de arquivo inválida."}), 400
+	if operation == "delete":
+		confirmation_error = _confirmation_required(data)
+		if confirmation_error:
+			return confirmation_error
+	payload = {key: value for key, value in data.items() if key not in {"operation", "command_type", "confirm"}}
+	command, error = _enqueue_web(agent, operation, payload)
+	if error:
+		return error
+	return jsonify(command.to_dict()), 201
+
+
+@bp.post("/agents/<int:agent_id>/files/upload")
+@_web_roles
+def upload_file_to_agent(agent_id: int):
+	agent, error = _active_agent(agent_id)
+	if error:
+		return error
+	if request.content_length and request.content_length > MAX_FILE_BYTES + 2 * 1024 * 1024:
+		return jsonify({"error": "Arquivo excede o limite de 50 MiB."}), 413
+	uploaded = request.files.get("file")
+	if not uploaded or not uploaded.filename:
+		return jsonify({"error": "Arquivo multipart é obrigatório no campo file."}), 400
+	remote_path = request.form.get("remote_path")
+	transfer = None
+	try:
+		transfer = create_file_transfer(agent, "upload", remote_path, uploaded.filename, status="staging")
+		save_transfer_stream(transfer, uploaded.stream, expected_direction="upload")
+		command, error = _enqueue_web(agent, "upload_file", {
+			"remote_path": transfer.remote_path,
+			"transfer_uuid": transfer.public_uuid,
+		}, push_immediately=False)
+		if error:
+			raise ValueError(error[0].get_json().get("error", "Falha ao enfileirar upload"))
+		transfer.command_id = command.id
+		db.session.commit()
+		push_command(command)
+		return jsonify({"command": command.to_dict(), "transfer": transfer.to_dict()}), 201
+	except ValueError as exc:
+		db.session.rollback()
+		if transfer:
+			try:
+				transfer_file_path(transfer).unlink(missing_ok=True)
+			except (OSError, ValueError):
+				pass
+			persisted = db.session.get(RemoteFileTransfer, transfer.id)
+			if persisted:
+				db.session.delete(persisted)
+				db.session.commit()
+		status = 413 if "50 MiB" in str(exc) else 400
+		return jsonify({"error": str(exc)}), status
+
+
+@bp.post("/agents/<int:agent_id>/files/download")
+@_web_roles
+def request_file_from_agent(agent_id: int):
+	agent, error = _active_agent(agent_id)
+	if error:
+		return error
+	data, error = _json_payload()
+	if error:
+		return error
+	remote_path = data.get("remote_path")
+	filename = ntpath.basename(str(remote_path or "").replace("/", "\\")) or "download.bin"
+	transfer = None
+	try:
+		transfer = create_file_transfer(agent, "download", remote_path, filename)
+		command, error = _enqueue_web(agent, "download_file", {
+			"remote_path": transfer.remote_path,
+			"transfer_uuid": transfer.public_uuid,
+		}, push_immediately=False)
+		if error:
+			raise ValueError(error[0].get_json().get("error", "Falha ao enfileirar download"))
+		transfer.command_id = command.id
+		db.session.commit()
+		push_command(command)
+		return jsonify({"command": command.to_dict(), "transfer": transfer.to_dict()}), 201
+	except ValueError as exc:
+		db.session.rollback()
+		if transfer:
+			persisted = db.session.get(RemoteFileTransfer, transfer.id)
+			if persisted:
+				db.session.delete(persisted)
+				db.session.commit()
+		return jsonify({"error": str(exc)}), 400
+
+
+@bp.get("/commands/<int:command_id>")
+@_web_roles
+def command_detail(command_id: int):
+	command = db.session.get(RemoteAgentCommand, command_id)
+	if not command:
+		return jsonify({"error": "Comando não encontrado."}), 404
+	return jsonify(command.to_dict())
+
+
+@bp.get("/agents/<int:agent_id>/commands")
+@_web_roles
+def agent_commands(agent_id: int):
+	if db.session.get(RemoteAgent, agent_id) is None:
+		return jsonify({"error": "Agente não encontrado."}), 404
+	try:
+		limit = min(500, max(1, int(request.args.get("limit", 100))))
+	except (TypeError, ValueError):
+		limit = 100
+	rows = (
+		RemoteAgentCommand.query.filter_by(agent_id=agent_id)
+		.order_by(RemoteAgentCommand.id.desc())
+		.limit(limit)
+		.all()
+	)
+	return jsonify({"items": [row.to_dict() for row in rows]})
+
+
+@bp.get("/transfers/<public_uuid>/download")
+@_web_roles
+def web_download_transfer(public_uuid: str):
+	transfer = RemoteFileTransfer.query.filter_by(public_uuid=public_uuid).first()
+	if not transfer or transfer.direction != "download":
+		return jsonify({"error": "Transferência não encontrada."}), 404
+	if transfer.expires_at <= utc_now():
+		return jsonify({"error": "Transferência expirada."}), 410
+	if transfer.status != "ready":
+		return jsonify({"error": "Arquivo ainda não está disponível."}), 409
+	try:
+		path = transfer_file_path(transfer)
+	except ValueError:
+		return jsonify({"error": "Transferência inválida."}), 404
+	if not path.is_file():
+		return jsonify({"error": "Conteúdo da transferência não encontrado."}), 404
+	return send_file(path, as_attachment=True, download_name=transfer.original_filename)
+
+
 @bp.get("/alerts")
 @_web_roles
 def alerts():
@@ -307,3 +554,100 @@ def agent_heartbeat():
 	if data is not None and not isinstance(data, dict):
 		return jsonify({"error": "Corpo JSON inválido."}), 400
 	return jsonify(heartbeat(agent, data or {}))
+
+
+@bp.get("/agent/commands")
+def pending_agent_commands():
+	agent = _request_agent()
+	if not agent:
+		return jsonify({"error": "Credenciais do agente inválidas."}), 401
+	rows = (
+		RemoteAgentCommand.query
+		.filter_by(agent_id=agent.id, status="pending")
+		.order_by(RemoteAgentCommand.id.asc())
+		.limit(100)
+		.all()
+	)
+	return jsonify({"items": [row.to_agent_event() for row in rows]})
+
+
+@bp.post("/agent/commands/<int:command_id>/started")
+def agent_command_started(command_id: int):
+	agent = _request_agent()
+	if not agent:
+		return jsonify({"error": "Credenciais do agente inválidas."}), 401
+	try:
+		command = mark_command_running(command_id, agent.id)
+	except ValueError as exc:
+		return _agent_command_error(exc)
+	return jsonify(command.to_dict())
+
+
+@bp.post("/agent/commands/<int:command_id>/result")
+def agent_command_result(command_id: int):
+	agent = _request_agent()
+	if not agent:
+		return jsonify({"error": "Credenciais do agente inválidas."}), 401
+	data, error = _json_payload()
+	if error:
+		return error
+	try:
+		command = mark_command_result(
+			command_id,
+			agent.id,
+			status=data.get("status"),
+			result=data.get("result"),
+			error=data.get("error"),
+		)
+	except ValueError as exc:
+		return _agent_command_error(exc)
+	return jsonify(command.to_dict())
+
+
+@bp.get("/agent/transfers/<public_uuid>/content")
+def agent_download_staging(public_uuid: str):
+	agent = _request_agent()
+	if not agent:
+		return jsonify({"error": "Credenciais do agente inválidas."}), 401
+	transfer = transfer_for_agent(public_uuid, agent.id)
+	if not transfer or transfer.direction != "upload":
+		return jsonify({"error": "Transferência não encontrada para este agente."}), 404
+	if transfer.expires_at <= utc_now():
+		return jsonify({"error": "Transferência expirada."}), 410
+	if transfer.status != "ready" or not transfer.command_id:
+		return jsonify({"error": "Conteúdo não disponível."}), 409
+	try:
+		path = transfer_file_path(transfer)
+	except ValueError:
+		return jsonify({"error": "Transferência inválida."}), 404
+	if not path.is_file():
+		return jsonify({"error": "Conteúdo não encontrado."}), 404
+	return send_file(path, as_attachment=True, download_name=transfer.original_filename)
+
+
+@bp.route("/agent/transfers/<public_uuid>/content", methods=["PUT", "POST"])
+def agent_upload_downloaded_file(public_uuid: str):
+	agent = _request_agent()
+	if not agent:
+		return jsonify({"error": "Credenciais do agente inválidas."}), 401
+	if request.content_length and request.content_length > MAX_FILE_BYTES + 2 * 1024 * 1024:
+		return jsonify({"error": "Arquivo excede o limite de 50 MiB."}), 413
+	transfer = transfer_for_agent(public_uuid, agent.id)
+	if not transfer or transfer.direction != "download":
+		return jsonify({"error": "Transferência não encontrada para este agente."}), 404
+	if not transfer.command_id or not command_for_agent(transfer.command_id, agent.id):
+		return jsonify({"error": "Comando da transferência não pertence a este agente."}), 403
+	uploaded = request.files.get("file")
+	stream = uploaded.stream if uploaded else request.stream
+	try:
+		save_transfer_stream(transfer, stream, expected_direction="download")
+	except ValueError as exc:
+		db.session.rollback()
+		transfer = transfer_for_agent(public_uuid, agent.id)
+		if transfer:
+			transfer.status = "error"
+			transfer.updated_at = utc_now()
+			db.session.commit()
+		status = 413 if "50 MiB" in str(exc) else 400
+		return jsonify({"error": str(exc)}), status
+	return jsonify(transfer.to_dict())

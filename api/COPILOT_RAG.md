@@ -10,6 +10,8 @@ tokens e padrões comuns de senha são removidos.
 Variáveis suportadas:
 
 - `GEMINI_API_KEY` (obrigatória para embeddings e geração);
+- `AI_CONFIG_ENCRYPTION_KEY` (opcional; chave estável dedicada para proteger a
+  API key salva em Configurações → IA; sem ela, usa `SECRET_KEY`);
 - `GEMINI_MODEL` (padrão `gemini-2.0-flash`);
 - `GEMINI_EMBEDDING_MODEL` (padrão `gemini-embedding-001`);
 - `GEMINI_EMBEDDING_DIMENSION` (deve ser `768`);
@@ -62,3 +64,7 @@ As respostas de texto têm `{draft, sources}`. A sugestão de ticket retorna
 A auditoria guarda hash SHA-256, quantidade de caracteres, operação, duração,
 status e contagem de fontes. Prompt, histórico e resposta brutos não são
 persistidos.
+
+Administradores também podem configurar e testar a chave em
+**Configurações → IA**. A chave salva tem precedência sobre `GEMINI_API_KEY`,
+fica criptografada no banco e nunca é devolvida pela API.

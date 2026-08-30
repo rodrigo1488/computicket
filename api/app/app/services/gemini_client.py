@@ -5,6 +5,8 @@ import os
 import threading
 from typing import Any
 
+from flask import has_app_context
+
 
 class GeminiConfigError(RuntimeError):
 	"""Configuração obrigatória do Gemini ausente."""
@@ -19,16 +21,37 @@ _client_key: str | None = None
 _lock = threading.Lock()
 
 
+def _saved_setting(key: str) -> str:
+	if not has_app_context():
+		return ""
+	from ..models import SystemConfig
+
+	return (SystemConfig.get(key, "") or "").strip()
+
+
 def api_key() -> str:
+	saved = _saved_setting("gemini_api_key")
+	if saved:
+		from .config_secrets import decrypt_secret
+
+		return decrypt_secret(saved)
 	return (os.environ.get("GEMINI_API_KEY") or "").strip()
 
 
 def generation_model() -> str:
-	return (os.environ.get("GEMINI_MODEL") or "gemini-2.0-flash").strip()
+	return (
+		_saved_setting("gemini_model")
+		or os.environ.get("GEMINI_MODEL")
+		or "gemini-2.0-flash"
+	).strip()
 
 
 def embedding_model() -> str:
-	return (os.environ.get("GEMINI_EMBEDDING_MODEL") or "gemini-embedding-001").strip()
+	return (
+		_saved_setting("gemini_embedding_model")
+		or os.environ.get("GEMINI_EMBEDDING_MODEL")
+		or "gemini-embedding-001"
+	).strip()
 
 
 def embedding_dimension() -> int:

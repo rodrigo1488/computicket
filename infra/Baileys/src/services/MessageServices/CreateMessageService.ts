@@ -8,6 +8,7 @@ import { logger } from "../../utils/logger";
 import * as Sentry from "@sentry/node";
 import TicketTraking from "../../models/TicketTraking";
 import transcribeAndPersistAudioMessage from "../AiServices/TranscribeAndPersistAudioService";
+import { notifyComputicketInboundMessage } from "../../helpers/notifyComputicketInboundMessage";
 
 export interface MessageData {
   id: string;
@@ -163,6 +164,21 @@ const CreateMessageService = async ({
             ticket: ticketPayload,
             contact: message.ticket.contact
           });
+
+        if (!payload.fromMe) {
+          const contactName =
+            (message.ticket as any)?.contact?.name ||
+            (message as any)?.contact?.name ||
+            null;
+          void notifyComputicketInboundMessage({
+            id: String(payload.id),
+            ticketId: message.ticketId,
+            body: payload.body || message.body,
+            fromMe: false,
+            engineUserId: ticketPayload.userId ?? null,
+            contactName
+          });
+        }
 
         if (payload.mediaType === "audio") {
           const audioMessageId = String(payload.id);

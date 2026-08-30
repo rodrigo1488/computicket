@@ -67,6 +67,7 @@ import {
   type RemoteAgent,
   type RemoteLiveEvent,
 } from "@/lib/remote-monitor";
+import { flaskSocketOptions } from "@/lib/flask-socket";
 
 type DashTab = "tickets" | "helpdesk" | "monitoramento";
 type DailyCount = { date: string; count: number };
@@ -735,7 +736,7 @@ function MonitoramentoDash() {
   });
 
   useEffect(() => {
-    const socket = io(`${remoteSocketOrigin}/remote-monitor-view`, { transports: ["websocket", "polling"], withCredentials: true });
+    const socket = io(`${remoteSocketOrigin}/remote-monitor-view`, flaskSocketOptions());
     const update = (payload: RemoteAgent | RemoteLiveEvent) => {
       queryClient.setQueriesData<PageRes<RemoteAgent>>({ queryKey: ["remote-agents-dash"] }, (current) => mergeAgentPage(current, payload));
     };
@@ -1466,10 +1467,7 @@ function MonitoramentoDash() {
   });
 
   useEffect(() => {
-    const socket = io(`${remoteSocketOrigin}/remote-monitor-view`, {
-      transports: ["websocket", "polling"],
-      withCredentials: true,
-    });
+    const socket = io(`${remoteSocketOrigin}/remote-monitor-view`, flaskSocketOptions());
     const update = (payload: RemoteAgent | RemoteLiveEvent) => {
       qc.setQueriesData<PageRes<RemoteAgent>>(
         { queryKey: ["remote-agents-dash"] },

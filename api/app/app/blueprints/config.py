@@ -1,9 +1,89 @@
+import os
+
 from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify
 from flask_login import login_required, current_user
 from .. import db
 from ..models import SystemConfig
 
 bp = Blueprint("config", __name__)
+
+
+def _admin_only():
+    if not current_user.has_role("admin"):
+        return jsonify({"success": False, "error": "Acesso negado"}), 403
+    return None
+
+
+def _ai_config_payload():
+    from ..services.gemini_client import embedding_model, generation_model
+
+    saved_key = bool(SystemConfig.get("gemini_api_key", ""))
+    env_key = bool((os.environ.get("GEMINI_API_KEY") or "").strip())
+    return {
+        "api_key_configured": saved_key or env_key,
+        "source": "settings" if saved_key else ("env" if env_key else "none"),
+        "model": generation_model(),
+        "embedding_model": embedding_model(),
+    }
+
+
+@bp.route("/ai", methods=["GET", "PUT"])
+@login_required
+def ai_config():
+    denied = _admin_only()
+    if denied:
+        return denied
+    if request.method == "GET":
+        return jsonify(_ai_config_payload())
+
+    payload = request.get_json(silent=True) or {}
+    api_key = str(payload.get("api_key") or "").strip()
+    model = str(payload.get("model") or "").strip()
+    embedding = str(payload.get("embedding_model") or "").strip()
+    if len(api_key) > 500 or len(model) > 120 or len(embedding) > 120:
+        return jsonify({"success": False, "error": "Configuração inválida."}), 400
+
+    from ..services.config_secrets import encrypt_secret
+
+    if payload.get("clear_api_key"):
+        row = SystemConfig.query.filter_by(key="gemini_api_key").first()
+        if row:
+            db.session.delete(row)
+            db.session.commit()
+    elif api_key:
+        SystemConfig.set(
+            "gemini_api_key",
+            encrypt_secret(api_key),
+            "Chave da API Gemini criptografada",
+            "ai",
+        )
+    if model:
+        SystemConfig.set("gemini_model", model, "Modelo Gemini para geração", "ai")
+    if embedding:
+        SystemConfig.set("gemini_embedding_model", embedding, "Modelo Gemini para embeddings", "ai")
+    return jsonify({"success": True, **_ai_config_payload()})
+
+
+@bp.route("/ai/test", methods=["POST"])
+@login_required
+def test_ai_config():
+    denied = _admin_only()
+    if denied:
+        return denied
+    try:
+        from ..services.gemini_client import embed_texts, generation_model, get_client
+
+        response = get_client().models.generate_content(
+            model=generation_model(),
+            contents="Responda apenas OK.",
+        )
+        reply = (getattr(response, "text", None) or "").strip()
+        vectors = embed_texts(["Teste de conexão do Copiloto Computicket."])
+        if not reply or not vectors:
+            raise RuntimeError("O Gemini retornou uma resposta vazia.")
+        return jsonify({"success": True, "message": "Geração e embeddings conectados com sucesso."})
+    except Exception as exc:
+        return jsonify({"success": False, "error": str(exc)}), 502
 
 
 @bp.route("/")
@@ -38,9 +118,15 @@ def save_config():
         configs = request.get_json()
         
         for key, value in configs.items():
+            if key == "gemini_api_key":
+                from ..services.config_secrets import encrypt_secret
+
+                value = encrypt_secret(str(value))
             # Determinar categoria baseada na chave
             if key.startswith("mail_"):
                 category = "email"
+            elif key.startswith("gemini_"):
+                category = "ai"
             elif key.startswith("uniplus_"):
                 category = "uniplus"
             elif key.startswith("system_"):
@@ -366,6 +452,11 @@ def import_config():
                 value = str(config_data)
                 description = f"Configuração: {key}"
                 category = "general"
+            if key == "gemini_api_key" and value:
+                from ..services.config_secrets import PREFIX, encrypt_secret
+
+                value = value if str(value).startswith(PREFIX) else encrypt_secret(str(value))
+                category = "ai"
             
             SystemConfig.set(key=key, value=value, description=description, category=category)
         

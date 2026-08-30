@@ -47,6 +47,7 @@ import {
   unwrapConnections,
   unwrapMessages,
   unwrapQuickMessages,
+  type ConversationListRes,
   type EngineSession,
   type HelpdeskAiSource,
   type HelpdeskAiTicketDraft,
@@ -162,6 +163,43 @@ function resolveAppMessageTicketId(payload: AppMessagePayload): number | null {
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 
+function conversationUpdatedAtMs(c: HelpdeskConversation) {
+  return Date.parse(c.updatedAt || "") || 0;
+}
+
+/** Não lidas primeiro; dentro do grupo, mais recentes no topo. */
+function sortInboxConversations(rows: HelpdeskConversation[]) {
+  return [...rows].sort((a, b) => {
+    const unreadA = a.unreadMessages || 0;
+    const unreadB = b.unreadMessages || 0;
+    const hasUnreadA = unreadA > 0;
+    const hasUnreadB = unreadB > 0;
+    if (hasUnreadA !== hasUnreadB) return hasUnreadB ? 1 : -1;
+    if (unreadA !== unreadB) return unreadB - unreadA;
+    return conversationUpdatedAtMs(b) - conversationUpdatedAtMs(a);
+  });
+}
+
+function patchConversationInLists(
+  qc: ReturnType<typeof useQueryClient>,
+  ticketId: number,
+  patch: (row: HelpdeskConversation) => HelpdeskConversation,
+) {
+  const apply = (prev: ConversationListRes | undefined) => {
+    if (!prev?.tickets?.length) return prev;
+    let changed = false;
+    const tickets = prev.tickets.map((row) => {
+      if (row.id !== ticketId) return row;
+      changed = true;
+      return patch(row);
+    });
+    if (!changed) return prev;
+    return { ...prev, tickets: sortInboxConversations(tickets) };
+  };
+  qc.setQueriesData<ConversationListRes>({ queryKey: ["hd-list"] }, apply);
+  qc.setQueriesData<ConversationListRes>({ queryKey: ["hd-list-counts"] }, apply);
+}
+
 /** Mantém placeholders otimistas que ainda não chegaram no GET /messages (envio assíncrono). */
 function retainOptimisticMessages(fetched: HelpdeskMessage[], previous?: HelpdeskMessage[]) {
   const temps = (previous || []).filter((m) => isTempMessageId(m.id));
@@ -261,18 +299,37 @@ function extractSentMessage(data: unknown): HelpdeskMessage | null {
 type MessagesCache = { messages?: HelpdeskMessage[]; [key: string]: unknown };
 
 function readStoredFilters() {
-  if (typeof window === "undefined") return { queues: [] as number[], unassigned: true };
+  if (typeof window === "undefined") return { queues: [] as number[], unassigned: true, mine: false };
   try {
     const raw = window.localStorage.getItem(FILTER_KEY);
-    if (!raw) return { queues: [] as number[], unassigned: true };
-    const parsed = JSON.parse(raw) as { queues?: number[]; unassigned?: boolean };
+    if (!raw) return { queues: [] as number[], unassigned: true, mine: false };
+    const parsed = JSON.parse(raw) as { queues?: number[]; unassigned?: boolean; mine?: boolean };
     return {
       queues: Array.isArray(parsed.queues) ? parsed.queues.map(Number).filter((n) => Number.isFinite(n)) : [],
       unassigned: parsed.unassigned !== false,
+      mine: parsed.mine === true,
     };
   } catch {
-    return { queues: [] as number[], unassigned: true };
+    return { queues: [] as number[], unassigned: true, mine: false };
   }
+}
+
+function isAssignedToEngineUser(c: HelpdeskConversation, engineUserId?: number | null) {
+  if (!engineUserId) return false;
+  if (c.userId != null && Number(c.userId) === engineUserId) return true;
+  if (c.user?.id != null && Number(c.user.id) === engineUserId) return true;
+  return false;
+}
+
+function applyQueueVisibility(
+  rows: HelpdeskConversation[],
+  selectedQueues: number[],
+  includeUnassigned: boolean,
+) {
+  if (selectedQueues.length && includeUnassigned) return rows;
+  if (selectedQueues.length && !includeUnassigned) return rows.filter((t) => t.queueId != null);
+  if (!selectedQueues.length && !includeUnassigned) return rows.filter((t) => t.queueId != null);
+  return rows;
 }
 
 export function HelpdeskWorkspace() {
@@ -294,6 +351,7 @@ export function HelpdeskWorkspace() {
       .filter((n) => Number.isFinite(n) && n > 0),
   );
   const [includeUnassigned, setIncludeUnassigned] = useState(() => params.get("unassigned") !== "0");
+  const [mineOnly, setMineOnly] = useState(() => params.get("mine") === "1");
   const [search, setSearch] = useState(() => params.get("q") || "");
   const [filtersReady, setFiltersReady] = useState(false);
   const [debouncedSearch, setDebouncedSearch] = useState(search);
@@ -333,13 +391,14 @@ export function HelpdeskWorkspace() {
   }, [search]);
 
   useEffect(() => {
-    if (params.get("queues") || params.get("unassigned")) {
+    if (params.get("queues") || params.get("unassigned") || params.get("mine")) {
       setFiltersReady(true);
       return;
     }
     const stored = readStoredFilters();
     if (stored.queues.length) setSelectedQueues(stored.queues);
     setIncludeUnassigned(stored.unassigned);
+    setMineOnly(stored.mine);
     setFiltersReady(true);
     // URL vazia: hidrata do localStorage só no cliente
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -351,11 +410,15 @@ export function HelpdeskWorkspace() {
     q.set("status", tab);
     if (selectedQueues.length) q.set("queues", selectedQueues.join(","));
     if (!includeUnassigned) q.set("unassigned", "0");
+    if (mineOnly) q.set("mine", "1");
     if (debouncedSearch.trim()) q.set("q", debouncedSearch.trim());
     if (activeId) q.set("c", String(activeId));
     router.replace(`/helpdesk?${q}`, { scroll: false });
-    window.localStorage.setItem(FILTER_KEY, JSON.stringify({ queues: selectedQueues, unassigned: includeUnassigned }));
-  }, [tab, selectedQueues, includeUnassigned, debouncedSearch, activeId, router, filtersReady]);
+    window.localStorage.setItem(
+      FILTER_KEY,
+      JSON.stringify({ queues: selectedQueues, unassigned: includeUnassigned, mine: mineOnly }),
+    );
+  }, [tab, selectedQueues, includeUnassigned, mineOnly, debouncedSearch, activeId, router, filtersReady]);
 
   useEffect(() => {
     window.localStorage.setItem(SIGN_KEY, sign ? "1" : "0");
@@ -419,6 +482,27 @@ export function HelpdeskWorkspace() {
     queryKey: ["hd-list", tab, selectedQueues, includeUnassigned, debouncedSearch],
     queryFn: () =>
       helpdesk.conversations(tab, "1", debouncedSearch, selectedQueues.length ? selectedQueues : undefined),
+    enabled: !!health.data?.ok && !mineOnly,
+    refetchInterval: 12000,
+  });
+
+  const minePending = useQuery({
+    queryKey: ["hd-list", "mine-pending", selectedQueues, includeUnassigned, debouncedSearch],
+    queryFn: () =>
+      helpdesk.conversations(
+        "pending",
+        "1",
+        debouncedSearch,
+        selectedQueues.length ? selectedQueues : undefined,
+      ),
+    enabled: !!health.data?.ok,
+    refetchInterval: 12000,
+  });
+
+  const mineOpen = useQuery({
+    queryKey: ["hd-list", "mine-open", selectedQueues, includeUnassigned, debouncedSearch],
+    queryFn: () =>
+      helpdesk.conversations("open", "1", debouncedSearch, selectedQueues.length ? selectedQueues : undefined),
     enabled: !!health.data?.ok,
     refetchInterval: 12000,
   });
@@ -461,13 +545,38 @@ export function HelpdeskWorkspace() {
     enabled: !!contactId,
   });
 
+  const engineUserId = session.data?.engineUserId ?? null;
+
+  const mineTickets = useMemo(() => {
+    const byId = new Map<number, HelpdeskConversation>();
+    for (const row of minePending.data?.tickets || []) byId.set(row.id, row);
+    for (const row of mineOpen.data?.tickets || []) {
+      if (isAssignedToEngineUser(row, engineUserId)) byId.set(row.id, row);
+    }
+    return sortInboxConversations(
+      applyQueueVisibility([...byId.values()], selectedQueues, includeUnassigned),
+    );
+  }, [
+    minePending.data?.tickets,
+    mineOpen.data?.tickets,
+    selectedQueues,
+    includeUnassigned,
+    engineUserId,
+  ]);
+
   const tickets = useMemo(() => {
-    const rows = list.data?.tickets || [];
-    if (selectedQueues.length && includeUnassigned) return rows;
-    if (selectedQueues.length && !includeUnassigned) return rows.filter((t) => t.queueId != null);
-    if (!selectedQueues.length && !includeUnassigned) return rows.filter((t) => t.queueId != null);
-    return rows;
-  }, [list.data?.tickets, selectedQueues.length, includeUnassigned]);
+    if (mineOnly) return mineTickets;
+    return sortInboxConversations(
+      applyQueueVisibility(list.data?.tickets || [], selectedQueues, includeUnassigned),
+    );
+  }, [mineOnly, mineTickets, list.data?.tickets, selectedQueues, includeUnassigned]);
+
+  const listIsError = mineOnly
+    ? minePending.isError || mineOpen.isError
+    : list.isError;
+  const listErrorMessage = mineOnly
+    ? ((minePending.error || mineOpen.error) as Error | null)?.message
+    : (list.error as Error | null)?.message;
 
   const queueCounts = useMemo(() => {
     const map = new Map<number | "none", number>();
@@ -760,7 +869,10 @@ export function HelpdeskWorkspace() {
       qc.invalidateQueries({ queryKey: ["hd-list"] });
       qc.invalidateQueries({ queryKey: ["hd-list-counts"] });
       qc.invalidateQueries({ queryKey: ["hd-overview"] });
-      qc.invalidateQueries({ queryKey: ["helpdesk-nav-badge"] });
+      // Badge: reconciliar com delay para não zerar o bump otimista do NotificationCenter.
+      window.setTimeout(() => {
+        void qc.invalidateQueries({ queryKey: ["helpdesk-nav-badge"] });
+      }, 4000);
     };
     socket.on("connect", () => {
       socket.emit("joinTickets", "pending");
@@ -771,13 +883,35 @@ export function HelpdeskWorkspace() {
     });
     socket.on(`company-${engine.companyId}-ticket`, refresh);
     socket.on(`company-${engine.companyId}-appMessage`, (payload: AppMessagePayload) => {
-      refresh();
       const ticketId = resolveAppMessageTicketId(payload);
       const openId = activeIdRef.current;
+      const incoming = payload.message;
+      const fromClient = !!incoming && !incoming.fromMe && !(incoming.isInternal || incoming.isPrivate);
+
+      if (ticketId && fromClient && ticketId !== openId) {
+        const preview =
+          snippet(incoming.body) ||
+          (incoming.mediaType ? `[${incoming.mediaType}]` : "") ||
+          "Nova mensagem";
+        patchConversationInLists(qc, ticketId, (row) => ({
+          ...row,
+          unreadMessages: Math.max(0, row.unreadMessages || 0) + 1,
+          lastMessage: preview || row.lastMessage,
+          updatedAt: incoming.createdAt || new Date().toISOString(),
+        }));
+      }
+
+      refresh();
       if (ticketId && openId && ticketId === openId && payload.message?.id) {
         qc.setQueryData<MessagesCache>(["hd-messages", openId], (prev) => ({
           ...prev,
           messages: mergeMessageIntoThread(prev?.messages, payload.message as HelpdeskMessage),
+        }));
+        patchConversationInLists(qc, ticketId, (row) => ({
+          ...row,
+          unreadMessages: 0,
+          lastMessage: snippet(payload.message?.body) || row.lastMessage,
+          updatedAt: payload.message?.createdAt || row.updatedAt,
         }));
       }
     });
@@ -981,13 +1115,26 @@ export function HelpdeskWorkspace() {
           <div className="flex flex-wrap gap-1 px-3 pb-2">
             <button
               type="button"
+              onClick={() => setMineOnly((v) => !v)}
+              className={cn(
+                "rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase",
+                mineOnly ? "bg-navy text-white" : "bg-[#f3f4f6] text-muted",
+              )}
+              title="Suas conversas em atendimento e todas as aguardando"
+            >
+              Meus
+              <span className="ml-1 opacity-80">{mineTickets.length}</span>
+            </button>
+            <button
+              type="button"
               onClick={() => {
                 setSelectedQueues([]);
                 setIncludeUnassigned(true);
+                setMineOnly(false);
               }}
               className={cn(
                 "rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase",
-                allSelected ? "bg-brand text-white" : "bg-[#f3f4f6] text-muted",
+                allSelected && !mineOnly ? "bg-brand text-white" : "bg-[#f3f4f6] text-muted",
               )}
             >
               Todas
@@ -1024,6 +1171,7 @@ export function HelpdeskWorkspace() {
             })}
           </div>
           <p className="px-3 pb-2 text-[11px] text-muted">
+            {mineOnly ? "Filtro Meus · " : ""}
             {tickets.length} conversa{tickets.length === 1 ? "" : "s"}
             {unread ? ` · ${unread} não lida` : ""}
             {waitingReply ? ` · ${waitingReply} aguardando resposta` : ""}
@@ -1037,13 +1185,17 @@ export function HelpdeskWorkspace() {
           {error ? <p className="px-3 pb-2 text-xs text-open">{error}</p> : null}
 
           <div className="min-h-0 flex-1 basis-0 overflow-y-auto overscroll-contain">
-            {list.isError ? (
+            {listIsError ? (
               <p className="px-4 py-10 text-center text-sm text-open">
-                Não foi possível carregar as conversas. {(list.error as Error).message}
+                Não foi possível carregar as conversas. {listErrorMessage}
               </p>
             ) : tickets.length === 0 ? (
               <p className="px-4 py-10 text-center text-sm text-muted">
-                {allSelected ? "Nenhuma conversa nesta aba" : "Nenhuma conversa nestas filas"}
+                {mineOnly
+                  ? "Nenhuma conversa sua ou em aguardando"
+                  : allSelected
+                    ? "Nenhuma conversa nesta aba"
+                    : "Nenhuma conversa nestas filas"}
               </p>
             ) : (
               tickets.map((c) => {
@@ -1057,10 +1209,14 @@ export function HelpdeskWorkspace() {
                       setActiveId(c.id);
                       setError(null);
                       setContactOpen(false);
+                      if ((c.unreadMessages || 0) > 0) {
+                        patchConversationInLists(qc, c.id, (row) => ({ ...row, unreadMessages: 0 }));
+                      }
                     }}
                     className={cn(
                       "flex w-full gap-3 border-b border-[#f3f3f3] px-3 py-3 text-left hover:bg-[#fafafa]",
                       selected && "bg-[#eef5ff]",
+                      (c.unreadMessages || 0) > 0 && !selected && "bg-[#fffbf5]",
                     )}
                   >
                     <span className="relative shrink-0">
@@ -1076,8 +1232,29 @@ export function HelpdeskWorkspace() {
                     </span>
                     <span className="min-w-0 flex-1">
                       <span className="flex items-center gap-2">
-                        <span className="truncate text-sm font-semibold text-ink">{contactName(c)}</span>
-                        <span className="ml-auto shrink-0 text-[11px] text-muted">{formatClock(c.updatedAt)}</span>
+                        <span
+                          className={cn(
+                            "truncate text-sm text-ink",
+                            (c.unreadMessages || 0) > 0 ? "font-bold" : "font-semibold",
+                          )}
+                        >
+                          {contactName(c)}
+                        </span>
+                        <span className="ml-auto flex shrink-0 items-center gap-1.5">
+                          <span
+                            className={cn(
+                              "text-[11px]",
+                              (c.unreadMessages || 0) > 0 ? "font-semibold text-open" : "text-muted",
+                            )}
+                          >
+                            {formatClock(c.updatedAt)}
+                          </span>
+                          {(c.unreadMessages || 0) > 0 ? (
+                            <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-open px-1.5 text-[10px] font-bold leading-none text-white">
+                              {(c.unreadMessages || 0) > 99 ? "99+" : c.unreadMessages}
+                            </span>
+                          ) : null}
+                        </span>
                       </span>
                       <span className="mt-0.5 block truncate text-[11px] text-muted">
                         Atendente: {c.user?.name || "ninguém"}
@@ -1119,13 +1296,15 @@ export function HelpdeskWorkspace() {
                           Aguardando avaliação
                         </span>
                       ) : null}
-                      <span className="mt-0.5 block truncate text-xs text-muted">{snippet(c.lastMessage)}</span>
-                    </span>
-                    {(c.unreadMessages || 0) > 0 ? (
-                      <span className="mt-1 h-5 min-w-5 shrink-0 rounded-full bg-open px-1.5 text-center text-[10px] font-bold leading-5 text-white">
-                        {c.unreadMessages}
+                      <span
+                        className={cn(
+                          "mt-0.5 block truncate text-xs",
+                          (c.unreadMessages || 0) > 0 ? "font-semibold text-ink" : "text-muted",
+                        )}
+                      >
+                        {snippet(c.lastMessage)}
                       </span>
-                    ) : null}
+                    </span>
                   </button>
                 );
               })
@@ -1984,20 +2163,25 @@ function ContactDrawer({
     detail?.extraInfo?.find((e) => (e.name || "").toLowerCase() === "observações")?.value || "",
   );
   const [clientQ, setClientQ] = useState("");
-  const [selectedClientId, setSelectedClientId] = useState("");
+  const [debouncedClientQ, setDebouncedClientQ] = useState("");
   const [linkError, setLinkError] = useState<string | null>(null);
   const [linkBusy, setLinkBusy] = useState(false);
   const photo =
     publicMediaUrl(detail?.profilePicUrl) || publicMediaUrl(conversation.contact?.profilePicUrl);
 
   const clients = useQuery({
-    queryKey: ["clients", "hd-contact-link", clientQ],
+    queryKey: ["clients", "hd-contact-link", debouncedClientQ],
     queryFn: () =>
-      flask.get<{ items: { id: number; name: string }[] }>(
-        `/api/web/clients?q=${encodeURIComponent(clientQ)}&per_page=30`,
+      flask.get<{ items: { id: number; name: string; document?: string; phone?: string }[] }>(
+        `/api/web/clients?q=${encodeURIComponent(debouncedClientQ)}&per_page=30`,
       ),
-    enabled: !clientLink && clientQ.trim().length >= 1,
+    enabled: !clientLink && debouncedClientQ.length >= 1,
   });
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebouncedClientQ(clientQ.trim()), 250);
+    return () => window.clearTimeout(timer);
+  }, [clientQ]);
 
   useEffect(() => {
     if (!detail) return;
@@ -2008,18 +2192,13 @@ function ContactDrawer({
 
   useEffect(() => {
     setClientQ("");
-    setSelectedClientId("");
+    setDebouncedClientQ("");
     setLinkError(null);
   }, [conversation.contact?.id, clientLink?.id]);
 
-  async function linkClient() {
+  async function linkClient(chosen: { id: number; name: string }) {
     const contactId = conversation.contact?.id;
-    if (!contactId || !selectedClientId) return;
-    const chosen = (clients.data?.items || []).find((c) => String(c.id) === selectedClientId) || null;
-    if (!chosen) {
-      setLinkError("Selecione um cliente da lista");
-      return;
-    }
+    if (!contactId) return;
     setLinkBusy(true);
     setLinkError(null);
     try {
@@ -2029,7 +2208,7 @@ function ContactDrawer({
         contact_number: detail?.number || conversation.contact?.number || undefined,
       });
       setClientQ("");
-      setSelectedClientId("");
+      setDebouncedClientQ("");
       onLinked();
     } catch (e) {
       setLinkError(e instanceof Error ? e.message : "Falha ao vincular cliente");
@@ -2120,7 +2299,7 @@ function ContactDrawer({
 
         <div className="space-y-2 border-t border-[#ececec] pt-4">
           <span className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted">
-            Cliente do sistema
+            Cliente do Uniplus
           </span>
           {clientLinkLoading ? (
             <p className="text-sm text-muted">Carregando vínculo…</p>
@@ -2143,35 +2322,48 @@ function ContactDrawer({
                 <span className="sr-only">Buscar cliente</span>
                 <input
                   value={clientQ}
-                  onChange={(e) => {
-                    setClientQ(e.target.value);
-                    setSelectedClientId("");
-                  }}
-                  placeholder="Buscar cliente…"
-                  className="mt-1 w-full border-0 border-b border-[#d7d7d7] py-2 text-sm"
+                  onChange={(e) => setClientQ(e.target.value)}
+                  placeholder="Digite nome, documento ou telefone…"
+                  autoComplete="off"
+                  className="mt-1 w-full rounded-lg border border-line bg-white px-3 py-2 text-sm outline-none focus:border-brand"
                 />
               </label>
-              <select
-                value={selectedClientId}
-                onChange={(e) => setSelectedClientId(e.target.value)}
-                className="w-full border-0 border-b border-[#d7d7d7] bg-transparent py-2 text-sm"
-                disabled={!clientQ.trim()}
-              >
-                <option value="">{clientQ.trim() ? "Selecione" : "Digite para buscar"}</option>
-                {(clients.data?.items || []).map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
-                  </option>
-                ))}
-              </select>
-              <button
-                type="button"
-                disabled={linkBusy || !selectedClientId || !conversation.contact?.id}
-                onClick={() => void linkClient()}
-                className="rounded-lg border border-line px-3 py-1.5 text-xs font-medium text-ink hover:bg-[#f7f7f7] disabled:opacity-40"
-              >
-                {linkBusy ? "Vinculando…" : "Vincular cliente"}
-              </button>
+              {!clientQ.trim() ? (
+                <p className="text-xs text-muted">Digite para pesquisar diretamente nos clientes do Uniplus.</p>
+              ) : clients.isFetching || clientQ.trim() !== debouncedClientQ ? (
+                <p className="flex items-center gap-2 py-2 text-xs text-muted">
+                  <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
+                  Buscando no Uniplus…
+                </p>
+              ) : clients.error ? (
+                <p className="text-xs text-open">{(clients.error as Error).message}</p>
+              ) : (clients.data?.items || []).length ? (
+                <div className="max-h-52 space-y-1 overflow-y-auto rounded-lg border border-line bg-white p-1">
+                  {(clients.data?.items || []).map((client) => (
+                    <button
+                      key={client.id}
+                      type="button"
+                      disabled={linkBusy || !conversation.contact?.id}
+                      onClick={() => void linkClient(client)}
+                      className="flex w-full items-center justify-between gap-3 rounded-md px-2.5 py-2 text-left hover:bg-[#f5f7fa] disabled:opacity-40"
+                    >
+                      <span className="min-w-0">
+                        <span className="block truncate text-sm font-medium text-ink">{client.name}</span>
+                        {client.document || client.phone ? (
+                          <span className="block truncate text-[11px] text-muted">
+                            {[client.document, client.phone].filter(Boolean).join(" · ")}
+                          </span>
+                        ) : null}
+                      </span>
+                      <span className="shrink-0 text-[11px] font-semibold text-brand">
+                        {linkBusy ? "Aguarde…" : "Vincular"}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <p className="py-2 text-xs text-muted">Nenhum cliente encontrado no Uniplus.</p>
+              )}
             </div>
           )}
           {linkError ? <p className="text-xs text-open">{linkError}</p> : null}

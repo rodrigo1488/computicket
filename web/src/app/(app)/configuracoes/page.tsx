@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { PageTitle } from "@/components/layout/AppShell";
+import { AiSettings } from "@/components/settings/AiSettings";
 import { UniplusSettings } from "@/components/settings/UniplusSettings";
 import { WhatsappSettings, type WhatsappSection } from "@/components/settings/WhatsappSettings";
 import { Modal } from "@/components/ui/Modal";
@@ -14,12 +15,13 @@ import { flask } from "@/lib/api";
 import { cn } from "@/lib/cn";
 
 type Cfg = Record<string, { value: string; description?: string }>;
-type ConfigTab = "geral" | "email" | "sistema" | "whatsapp" | "uniplus";
+type ConfigTab = "geral" | "email" | "sistema" | "ia" | "whatsapp" | "uniplus";
 
 const TABS: { key: ConfigTab; label: string }[] = [
   { key: "geral", label: "Geral" },
   { key: "email", label: "E-mail" },
   { key: "sistema", label: "Sistema" },
+  { key: "ia", label: "IA" },
   { key: "whatsapp", label: "WhatsApp" },
   { key: "uniplus", label: "Uniplus" },
 ];
@@ -57,7 +59,7 @@ function formatConfigValue(key: string, value?: string) {
 }
 
 function asTab(raw: string | null): ConfigTab {
-  if (raw === "email" || raw === "sistema" || raw === "whatsapp" || raw === "uniplus" || raw === "geral")
+  if (raw === "email" || raw === "sistema" || raw === "ia" || raw === "whatsapp" || raw === "uniplus" || raw === "geral")
     return raw;
   return "geral";
 }
@@ -78,7 +80,7 @@ function ConfigPageInner() {
   const [editValue, setEditValue] = useState("");
   const perPage = 20;
 
-  const isConfigTab = tab !== "whatsapp" && tab !== "uniplus";
+  const isConfigTab = tab !== "ia" && tab !== "whatsapp" && tab !== "uniplus";
 
   const { data, error } = useQuery({
     queryKey: ["config"],
@@ -95,7 +97,7 @@ function ConfigPageInner() {
   const slice = rows.slice((page - 1) * perPage, page * perPage);
 
   const save = useMutation({
-    mutationFn: () => flask.post("/config/save", { [editKey || ""]: editValue }),
+    mutationFn: () => flask.post("/configuracoes/save", { [editKey || ""]: editValue }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["config"] });
       setEditKey(null);
@@ -135,6 +137,8 @@ function ConfigPageInner() {
         <WhatsappSettings section={section} onSection={(s) => go("whatsapp", s)} />
       ) : tab === "uniplus" ? (
         <UniplusSettings />
+      ) : tab === "ia" ? (
+        <AiSettings />
       ) : (
         <div>
           {error ? <p className="text-open">{(error as Error).message}</p> : null}
