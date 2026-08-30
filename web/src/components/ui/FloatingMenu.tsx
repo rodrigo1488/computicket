@@ -12,7 +12,7 @@ export function FloatingMenu({
   children,
   className,
 }: {
-  anchor: HTMLElement;
+  anchor: HTMLElement | null;
   onClose: () => void;
   align?: "left" | "right";
   width?: number;
@@ -24,6 +24,10 @@ export function FloatingMenu({
 
   useLayoutEffect(() => {
     const place = () => {
+      if (!anchor?.isConnected) {
+        onClose();
+        return;
+      }
       const r = anchor.getBoundingClientRect();
       const h = ref.current?.offsetHeight || 200;
       let left = align === "right" ? r.right - width : r.left;
@@ -41,12 +45,12 @@ export function FloatingMenu({
       window.removeEventListener("scroll", place, true);
       window.removeEventListener("resize", place);
     };
-  }, [anchor, align, width]);
+  }, [anchor, align, width, onClose]);
 
   useEffect(() => {
     const onDoc = (e: MouseEvent) => {
       const t = e.target as Node;
-      if (ref.current?.contains(t) || anchor.contains(t)) return;
+      if (ref.current?.contains(t) || anchor?.contains?.(t)) return;
       onClose();
     };
     const onKey = (e: KeyboardEvent) => {

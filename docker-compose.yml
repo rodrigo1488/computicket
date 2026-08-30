@@ -133,11 +133,12 @@ services:
       UNIPLUS_AGENT_DEVICE_ID: ${UNIPLUS_AGENT_DEVICE_ID:-}
       UNIPLUS_AGENT_TOKEN: ${UNIPLUS_AGENT_TOKEN:-}
       # Unico PG: só SystemConfig na UI — sem host/senha aqui
+      # PDFs das PS: /home/deploy/computicket/ps no host → /app/ps no container
+      PS_ROOT: /app/ps
     volumes:
       - computicket_api_instance:/app/instance
       - computicket_api_uploads:/app/app/static/uploads
-      # Bind no host para preservar/copiar PDFs legados sem perder no rebuild
-      - ./data/ps:/app/ps
+      - ${PS_HOST_PATH:-./ps}:/app/ps
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import socket; s=socket.create_connection(('127.0.0.1',5000),3); s.close()\""]
       interval: 15s

@@ -12,21 +12,21 @@ docker system prune -f
 docker image prune -f
 docker builder prune -f || true
 
-echo "=== Pasta PS no host ==="
-mkdir -p ./data/ps/ps-do-dia
-# Se as PS foram copiadas em caminhos legados, espelha para data/ps (sem apagar origem)
-for src in ./ps ./api/app/ps ./api/ps; do
-  if [ -d "$src" ]; then
-    echo "Sincronizando $src -> ./data/ps (rsync se disponível)"
+echo "=== Pasta PS no host (/home/deploy/computicket/ps) ==="
+mkdir -p ./ps/ps-do-dia
+# Legado data/ps → canônico ./ps (sem apagar origem)
+for src in ./data/ps ./api/app/ps ./api/ps; do
+  if [ -d "$src" ] && [ "$src" != "./ps" ]; then
+    echo "Sincronizando $src -> ./ps (rsync se disponível)"
     if command -v rsync >/dev/null 2>&1; then
-      rsync -a "$src"/ ./data/ps/
+      rsync -a "$src"/ ./ps/
     else
-      cp -an "$src"/. ./data/ps/ 2>/dev/null || true
+      cp -an "$src"/. ./ps/ 2>/dev/null || true
     fi
   fi
 done
-ls -la ./data/ps | head -20
-ls ./data/ps/ps-do-dia 2>/dev/null | head -10 || true
+ls -la ./ps | head -20
+ls ./ps/ps-do-dia 2>/dev/null | head -10 || true
 
 echo "=== Git + rebuild ==="
 git fetch --all --prune

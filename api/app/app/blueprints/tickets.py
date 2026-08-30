@@ -7,7 +7,7 @@ import uuid
 from pathlib import Path
 from .. import db
 from ..models import Ticket, Client, Contract, Service, User, TimeEntry, TicketProduct, TicketAddon, HelpDeskTicketLink
-from ..external_pg import fetch_external_clients
+from ..external_pg import ExternalPgError, fetch_external_clients, get_external_client_by_id
 from ..timezone_utils import get_brasilia_now, brasilia_to_utc, utc_to_brasilia
 from .utils import connect_postgres
 from ..engine_client import EngineError, admin_request, notify_helpdesk_ticket
@@ -1007,8 +1007,7 @@ def _ticket_contract_no_charge(ticket: Ticket) -> tuple[bool, str]:
 		return no_charge, contract_reason
 
 	try:
-		ext_clients = fetch_external_clients()
-		c = next((x for x in ext_clients if x.get("id") == ticket.external_client_id), None)
+		c = get_external_client_by_id(ticket.external_client_id)
 		if not c:
 			return no_charge, contract_reason
 
@@ -1022,7 +1021,7 @@ def _ticket_contract_no_charge(ticket: Ticket) -> tuple[bool, str]:
 			contract_reason = "Serviço contemplado por contrato específico"
 
 		if ticket.service_id == 5:
-			if c.get("extra9") or c.get("extra11"):
+			if c.get("contract_type") or c.get("extra9") or c.get("extra11"):
 				no_charge = True
 				contract_reason = "Manutenção interna contemplada por contrato (extra9/extra11)"
 
@@ -2573,8 +2572,7 @@ def _serialize_time_entry(entry: TimeEntry) -> dict:
 def _ticket_client_phone(ticket: Ticket):
 	if ticket.external_client_id:
 		try:
-			ext = fetch_external_clients()
-			c = next((x for x in ext if x.get("id") == ticket.external_client_id), None)
+			c = get_external_client_by_id(ticket.external_client_id)
 			if c:
 				return c.get("phone")
 		except Exception:
@@ -2701,6 +2699,7 @@ def api_create_ticket():
 	description = (data.get("description") or "").strip()
 	solicitante = (data.get("solicitante") or "").strip()
 	external_client_id = data.get("external_client_id")
+	fallback_name = (data.get("external_client_name") or "").strip()
 	service_id = data.get("service_id")
 	assigned_to_id = data.get("assigned_to_id")
 	if not title:
@@ -2709,33 +2708,75 @@ def api_create_ticket():
 		return jsonify({"error": "Informe o nome do solicitante."}), 400
 	if not external_client_id:
 		return jsonify({"error": "Selecione um cliente."}), 400
-	ext_clients = fetch_external_clients()
-	selected_ext = next((c for c in ext_clients if c.get("id") == int(external_client_id)), None)
+	try:
+		ext_id = int(external_client_id)
+	except (TypeError, ValueError):
+		return jsonify({"error": "Cliente inválido."}), 400
+
+	selected_ext = None
+	try:
+		selected_ext = get_external_client_by_id(ext_id)
+	except ExternalPgError as e:
+		if fallback_name:
+			selected_ext = {"id": ext_id, "name": fallback_name}
+		else:
+			return jsonify({"error": str(e)}), 503
+	except Exception as e:
+		if fallback_name:
+			selected_ext = {"id": ext_id, "name": fallback_name}
+		else:
+			return jsonify({"error": f"Erro ao validar cliente: {e}"}), 503
+
 	if not selected_ext:
-		return jsonify({"error": "Cliente não encontrado."}), 400
-	ticket = Ticket(
-		title=title,
-		description=description,
-		external_client_id=int(external_client_id),
-		external_client_name=selected_ext.get("name"),
-		solicitante=solicitante,
-		service_id=int(service_id) if service_id else None,
-		opened_by_id=current_user.id,
-		assigned_to_id=int(assigned_to_id) if assigned_to_id else None,
-	)
-	db.session.add(ticket)
-	db.session.commit()
-	from ..notification_service import create_notifications, ticket_recipient_ids
-	create_notifications(
-		ticket_recipient_ids(ticket.assigned_to_id),
-		notification_type="ticket",
-		title=f"Novo ticket #{ticket.id}",
-		message=f"{ticket.title} · {ticket.display_client_name() or 'Cliente não informado'}",
-		url=f"/tickets/{ticket.id}",
-		entity_type="ticket",
-		entity_id=ticket.id,
-	)
-	return jsonify(_serialize_ticket_detail(ticket)), 201
+		if fallback_name:
+			selected_ext = {"id": ext_id, "name": fallback_name}
+		else:
+			return jsonify({"error": "Cliente não encontrado."}), 400
+
+	try:
+		ticket = Ticket(
+			title=title,
+			description=description,
+			external_client_id=ext_id,
+			external_client_name=selected_ext.get("name") or fallback_name or None,
+			solicitante=solicitante,
+			service_id=int(service_id) if service_id else None,
+			opened_by_id=current_user.id,
+			assigned_to_id=int(assigned_to_id) if assigned_to_id else None,
+		)
+		db.session.add(ticket)
+		db.session.commit()
+	except Exception as e:
+		db.session.rollback()
+		return jsonify({"error": f"Erro ao criar chamado: {e}"}), 500
+
+	try:
+		from ..notification_service import create_notifications, ticket_recipient_ids
+		create_notifications(
+			ticket_recipient_ids(ticket.assigned_to_id),
+			notification_type="ticket",
+			title=f"Novo ticket #{ticket.id}",
+			message=f"{ticket.title} · {ticket.display_client_name() or 'Cliente não informado'}",
+			url=f"/tickets/{ticket.id}",
+			entity_type="ticket",
+			entity_id=ticket.id,
+		)
+	except Exception:
+		pass
+
+	try:
+		return jsonify(_serialize_ticket_detail(ticket)), 201
+	except Exception as e:
+		# Chamado já gravado — não falhar a abertura por erro de serialização.
+		return jsonify({
+			"id": ticket.id,
+			"title": ticket.title,
+			"status": ticket.status,
+			"solicitante": ticket.solicitante,
+			"external_client_id": ticket.external_client_id,
+			"external_client_name": ticket.external_client_name,
+			"warning": f"Chamado criado, mas a resposta detalhada falhou: {e}",
+		}), 201
 
 
 @bp.route("/api/<int:ticket_id>", methods=["PATCH"])
@@ -2756,12 +2797,20 @@ def api_update_ticket(ticket_id: int):
 	if "assigned_to_id" in data:
 		ticket.assigned_to_id = data.get("assigned_to_id") or None
 	if data.get("external_client_id"):
-		ext_id = int(data["external_client_id"])
-		ext_clients = fetch_external_clients()
-		selected_ext = next((c for c in ext_clients if c.get("id") == ext_id), None)
+		try:
+			ext_id = int(data["external_client_id"])
+		except (TypeError, ValueError):
+			return jsonify({"error": "Cliente inválido."}), 400
+		fallback_name = (data.get("external_client_name") or "").strip()
+		try:
+			selected_ext = get_external_client_by_id(ext_id)
+		except ExternalPgError as e:
+			if not fallback_name and not ticket.external_client_name:
+				return jsonify({"error": str(e)}), 503
+			selected_ext = {"id": ext_id, "name": fallback_name or ticket.external_client_name}
 		if selected_ext:
 			ticket.external_client_id = ext_id
-			ticket.external_client_name = selected_ext.get("name")
+			ticket.external_client_name = selected_ext.get("name") or fallback_name or ticket.external_client_name
 			ticket.client_id = None
 	db.session.commit()
 	return jsonify(_serialize_ticket_detail(ticket))

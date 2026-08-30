@@ -104,6 +104,33 @@ def fetch_external_clients() -> List[Dict[str, Any]]:
 		conn.close()
 
 
+def get_external_client_by_id(client_id: int) -> Dict[str, Any] | None:
+	"""Busca um único cliente Unico por id (evita listar toda a base)."""
+	if psycopg2 is None:
+		raise ExternalPgError(PG_UNAVAILABLE)
+	try:
+		cid = int(client_id)
+	except (TypeError, ValueError) as e:
+		raise ExternalPgError("ID de cliente inválido") from e
+	conn = _pg_connect(connect_timeout=5)
+	try:
+		with conn.cursor() as cur:
+			cur.execute(
+				SQL_ENTIDADES_BASE + " WHERE inativo = 0 AND id = %s",
+				(cid,),
+			)
+			rows = cur.fetchall()
+			cols = [desc[0] for desc in cur.description]
+			clients = _rows_to_clients(rows, cols)
+			return clients[0] if clients else None
+	except ExternalPgError:
+		raise
+	except Exception as e:
+		raise ExternalPgError(f"Erro ao buscar cliente #{cid} no Unico: {e}") from e
+	finally:
+		conn.close()
+
+
 def get_client_by_email(email: str) -> Dict[str, Any]:
 	"""Busca um cliente específico por email"""
 	conn = _pg_connect()

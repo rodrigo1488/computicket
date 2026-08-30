@@ -25,6 +25,11 @@ instance/
 *.sqlite3
 signatures/
 ngrok-v3-stable-windows-amd64/
+# PDFs das PS (host: /home/deploy/computicket/ps → volume ./ps:/app/ps)
+ps/**
+!ps/.gitkeep
+!ps/ps-do-dia/
+!ps/ps-do-dia/.gitkeep
 data/ps/**
 !data/ps/.gitkeep
 !data/ps/ps-do-dia/

@@ -25,7 +25,11 @@ share_tokens = {}
 
 
 def _ps_root() -> Path:
-    return Path(__file__).parent.parent.parent / "ps"
+    configured = (os.environ.get("PS_ROOT") or "").strip()
+    if configured:
+        return Path(configured)
+    # Docker: PS_ROOT=/app/ps (volume ./ps). Local: api/app/ps.
+    return Path(__file__).resolve().parent.parent.parent / "ps"
 
 
 def _ps_lookup_names(*values: str | None) -> list[str]:
@@ -103,11 +107,19 @@ def index():
 @bp.route('/api/list')
 @login_required
 def list_files():
-    """Lista PS registradas no PostgreSQL/Unico, enriquecidas com dados locais."""
+    """Lista PS do Unico + histórico local + PDFs órfãos em PS_ROOT."""
+    warnings: list[str] = []
+    financial_records: list = []
     try:
-        # O financeiro do Unico é a fonte atual. Os modelos locais preservam
-        # metadados/arquivos e registros históricos anteriores à migração.
         financial_records = fetch_ps_financial_records()
+    except ExternalPgError as e:
+        current_app.logger.warning("PS Unico indisponível, listando local/disco: %s", e)
+        warnings.append(str(e))
+    except Exception as e:
+        current_app.logger.exception("Falha inesperada ao listar PS no Unico")
+        warnings.append(f"Erro ao consultar Unico: {e}")
+
+    try:
         tickets = Ticket.query.filter(
             or_(
                 Ticket.ps_number.isnot(None),
@@ -121,6 +133,7 @@ def list_files():
             )
         ).all()
         items = merge_ps_records(financial_records, tickets, orders)
+        items = append_disk_orphan_ps(items)
 
         search_term = (request.args.get('search') or request.args.get('q') or '').strip().lower()
         if search_term:
@@ -128,10 +141,10 @@ def list_files():
                 item for item in items
                 if search_term in " ".join(
                     str(item.get(key) or "").lower()
-                    for key in ("ps_number", "client_name", "technician_name", "source", "description")
+                    for key in ("ps_number", "client_name", "technician_name", "source", "description", "name")
                 )
             ]
-        
+
         try:
             page = max(1, int(request.args.get("page", 1)))
         except (TypeError, ValueError):
@@ -143,16 +156,19 @@ def list_files():
         items = filter_dicts(items)
         total = len(items)
         start = (page - 1) * per_page
-        return jsonify({
+        payload = {
             "items": items[start:start + per_page],
             "search_term": search_term,
             "total": total,
             "page": page,
             "per_page": per_page,
-        })
-    except ExternalPgError as e:
-        return jsonify({"error": str(e)}), 503
+            "ps_root": str(_ps_root()),
+        }
+        if warnings:
+            payload["warnings"] = warnings
+        return jsonify(payload)
     except Exception as e:
+        current_app.logger.exception("Erro ao listar PS")
         return jsonify({"error": f"Erro ao listar PS: {str(e)}"}), 500
 
 
@@ -179,13 +195,17 @@ def _relative_ps_file(*candidates: str | None):
 def _ticket_ps_item(ticket):
     filename = ticket.ps_file or ticket.resolved_ps_filename()
     tech = ticket.assigned_to_user.name if getattr(ticket, "assigned_to_user", None) else None
+    try:
+        client_name = ticket.display_client_name()
+    except Exception:
+        client_name = getattr(ticket, "client_name", None) or ""
     return {
         "ps_number": ticket.ps_number,
         "name": ticket.ps_number or filename or f"Ticket #{ticket.id}",
         "type": "Ticket",
         "source": "Ticket",
         "source_id": ticket.id,
-        "client_name": ticket.display_client_name(),
+        "client_name": client_name or "",
         "technician_name": tech or "",
         "value": float(ticket.total_cost or 0),
         "issued_at": _iso_date(ticket.closed_at or ticket.created_at),
@@ -212,8 +232,18 @@ def _order_ps_item(order):
 
 def merge_ps_records(financial_records, tickets, orders):
     """Une a fonte Unico ao histórico local sem duplicar a mesma PS."""
-    ticket_items = [_ticket_ps_item(ticket) for ticket in tickets]
-    order_items = [_order_ps_item(order) for order in orders]
+    ticket_items = []
+    for ticket in tickets:
+        try:
+            ticket_items.append(_ticket_ps_item(ticket))
+        except Exception as e:
+            current_app.logger.warning("Ignorando ticket PS #%s: %s", getattr(ticket, "id", "?"), e)
+    order_items = []
+    for order in orders:
+        try:
+            order_items.append(_order_ps_item(order))
+        except Exception as e:
+            current_app.logger.warning("Ignorando OS PS #%s: %s", getattr(order, "id", "?"), e)
     local_items = ticket_items + order_items
     local_by_number = {
         _ps_key(item["ps_number"]): item
@@ -268,6 +298,70 @@ def merge_ps_records(financial_records, tickets, orders):
             seen.add(key)
 
     merged.sort(key=lambda item: item.get("issued_at") or "", reverse=True)
+    return merged
+
+
+def append_disk_orphan_ps(merged: list) -> list:
+    """Inclui PDFs em PS_ROOT que ainda não aparecem na lista Unico/local."""
+    root = _ps_root()
+    if not root.exists():
+        return merged
+
+    seen_numbers = {_ps_key(item.get("ps_number")) for item in merged if item.get("ps_number")}
+    seen_paths = {(item.get("path") or "").casefold() for item in merged if item.get("path")}
+    orphans: list = []
+
+    try:
+        resolved_root = root.resolve()
+    except OSError:
+        return merged
+
+    try:
+        for path in root.rglob("*.pdf"):
+            try:
+                if not path.is_file():
+                    continue
+                rel = path.resolve().relative_to(resolved_root).as_posix()
+            except (OSError, ValueError):
+                continue
+            if rel.casefold() in seen_paths:
+                continue
+
+            stem = path.stem
+            candidates = {
+                _ps_key(stem),
+                _ps_key(stem.replace("_", "/")),
+                _ps_key(stem.replace("_", "/", 1)),
+            }
+            if candidates & seen_numbers:
+                continue
+
+            ps_number = stem.replace("_", "/", 1) if stem.upper().startswith("PS_") else stem
+            orphans.append({
+                "id": f"file:{rel}",
+                "ps_number": ps_number,
+                "name": path.name,
+                "type": "Arquivo",
+                "source": "Arquivo",
+                "source_id": None,
+                "client_name": "",
+                "technician_name": "",
+                "value": 0,
+                "balance": None,
+                "status": None,
+                "issued_at": None,
+                "description": "",
+                "path": rel,
+            })
+            seen_paths.add(rel.casefold())
+            if _ps_key(ps_number):
+                seen_numbers.add(_ps_key(ps_number))
+    except OSError as e:
+        current_app.logger.warning("Falha ao varrer PDFs em %s: %s", root, e)
+
+    if orphans:
+        merged = list(merged) + orphans
+        merged.sort(key=lambda item: item.get("issued_at") or item.get("name") or "", reverse=True)
     return merged
 
 

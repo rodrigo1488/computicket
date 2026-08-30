@@ -141,6 +141,10 @@ export function TicketForm({
       description,
       solicitante,
       external_client_id: clientId ? Number(clientId) : null,
+      external_client_name:
+        clientOptions.find((c) => String(c.id) === String(clientId))?.name ||
+        defaults?.external_client_name ||
+        null,
       service_id: serviceId ? Number(serviceId) : null,
       assigned_to_id: assigned ? Number(assigned) : null,
     };
