@@ -13,6 +13,8 @@ Uso (a partir de api/app):
   python tools/migrate_sqlite_to_postgres.py --sqlite path/to/tickets.sqlite3 --wipe
 
 Preserva PKs e ajusta sequences (setval) no Postgres.
+Sem --wipe, INSERT vira upsert (ON CONFLICT PK) para não quebrar no admin
+já criado pelo seed/API (user id=1).
 """
 from __future__ import annotations
 
@@ -120,6 +122,11 @@ def table_column_types(engine: Engine, table: str) -> dict[str, str]:
 	return out
 
 
+def table_pk_columns(engine: Engine, table: str) -> list[str]:
+	pk = inspect(engine).get_pk_constraint(table) or {}
+	return list(pk.get("constrained_columns") or [])
+
+
 def _coerce_value(value, type_name: str):
 	"""Converte valores vindos do SQLite para tipos aceitos pelo Postgres."""
 	if value is None:
@@ -192,9 +199,25 @@ def copy_table(src: Engine, dst: Engine, table: str, *, disable_fks: bool = True
 	if not rows:
 		return 0, 0
 
-	insert_sql = text(
-		f"INSERT INTO {qname(table)} ({col_list}) VALUES ({placeholders})"
-	)
+	pk_cols = [c for c in table_pk_columns(dst, table) if c in common]
+	update_cols = [c for c in common if c not in pk_cols]
+	if pk_cols and update_cols:
+		conflict = ", ".join(f'"{c}"' for c in pk_cols)
+		assignments = ", ".join(f'"{c}" = EXCLUDED."{c}"' for c in update_cols)
+		insert_sql = text(
+			f"INSERT INTO {qname(table)} ({col_list}) VALUES ({placeholders}) "
+			f"ON CONFLICT ({conflict}) DO UPDATE SET {assignments}"
+		)
+	elif pk_cols:
+		conflict = ", ".join(f'"{c}"' for c in pk_cols)
+		insert_sql = text(
+			f"INSERT INTO {qname(table)} ({col_list}) VALUES ({placeholders}) "
+			f"ON CONFLICT ({conflict}) DO NOTHING"
+		)
+	else:
+		insert_sql = text(
+			f"INSERT INTO {qname(table)} ({col_list}) VALUES ({placeholders})"
+		)
 	payload = []
 	for r in rows:
 		row = {}
@@ -375,7 +398,7 @@ def main() -> None:
 		print("\n2) Limpando destino (--wipe)...")
 		wipe_postgres(dst, ordered)
 	else:
-		print("\n2) Sem --wipe (dados existentes no destino são mantidos; risco de conflito de PK)")
+		print("\n2) Sem --wipe (linhas com a mesma PK são atualizadas; use --wipe para zerar o destino)")
 
 	print("\n3) Copiando tabelas...")
 	results: list[tuple[str, int, int, int]] = []
