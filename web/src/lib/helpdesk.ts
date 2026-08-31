@@ -420,6 +420,17 @@ export const helpdesk = {
   updateQuickMessage: (id: number, payload: { shortcode: string; message: string }) =>
     flask.put<QuickMessage>(`/helpdesk/api/quick-messages/${id}`, payload),
   deleteQuickMessage: (id: number) => flask.delete(`/helpdesk/api/quick-messages/${id}`),
+  contacts: (opts?: { search?: string; pageNumber?: number }) => {
+    const q = new URLSearchParams();
+    if (opts?.search?.trim()) q.set("searchParam", opts.search.trim());
+    if (opts?.pageNumber) q.set("pageNumber", String(opts.pageNumber));
+    const qs = q.toString();
+    return flask.get<{ contacts: HelpdeskContact[]; count: number; hasMore: boolean }>(
+      `/helpdesk/api/contacts${qs ? `?${qs}` : ""}`,
+    );
+  },
+  createContact: (payload: { name: string; number: string; email?: string }) =>
+    flask.post<HelpdeskContactDetail>("/helpdesk/api/contacts", payload),
   contact: (id: number) => flask.get<HelpdeskContactDetail>(`/helpdesk/api/contacts/${id}`),
   updateContact: (id: number, payload: { name?: string; email?: string; extraInfo?: { id?: number; name?: string; value?: string }[] }) =>
     flask.put<HelpdeskContactDetail>(`/helpdesk/api/contacts/${id}`, payload),
@@ -431,6 +442,8 @@ export const helpdesk = {
   ) => flask.put<HelpdeskContactClientLinkRes>(`/helpdesk/api/contacts/${id}/client-link`, payload),
   deleteContactClientLink: (id: number) =>
     flask.delete<HelpdeskContactClientLinkRes>(`/helpdesk/api/contacts/${id}/client-link`),
+  startConversation: (payload: { contactId: number; queueId?: number; whatsappId?: number }) =>
+    flask.post<HelpdeskConversation>("/helpdesk/api/conversations", payload),
   linkTicket: (id: number, ticketId: number) =>
     flask.post<{ ok: boolean; engine_ticket_id: number; computicket_ticket_id: number }>(
       `/helpdesk/api/conversations/${id}/link-ticket`,

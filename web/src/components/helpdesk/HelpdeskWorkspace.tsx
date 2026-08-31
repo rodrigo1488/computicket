@@ -12,6 +12,7 @@ import {
   History,
   LoaderCircle,
   Lock,
+  MessageSquarePlus,
   MoreVertical,
   Paperclip,
   PenLine,
@@ -23,6 +24,7 @@ import {
   Star,
   Ticket,
   Undo2,
+  UserPlus,
   UserRound,
   WandSparkles,
   X,
@@ -55,10 +57,12 @@ import {
   type EngineSession,
   type HelpdeskAiSource,
   type HelpdeskAiTicketDraft,
+  type HelpdeskContact,
   type HelpdeskContactClientLink,
   type HelpdeskConversation,
   type HelpdeskConversationHistoryItem,
   type HelpdeskMessage,
+  type HelpdeskQueue,
   type HelpdeskTab,
   type QuickMessage,
   type TransferPayload,
@@ -644,6 +648,7 @@ export function HelpdeskWorkspace() {
   const [text, setText] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
+  const [newConversationOpen, setNewConversationOpen] = useState(false);
   const [transferOpen, setTransferOpen] = useState(false);
   const [contactOpen, setContactOpen] = useState(false);
   const [quickOpen, setQuickOpen] = useState(false);
@@ -1465,15 +1470,27 @@ export function HelpdeskWorkspace() {
               <span className={cn("h-1.5 w-1.5 rounded-full", connected ? "bg-done" : "bg-open")} />
               {connectionLabel}
             </span>
-            {isAdmin ? (
-              <Link
-                href="/configuracoes?tab=whatsapp&section=conexoes"
-                className="rounded-md p-1 text-brand hover:bg-progress-bg"
-                title="Configurar WhatsApp"
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => setNewConversationOpen(true)}
+                disabled={engineDown}
+                className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-semibold text-brand hover:bg-progress-bg disabled:cursor-not-allowed disabled:opacity-40"
+                title="Nova conversa"
               >
-                <Settings className="h-4 w-4" />
-              </Link>
-            ) : null}
+                <MessageSquarePlus className="h-3.5 w-3.5" />
+                Nova
+              </button>
+              {isAdmin ? (
+                <Link
+                  href="/configuracoes?tab=whatsapp&section=conexoes"
+                  className="rounded-md p-1 text-brand hover:bg-progress-bg"
+                  title="Configurar WhatsApp"
+                >
+                  <Settings className="h-4 w-4" />
+                </Link>
+              ) : null}
+            </div>
           </div>
           <div className="flex border-b border-[#ececec]">
             {TAB_META.map((t) => {
@@ -2143,6 +2160,25 @@ export function HelpdeskWorkspace() {
         />
       ) : null}
 
+      <NewConversationDialog
+        open={newConversationOpen}
+        queues={queues.data || []}
+        connections={connections.data || []}
+        onClose={() => setNewConversationOpen(false)}
+        onStarted={(conversation) => {
+          setNewConversationOpen(false);
+          setTab("open");
+          setMineOnly(false);
+          setActiveId(conversation.id);
+          setError(null);
+          setContactOpen(false);
+          qc.invalidateQueries({ queryKey: ["hd-list"] });
+          qc.invalidateQueries({ queryKey: ["hd-overview"] });
+          qc.invalidateQueries({ queryKey: ["hd-list-counts"] });
+          qc.setQueryData(["hd-conversation", conversation.id], conversation);
+        }}
+      />
+
       <TicketCreateDialog
         open={createOpen}
         onClose={() => {
@@ -2429,6 +2465,287 @@ function AiDraftPanel({
       <AiSources sources={result.sources} />
       <p className="mt-2 text-[10px] text-muted">Conteúdo gerado por IA. Revise antes de usar.</p>
     </div>
+  );
+}
+
+function NewConversationDialog({
+  open,
+  queues,
+  connections,
+  onClose,
+  onStarted,
+}: {
+  open: boolean;
+  queues: HelpdeskQueue[];
+  connections: { id: number; name: string; status?: string }[];
+  onClose: () => void;
+  onStarted: (conversation: HelpdeskConversation) => void;
+}) {
+  const [mode, setMode] = useState<"pick" | "create">("pick");
+  const [contactSearch, setContactSearch] = useState("");
+  const [debouncedContactSearch, setDebouncedContactSearch] = useState("");
+  const [name, setName] = useState("");
+  const [number, setNumber] = useState("");
+  const [queueId, setQueueId] = useState("");
+  const [whatsappId, setWhatsappId] = useState("");
+  const [busyId, setBusyId] = useState<number | "create" | null>(null);
+  const [localError, setLocalError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    setMode("pick");
+    setContactSearch("");
+    setDebouncedContactSearch("");
+    setName("");
+    setNumber("");
+    setQueueId("");
+    setWhatsappId(() => {
+      const connected = connections.find((c) => (c.status || "").toLowerCase() === "connected");
+      return String((connected || connections[0])?.id || "");
+    });
+    setBusyId(null);
+    setLocalError(null);
+  }, [open, connections]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebouncedContactSearch(contactSearch.trim()), 250);
+    return () => window.clearTimeout(timer);
+  }, [contactSearch]);
+
+  const contacts = useQuery({
+    queryKey: ["hd-contacts", debouncedContactSearch],
+    queryFn: () => helpdesk.contacts({ search: debouncedContactSearch || undefined }),
+    enabled: open && mode === "pick",
+  });
+
+  async function startWithContact(contact: HelpdeskContact) {
+    if (!contact.id) return;
+    setBusyId(contact.id);
+    setLocalError(null);
+    try {
+      const conversation = await helpdesk.startConversation({
+        contactId: contact.id,
+        ...(queueId ? { queueId: Number(queueId) } : {}),
+        ...(whatsappId ? { whatsappId: Number(whatsappId) } : {}),
+      });
+      onStarted(conversation);
+    } catch (e) {
+      setLocalError(e instanceof Error ? e.message : "Não foi possível iniciar a conversa");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function createAndStart() {
+    const trimmedName = name.trim();
+    const digits = number.replace(/\D/g, "");
+    if (!trimmedName) {
+      setLocalError("Informe o nome do contato");
+      return;
+    }
+    if (digits.length < 8) {
+      setLocalError("Informe um telefone/WhatsApp válido");
+      return;
+    }
+    setBusyId("create");
+    setLocalError(null);
+    try {
+      const contact = await helpdesk.createContact({ name: trimmedName, number: digits });
+      if (!contact.id) throw new Error("Contato criado sem id");
+      const conversation = await helpdesk.startConversation({
+        contactId: contact.id,
+        ...(queueId ? { queueId: Number(queueId) } : {}),
+        ...(whatsappId ? { whatsappId: Number(whatsappId) } : {}),
+      });
+      onStarted(conversation);
+    } catch (e) {
+      setLocalError(e instanceof Error ? e.message : "Não foi possível criar a conversa");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  return (
+    <Modal open={open} onClose={onClose} title="Nova conversa" wide>
+      <div className="space-y-4">
+        <p className="text-sm text-muted">
+          Escolha um contato existente ou cadastre um número novo para abrir o atendimento no WhatsApp.
+        </p>
+
+        <div className="flex rounded-lg border border-line bg-[#f3f4f6] p-0.5">
+          <button
+            type="button"
+            onClick={() => {
+              setMode("pick");
+              setLocalError(null);
+            }}
+            className={cn(
+              "flex-1 rounded-md px-2 py-1.5 text-xs font-semibold uppercase tracking-wide",
+              mode === "pick" ? "bg-white text-navy shadow-sm" : "text-muted hover:text-ink",
+            )}
+          >
+            Contatos
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setMode("create");
+              setLocalError(null);
+            }}
+            className={cn(
+              "flex-1 rounded-md px-2 py-1.5 text-xs font-semibold uppercase tracking-wide",
+              mode === "create" ? "bg-white text-navy shadow-sm" : "text-muted hover:text-ink",
+            )}
+          >
+            Novo contato
+          </button>
+        </div>
+
+        <div className="grid gap-3 sm:grid-cols-2">
+          <label className="block">
+            <span className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted">Conexão</span>
+            <select
+              value={whatsappId}
+              onChange={(e) => setWhatsappId(e.target.value)}
+              className="mt-1 w-full border-0 border-b border-[#d7d7d7] bg-transparent py-2 text-[15px]"
+            >
+              <option value="">Padrão do agente</option>
+              {connections.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                  {(c.status || "").toLowerCase() === "connected" ? "" : c.status ? ` (${c.status})` : ""}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="block">
+            <span className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted">Fila</span>
+            <select
+              value={queueId}
+              onChange={(e) => setQueueId(e.target.value)}
+              className="mt-1 w-full border-0 border-b border-[#d7d7d7] bg-transparent py-2 text-[15px]"
+            >
+              <option value="">Sem fila</option>
+              {queues.map((q) => (
+                <option key={q.id} value={q.id}>
+                  {q.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+
+        {mode === "pick" ? (
+          <div className="space-y-3">
+            <label className="flex items-center gap-2 rounded-lg border border-line bg-[#fafafa] px-2 py-1.5">
+              <Search className="h-3.5 w-3.5 text-muted" />
+              <input
+                value={contactSearch}
+                onChange={(e) => setContactSearch(e.target.value)}
+                placeholder="Buscar por nome ou número"
+                className="w-full bg-transparent text-sm outline-none placeholder:text-muted"
+                autoFocus
+              />
+            </label>
+            <div className="max-h-[320px] space-y-1 overflow-y-auto rounded-lg border border-line">
+              {contacts.isLoading ? (
+                <p className="px-3 py-8 text-center text-sm text-muted">Carregando contatos…</p>
+              ) : contacts.isError ? (
+                <p className="px-3 py-8 text-center text-sm text-open">
+                  {(contacts.error as Error).message || "Falha ao listar contatos"}
+                </p>
+              ) : (contacts.data?.contacts || []).length === 0 ? (
+                <div className="px-3 py-8 text-center">
+                  <p className="text-sm text-muted">Nenhum contato encontrado</p>
+                  <button
+                    type="button"
+                    className="mt-2 text-xs font-semibold text-brand hover:underline"
+                    onClick={() => setMode("create")}
+                  >
+                    Criar novo contato
+                  </button>
+                </div>
+              ) : (
+                (contacts.data?.contacts || []).map((contact) => (
+                  <button
+                    key={contact.id}
+                    type="button"
+                    disabled={busyId != null}
+                    onClick={() => startWithContact(contact)}
+                    className="flex w-full items-center gap-3 px-3 py-2.5 text-left hover:bg-[#f7f7f7] disabled:opacity-60"
+                  >
+                    <UserAvatar
+                      name={contact.name || contact.number || "?"}
+                      src={publicMediaUrl(contact.profilePicUrl)}
+                      size="sm"
+                    />
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm font-medium text-ink">
+                        {contact.name || "Sem nome"}
+                      </span>
+                      <span className="block truncate text-xs text-muted">{contact.number || "—"}</span>
+                    </span>
+                    {busyId === contact.id ? (
+                      <LoaderCircle className="h-4 w-4 shrink-0 animate-spin text-brand" />
+                    ) : (
+                      <MessageSquarePlus className="h-4 w-4 shrink-0 text-muted" />
+                    )}
+                  </button>
+                ))
+              )}
+            </div>
+          </div>
+        ) : (
+          <form
+            className="space-y-4"
+            onSubmit={(e) => {
+              e.preventDefault();
+              void createAndStart();
+            }}
+          >
+            <label className="block">
+              <span className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted">Nome</span>
+              <input
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                className="mt-1 w-full border-0 border-b border-[#d7d7d7] bg-transparent py-2 text-[15px] outline-none"
+                placeholder="Nome do contato"
+                autoFocus
+              />
+            </label>
+            <label className="block">
+              <span className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted">
+                Telefone / WhatsApp
+              </span>
+              <input
+                value={number}
+                onChange={(e) => setNumber(e.target.value)}
+                className="mt-1 w-full border-0 border-b border-[#d7d7d7] bg-transparent py-2 text-[15px] outline-none"
+                placeholder="5511999999999"
+                inputMode="tel"
+              />
+              <span className="mt-1 block text-[11px] text-muted">
+                Prefira DDI + DDD + número. O engine valida se o número existe no WhatsApp.
+              </span>
+            </label>
+            <button
+              type="submit"
+              disabled={busyId != null}
+              className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-brand px-4 py-2.5 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+            >
+              {busyId === "create" ? (
+                <LoaderCircle className="h-4 w-4 animate-spin" />
+              ) : (
+                <UserPlus className="h-4 w-4" />
+              )}
+              Criar e iniciar conversa
+            </button>
+          </form>
+        )}
+
+        {localError ? <p className="text-sm text-open">{localError}</p> : null}
+      </div>
+    </Modal>
   );
 }
 

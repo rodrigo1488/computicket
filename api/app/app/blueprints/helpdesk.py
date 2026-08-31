@@ -1663,6 +1663,88 @@ def delete_quick_message(item_id: int):
         return _fail(exc)
 
 
+def _sanitize_contacts_payload(data):
+    """Normaliza lista de contatos do engine (array ou {contacts, count, hasMore})."""
+    if isinstance(data, list):
+        contacts = [_sanitize_contact(c) for c in data if isinstance(c, dict)]
+        return {"contacts": contacts, "count": len(contacts), "hasMore": False}
+    if not isinstance(data, dict):
+        return {"contacts": [], "count": 0, "hasMore": False}
+    raw = data.get("contacts") if isinstance(data.get("contacts"), list) else []
+    contacts = [_sanitize_contact(c) for c in raw if isinstance(c, dict)]
+    return {
+        "contacts": contacts,
+        "count": int(data.get("count") or len(contacts)),
+        "hasMore": bool(data.get("hasMore")),
+    }
+
+
+def _find_engine_contact_by_number(number: str):
+    """Busca contato existente no engine pelo número (dígitos)."""
+    digits = "".join(ch for ch in (number or "") if ch.isdigit())
+    if not digits:
+        return None
+    try:
+        listed = agent_request(
+            "GET",
+            "/contacts",
+            params={"searchParam": digits, "pageNumber": "1"},
+        )
+    except EngineError:
+        return None
+    contacts = _sanitize_contacts_payload(listed).get("contacts") or []
+    for contact in contacts:
+        contact_digits = "".join(ch for ch in str(contact.get("number") or "") if ch.isdigit())
+        if contact_digits == digits or contact_digits.endswith(digits) or digits.endswith(contact_digits):
+            return contact
+    return None
+
+
+@helpdesk_bp.route("/api/contacts")
+@login_required
+def list_contacts():
+    params = {
+        "pageNumber": request.args.get("pageNumber") or "1",
+    }
+    search = request.args.get("searchParam") or request.args.get("search") or request.args.get("q")
+    if search:
+        params["searchParam"] = search
+    try:
+        data = agent_request("GET", "/contacts", params=params)
+        return jsonify(_sanitize_contacts_payload(data))
+    except EngineError as exc:
+        return _fail(exc)
+
+
+@helpdesk_bp.route("/api/contacts", methods=["POST"])
+@login_required
+def create_contact():
+    payload = request.get_json(silent=True) or {}
+    name = (payload.get("name") or "").strip()
+    number = "".join(ch for ch in str(payload.get("number") or "") if ch.isdigit())
+    if not name:
+        return jsonify({"error": "Nome é obrigatório"}), 400
+    if len(number) < 8:
+        return jsonify({"error": "Informe um telefone/WhatsApp válido"}), 400
+
+    body = {
+        "name": name,
+        "number": number,
+        "email": (payload.get("email") or "").strip(),
+    }
+    try:
+        data = agent_request("POST", "/contacts", json=body)
+        return jsonify(_sanitize_contact(data)), 201
+    except EngineError as exc:
+        message = str(exc) or ""
+        # Número já cadastrado no engine — devolve o contato existente.
+        if "DUPLICATED" in message.upper() or "duplicad" in message.lower():
+            existing = _find_engine_contact_by_number(number)
+            if existing:
+                return jsonify(_sanitize_contact(existing))
+        return _fail(exc)
+
+
 @helpdesk_bp.route("/api/contacts/<int:contact_id>")
 @login_required
 def show_contact(contact_id: int):
@@ -1687,6 +1769,42 @@ def update_contact(contact_id: int):
         }
         data = agent_request("PUT", f"/contacts/{contact_id}", json=body)
         return jsonify(_sanitize_contact(data))
+    except EngineError as exc:
+        return _fail(exc)
+
+
+@helpdesk_bp.route("/api/conversations", methods=["POST"])
+@login_required
+def start_conversation():
+    """Inicia (ou reabre) conversa no engine para um contato existente."""
+    payload = request.get_json(silent=True) or {}
+    try:
+        contact_id = int(payload.get("contactId") or payload.get("contact_id"))
+    except (TypeError, ValueError):
+        return jsonify({"error": "contactId é obrigatório"}), 400
+
+    queue_id = _id_or_none(payload.get("queueId") if "queueId" in payload else payload.get("queue_id"))
+    whatsapp_id = _id_or_none(
+        payload.get("whatsappId") if "whatsappId" in payload else payload.get("whatsapp_id")
+    )
+
+    body: dict = {
+        "contactId": contact_id,
+        "status": "open",
+        "reuseOpenTicket": True,
+    }
+    if queue_id is not None:
+        body["queueId"] = queue_id
+    if whatsapp_id is not None:
+        body["whatsappId"] = whatsapp_id
+
+    try:
+        session = ensure_agent_session()
+        body["userId"] = session.engine_user_id
+        ticket = agent_request("POST", "/tickets", json=body)
+        if isinstance(ticket, dict) and "ticket" in ticket and isinstance(ticket["ticket"], dict):
+            ticket = ticket["ticket"]
+        return jsonify(_with_link(ticket if isinstance(ticket, dict) else None)), 201
     except EngineError as exc:
         return _fail(exc)
 
