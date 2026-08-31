@@ -115,6 +115,7 @@ export type TicketDetail = TicketCard & {
   } | null;
   in_progress_started_at?: string | null;
   created_at_input?: string | null;
+  helpdesk_linked_at?: string | null;
 };
 
 export type AuthUser = {

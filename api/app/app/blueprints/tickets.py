@@ -2500,18 +2500,11 @@ def _fmt_ticket_dt_local_input(dt):
 
 
 def _helpdesk_linked_at(ticket: Ticket):
-	"""Momento em que ESTE chamado foi anexado à conversa (não um vínculo anterior)."""
+	"""Horário em que ESTE chamado foi anexado (HelpDeskTicketLink.created_at)."""
 	link = HelpDeskTicketLink.query.filter_by(computicket_ticket_id=ticket.id).order_by(
 		HelpDeskTicketLink.created_at.desc()
 	).first()
-	if not link:
-		return None
-	linked = link.created_at
-	created = ticket.created_at
-	# Linha de vínculo reaproveitada de outro chamado fica com created_at antigo.
-	if created and linked and created > linked:
-		return created
-	return linked
+	return link.created_at if link else None
 
 
 def _ticket_base_price(ticket: Ticket) -> float:

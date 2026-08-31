@@ -2,10 +2,10 @@ from collections import defaultdict
 
 from flask import Blueprint, render_template, jsonify
 from flask_login import login_required
-from sqlalchemy import func, and_
+from sqlalchemy import func, and_, or_
 from datetime import datetime, date, timedelta
-from ..models import Ticket, TimeEntry, Client, User, ServiceOrder
-from ..timezone_utils import get_brasilia_now
+from ..models import Ticket, TimeEntry, Client, User, ServiceOrder, HelpDeskTicketLink, HelpDeskRating
+from ..timezone_utils import brasilia_to_utc, get_brasilia_now, utc_to_brasilia
 
 bp = Blueprint("dashboard", __name__)
 
@@ -57,57 +57,162 @@ def _normalize_whatsapps(raw):
     return []
 
 
-def _parse_engine_day(value):
-    """Extrai YYYY-MM-DD de timestamps do engine (ISO / SQL)."""
+def _as_naive_utc(dt):
+    """Normaliza datetime para UTC naive (colunas DateTime do Flask)."""
+    if dt is None:
+        return None
+    converted = brasilia_to_utc(dt) if getattr(dt, "tzinfo", None) else dt
+    if converted is None:
+        return None
+    if getattr(converted, "tzinfo", None):
+        return converted.replace(tzinfo=None)
+    return converted
+
+
+def _brasilia_day_key(value):
+    """YYYY-MM-DD no fuso de Brasília a partir de datetime/ISO do engine ou do banco."""
     if value is None:
         return None
-    if hasattr(value, "date"):
+    if isinstance(value, date) and not isinstance(value, datetime):
+        return value.isoformat()
+    parsed = value
+    if isinstance(value, str):
+        raw = value.strip()
+        if not raw:
+            return None
         try:
-            return value.date().isoformat()
+            parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        except ValueError:
+            if "T" in raw:
+                raw = raw.split("T", 1)[0]
+            elif " " in raw:
+                raw = raw.split(" ", 1)[0]
+            return raw[:10] if len(raw) >= 10 else None
+        if isinstance(parsed, date) and not isinstance(parsed, datetime):
+            return parsed.isoformat()
+    try:
+        local = utc_to_brasilia(parsed)
+        if local is None:
+            return None
+        return local.date().isoformat()
+    except Exception:
+        try:
+            return parsed.date().isoformat()
         except Exception:
-            pass
-    raw = str(value).strip()
-    if not raw:
-        return None
-    if "T" in raw:
-        raw = raw.split("T", 1)[0]
-    elif " " in raw:
-        raw = raw.split(" ", 1)[0]
-    return raw[:10] if len(raw) >= 10 else None
+            return None
 
 
-def _tickets_closed_by_day(month_start, day_end):
-    """Tickets Computicket fechados no mês, dia a dia (mesmo critério da Operação)."""
-    closed_by_day = (
-        Ticket.query.with_entities(
-            func.date(Ticket.closed_at).label("day"),
-            func.count(Ticket.id).label("count"),
+def _parse_engine_day(value):
+    """Extrai YYYY-MM-DD (Brasília) de timestamps do engine (ISO / SQL)."""
+    return _brasilia_day_key(value)
+
+
+def _in_month(day, month_key, today_key):
+    return bool(day and month_key <= day <= today_key)
+
+
+def _counts_from_day_events(events, month_key, today_key):
+    counts = defaultdict(int)
+    for _identity, day in events:
+        if _in_month(day, month_key, today_key):
+            counts[day] += 1
+    return dict(counts)
+
+
+def _helpdesk_tickets_created_by_day(month_start, day_end):
+    """
+    Tickets Computicket do mês vinculados ao Help Desk (HelpDeskTicketLink),
+    pelo dia de criação em Brasília — não exige status fechado.
+    Chamados só anexados neste mês entram no dia do vínculo.
+    """
+    month_start_utc = _as_naive_utc(month_start)
+    day_end_utc = _as_naive_utc(day_end)
+    month_key = (month_start.date() if hasattr(month_start, "date") else month_start).isoformat()
+    today_key = (day_end.date() if hasattr(day_end, "date") else day_end).isoformat()
+    if month_start_utc is None or day_end_utc is None:
+        return {}
+
+    pad = timedelta(days=1)
+    rows = (
+        Ticket.query.join(
+            HelpDeskTicketLink,
+            HelpDeskTicketLink.computicket_ticket_id == Ticket.id,
         )
+        .with_entities(Ticket.id, Ticket.created_at, HelpDeskTicketLink.created_at)
         .filter(
-            and_(
-                Ticket.status == "fechado",
-                Ticket.closed_at >= month_start,
-                Ticket.closed_at <= day_end,
+            or_(
+                and_(Ticket.created_at >= month_start_utc - pad, Ticket.created_at <= day_end_utc + pad),
+                and_(
+                    HelpDeskTicketLink.created_at >= month_start_utc - pad,
+                    HelpDeskTicketLink.created_at <= day_end_utc + pad,
+                ),
             )
         )
-        .group_by(func.date(Ticket.closed_at))
         .all()
     )
-    counts = {}
-    for day, count in closed_by_day:
-        if not day:
-            continue
-        key = day.isoformat()[:10] if hasattr(day, "isoformat") else str(day)[:10]
-        counts[key] = int(count or 0)
-    return counts
-
-
-def _engine_closed_conversations_by_day(agent_request, month_start_date, today_date):
-    """
-    Conversas WhatsApp encerradas no mês via engine.
-    Assume listagem closed ordenada por updatedAt DESC; para ao acabar o mês.
-    """
     counts = defaultdict(int)
+    seen = set()
+    for ticket_id, created_at, linked_at in rows:
+        if ticket_id in seen:
+            continue
+        created_day = _brasilia_day_key(created_at)
+        linked_day = _brasilia_day_key(linked_at)
+        if _in_month(created_day, month_key, today_key):
+            day = created_day
+        elif _in_month(linked_day, month_key, today_key):
+            day = linked_day
+        else:
+            continue
+        seen.add(ticket_id)
+        counts[day] += 1
+    return dict(counts)
+
+
+def _rating_closed_conversation_events(month_start, day_end):
+    """
+    Encerramentos persistidos na pesquisa de satisfação.
+    Sobrevivem ao reopen do engine (a listagem status=closed não).
+    Um evento por (engine_ticket_id, dia).
+    """
+    month_start_utc = _as_naive_utc(month_start)
+    day_end_utc = _as_naive_utc(day_end)
+    if month_start_utc is None or day_end_utc is None:
+        return set()
+    pad = timedelta(days=1)
+    rows = (
+        HelpDeskRating.query.with_entities(
+            HelpDeskRating.engine_ticket_id,
+            HelpDeskRating.requested_at,
+            HelpDeskRating.sent_at,
+        )
+        .filter(
+            or_(
+                and_(
+                    HelpDeskRating.requested_at >= month_start_utc - pad,
+                    HelpDeskRating.requested_at <= day_end_utc + pad,
+                ),
+                and_(
+                    HelpDeskRating.sent_at >= month_start_utc - pad,
+                    HelpDeskRating.sent_at <= day_end_utc + pad,
+                ),
+            )
+        )
+        .all()
+    )
+    events = set()
+    for engine_id, requested_at, sent_at in rows:
+        day = _brasilia_day_key(sent_at) or _brasilia_day_key(requested_at)
+        if day and engine_id is not None:
+            events.add((int(engine_id), day))
+    return events
+
+
+def _engine_closed_conversation_events(agent_request, month_start_date, today_date):
+    """
+    Conversas ainda encerradas no engine neste mês.
+    Usa closedAt / updatedAt / createdAt; para ao acabar o mês (ordem DESC).
+    """
+    events = set()
     month_key = month_start_date.isoformat()
     today_key = today_date.isoformat()
     page = 1
@@ -121,8 +226,10 @@ def _engine_closed_conversations_by_day(agent_request, month_start_date, today_d
         tickets = [item for item in (chunk or []) if isinstance(item, dict)]
         in_month = False
         before_month = False
-        for ticket in tickets:
-            day = _parse_engine_day(ticket.get("updatedAt") or ticket.get("createdAt"))
+        for idx, ticket in enumerate(tickets):
+            day = _parse_engine_day(
+                ticket.get("closedAt") or ticket.get("updatedAt") or ticket.get("createdAt")
+            )
             if not day:
                 continue
             if day < month_key:
@@ -131,13 +238,14 @@ def _engine_closed_conversations_by_day(agent_request, month_start_date, today_d
             if day > today_key:
                 continue
             in_month = True
-            counts[day] += 1
+            engine_id = ticket.get("id")
+            identity = int(engine_id) if engine_id is not None else f"engine-{page}-{idx}"
+            events.add((identity, day))
         has_more = bool(isinstance(data, dict) and data.get("hasMore"))
-        # Página inteira anterior ao mês + ordenação DESC ⇒ páginas seguintes são mais antigas
         if (before_month and not in_month) or not has_more or not tickets:
             break
         page += 1
-    return dict(counts)
+    return events
 
 
 def _build_comparativo_por_dia(month_start, today, conversas_by_day, tickets_by_day):
@@ -199,18 +307,25 @@ def get_helpdesk_dashboard_data():
     month_start_date = current_month.date() if hasattr(current_month, "date") else current_month
     today_date = brasilia_now.date() if hasattr(brasilia_now, "date") else brasilia_now
 
-    tickets_by_day = _tickets_closed_by_day(current_month, fim_dia)
+    tickets_by_day = _helpdesk_tickets_created_by_day(current_month, fim_dia)
     tickets_mes_count = sum(tickets_by_day.values())
 
-    conversas_by_day = {}
+    close_events = set()
     try:
-        conversas_by_day = _engine_closed_conversations_by_day(
+        close_events |= _engine_closed_conversation_events(
             agent_request, month_start_date, today_date
         )
     except EngineError:
-        conversas_by_day = {}
+        pass
     except Exception:
-        conversas_by_day = {}
+        pass
+    try:
+        close_events |= _rating_closed_conversation_events(current_month, fim_dia)
+    except Exception:
+        pass
+    conversas_by_day = _counts_from_day_events(
+        close_events, month_start_date.isoformat(), today_date.isoformat()
+    )
     conversas_mes_count = sum(conversas_by_day.values())
     comparativo_por_dia = _build_comparativo_por_dia(
         current_month, brasilia_now, conversas_by_day, tickets_by_day

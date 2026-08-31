@@ -58,6 +58,7 @@ if npx sequelize db:migrate; then
 else
     echo -e "${YELLOW}⚠️  Aviso: Erro ao executar migrações${NC}"
     echo -e "${YELLOW}💡 A aplicação continuará funcionando com a estrutura atual do banco${NC}"
+    echo -e "${YELLOW}💡 ensureTicketsAllowMultiplePerContact roda no startup (drop UNIQUE contactId+companyId+whatsappId)${NC}"
     # Não sai com erro, apenas registra o aviso
 fi
 

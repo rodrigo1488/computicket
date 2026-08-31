@@ -231,7 +231,7 @@ _CLOSED_TICKET_STATUSES = ("fechado", "cancelado")
 
 
 def _visible_linked_ticket_id(computicket_id, conversation_status: str | None):
-	"""Chamado fechado/cancelado não fica ativo em conversa reaberta."""
+	"""Chamado fechado/cancelado não fica ativo em conversa nova/aberta."""
 	if not computicket_id:
 		return None
 	ticket = db.session.get(Ticket, int(computicket_id))
@@ -243,7 +243,7 @@ def _visible_linked_ticket_id(computicket_id, conversation_status: str | None):
 
 
 def _visible_rating(rating: dict | None, conversation_status: str | None):
-	"""Avaliação da sessão anterior não aparece em conversa reaberta."""
+	"""Avaliação pertence só à conversa encerrada em que foi pedida."""
 	if not rating or conversation_status != "closed":
 		return None
 	return rating
@@ -349,7 +349,48 @@ def _send_rating_invitation(rating: HelpDeskRating) -> None:
     db.session.commit()
 
 
-def _with_link(ticket: dict | None) -> dict | None:
+def _history_for_contact(contact_id, current_ticket_id) -> list[dict]:
+    """Ciclos fechados anteriores do mesmo contato (não mistura no thread atual)."""
+    if not contact_id:
+        return []
+    try:
+        data = admin_request("GET", f"/tickets/history/contact/{int(contact_id)}")
+    except EngineError:
+        return []
+    sessions = data.get("sessions") if isinstance(data, dict) else None
+    if not isinstance(sessions, list):
+        return []
+    rows: list[dict] = []
+    ids: list[int] = []
+    current = int(current_ticket_id) if current_ticket_id is not None else None
+    for session in sessions:
+        if not isinstance(session, dict):
+            continue
+        sid = session.get("id")
+        if sid is None:
+            continue
+        sid = int(sid)
+        if current is not None and sid == current:
+            continue
+        ids.append(sid)
+        rows.append(session)
+    links = _links_by_engine_ids(ids)
+    ratings = _ratings_by_engine_ids(ids)
+    history: list[dict] = []
+    for session in rows:
+        sid = int(session["id"])
+        history.append({
+            "id": sid,
+            "status": session.get("status"),
+            "lastMessage": session.get("lastMessage"),
+            "updatedAt": session.get("updatedAt") or session.get("finishedAt"),
+            "rating": ratings.get(sid),
+            "computicket_ticket_id": links.get(sid),
+        })
+    return history
+
+
+def _with_link(ticket: dict | None, *, include_history: bool = False) -> dict | None:
     if not ticket:
         return ticket
     engine_id = ticket.get("id")
@@ -367,6 +408,10 @@ def _with_link(ticket: dict | None) -> dict | None:
         ticket.get("status"),
     )
     ticket["rating"] = _visible_rating(rating.to_dict() if rating else None, ticket.get("status"))
+    if include_history:
+        contact = ticket.get("contact") if isinstance(ticket.get("contact"), dict) else {}
+        contact_id = contact.get("id") or ticket.get("contactId")
+        ticket["history"] = _history_for_contact(contact_id, ticket.get("id"))
     return _rewrite_ticket_media(ticket)
 
 
@@ -848,9 +893,21 @@ def list_conversations():
 def show_conversation(ticket_id: int):
     try:
         ticket = agent_request("GET", f"/tickets/{ticket_id}")
-        return jsonify(_with_link(ticket))
+        return jsonify(_with_link(ticket, include_history=True))
     except EngineError as exc:
         return _fail(exc)
+
+
+@helpdesk_bp.route("/api/conversations/<int:ticket_id>/history")
+@login_required
+def conversation_history(ticket_id: int):
+    try:
+        ticket = agent_request("GET", f"/tickets/{ticket_id}") or {}
+    except EngineError as exc:
+        return _fail(exc)
+    contact = ticket.get("contact") if isinstance(ticket, dict) and isinstance(ticket.get("contact"), dict) else {}
+    contact_id = contact.get("id") or (ticket.get("contactId") if isinstance(ticket, dict) else None)
+    return jsonify({"history": _history_for_contact(contact_id, ticket_id)})
 
 
 @helpdesk_bp.route("/api/conversations/<int:ticket_id>/messages")
@@ -1288,6 +1345,7 @@ def link_ticket(ticket_id: int):
     if not ticket:
         return jsonify({"error": "Chamado não encontrado"}), 404
     row = HelpDeskTicketLink.query.filter_by(engine_ticket_id=ticket_id).first()
+    linked_at = brasilia_to_utc(get_brasilia_now())
     if row:
         current_linked = db.session.get(Ticket, row.computicket_ticket_id)
         if current_linked and current_linked.status not in _CLOSED_TICKET_STATUSES:
@@ -1296,9 +1354,13 @@ def link_ticket(ticket_id: int):
                 "computicket_ticket_id": current_linked.id,
             }), 409
         row.computicket_ticket_id = ticket.id
-        row.created_at = brasilia_to_utc(get_brasilia_now())
+        row.created_at = linked_at
     else:
-        row = HelpDeskTicketLink(engine_ticket_id=ticket_id, computicket_ticket_id=ticket.id)
+        row = HelpDeskTicketLink(
+            engine_ticket_id=ticket_id,
+            computicket_ticket_id=ticket.id,
+            created_at=linked_at,
+        )
         db.session.add(row)
     db.session.commit()
     try:

@@ -7,7 +7,7 @@ import { getIO } from "../../libs/socket";
 import CacheInvalidationService from "../CacheServices/CacheInvalidationService";
 import GetDefaultWhatsAppByUser from "../../helpers/GetDefaultWhatsAppByUser";
 import ShowWhatsAppService from "../WhatsappService/ShowWhatsAppService";
-import { UniqueConstraintError } from "sequelize";
+import { Op, UniqueConstraintError } from "sequelize";
 
 interface Request {
   contactId: number;
@@ -54,12 +54,16 @@ const CreateTicketService = async ({
 
   const { isGroup } = await ShowContactService(contactId, companyId);
 
-  // IMPORTANTE: a tabela Tickets tem índice único em (contactId, companyId, whatsappId).
-  // Não podemos "pegar qualquer ticket do contato" e depois trocar o whatsappId via UPDATE,
-  // pois isso pode colidir com um ticket existente e gerar UniqueConstraintError.
-  const whereTicket = { contactId, companyId, whatsappId: targetWhatsappId };
+  // Vários tickets fechados por contato são permitidos. Só reutiliza
+  // um ciclo ainda aberto/pendente; senão cria um ticket novo (slate limpo).
+  const whereLive = {
+    contactId,
+    companyId,
+    whatsappId: targetWhatsappId,
+    status: { [Op.in]: ["open", "pending"] }
+  };
 
-  let ticket = await Ticket.findOne({ where: whereTicket, include: ["contact", "queue"] });
+  let ticket = await Ticket.findOne({ where: whereLive, include: ["contact", "queue"] });
 
   if (!ticket) {
     try {
@@ -74,9 +78,8 @@ const CreateTicketService = async ({
       });
       ticket = await Ticket.findByPk(ticket.id, { include: ["contact", "queue"] });
     } catch (err: any) {
-      // Corrida: se outro request criou ao mesmo tempo, buscar e seguir.
       if (err instanceof UniqueConstraintError) {
-        ticket = await Ticket.findOne({ where: whereTicket, include: ["contact", "queue"] });
+        ticket = await Ticket.findOne({ where: whereLive, include: ["contact", "queue"] });
       } else {
         throw err;
       }

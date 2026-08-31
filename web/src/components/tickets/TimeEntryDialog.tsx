@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Modal } from "@/components/ui/Modal";
 import { PrimaryButton } from "@/components/ui/UnderlineField";
 import { flask } from "@/lib/api";
@@ -91,6 +91,7 @@ function DateTime24Field({
 }
 
 type TicketTimes = {
+  id?: number;
   in_progress_started_at?: string | null;
   created_at_input?: string | null;
   helpdesk_linked_at?: string | null;
@@ -115,10 +116,13 @@ export function TimeEntryDialog({
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const [loadingTimes, setLoadingTimes] = useState(false);
+  const loadGeneration = useRef(0);
 
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
+    const generation = ++loadGeneration.current;
+    const requestedTicketId = ticketId;
     const now = localDatetime(new Date());
     setEnd(now);
     setStart(now);
@@ -126,14 +130,17 @@ export function TimeEntryDialog({
     setError("");
     setLoadingTimes(true);
 
+    const isCurrent = () =>
+      !cancelled && generation === loadGeneration.current && requestedTicketId === ticketId;
+
     void flask
-      .get<TicketTimes>(`/tickets/api/${ticketId}`)
+      .get<TicketTimes>(`/tickets/api/${requestedTicketId}?_=${generation}`)
       .then((ticket) => {
-        if (cancelled) return;
+        if (!isCurrent()) return;
+        if (ticket.id != null && ticket.id !== requestedTicketId) return;
         if (mode === "stop" && ticket.in_progress_started_at) {
           setStart(ticket.in_progress_started_at);
         } else if (mode === "add" && ticket.helpdesk_linked_at) {
-          // Início = horário em que o chamado foi anexado à conversa do Help Desk.
           setStart(ticket.helpdesk_linked_at);
         } else {
           setStart(now);
@@ -141,13 +148,13 @@ export function TimeEntryDialog({
         setEnd(now);
       })
       .catch(() => {
-        if (!cancelled) {
+        if (isCurrent()) {
           setStart(now);
           setEnd(now);
         }
       })
       .finally(() => {
-        if (!cancelled) setLoadingTimes(false);
+        if (isCurrent()) setLoadingTimes(false);
       });
 
     return () => {

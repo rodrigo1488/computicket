@@ -98,6 +98,15 @@ export type HelpdeskRatingSummary = {
   recent: HelpdeskRating[];
 };
 
+export type HelpdeskConversationHistoryItem = {
+  id: number;
+  status?: string;
+  lastMessage?: string | null;
+  updatedAt?: string;
+  rating?: HelpdeskRating | null;
+  computicket_ticket_id?: number | null;
+};
+
 export type HelpdeskConversation = {
   id: number;
   status: string;
@@ -115,6 +124,7 @@ export type HelpdeskConversation = {
   computicket_ticket_id?: number | null;
   rating?: HelpdeskRating | null;
   rating_warning?: string;
+  history?: HelpdeskConversationHistoryItem[];
 };
 
 export type HelpdeskMessage = {
@@ -360,6 +370,8 @@ export const helpdesk = {
     return flask.get<ConversationListRes>(`/helpdesk/api/conversations?${q}`);
   },
   conversation: (id: number) => flask.get<HelpdeskConversation>(`/helpdesk/api/conversations/${id}`),
+  conversationHistory: (id: number) =>
+    flask.get<{ history: HelpdeskConversationHistoryItem[] }>(`/helpdesk/api/conversations/${id}/history`),
   messages: (id: number, page = "1") =>
     flask.get<MessageListRes>(`/helpdesk/api/conversations/${id}/messages?pageNumber=${page}`),
   send: (id: number, body: string, opts?: { isInternal?: boolean }) =>
@@ -401,7 +413,10 @@ export const helpdesk = {
   deleteContactClientLink: (id: number) =>
     flask.delete<HelpdeskContactClientLinkRes>(`/helpdesk/api/contacts/${id}/client-link`),
   linkTicket: (id: number, ticketId: number) =>
-    flask.post(`/helpdesk/api/conversations/${id}/link-ticket`, { ticket_id: ticketId }),
+    flask.post<{ ok: boolean; engine_ticket_id: number; computicket_ticket_id: number }>(
+      `/helpdesk/api/conversations/${id}/link-ticket`,
+      { ticket_id: ticketId },
+    ),
   aiQuery: (question: string, conversationId?: number | null) =>
     flask.post<HelpdeskAiDraftRes>("/helpdesk/api/ai/query", {
       question,

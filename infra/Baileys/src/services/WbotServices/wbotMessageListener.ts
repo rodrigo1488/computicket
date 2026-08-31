@@ -116,7 +116,6 @@ import ListSettingsServiceOne from "../SettingServices/ListSettingsServiceOne";
 import ShowUserService from "../UserServices/ShowUserService";
 import ListQueuesService from "../QueueService/ListQueuesService";
 import Tag from "../../models/Tag";
-import TicketTag from "../../models/TicketTag";
 import ExecuteAppointmentFunction from "../AppointmentAIService/ExecuteAppointmentFunction";
 import DashboardCommandService from "../AiServices/DashboardCommandService";
 import { AIProviderSelector } from "../AiServices/AIProviderSelector";
@@ -1735,17 +1734,55 @@ export const transferQueue = async (
 };
 
 const reopenClosedConversation = async (ticket: Ticket, io: ReturnType<typeof getIO>) => {
-  const oldStatus = ticket.status;
-  await ticket.update({
-    status: "pending",
-    userId: null,
-    queueId: null,
-    chatbot: false,
-    queueOptionId: null,
-    sessionStartedAt: new Date(),
+  const live = await Ticket.findOne({
+    where: {
+      contactId: ticket.contactId,
+      companyId: ticket.companyId,
+      whatsappId: ticket.whatsappId,
+      status: { [Op.in]: ["open", "pending", "rating"] }
+    },
+    order: [["id", "DESC"]]
   });
-  await TicketTag.destroy({ where: { ticketId: ticket.id } });
-  await ticket.reload({
+  if (live) {
+    return;
+  }
+
+  logger.info({
+    msg: "wbotMessageListener: conversa fechada — criando ticket novo (não reabre)",
+    closedTicketId: ticket.id,
+    contactId: ticket.contactId
+  });
+
+  let created: Ticket;
+  try {
+    created = await Ticket.create({
+      contactId: ticket.contactId,
+      status: ticket.isGroup ? "open" : "pending",
+      isGroup: !!ticket.isGroup,
+      unreadMessages: ticket.unreadMessages || 1,
+      whatsappId: ticket.whatsappId,
+      companyId: ticket.companyId,
+      integrationId: null,
+      promptId: null,
+      useIntegration: false
+    });
+  } catch (err) {
+    logger.warn({
+      msg: "wbotMessageListener: já existe ticket aberto/pendente para o contato — não reabre o fechado",
+      closedTicketId: ticket.id,
+      err: (err as Error)?.message
+    });
+    return;
+  }
+
+  await FindOrCreateATicketTrakingService({
+    ticketId: created.id,
+    companyId: created.companyId,
+    whatsappId: created.whatsappId,
+    userId: null
+  });
+
+  await created.reload({
     include: [
       {
         model: Queue,
@@ -1757,21 +1794,12 @@ const reopenClosedConversation = async (ticket: Ticket, io: ReturnType<typeof ge
     ]
   });
 
-  io.to(`company-${ticket.companyId}-${oldStatus}`)
-    .to(`queue-${ticket.queueId}-${oldStatus}`)
-    .emit(`company-${ticket.companyId}-ticket`, {
-      action: "delete",
-      ticket,
-      ticketId: ticket.id
-    });
-
-  io.to(`company-${ticket.companyId}-${ticket.status}`)
-    .to(`queue-${ticket.queueId}-${ticket.status}`)
-    .to(ticket.id.toString())
-    .emit(`company-${ticket.companyId}-ticket`, {
-      action: "update",
-      ticket,
-      ticketId: ticket.id
+  io.to(`company-${created.companyId}-${created.status}`)
+    .to(`company-${created.companyId}-notification`)
+    .emit(`company-${created.companyId}-ticket`, {
+      action: "create",
+      ticket: created,
+      ticketId: created.id
     });
 };
 
@@ -1948,7 +1976,11 @@ export const verifyMediaMessage = async (
       });
   }
 
-  if (!msg.key.fromMe && ticket.status === "closed") {
+  if (
+    !msg.key.fromMe &&
+    ticket.status === "closed" &&
+    !isAutomatedInboundMessage(getBodyMessage(msg))
+  ) {
     await reopenClosedConversation(ticket, io);
   }
 
@@ -2137,7 +2169,11 @@ export const verifyMessage = async (
       });
   }
 
-  if (!msg.key.fromMe && ticket.status === "closed") {
+  if (
+    !msg.key.fromMe &&
+    ticket.status === "closed" &&
+    !isAutomatedInboundMessage(getBodyMessage(msg))
+  ) {
     await reopenClosedConversation(ticket, io);
   }
 };

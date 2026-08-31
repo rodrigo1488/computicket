@@ -9,6 +9,7 @@ import {
   ChevronDown,
   FilePlus2,
   Hand,
+  History,
   LoaderCircle,
   Lock,
   MoreVertical,
@@ -55,6 +56,7 @@ import {
   type HelpdeskAiTicketDraft,
   type HelpdeskContactClientLink,
   type HelpdeskConversation,
+  type HelpdeskConversationHistoryItem,
   type HelpdeskMessage,
   type HelpdeskTab,
   type QuickMessage,
@@ -180,6 +182,20 @@ function sortInboxConversations(rows: HelpdeskConversation[]) {
     if (unreadA !== unreadB) return unreadB - unreadA;
     return conversationUpdatedAtMs(b) - conversationUpdatedAtMs(a);
   });
+}
+
+function applyLinkedTicketId(
+  qc: ReturnType<typeof useQueryClient>,
+  conversationId: number,
+  ticketId: number,
+) {
+  qc.setQueryData<HelpdeskConversation>(["hd-conversation", conversationId], (prev) =>
+    prev ? { ...prev, computicket_ticket_id: ticketId } : prev,
+  );
+  patchConversationInLists(qc, conversationId, (row) => ({
+    ...row,
+    computicket_ticket_id: ticketId,
+  }));
 }
 
 function patchConversationInLists(
@@ -402,6 +418,7 @@ export function HelpdeskWorkspace() {
   const [aiResult, setAiResult] = useState<AiResult | null>(null);
   const [aiError, setAiError] = useState<string | null>(null);
   const [ticketDefaults, setTicketDefaults] = useState<HelpdeskAiTicketDraft | null>(null);
+  const [historyViewId, setHistoryViewId] = useState<number | null>(null);
   const [sign, setSign] = useState(() => {
     if (typeof window === "undefined") return true;
     return window.localStorage.getItem(SIGN_KEY) !== "0";
@@ -412,6 +429,10 @@ export function HelpdeskWorkspace() {
   const activeIdRef = useRef<number | null>(null);
   const pendingResolveChatId = useRef<number | null>(null);
   const entryContinueRef = useRef(false);
+  const justLinkedTicketId = useRef<number | null>(null);
+  const [linkedFallback, setLinkedFallback] = useState<{ conversationId: number; ticketId: number } | null>(
+    null,
+  );
   activeIdRef.current = activeId;
 
   useEffect(() => {
@@ -475,6 +496,9 @@ export function HelpdeskWorkspace() {
     setAiError(null);
     setKnowledgeOpen(false);
     setTicketDefaults(null);
+    justLinkedTicketId.current = null;
+    setLinkedFallback(null);
+    setHistoryViewId(null);
   }, [activeId]);
 
   const health = useQuery({ queryKey: ["hd-health"], queryFn: helpdesk.health, retry: 1 });
@@ -555,7 +579,15 @@ export function HelpdeskWorkspace() {
 
   const conversation = useQuery({
     queryKey: ["hd-conversation", activeId],
-    queryFn: () => helpdesk.conversation(activeId as number),
+    queryFn: async () => {
+      const data = await helpdesk.conversation(activeId as number);
+      const pendingId = justLinkedTicketId.current;
+      if (!data.computicket_ticket_id && pendingId) {
+        return { ...data, computicket_ticket_id: pendingId };
+      }
+      if (data.computicket_ticket_id) justLinkedTicketId.current = null;
+      return data;
+    },
     enabled: !!activeId,
   });
 
@@ -563,6 +595,14 @@ export function HelpdeskWorkspace() {
     const status = conversation.data?.status;
     if (status === "open" || status === "pending" || status === "closed") setTab(status);
   }, [conversation.data?.id, conversation.data?.status]);
+
+  useEffect(() => {
+    const convId = conversation.data?.id;
+    const ticketId = conversation.data?.computicket_ticket_id;
+    if (convId && ticketId) {
+      setLinkedFallback({ conversationId: convId, ticketId });
+    }
+  }, [conversation.data?.id, conversation.data?.computicket_ticket_id]);
 
   const messages = useQuery({
     queryKey: ["hd-messages", activeId],
@@ -748,13 +788,16 @@ export function HelpdeskWorkspace() {
   };
 
   const handleResolverClick = () => {
-    if (!current || current.status !== "open") return;
-    const ticketId = current.computicket_ticket_id;
+    const conv = conversation.data;
+    if (!conv || conv.status !== "open") return;
+    const ticketId =
+      conv.computicket_ticket_id ??
+      (linkedFallback?.conversationId === conv.id ? linkedFallback.ticketId : null);
     if (!ticketId) {
-      if (window.confirm("Resolver esta conversa?")) resolve.mutate(current.id);
+      if (window.confirm("Resolver esta conversa?")) resolve.mutate(conv.id);
       return;
     }
-    void openCloseTicketFlow(current.id, ticketId);
+    void openCloseTicketFlow(conv.id, ticketId);
   };
 
   const onLinkedTicketClosed = () => {
@@ -992,6 +1035,9 @@ export function HelpdeskWorkspace() {
   }, [activeId, session.data?.token]);
 
   const current = conversation.data;
+  const linkedTicketId =
+    current?.computicket_ticket_id ??
+    (linkedFallback?.conversationId === current?.id ? linkedFallback.ticketId : null);
   const canReply = current?.status === "open";
   const assignedName = current?.user?.name;
   const thread = messages.data?.messages || [];
@@ -1421,12 +1467,12 @@ export function HelpdeskWorkspace() {
                       </p>
                     </div>
                   </button>
-                  {current.computicket_ticket_id ? (
+                  {linkedTicketId ? (
                     <Link
-                      href={`/tickets/${current.computicket_ticket_id}`}
+                      href={`/tickets/${linkedTicketId}`}
                       className="ml-[3.25rem] w-fit max-w-[calc(100%-3.25rem)] truncate rounded-md bg-progress-bg px-2 py-0.5 text-[11px] font-semibold text-brand hover:underline"
                     >
-                      Chamado #{current.computicket_ticket_id}
+                      Chamado #{linkedTicketId}
                     </Link>
                   ) : null}
                 </div>
@@ -1461,7 +1507,7 @@ export function HelpdeskWorkspace() {
                       Devolver
                     </button>
                   ) : null}
-                  {current.status !== "closed" && !current.computicket_ticket_id ? (
+                  {current.status !== "closed" && !linkedTicketId ? (
                     <button
                       type="button"
                       onClick={() => {
@@ -1525,6 +1571,13 @@ export function HelpdeskWorkspace() {
                     </>
                   )}
                 </div>
+              ) : null}
+
+              {(current.history || []).length > 0 ? (
+                <ConversationHistoryStrip
+                  items={current.history || []}
+                  onOpen={(id) => setHistoryViewId(id)}
+                />
               ) : null}
 
               <div
@@ -1643,7 +1696,7 @@ export function HelpdeskWorkspace() {
                       }}
                       onApplyTicket={() => {
                         if (aiResult.kind !== "ticket") return;
-                        if (current?.computicket_ticket_id) {
+                        if (linkedTicketId) {
                           setAiError("Esta conversa já possui um chamado ativo.");
                           setAiResult(null);
                           return;
@@ -1880,16 +1933,34 @@ export function HelpdeskWorkspace() {
         onCreated={(created) => {
           setAiResult(null);
           setTicketDefaults(null);
-          if (current?.computicket_ticket_id) {
+          if (!current?.id || !created?.id) return;
+          const conversationId = current.id;
+          const ticketId = created.id;
+          if (linkedTicketId) {
             setError("Esta conversa já possui um chamado ativo.");
             return;
           }
-          if (current?.id && created?.id) {
-            helpdesk.linkTicket(current.id, created.id).then(() => {
-              qc.invalidateQueries({ queryKey: ["hd-conversation", current.id] });
-              qc.invalidateQueries({ queryKey: ["hd-messages", current.id] });
+          justLinkedTicketId.current = ticketId;
+          setLinkedFallback({ conversationId, ticketId });
+          applyLinkedTicketId(qc, conversationId, ticketId);
+          helpdesk
+            .linkTicket(conversationId, ticketId)
+            .then((res) => {
+              const confirmedId = res?.computicket_ticket_id || ticketId;
+              justLinkedTicketId.current = confirmedId;
+              setLinkedFallback({ conversationId, ticketId: confirmedId });
+              applyLinkedTicketId(qc, conversationId, confirmedId);
+              qc.invalidateQueries({ queryKey: ["hd-conversation", conversationId] });
+              qc.invalidateQueries({ queryKey: ["hd-messages", conversationId] });
+            })
+            .catch((e: Error) => {
+              justLinkedTicketId.current = null;
+              setLinkedFallback((prev) =>
+                prev?.conversationId === conversationId && prev.ticketId === ticketId ? null : prev,
+              );
+              qc.invalidateQueries({ queryKey: ["hd-conversation", conversationId] });
+              setError(e.message || "Não foi possível vincular o chamado.");
             });
-          }
         }}
       />
 
@@ -1931,6 +2002,10 @@ export function HelpdeskWorkspace() {
           </div>
         </form>
       </Modal>
+
+      {historyViewId ? (
+        <HistoryMessagesModal conversationId={historyViewId} onClose={() => setHistoryViewId(null)} />
+      ) : null}
 
       {linkedTicket && entryMode ? (
         <TimeEntryDialog
@@ -2216,6 +2291,105 @@ function TransferDialog({
         </form>
       </div>
     </div>
+  );
+}
+
+function ConversationHistoryStrip({
+  items,
+  onOpen,
+}: {
+  items: HelpdeskConversationHistoryItem[];
+  onOpen: (id: number) => void;
+}) {
+  return (
+    <div className="shrink-0 border-b border-[#e6e0d6] bg-[#faf8f4] px-4 py-2">
+      <p className="mb-1.5 inline-flex items-center gap-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-muted">
+        <History className="h-3 w-3" />
+        Histórico
+      </p>
+      <div className="flex gap-2 overflow-x-auto pb-0.5">
+        {items.map((item) => (
+          <button
+            key={item.id}
+            type="button"
+            onClick={() => onOpen(item.id)}
+            className="min-w-[11rem] max-w-[14rem] shrink-0 rounded-lg border border-[#e6e0d6] bg-white px-2.5 py-1.5 text-left hover:border-brand/40"
+            title="Ver mensagens deste ciclo"
+          >
+            <span className="flex items-center justify-between gap-2 text-[11px] font-semibold text-ink">
+              <span>#{item.id}</span>
+              <span className="font-normal text-muted">{formatDay(item.updatedAt)}</span>
+            </span>
+            <span className="mt-0.5 block truncate text-[11px] text-muted">
+              {snippet(item.lastMessage) || "Sem última mensagem"}
+            </span>
+            <span className="mt-0.5 flex items-center gap-2 text-[10px] text-muted">
+              {item.computicket_ticket_id ? <span>Chamado #{item.computicket_ticket_id}</span> : null}
+              {item.rating?.answered && item.rating.score != null ? (
+                <span className="inline-flex items-center gap-0.5">
+                  <Star className="h-3 w-3 fill-[#f6b91a] text-[#f6b91a]" />
+                  {item.rating.score}/5
+                </span>
+              ) : null}
+            </span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function HistoryMessagesModal({
+  conversationId,
+  onClose,
+}: {
+  conversationId: number;
+  onClose: () => void;
+}) {
+  const query = useQuery({
+    queryKey: ["hd-messages", "history", conversationId],
+    queryFn: () => helpdesk.messages(conversationId),
+  });
+  const items = unwrapMessages(query.data);
+
+  return (
+    <Modal open onClose={onClose} title={`Histórico · conversa #${conversationId}`}>
+      <div className="max-h-[60vh] space-y-2 overflow-y-auto pr-1">
+        {query.isLoading ? <p className="text-sm text-muted">Carregando mensagens…</p> : null}
+        {query.isError ? (
+          <p className="text-sm text-open">Não foi possível carregar este ciclo.</p>
+        ) : null}
+        {query.isSuccess && items.length === 0 ? (
+          <p className="text-sm text-muted">Nenhuma mensagem neste ciclo.</p>
+        ) : null}
+        {items.map((m, idx) => {
+          const system = m.isInternal || m.isPrivate;
+          const mine = !!m.fromMe && !system;
+          return (
+            <div
+              key={`${m.id}-${idx}`}
+              className={cn("flex", system ? "justify-center" : mine ? "justify-end" : "justify-start")}
+            >
+              <div
+                className={cn(
+                  "max-w-[80%] rounded-lg px-3 py-1.5 text-sm",
+                  system
+                    ? "bg-[#d1ecf1] text-center text-xs text-[#0c5460]"
+                    : mine
+                      ? "bg-[#d9fdd3] text-ink"
+                      : "bg-[#f5f5f5] text-ink",
+                )}
+              >
+                {m.body ? <p className="whitespace-pre-wrap break-words">{m.body}</p> : null}
+                <p className="mt-0.5 text-right text-[10px] text-muted">
+                  {formatDay(m.createdAt)} {formatClock(m.createdAt)}
+                </p>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </Modal>
   );
 }
 

@@ -1,50 +1,66 @@
-import { subHours } from "date-fns";
 import { Op, UniqueConstraintError } from "sequelize";
 import Contact from "../../models/Contact";
 import Ticket from "../../models/Ticket";
-import TicketTag from "../../models/TicketTag";
 import ShowTicketService from "./ShowTicketService";
 import FindOrCreateATicketTrakingService from "./FindOrCreateATicketTrakingService";
-import Setting from "../../models/Setting";
 import Whatsapp from "../../models/Whatsapp";
 import { logger } from "../../utils/logger";
 import AppError from "../../errors/AppError";
 
-const reopenClosedTicket = async (
-  ticket: Ticket,
-  params: {
-    unreadMessages: number;
-    companyId: number;
-    groupContact?: Contact;
-  }
-): Promise<Ticket> => {
-  await ticket.update({
-    status: params.groupContact ? "open" : "pending",
-    userId: null,
-    queueId: null,
-    unreadMessages: params.unreadMessages,
-    companyId: params.companyId,
-    sessionStartedAt: new Date(),
-    promptId: null,
-    integrationId: null,
-    useIntegration: false,
-    typebotStatus: false,
-    typebotSessionId: null,
-    chatbot: false,
-    queueOptionId: null,
+const LIVE_STATUSES = ["open", "pending", "rating"];
+
+const findLiveTicket = async (
+  contactId: number,
+  companyId: number,
+  whatsappId?: number
+): Promise<Ticket | null> => {
+  return Ticket.findOne({
+    where: {
+      status: { [Op.in]: LIVE_STATUSES },
+      contactId,
+      companyId,
+      ...(whatsappId ? { whatsappId } : {})
+    },
+    order: [["id", "DESC"]]
   });
-  await TicketTag.destroy({ where: { ticketId: ticket.id } });
+};
+
+const createFreshTicket = async (params: {
+  contactId: number;
+  companyId: number;
+  whatsappId: number;
+  unreadMessages: number;
+  isGroup: boolean;
+  integrationId: number | null;
+  promptId: number | null;
+}): Promise<Ticket> => {
+  const ticket = await Ticket.create({
+    contactId: params.contactId,
+    status: params.isGroup ? "open" : "pending",
+    isGroup: params.isGroup,
+    unreadMessages: params.unreadMessages,
+    whatsappId: params.whatsappId,
+    companyId: params.companyId,
+    integrationId: params.integrationId,
+    promptId: params.promptId,
+    useIntegration: false
+  });
+
   await FindOrCreateATicketTrakingService({
     ticketId: ticket.id,
     companyId: params.companyId,
-    whatsappId: ticket.whatsappId,
+    whatsappId: params.whatsappId,
     userId: ticket.userId
   });
-  logger.info({
-    msg: "FindOrCreateTicketService: conversa fechada reaberta no mesmo ticket",
+
+  logger.info("🎫 === TICKET CRIADO (ciclo novo) ===", {
     ticketId: ticket.id,
-    status: ticket.status
+    contactId: ticket.contactId,
+    whatsappId: ticket.whatsappId,
+    status: ticket.status,
+    isGroup: ticket.isGroup
   });
+
   return ticket;
 };
 
@@ -57,200 +73,69 @@ const FindOrCreateTicketService = async (
   fromMe?: boolean,
   isAutomatedInbound?: boolean
 ): Promise<Ticket> => {
-  let ticket = await Ticket.findOne({
-    where: {
-      status: {
-        [Op.or]: ["open", "pending", "rating", "closed"]
-      },
-      contactId: groupContact ? groupContact.id : contact.id,
-      companyId,
-      whatsappId
-    },
-    order: [["id", "DESC"]]
-  });
+  const contactId = groupContact ? groupContact.id : contact.id;
+  const isGroup = !!groupContact;
 
   const whatsapp = await Whatsapp.findOne({
     where: { id: whatsappId }
   });
 
-  if (ticket && ticket.status !== "closed") {
+  let ticket = await findLiveTicket(contactId, companyId, whatsappId);
+
+  if (!ticket && isGroup) {
+    ticket = await findLiveTicket(contactId, companyId);
+  }
+
+  if (ticket) {
     await ticket.update({
       unreadMessages,
       whatsappId,
       integrationId: whatsapp?.integrationId || ticket.integrationId,
       promptId: whatsapp?.promptId || ticket.promptId
     });
-
-    logger.debug("🔄 Ticket existente atualizado com config do WhatsApp", {
-      ticketId: ticket.id,
-      integrationId: ticket.integrationId,
-      promptId: ticket.promptId,
-      useIntegration: ticket.useIntegration,
-      atualizouIntegracao: whatsapp?.integrationId !== ticket.integrationId
-    });
+    ticket = await ShowTicketService(ticket.id, companyId);
+    return ticket;
   }
 
-  if (ticket?.status === "closed") {
-    if (fromMe || isAutomatedInbound) {
-      return await ShowTicketService(ticket.id, companyId);
+  // Ecos outbound/automáticos (conclusão, avaliação) ficam no ticket fechado
+  // mais recente — sem reabrir e sem abrir um ciclo novo.
+  if (fromMe || isAutomatedInbound) {
+    const closed = await Ticket.findOne({
+      where: { contactId, companyId, whatsappId, status: "closed" },
+      order: [["id", "DESC"]]
+    });
+    if (closed) {
+      return ShowTicketService(closed.id, companyId);
     }
-    ticket = await reopenClosedTicket(ticket, {
-      unreadMessages,
+  }
+
+  try {
+    ticket = await createFreshTicket({
+      contactId,
       companyId,
-      groupContact
+      whatsappId,
+      unreadMessages,
+      isGroup,
+      integrationId: whatsapp?.integrationId || null,
+      promptId: whatsapp?.promptId || null
     });
-  }
-
-  if (!ticket && groupContact) {
-    ticket = await Ticket.findOne({
-      where: {
-        contactId: groupContact.id
-      },
-      order: [["updatedAt", "DESC"]]
-    });
-
-    if (ticket) {
-      if (ticket.status === "closed") {
-        if (fromMe || isAutomatedInbound) {
-          return await ShowTicketService(ticket.id, companyId);
-        }
-        ticket = await reopenClosedTicket(ticket, {
-          unreadMessages,
-          companyId,
-          groupContact
-        });
-      } else {
-        await ticket.update({
-          status: "open",
-          userId: null,
-          unreadMessages,
-          queueId: null,
-          companyId
-        });
-        await FindOrCreateATicketTrakingService({
-          ticketId: ticket.id,
-          companyId,
-          whatsappId: ticket.whatsappId,
-          userId: ticket.userId
-        });
-      }
+  } catch (err) {
+    if (!(err instanceof UniqueConstraintError)) {
+      throw err;
     }
-    const msgIsGroupBlock = await Setting.findOne({
-      where: { key: "timeCreateNewTicket" }
-    });
-
-    const value = msgIsGroupBlock ? parseInt(msgIsGroupBlock.value, 10) : 7200;
-    void value;
-  }
-
-  if (!ticket && !groupContact) {
-    ticket = await Ticket.findOne({
-      where: {
-        updatedAt: {
-          [Op.between]: [+subHours(new Date(), 2), +new Date()]
-        },
-        contactId: contact.id,
-        companyId,
-        whatsappId
-      },
-      order: [["updatedAt", "DESC"]]
-    });
-
-    if (ticket) {
-      if (ticket.status === "rating") {
-        await ticket.update({
-          unreadMessages,
-          whatsappId,
-          integrationId: whatsapp?.integrationId || ticket.integrationId,
-          promptId: whatsapp?.promptId || ticket.promptId
-        });
-      } else if (ticket.status === "closed") {
-        if (fromMe || isAutomatedInbound) {
-          return await ShowTicketService(ticket.id, companyId);
-        }
-        ticket = await reopenClosedTicket(ticket, {
-          unreadMessages,
-          companyId
-        });
-      } else {
-        await ticket.update({
-          status: "pending",
-          userId: null,
-          unreadMessages,
-          queueId: null,
-          companyId,
-          sessionStartedAt: new Date()
-        });
-        await FindOrCreateATicketTrakingService({
-          ticketId: ticket.id,
-          companyId,
-          whatsappId: ticket.whatsappId,
-          userId: ticket.userId
-        });
-      }
+    ticket = await findLiveTicket(contactId, companyId, whatsappId);
+    if (!ticket) {
+      throw err;
     }
-  }
-
-  if (!ticket) {
-    try {
-      ticket = await Ticket.create({
-        contactId: groupContact ? groupContact.id : contact.id,
-        status: groupContact ? "open" : "pending",
-        isGroup: !!groupContact,
-        unreadMessages,
-        whatsappId,
-        companyId,
-        integrationId: whatsapp?.integrationId || null,
-        promptId: whatsapp?.promptId || null,
-        useIntegration: false
-      });
-
-      logger.info("🎫 === TICKET CRIADO ===", {
-        ticketId: ticket.id,
-        contactId: ticket.contactId,
-        whatsappId: ticket.whatsappId,
-        status: ticket.status,
-        isGroup: ticket.isGroup,
-        integrationId: ticket.integrationId,
-        promptId: ticket.promptId,
-        useIntegration: ticket.useIntegration,
-        herdouIntegração: !!whatsapp?.integrationId
-      });
-
-      await FindOrCreateATicketTrakingService({
-        ticketId: ticket.id,
-        companyId,
-        whatsappId,
-        userId: ticket.userId
-      });
-    } catch (err) {
-      if (!(err instanceof UniqueConstraintError)) {
-        throw err;
-      }
-      ticket = await Ticket.findOne({
-        where: {
-          contactId: groupContact ? groupContact.id : contact.id,
-          companyId,
-          whatsappId
-        },
-        order: [["id", "DESC"]]
-      });
-      if (!ticket) {
-        throw err;
-      }
-      if (ticket.status === "closed" && !fromMe && !isAutomatedInbound) {
-        ticket = await reopenClosedTicket(ticket, {
-          unreadMessages,
-          companyId,
-          groupContact
-        });
-      }
-    }
+    logger.info({
+      msg: "FindOrCreateTicketService: corrida — reutilizando ticket aberto/pendente",
+      ticketId: ticket.id
+    });
   }
 
   if (!ticket || !ticket.id) {
-    logger.error("FindOrCreateTicketService: ticket.id está indefinido após todas as tentativas de criação/busca", {
-      contactId: contact.id,
+    logger.error("FindOrCreateTicketService: ticket.id indefinido após criação/busca", {
+      contactId,
       companyId,
       whatsappId,
       groupContactId: groupContact?.id
@@ -259,7 +144,6 @@ const FindOrCreateTicketService = async (
   }
 
   ticket = await ShowTicketService(ticket.id, companyId);
-
   return ticket;
 };
 

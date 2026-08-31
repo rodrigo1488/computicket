@@ -24,6 +24,7 @@ import {
   shouldStartCompanyWhatsApp,
   logWhatsAppShardConfig
 } from "./utils/whatsappShard";
+import { ensureTicketsAllowMultiplePerContact } from "./database/ensureTicketsContactUniqueDropped";
 
 const listenPort = Number(process.env.PORT) || 4000;
 const listenHost =
@@ -36,6 +37,7 @@ const onListen = async () => {
     logger.info(`DEV_NETWORK ativo — backend escutando em 0.0.0.0:${listenPort}`);
   }
   logWhatsAppShardConfig();
+  await ensureTicketsAllowMultiplePerContact();
   let companies: Company[] = [];
   try {
     companies = await Company.findAll();

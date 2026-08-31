@@ -1,10 +1,12 @@
 import unittest
+from datetime import datetime, timedelta
 
 from flask import Flask
 
 from app import db
 from app.blueprints.helpdesk import _visible_linked_ticket_id
-from app.models import Ticket, User
+from app.blueprints.tickets import _helpdesk_linked_at
+from app.models import HelpDeskTicketLink, Ticket, User
 
 
 class HelpdeskTicketLinkVisibilityTest(unittest.TestCase):
@@ -52,6 +54,31 @@ class HelpdeskTicketLinkVisibilityTest(unittest.TestCase):
 	def test_hides_cancelled_ticket_on_new_pending_conversation(self):
 		ticket = self._ticket("cancelado")
 		self.assertIsNone(_visible_linked_ticket_id(ticket.id, "pending"))
+
+	def test_helpdesk_linked_at_ignores_reused_older_link(self):
+		ticket = self._ticket("aberto")
+		older = (ticket.created_at or datetime.utcnow()) - timedelta(hours=6)
+		db.session.add(
+			HelpDeskTicketLink(
+				engine_ticket_id=99,
+				computicket_ticket_id=ticket.id,
+				created_at=older,
+			)
+		)
+		db.session.commit()
+		self.assertEqual(_helpdesk_linked_at(ticket), ticket.created_at)
+
+	def test_helpdesk_linked_at_uses_newer_attach_time(self):
+		ticket = self._ticket("aberto")
+		newer = (ticket.created_at or datetime.utcnow()) + timedelta(minutes=5)
+		link = HelpDeskTicketLink(
+			engine_ticket_id=100,
+			computicket_ticket_id=ticket.id,
+			created_at=newer,
+		)
+		db.session.add(link)
+		db.session.commit()
+		self.assertEqual(_helpdesk_linked_at(ticket), link.created_at)
 
 
 if __name__ == "__main__":

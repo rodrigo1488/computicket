@@ -39,7 +39,9 @@ import Prompt from "./Prompt";
     // Índice para status (usado em filtros)
     { fields: ["status"] },
     // Índice composto para unreadMessages
-    { fields: ["companyId", "unreadMessages"] }
+    { fields: ["companyId", "unreadMessages"] },
+    // Lookup de ciclos por contato (NÃO único — vários tickets fechados)
+    { name: "tickets_contact_company_whatsapp", fields: ["contactId", "companyId", "whatsappId"] }
   ]
 })
 class Ticket extends Model<Ticket> {

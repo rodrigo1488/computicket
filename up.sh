@@ -6,12 +6,13 @@
 #   ./up.sh
 #   ./up.sh /caminho/tickets.sqlite3
 #
-# Variáveis opcionais:
+# Variaveis opcionais:
 #   COMPOSE_FILE=docker-compose.yml   (default)
-#   SKIP_BUILD=1                      não passa --build
-#   SKIP_MIGRATE=1                    sobe containers e não migra (recomendado após 1ª migração)
+#   SKIP_PULL=1                       nao faz git pull
+#   SKIP_BUILD=1                      nao rebuilda imagens
+#   SKIP_MIGRATE=1                    sobe containers e nao migra SQLite (recomendado apos 1a migracao)
 #   FORCE_WIPE=1                      migra com --wipe (preserva system_config / Uniplus)
-#   NO_WIPE=1                         legado (wipe já é off por padrão)
+#   NO_WIPE=1                         legado (wipe ja e off por padrao)
 #   SQLALCHEMY_DATABASE_URI=...       destino (default localhost:15432/computicket)
 set -euo pipefail
 
@@ -20,20 +21,20 @@ cd "$ROOT"
 
 COMPOSE_FILE="${COMPOSE_FILE:-docker-compose.yml}"
 if [[ ! -f "$COMPOSE_FILE" ]]; then
-  echo "[ERRO] Não encontrei $COMPOSE_FILE em $ROOT"
+  echo "[ERRO] Nao encontrei $COMPOSE_FILE em $ROOT"
   exit 1
 fi
 
 if ! command -v docker >/dev/null 2>&1; then
-  echo "[ERRO] Docker não encontrado no PATH."
+  echo "[ERRO] Docker nao encontrado no PATH."
   exit 1
 fi
 
-# Acesso ao socket (usuário precisa estar no grupo docker, ou usar sudo)
+# Acesso ao socket (usuario precisa estar no grupo docker, ou usar sudo)
 if ! docker info >/dev/null 2>&1; then
-  echo "[ERRO] Sem permissão no Docker (socket /var/run/docker.sock)."
+  echo "[ERRO] Sem permissao no Docker (socket /var/run/docker.sock)."
   echo
-  echo "Corrija com (uma vez, como root/sudo):"
+  echo "Corriga com (uma vez, como root/sudo):"
   echo "  sudo usermod -aG docker \"\$USER\""
   echo "  # depois: saia e entre de novo no SSH (ou: newgrp docker)"
   echo
@@ -54,25 +55,33 @@ APP_DIR="$ROOT/api/app"
 # shellcheck source=infra/postgres/ensure-migrate-venv.sh
 source "$ROOT/infra/postgres/ensure-migrate-venv.sh"
 
-BUILD_FLAG=(--build)
-if [[ "${SKIP_BUILD:-0}" == "1" ]]; then
-  BUILD_FLAG=()
-fi
+APP_SERVICES=(whatsapp-engine api web)
 
 echo
-echo "=== Computicket: subir containers + migração ==="
+echo "=== Computicket: pull + rebuild api/web/engine ==="
 echo "Repo:    $ROOT"
 echo "Compose: $COMPOSE_FILE"
-echo "Destino: $URI"
+echo "Destino: ${APP_DB} @ localhost:${PG_PORT}"
 echo
 
-# ---- 1) Stack ----
-echo "[1/5] Subindo containers (docker compose up -d ${BUILD_FLAG[*]:-})..."
-docker compose -f "$COMPOSE_FILE" up -d "${BUILD_FLAG[@]}"
-echo "      Containers em subida."
+# ---- 0) Codigo ----
+if [[ "${SKIP_PULL:-0}" == "1" ]]; then
+  echo "[0/6] SKIP_PULL=1 — git pull ignorado."
+elif [[ -d "$ROOT/.git" ]] && command -v git >/dev/null 2>&1; then
+  echo "[0/6] Atualizando codigo (git pull --ff-only)..."
+  git pull --ff-only
+  echo "      Repo atualizado."
+else
+  echo "[0/6] Sem repositorio git — pulando pull."
+fi
+
+# ---- 1) Infra (sem force-recreate, sem mexer em volumes) ----
+echo "[1/6] Garantindo postgres e redis..."
+docker compose -f "$COMPOSE_FILE" up -d postgres redis
+echo "      Infra em subida."
 
 # ---- 2) Postgres healthy ----
-echo "[2/5] Aguardando Postgres healthy..."
+echo "[2/6] Aguardando Postgres healthy..."
 tries=0
 until docker compose -f "$COMPOSE_FILE" exec -T postgres \
   pg_isready -U "$DB_USER" >/dev/null 2>&1; do
@@ -86,7 +95,7 @@ done
 echo "      Postgres OK."
 
 # ---- 3) Database app ----
-echo "[3/5] Garantindo database \"${APP_DB}\"..."
+echo "[3/6] Garantindo database \"${APP_DB}\"..."
 exists="$(
   docker compose -f "$COMPOSE_FILE" exec -T postgres \
     psql -U "$DB_USER" -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname='${APP_DB}'" \
@@ -97,27 +106,43 @@ if [[ "$exists" != "1" ]]; then
     psql -U "$DB_USER" -d postgres -c "CREATE DATABASE ${APP_DB};"
   echo "      Database criado."
 else
-  echo "      Database já existe."
+  echo "      Database ja existe."
 fi
 
-# ---- 4) Migração SQL opcional (ex.: RAG) ----
+# ---- 4) Migracao SQL opcional (ex.: RAG) ----
 if [[ -d "$ROOT/api/migrations" ]]; then
-  echo "[4/5] Aplicando scripts em api/migrations/ (se houver)..."
+  echo "[4/6] Aplicando scripts em api/migrations/ (se houver)..."
   shopt -s nullglob
   for sql in "$ROOT/api/migrations"/*.sql; do
     echo "      -> $(basename "$sql")"
     docker compose -f "$COMPOSE_FILE" exec -T postgres \
       psql -U "$DB_USER" -d "$APP_DB" -v ON_ERROR_STOP=1 <"$sql" \
-      || echo "      (aviso) falha ao aplicar $(basename "$sql") — pode já ter sido aplicado."
+      || echo "      (aviso) falha ao aplicar $(basename "$sql") — pode ja ter sido aplicado."
   done
   shopt -u nullglob
 else
-  echo "[4/5] Sem pasta api/migrations/ — pulando."
+  echo "[4/6] Sem pasta api/migrations/ — pulando."
 fi
 
-# ---- 5) SQLite -> Postgres ----
+# ---- 5) Rebuild api, web e whatsapp-engine ----
+# O CMD do engine (infra/whatsapp-engine/Dockerfile) roda:
+#   npx sequelize db:migrate; npx sequelize db:seed:all || true; exec node dist/server.js
+# server.ts chama ensureTicketsAllowMultiplePerContact (drop UNIQUE contactid_companyid_unique).
+# Recreate desses 3 servicos aplica o codigo novo e o migrate; nao mexe em postgres/redis/volumes/.env.
+echo "[5/6] Rebuild e recreate: ${APP_SERVICES[*]}..."
+if [[ "${SKIP_BUILD:-0}" == "1" ]]; then
+  echo "      SKIP_BUILD=1 — sem build, so recreate."
+  docker compose -f "$COMPOSE_FILE" up -d --no-deps --force-recreate "${APP_SERVICES[@]}"
+else
+  docker compose -f "$COMPOSE_FILE" build "${APP_SERVICES[@]}"
+  docker compose -f "$COMPOSE_FILE" up -d --no-deps --force-recreate "${APP_SERVICES[@]}"
+fi
+docker compose -f "$COMPOSE_FILE" up -d
+echo "      Engine aplica sequelize db:migrate no start (e o drop UNIQUE no startup)."
+
+# ---- 6) SQLite -> Postgres ----
 if [[ "${SKIP_MIGRATE:-0}" == "1" ]]; then
-  echo "[5/5] SKIP_MIGRATE=1 — migração SQLite ignorada."
+  echo "[6/6] SKIP_MIGRATE=1 — migracao SQLite ignorada."
 else
   SQLITE="${1:-}"
   if [[ -z "$SQLITE" ]]; then
@@ -135,10 +160,10 @@ else
   fi
 
   if [[ -z "${SQLITE:-}" || ! -f "$SQLITE" ]]; then
-    echo "[5/5] Nenhum tickets.sqlite3 encontrado — pulando migração de dados."
+    echo "[6/6] Nenhum tickets.sqlite3 encontrado — pulando migracao de dados."
     echo "      Passe o caminho: ./up.sh /caminho/tickets.sqlite3"
   else
-    echo "[5/5] Migrando SQLite -> Postgres"
+    echo "[6/6] Migrando SQLite -> Postgres"
     echo "      Fonte: $SQLITE"
     PY="$(ensure_migrate_venv "$ROOT")"
 
@@ -147,14 +172,14 @@ else
       echo "      FORCE_WIPE=1 — wipe ativo (system_config preservada)."
       WIPE_FLAG=(--wipe)
     else
-      echo "      Sem wipe (padrão). Use FORCE_WIPE=1 só se quiser limpar o destino."
+      echo "      Sem wipe (padrao). Use FORCE_WIPE=1 so se quiser limpar o destino."
     fi
 
     (
       cd "$APP_DIR"
       "$PY" tools/migrate_sqlite_to_postgres.py "${WIPE_FLAG[@]}" --sqlite "$SQLITE" --uri "$URI"
     )
-    echo "      Migração SQLite concluída."
+    echo "      Migracao SQLite concluida."
     echo "      Verificar: docker compose exec -T postgres psql -U $DB_USER -d $APP_DB -c \"SELECT COUNT(*) FROM ticket;\""
   fi
 fi
@@ -164,5 +189,5 @@ echo "[OK] Stack no ar."
 echo "     Web:      http://localhost:${COMPUTICKET_WEB_PORT:-3000}"
 echo "     API:      http://localhost:${COMPUTICKET_API_PORT:-5000}"
 echo "     WhatsApp: http://localhost:${COMPUTICKET_WHATSAPP_PORT:-4000}"
-echo "     Postgres: localhost:${PG_PORT} (não use 5432 — reservado ao Uniplus)"
+echo "     Postgres: localhost:${PG_PORT} (nao use 5432 — reservado ao Uniplus)"
 echo
