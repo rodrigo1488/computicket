@@ -1037,7 +1037,7 @@ export function HelpdeskWorkspace() {
   const current = conversation.data;
   const linkedTicketId =
     current?.computicket_ticket_id ??
-    (linkedFallback?.conversationId === current?.id ? linkedFallback.ticketId : null);
+    (linkedFallback && linkedFallback.conversationId === current?.id ? linkedFallback.ticketId : null);
   const canReply = current?.status === "open";
   const assignedName = current?.user?.name;
   const thread = messages.data?.messages || [];
