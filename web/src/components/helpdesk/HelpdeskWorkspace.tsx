@@ -184,6 +184,71 @@ function sortInboxConversations(rows: HelpdeskConversation[]) {
   });
 }
 
+type ClosedPhoneGroup = {
+  key: string;
+  latest: HelpdeskConversation;
+  items: HelpdeskConversation[];
+};
+
+function conversationPhoneKey(c: HelpdeskConversation) {
+  const digits = (c.contact?.number || "").replace(/\D/g, "");
+  if (digits.length >= 8) {
+    const national = digits.startsWith("55") && digits.length >= 12 ? digits.slice(2) : digits;
+    return `n:${national}`;
+  }
+  if (c.contact?.id) return `c:${c.contact.id}`;
+  return `t:${c.id}`;
+}
+
+function preferNamedConversation(items: HelpdeskConversation[]) {
+  return items.find((c) => (c.contact?.name || "").trim()) || items[0];
+}
+
+function groupClosedByPhone(rows: HelpdeskConversation[]): ClosedPhoneGroup[] {
+  const map = new Map<string, HelpdeskConversation[]>();
+  for (const row of rows) {
+    const key = conversationPhoneKey(row);
+    const list = map.get(key);
+    if (list) list.push(row);
+    else map.set(key, [row]);
+  }
+  const groups: ClosedPhoneGroup[] = [];
+  for (const [key, items] of map) {
+    const sorted = [...items].sort((a, b) => conversationUpdatedAtMs(b) - conversationUpdatedAtMs(a));
+    groups.push({ key, latest: sorted[0], items: sorted });
+  }
+  groups.sort((a, b) => conversationUpdatedAtMs(b.latest) - conversationUpdatedAtMs(a.latest));
+  return groups;
+}
+
+function uniqueQueueChips(items: HelpdeskConversation[]) {
+  const seen = new Set<string>();
+  const chips: { id: number | "none"; name: string; color?: string }[] = [];
+  for (const c of items) {
+    const key = c.queue?.id != null ? String(c.queue.id) : "none";
+    if (seen.has(key)) continue;
+    seen.add(key);
+    chips.push(
+      c.queue
+        ? { id: c.queue.id, name: c.queue.name, color: c.queue.color }
+        : { id: "none", name: "Sem fila" },
+    );
+  }
+  return chips;
+}
+
+function uniqueWhatsappNames(items: HelpdeskConversation[]) {
+  const names: string[] = [];
+  const seen = new Set<string>();
+  for (const c of items) {
+    const name = c.whatsapp?.name?.trim();
+    if (!name || seen.has(name)) continue;
+    seen.add(name);
+    names.push(name);
+  }
+  return names;
+}
+
 function applyLinkedTicketId(
   qc: ReturnType<typeof useQueryClient>,
   conversationId: number,
@@ -373,6 +438,181 @@ function applyQueueVisibility(
   return rows;
 }
 
+function InboxConversationRow({
+  conversation: c,
+  selected,
+  nested,
+  displayName,
+  profilePicUrl,
+  queueChips,
+  whatsappNames,
+  sessionCount,
+  expanded,
+  onToggleExpand,
+  onSelect,
+}: {
+  conversation: HelpdeskConversation;
+  selected: boolean;
+  nested?: boolean;
+  displayName?: string;
+  profilePicUrl?: string | null;
+  queueChips?: { id: number | "none"; name: string; color?: string }[];
+  whatsappNames?: string[];
+  sessionCount?: number;
+  expanded?: boolean;
+  onToggleExpand?: () => void;
+  onSelect: (c: HelpdeskConversation) => void;
+}) {
+  const chipItem = statusChip(c);
+  const name = displayName || contactName(c);
+  const queues = queueChips || uniqueQueueChips([c]);
+  const connections = whatsappNames || uniqueWhatsappNames([c]);
+  const grouped = (sessionCount || 0) > 1;
+
+  return (
+    <div
+      className={cn(
+        "flex w-full border-b border-[#f3f3f3] hover:bg-[#fafafa]",
+        selected && "bg-[#eef5ff]",
+        (c.unreadMessages || 0) > 0 && !selected && "bg-[#fffbf5]",
+        nested && "bg-[#f7f7f7] hover:bg-[#f0f0f0]",
+        nested && selected && "bg-[#eef5ff]",
+      )}
+    >
+      <button
+        type="button"
+        onClick={() => onSelect(c)}
+        className={cn("flex min-w-0 flex-1 gap-3 px-3 py-3 text-left", nested && "pl-8")}
+      >
+      <span className="relative shrink-0">
+        <UserAvatar name={name} src={publicMediaUrl(profilePicUrl ?? c.contact?.profilePicUrl)} size="sm" />
+        {c.user?.name ? (
+          <span
+            className="absolute -bottom-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-navy text-[8px] font-bold text-white ring-2 ring-white"
+            title={c.user.name}
+          >
+            {c.user.name.slice(0, 1).toUpperCase()}
+          </span>
+        ) : null}
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="flex items-center gap-2">
+          <span
+            className={cn(
+              "truncate text-sm text-ink",
+              (c.unreadMessages || 0) > 0 ? "font-bold" : "font-semibold",
+            )}
+            title={c.contact?.number || name}
+          >
+            {name}
+          </span>
+          {grouped ? (
+            <span
+              className="shrink-0 rounded-full bg-[#eef2ff] px-1.5 py-0.5 text-[10px] font-semibold text-brand"
+              title={`${sessionCount} atendimentos neste número`}
+              onClick={(e) => {
+                if (!onToggleExpand) return;
+                e.preventDefault();
+                e.stopPropagation();
+                onToggleExpand();
+              }}
+            >
+              {sessionCount}
+            </span>
+          ) : null}
+          <span className="ml-auto flex shrink-0 items-center gap-1.5">
+            <span
+              className={cn(
+                "text-[11px]",
+                (c.unreadMessages || 0) > 0 ? "font-semibold text-open" : "text-muted",
+              )}
+            >
+              {formatClock(c.updatedAt)}
+            </span>
+            {(c.unreadMessages || 0) > 0 ? (
+              <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-open px-1.5 text-[10px] font-bold leading-none text-white">
+                {(c.unreadMessages || 0) > 99 ? "99+" : c.unreadMessages}
+              </span>
+            ) : null}
+          </span>
+        </span>
+        <span className="mt-0.5 block truncate text-[11px] text-muted">
+          {grouped
+            ? `${sessionCount} atendimentos · ${c.user?.name || "sem atendente"}`
+            : `Atendente: ${c.user?.name || "ninguém"}`}
+        </span>
+        <span className="mt-1 flex flex-wrap items-center gap-1">
+          {queues.map((queue) =>
+            queue.id === "none" ? (
+              <span
+                key="none"
+                className="rounded bg-[#f3f4f6] px-1.5 py-0.5 text-[10px] font-bold uppercase text-muted"
+              >
+                Sem fila
+              </span>
+            ) : (
+              <span
+                key={queue.id}
+                className="rounded px-1.5 py-0.5 text-[10px] font-bold uppercase text-white"
+                style={{ background: queue.color || "#3b82f6" }}
+              >
+                {queue.name}
+              </span>
+            ),
+          )}
+          {connections.map((name) => (
+            <span key={name} className="text-[10px] text-muted">
+              {name}
+            </span>
+          ))}
+          {(c.tags || []).map((tag) => (
+            <span
+              key={tag.id}
+              className="rounded px-1.5 py-0.5 text-[10px] font-medium text-white"
+              style={{ background: tag.color || "#6b7280" }}
+            >
+              {tag.name}
+            </span>
+          ))}
+        </span>
+        <span className={cn("mt-1 inline-flex rounded px-1.5 py-0.5 text-[10px] font-medium", chipItem.className)}>
+          {chipItem.label}
+        </span>
+        {c.status === "closed" && c.rating?.answered ? (
+          <span className="ml-1 inline-flex items-center gap-0.5 rounded bg-[#fff8df] px-1.5 py-0.5 text-[10px] font-semibold text-[#765a00]">
+            <Star className="h-3 w-3 fill-[#f6b91a] text-[#f6b91a]" />
+            {c.rating.score}/5
+          </span>
+        ) : c.status === "closed" && c.rating ? (
+          <span className="ml-1 inline-flex rounded bg-[#f3f4f6] px-1.5 py-0.5 text-[10px] text-muted">
+            Aguardando avaliação
+          </span>
+        ) : null}
+        <span
+          className={cn(
+            "mt-0.5 block truncate text-xs",
+            (c.unreadMessages || 0) > 0 ? "font-semibold text-ink" : "text-muted",
+          )}
+        >
+          {snippet(c.lastMessage)}
+        </span>
+      </span>
+      </button>
+      {onToggleExpand ? (
+        <button
+          type="button"
+          aria-label={expanded ? "Ocultar atendimentos deste número" : "Ver atendimentos deste número"}
+          title={expanded ? "Ocultar atendimentos" : "Ver atendimentos"}
+          onClick={onToggleExpand}
+          className="mr-2 mt-3 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-muted hover:bg-[#ececec] hover:text-ink"
+        >
+          <ChevronDown className={cn("h-3.5 w-3.5 transition-transform", expanded && "rotate-180")} />
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
 export function HelpdeskWorkspace() {
   const qc = useQueryClient();
   const router = useRouter();
@@ -419,6 +659,7 @@ export function HelpdeskWorkspace() {
   const [aiError, setAiError] = useState<string | null>(null);
   const [ticketDefaults, setTicketDefaults] = useState<HelpdeskAiTicketDraft | null>(null);
   const [historyViewId, setHistoryViewId] = useState<number | null>(null);
+  const [expandedPhoneKeys, setExpandedPhoneKeys] = useState<Set<string>>(() => new Set());
   const [sign, setSign] = useState(() => {
     if (typeof window === "undefined") return true;
     return window.localStorage.getItem(SIGN_KEY) !== "0";
@@ -659,6 +900,41 @@ export function HelpdeskWorkspace() {
       applyQueueVisibility(list.data?.tickets || [], selectedQueues, includeUnassigned, unassignedOnly),
     );
   }, [mineOnly, mineTickets, list.data?.tickets, selectedQueues, includeUnassigned, unassignedOnly]);
+
+  const closedGroups = useMemo(
+    () => (tab === "closed" ? groupClosedByPhone(tickets) : []),
+    [tab, tickets],
+  );
+
+  useEffect(() => {
+    if (tab !== "closed" || activeId == null) return;
+    const group = closedGroups.find((g) => g.items.some((item) => item.id === activeId));
+    if (!group || group.items.length < 2 || group.latest.id === activeId) return;
+    setExpandedPhoneKeys((prev) => {
+      if (prev.has(group.key)) return prev;
+      const next = new Set(prev);
+      next.add(group.key);
+      return next;
+    });
+  }, [tab, activeId, closedGroups]);
+
+  const selectConversation = (c: HelpdeskConversation) => {
+    setActiveId(c.id);
+    setError(null);
+    setContactOpen(false);
+    if ((c.unreadMessages || 0) > 0) {
+      patchConversationInLists(qc, c.id, (row) => ({ ...row, unreadMessages: 0 }));
+    }
+  };
+
+  const togglePhoneGroup = (key: string) => {
+    setExpandedPhoneKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
 
   const listIsError = mineOnly
     ? minePending.isError || mineOpen.isError
@@ -1298,7 +1574,13 @@ export function HelpdeskWorkspace() {
           </div>
           <p className="px-3 pb-2 text-[11px] text-muted">
             {mineOnly ? "Filtro Meus · " : ""}
-            {tickets.length} conversa{tickets.length === 1 ? "" : "s"}
+            {tab === "closed"
+              ? `${closedGroups.length} contato${closedGroups.length === 1 ? "" : "s"}${
+                  tickets.length !== closedGroups.length
+                    ? ` · ${tickets.length} atendimento${tickets.length === 1 ? "" : "s"}`
+                    : ""
+                }`
+              : `${tickets.length} conversa${tickets.length === 1 ? "" : "s"}`}
             {unread ? ` · ${unread} não lida` : ""}
             {waitingReply ? ` · ${waitingReply} aguardando resposta` : ""}
           </p>
@@ -1325,117 +1607,49 @@ export function HelpdeskWorkspace() {
                       ? "Nenhuma conversa sem fila"
                       : "Nenhuma conversa nestas filas"}
               </p>
-            ) : (
-              tickets.map((c) => {
-                const selected = activeId === c.id;
-                const chipItem = statusChip(c);
+            ) : tab === "closed" ? (
+              closedGroups.map((group) => {
+                const named = preferNamedConversation(group.items);
+                const grouped = group.items.length > 1;
+                const expanded = expandedPhoneKeys.has(group.key);
+                const anySelected = group.items.some((item) => item.id === activeId);
                 return (
-                  <button
-                    key={c.id}
-                    type="button"
-                    onClick={() => {
-                      setActiveId(c.id);
-                      setError(null);
-                      setContactOpen(false);
-                      if ((c.unreadMessages || 0) > 0) {
-                        patchConversationInLists(qc, c.id, (row) => ({ ...row, unreadMessages: 0 }));
-                      }
-                    }}
-                    className={cn(
-                      "flex w-full gap-3 border-b border-[#f3f3f3] px-3 py-3 text-left hover:bg-[#fafafa]",
-                      selected && "bg-[#eef5ff]",
-                      (c.unreadMessages || 0) > 0 && !selected && "bg-[#fffbf5]",
-                    )}
-                  >
-                    <span className="relative shrink-0">
-                      <UserAvatar name={contactName(c)} src={publicMediaUrl(c.contact?.profilePicUrl)} size="sm" />
-                      {c.user?.name ? (
-                        <span
-                          className="absolute -bottom-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-navy text-[8px] font-bold text-white ring-2 ring-white"
-                          title={c.user.name}
-                        >
-                          {c.user.name.slice(0, 1).toUpperCase()}
-                        </span>
-                      ) : null}
-                    </span>
-                    <span className="min-w-0 flex-1">
-                      <span className="flex items-center gap-2">
-                        <span
-                          className={cn(
-                            "truncate text-sm text-ink",
-                            (c.unreadMessages || 0) > 0 ? "font-bold" : "font-semibold",
-                          )}
-                        >
-                          {contactName(c)}
-                        </span>
-                        <span className="ml-auto flex shrink-0 items-center gap-1.5">
-                          <span
-                            className={cn(
-                              "text-[11px]",
-                              (c.unreadMessages || 0) > 0 ? "font-semibold text-open" : "text-muted",
-                            )}
-                          >
-                            {formatClock(c.updatedAt)}
-                          </span>
-                          {(c.unreadMessages || 0) > 0 ? (
-                            <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-open px-1.5 text-[10px] font-bold leading-none text-white">
-                              {(c.unreadMessages || 0) > 99 ? "99+" : c.unreadMessages}
-                            </span>
-                          ) : null}
-                        </span>
-                      </span>
-                      <span className="mt-0.5 block truncate text-[11px] text-muted">
-                        Atendente: {c.user?.name || "ninguém"}
-                      </span>
-                      <span className="mt-1 flex flex-wrap items-center gap-1">
-                        {c.queue ? (
-                          <span
-                            className="rounded px-1.5 py-0.5 text-[10px] font-bold uppercase text-white"
-                            style={{ background: c.queue.color || "#3b82f6" }}
-                          >
-                            {c.queue.name}
-                          </span>
-                        ) : (
-                          <span className="rounded bg-[#f3f4f6] px-1.5 py-0.5 text-[10px] font-bold uppercase text-muted">
-                            Sem fila
-                          </span>
-                        )}
-                        {c.whatsapp?.name ? <span className="text-[10px] text-muted">{c.whatsapp.name}</span> : null}
-                        {(c.tags || []).map((tag) => (
-                          <span
-                            key={tag.id}
-                            className="rounded px-1.5 py-0.5 text-[10px] font-medium text-white"
-                            style={{ background: tag.color || "#6b7280" }}
-                          >
-                            {tag.name}
-                          </span>
-                        ))}
-                      </span>
-                      <span className={cn("mt-1 inline-flex rounded px-1.5 py-0.5 text-[10px] font-medium", chipItem.className)}>
-                        {chipItem.label}
-                      </span>
-                      {c.status === "closed" && c.rating?.answered ? (
-                        <span className="ml-1 inline-flex items-center gap-0.5 rounded bg-[#fff8df] px-1.5 py-0.5 text-[10px] font-semibold text-[#765a00]">
-                          <Star className="h-3 w-3 fill-[#f6b91a] text-[#f6b91a]" />
-                          {c.rating.score}/5
-                        </span>
-                      ) : c.status === "closed" && c.rating ? (
-                        <span className="ml-1 inline-flex rounded bg-[#f3f4f6] px-1.5 py-0.5 text-[10px] text-muted">
-                          Aguardando avaliação
-                        </span>
-                      ) : null}
-                      <span
-                        className={cn(
-                          "mt-0.5 block truncate text-xs",
-                          (c.unreadMessages || 0) > 0 ? "font-semibold text-ink" : "text-muted",
-                        )}
-                      >
-                        {snippet(c.lastMessage)}
-                      </span>
-                    </span>
-                  </button>
+                  <div key={group.key}>
+                    <InboxConversationRow
+                      conversation={group.latest}
+                      selected={group.latest.id === activeId || (!expanded && anySelected)}
+                      displayName={contactName(named)}
+                      profilePicUrl={named.contact?.profilePicUrl}
+                      queueChips={uniqueQueueChips(group.items)}
+                      whatsappNames={uniqueWhatsappNames(group.items)}
+                      sessionCount={grouped ? group.items.length : undefined}
+                      expanded={expanded}
+                      onToggleExpand={grouped ? () => togglePhoneGroup(group.key) : undefined}
+                      onSelect={selectConversation}
+                    />
+                    {expanded
+                      ? group.items.slice(1).map((item) => (
+                          <InboxConversationRow
+                            key={item.id}
+                            conversation={item}
+                            selected={activeId === item.id}
+                            nested
+                            onSelect={selectConversation}
+                          />
+                        ))
+                      : null}
+                  </div>
                 );
               })
+            ) : (
+              tickets.map((c) => (
+                <InboxConversationRow
+                  key={c.id}
+                  conversation={c}
+                  selected={activeId === c.id}
+                  onSelect={selectConversation}
+                />
+              ))
             )}
           </div>
         </aside>

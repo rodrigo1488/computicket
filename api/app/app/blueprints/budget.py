@@ -92,6 +92,41 @@ def _parse_iso_dt(value):
         return None
 
 
+def _positive_int(value):
+    """Converte em int positivo; None para vazio, inválido ou sentinela (-1)."""
+    if value in (None, '', False):
+        return None
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed > 0 else None
+
+
+def assign_budget_client(budget_entry, client_id=None, external_client_id=None, external_client_name=None):
+    """Associa cliente interno ou externo sem violar budget_client_id_fkey.
+
+    Cliente externo vive em external_client_id; client_id fica NULL.
+    O sentinela histórico -1 não existe na tabela client e quebra INSERT/UPDATE.
+    """
+    ext_id = _positive_int(external_client_id)
+    int_id = _positive_int(client_id)
+    name = (external_client_name or '').strip() if external_client_name else ''
+    if ext_id:
+        budget_entry.client_id = None
+        budget_entry.external_client_id = ext_id
+        budget_entry.external_client_name = name or None
+        return
+    if int_id:
+        budget_entry.client_id = int_id
+        budget_entry.external_client_id = None
+        budget_entry.external_client_name = None
+        return
+    budget_entry.client_id = None
+    budget_entry.external_client_id = None
+    budget_entry.external_client_name = None
+
+
 def _normalize_theme_color(value, default):
     """Normaliza cor hexadecimal para o formato #rrggbb."""
     color = (value or '').strip().lower()
@@ -296,24 +331,20 @@ def new_budget():
         
         # Criar orçamento
         try:
+            budget_entry = Budget(
+                title=title,
+                description=description if description else None,
+                status=status,
+                created_by_id=current_user.id
+            )
             if is_external:
-                budget_entry = Budget(
-                    title=title,
-                    description=description if description else None,
-                    client_id=-1,  # Valor especial para clientes externos
-                    external_client_id=int(external_client_id),
+                assign_budget_client(
+                    budget_entry,
+                    external_client_id=external_client_id,
                     external_client_name=client_data['name'] if client_data else None,
-                    status=status,
-                    created_by_id=current_user.id
                 )
             else:
-                budget_entry = Budget(
-                    title=title,
-                    description=description if description else None,
-                    client_id=int(client_id) if client_id else None,
-                    status=status,
-                    created_by_id=current_user.id
-                )
+                assign_budget_client(budget_entry, client_id=client_id)
             
             # Adicionar dados do arquivo se existir
             if file_data:
@@ -449,19 +480,14 @@ def edit_budget(budget_id):
         budget_entry.description = description if description else None
         budget_entry.status = status
         
-        # Atualizar dados do cliente
         if is_external:
-            budget_entry.client_id = -1
-            budget_entry.external_client_id = int(external_client_id)
-            budget_entry.external_client_name = client_data['name'] if client_data else None
-        elif client_id:
-            budget_entry.client_id = int(client_id)
-            budget_entry.external_client_id = None
-            budget_entry.external_client_name = None
+            assign_budget_client(
+                budget_entry,
+                external_client_id=external_client_id,
+                external_client_name=client_data['name'] if client_data else None,
+            )
         else:
-            budget_entry.client_id = None
-            budget_entry.external_client_id = None
-            budget_entry.external_client_name = None
+            assign_budget_client(budget_entry, client_id=client_id or None)
         
         try:
             db.session.commit()
@@ -723,20 +749,12 @@ def save_builder(budget_id=None):
             budget_entry.status = status
         
         # Cliente (interno, externo ou nenhum)
-        external_client_id = data.get('external_client_id')
-        client_id = data.get('client_id')
-        if external_client_id:
-            budget_entry.client_id = -1
-            budget_entry.external_client_id = int(external_client_id)
-            budget_entry.external_client_name = (data.get('external_client_name') or '').strip() or None
-        elif client_id:
-            budget_entry.client_id = int(client_id)
-            budget_entry.external_client_id = None
-            budget_entry.external_client_name = None
-        else:
-            budget_entry.client_id = None
-            budget_entry.external_client_id = None
-            budget_entry.external_client_name = None
+        assign_budget_client(
+            budget_entry,
+            client_id=data.get('client_id'),
+            external_client_id=data.get('external_client_id'),
+            external_client_name=data.get('external_client_name'),
+        )
         
         # Campos do builder
         budget_entry.valid_until = _parse_date(data.get('valid_until'))
