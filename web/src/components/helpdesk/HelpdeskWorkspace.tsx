@@ -294,12 +294,12 @@ function extractSentMessage(data: unknown): HelpdeskMessage | null {
   }
   const looksLikeTicket = d.status != null && (d.queueId != null || d.contact != null || d.unreadMessages != null);
   if (looksLikeTicket) return null;
-  const hasBody = typeof d.body === "string";
+  const body = typeof d.body === "string" ? d.body : undefined;
   const hasMedia = d.mediaUrl != null || d.mediaType != null;
-  if (d.id == null || (!hasBody && !hasMedia)) return null;
+  if (d.id == null || (!body && !hasMedia)) return null;
   return {
     id: String(d.id),
-    body: hasBody ? d.body : undefined,
+    body,
     fromMe: d.fromMe !== false,
     mediaUrl: (d.mediaUrl as string | null | undefined) ?? null,
     mediaType: (d.mediaType as string | null | undefined) ?? null,
