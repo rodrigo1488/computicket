@@ -46,6 +46,7 @@ import {
   helpdesk,
   publicMediaUrl,
   engineSocketOptions,
+  isEngineSocketSameOrigin,
   resolveEngineSocketUrl,
   unwrapConnections,
   unwrapMessages,
@@ -859,7 +860,8 @@ export function HelpdeskWorkspace() {
     },
     enabled: !!activeId,
     refetchOnMount: false,
-    staleTime: 15_000,
+    staleTime: 4_000,
+    refetchInterval: activeId ? 5_000 : false,
   });
 
   const contactId = conversation.data?.contact?.id;
@@ -1240,7 +1242,11 @@ export function HelpdeskWorkspace() {
   useEffect(() => {
     const engine: EngineSession | undefined = session.data;
     if (!engine?.token || !engine.engineUrl) return;
-    const socket = io(resolveEngineSocketUrl(engine.engineUrl), engineSocketOptions(engine.token));
+    const socketUrl = resolveEngineSocketUrl(engine.engineUrl);
+    const socket = io(
+      socketUrl,
+      engineSocketOptions(engine.token, { sameOrigin: isEngineSocketSameOrigin(socketUrl) }),
+    );
     socketRef.current = socket;
     const refresh = () => {
       qc.invalidateQueries({ queryKey: ["hd-list"] });
@@ -1251,13 +1257,16 @@ export function HelpdeskWorkspace() {
         void qc.invalidateQueries({ queryKey: ["helpdesk-nav-badge"] });
       }, 4000);
     };
-    socket.on("connect", () => {
+    const joinRooms = () => {
       socket.emit("joinTickets", "pending");
       socket.emit("joinTickets", "open");
       socket.emit("joinTickets", "closed");
       socket.emit("joinNotification");
       if (activeIdRef.current) socket.emit("joinChatBox", String(activeIdRef.current));
-    });
+    };
+    // `connect` dispara antes do servidor registrar join*; `ready` é o sinal certo.
+    socket.on("connect", joinRooms);
+    socket.on("ready", joinRooms);
     socket.on(`company-${engine.companyId}-ticket`, refresh);
     socket.on(`company-${engine.companyId}-appMessage`, (payload: AppMessagePayload) => {
       const ticketId = resolveAppMessageTicketId(payload);
@@ -1279,16 +1288,16 @@ export function HelpdeskWorkspace() {
       }
 
       refresh();
-      if (ticketId && openId && ticketId === openId && payload.message?.id) {
+      if (ticketId && openId && ticketId === openId && incoming?.id) {
         qc.setQueryData<MessagesCache>(["hd-messages", openId], (prev) => ({
           ...prev,
-          messages: mergeMessageIntoThread(prev?.messages, payload.message as HelpdeskMessage),
+          messages: mergeMessageIntoThread(prev?.messages, incoming as HelpdeskMessage),
         }));
         patchConversationInLists(qc, ticketId, (row) => ({
           ...row,
           unreadMessages: 0,
-          lastMessage: snippet(payload.message?.body) || row.lastMessage,
-          updatedAt: payload.message?.createdAt || row.updatedAt,
+          lastMessage: snippet(incoming.body) || row.lastMessage,
+          updatedAt: incoming.createdAt || row.updatedAt,
         }));
       }
     });

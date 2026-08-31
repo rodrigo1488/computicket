@@ -210,13 +210,32 @@ export function resolveEngineSocketUrl(engineUrl: string): string {
   }
 }
 
+export function isEngineSocketSameOrigin(socketUrl: string): boolean {
+  if (typeof window === "undefined") return true;
+  try {
+    return new URL(socketUrl).origin === window.location.origin;
+  } catch {
+    return true;
+  }
+}
+
 export function engineSocketOptions(token: string, extra: Record<string, unknown> = {}) {
+  const sameOrigin = extra.sameOrigin !== false;
+  const rest = { ...extra };
+  delete rest.sameOrigin;
   return {
     path: "/socket.io",
     addTrailingSlash: false,
-    transports: ["polling", "websocket"] as ("websocket" | "polling")[],
+    // Rewrite do Next faz polling HTTP; o upgrade para websocket
+    // costuma “conectar” sem entregar eventos (só a 1ª mensagem aparece).
+    transports: (sameOrigin ? ["polling"] : ["websocket", "polling"]) as ("websocket" | "polling")[],
+    upgrade: !sameOrigin,
+    reconnection: true,
+    reconnectionAttempts: Infinity,
+    reconnectionDelay: 1000,
+    timeout: 20_000,
     query: { token },
-    ...extra,
+    ...rest,
   };
 }
 
