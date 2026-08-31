@@ -202,76 +202,85 @@ function patchConversationInLists(
   qc.setQueriesData<ConversationListRes>({ queryKey: ["hd-list-counts"] }, apply);
 }
 
-/** Mantém placeholders otimistas que ainda não chegaram no GET /messages (envio assíncrono). */
+function messageLooksSettled(real: HelpdeskMessage, pending: HelpdeskMessage) {
+  if (isTempMessageId(real.id)) return false;
+  if (!!real.fromMe !== !!pending.fromMe) return false;
+  if (!sameInternalFlags(real, pending)) return false;
+  if (isMediaMessage(real) !== isMediaMessage(pending)) return false;
+  if (isMediaMessage(pending)) return true;
+  return normalizeMessageBody(real.body) === normalizeMessageBody(pending.body);
+}
+
+/** GET assíncrono ainda não traz o que o socket/otimista já mostrou — não descartar. */
 function retainOptimisticMessages(fetched: HelpdeskMessage[], previous?: HelpdeskMessage[]) {
-  const temps = (previous || []).filter((m) => isTempMessageId(m.id));
-  if (!temps.length) return fetched;
-  let next = fetched;
-  for (const temp of temps) {
-    const settled = next.some(
-      (m) =>
-        !isTempMessageId(m.id) &&
-        !!m.fromMe === !!temp.fromMe &&
-        sameInternalFlags(m, temp) &&
-        isMediaMessage(m) === isMediaMessage(temp) &&
-        (!isMediaMessage(temp) ? normalizeMessageBody(m.body) === normalizeMessageBody(temp.body) : true),
-    );
-    if (!settled) next = [...next, temp];
+  if (!previous?.length) return fetched;
+  const fetchedIds = new Set(fetched.map((m) => String(m.id)));
+  const extras: HelpdeskMessage[] = [];
+  for (const pending of previous) {
+    const id = String(pending.id);
+    if (fetchedIds.has(id)) continue;
+    if (isTempMessageId(id)) {
+      if (!fetched.some((m) => messageLooksSettled(m, pending))) extras.push(pending);
+      continue;
+    }
+    extras.push(pending);
   }
-  return next;
+  return extras.length ? [...fetched, ...extras] : fetched;
+}
+
+function replaceMessageAt(current: HelpdeskMessage[], idx: number, nextMsg: HelpdeskMessage) {
+  const copy = [...current];
+  const prevUrl = copy[idx].mediaUrl;
+  if (prevUrl?.startsWith("blob:") && prevUrl !== nextMsg.mediaUrl) URL.revokeObjectURL(prevUrl);
+  copy[idx] = { ...copy[idx], ...nextMsg };
+  return copy;
 }
 
 /** Insere/substitui mensagem no thread sem duplicar (id real ou placeholder temp-). */
 function mergeMessageIntoThread(prev: HelpdeskMessage[] | undefined, incoming: HelpdeskMessage): HelpdeskMessage[] {
   const current = prev || [];
+  const incomingId = incoming.id != null ? String(incoming.id) : "";
+  if (!incomingId || incomingId === "undefined" || incomingId === "null") {
+    return current;
+  }
   const nextMsg: HelpdeskMessage = {
-    ...incoming,
-    id: String(incoming.id),
+    id: incomingId,
+    body: incoming.body,
+    fromMe: incoming.fromMe,
+    createdAt: incoming.createdAt,
+    ack: incoming.ack,
+    mediaType: incoming.mediaType,
     mediaUrl: publicMediaUrl(incoming.mediaUrl) || incoming.mediaUrl,
+    isInternal: incoming.isInternal,
+    isPrivate: incoming.isPrivate,
+    quotedMsg: incoming.quotedMsg,
+    isDeleted: incoming.isDeleted,
   };
   const byId = current.findIndex((m) => String(m.id) === nextMsg.id);
-  if (byId >= 0) {
-    const copy = [...current];
-    const prevUrl = copy[byId].mediaUrl;
-    if (prevUrl?.startsWith("blob:") && prevUrl !== nextMsg.mediaUrl) URL.revokeObjectURL(prevUrl);
-    copy[byId] = { ...copy[byId], ...nextMsg };
-    return copy;
-  }
+  if (byId >= 0) return replaceMessageAt(current, byId, nextMsg);
 
-  const replaceTemp = (idx: number) => {
-    const copy = [...current];
-    const prevUrl = copy[idx].mediaUrl;
-    if (prevUrl?.startsWith("blob:") && prevUrl !== nextMsg.mediaUrl) URL.revokeObjectURL(prevUrl);
-    copy[idx] = { ...copy[idx], ...nextMsg };
-    return copy;
-  };
-
-  const textTemps = current
-    .map((m, idx) => ({ m, idx }))
-    .filter(
-      ({ m }) =>
-        isTempMessageId(m.id) &&
-        !!m.fromMe === !!nextMsg.fromMe &&
-        sameInternalFlags(m, nextMsg) &&
-        !isMediaMessage(m) &&
-        !isMediaMessage(nextMsg),
-    );
-  const textTempExact = textTemps.find(
-    ({ m }) => normalizeMessageBody(m.body) === normalizeMessageBody(nextMsg.body),
-  );
-  if (textTempExact) return replaceTemp(textTempExact.idx);
-  // Eco do socket pode normalizar o body; se só há um otimista de texto, substitui.
-  if (nextMsg.fromMe && textTemps.length === 1) return replaceTemp(textTemps[0].idx);
-
-  if (isMediaMessage(nextMsg)) {
-    const mediaTemp = current.findIndex(
+  if (!isTempMessageId(nextMsg.id)) {
+    const textTempExact = current.findIndex(
       (m) =>
         isTempMessageId(m.id) &&
         !!m.fromMe === !!nextMsg.fromMe &&
         sameInternalFlags(m, nextMsg) &&
-        isMediaMessage(m),
+        !isMediaMessage(m) &&
+        !isMediaMessage(nextMsg) &&
+        normalizeMessageBody(m.body) === normalizeMessageBody(nextMsg.body),
     );
-    if (mediaTemp >= 0) return replaceTemp(mediaTemp);
+    if (textTempExact >= 0) return replaceMessageAt(current, textTempExact, nextMsg);
+
+    if (isMediaMessage(nextMsg)) {
+      const mediaTemp = current.findIndex(
+        (m) =>
+          isTempMessageId(m.id) &&
+          !!m.fromMe === !!nextMsg.fromMe &&
+          sameInternalFlags(m, nextMsg) &&
+          isMediaMessage(m),
+      );
+      if (mediaTemp >= 0) return replaceMessageAt(current, mediaTemp, nextMsg);
+    }
   }
 
   return [...current, nextMsg];
@@ -280,22 +289,26 @@ function mergeMessageIntoThread(prev: HelpdeskMessage[] | undefined, incoming: H
 function extractSentMessage(data: unknown): HelpdeskMessage | null {
   if (!data || typeof data !== "object") return null;
   const d = data as Record<string, unknown>;
-  if (d.message && typeof d.message === "object") return extractSentMessage(d.message);
-  if (d.id != null && (typeof d.body === "string" || d.mediaUrl != null || d.fromMe != null)) {
-    return {
-      id: String(d.id),
-      body: typeof d.body === "string" ? d.body : undefined,
-      fromMe: d.fromMe !== false,
-      mediaUrl: (d.mediaUrl as string | null | undefined) ?? null,
-      mediaType: (d.mediaType as string | null | undefined) ?? null,
-      createdAt: typeof d.createdAt === "string" ? d.createdAt : undefined,
-      ack: typeof d.ack === "number" ? d.ack : undefined,
-      isInternal: !!(d.isInternal || d.isPrivate),
-      isPrivate: !!(d.isPrivate || d.isInternal),
-      quotedMsg: (d.quotedMsg as HelpdeskMessage | null | undefined) ?? null,
-    };
+  if (d.message && typeof d.message === "object" && !Array.isArray(d.message)) {
+    return extractSentMessage(d.message);
   }
-  return null;
+  const looksLikeTicket = d.status != null && (d.queueId != null || d.contact != null || d.unreadMessages != null);
+  if (looksLikeTicket) return null;
+  const hasBody = typeof d.body === "string";
+  const hasMedia = d.mediaUrl != null || d.mediaType != null;
+  if (d.id == null || (!hasBody && !hasMedia)) return null;
+  return {
+    id: String(d.id),
+    body: hasBody ? d.body : undefined,
+    fromMe: d.fromMe !== false,
+    mediaUrl: (d.mediaUrl as string | null | undefined) ?? null,
+    mediaType: (d.mediaType as string | null | undefined) ?? null,
+    createdAt: typeof d.createdAt === "string" ? d.createdAt : undefined,
+    ack: typeof d.ack === "number" ? d.ack : undefined,
+    isInternal: !!(d.isInternal || d.isPrivate),
+    isPrivate: !!(d.isPrivate || d.isInternal),
+    quotedMsg: (d.quotedMsg as HelpdeskMessage | null | undefined) ?? null,
+  };
 }
 
 type MessagesCache = { messages?: HelpdeskMessage[]; [key: string]: unknown };
@@ -564,6 +577,8 @@ export function HelpdeskWorkspace() {
       };
     },
     enabled: !!activeId,
+    refetchOnMount: false,
+    staleTime: 15_000,
   });
 
   const contactId = conversation.data?.contact?.id;
@@ -788,7 +803,6 @@ export function HelpdeskWorkspace() {
       setText("");
       setIsInternal(false);
       setError(null);
-      await qc.cancelQueries({ queryKey: ["hd-messages", vars.ticketId] });
       const previous = qc.getQueryData<MessagesCache>(["hd-messages", vars.ticketId]);
       const tempId = `temp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       const optimistic: HelpdeskMessage = {
@@ -805,12 +819,15 @@ export function HelpdeskWorkspace() {
       }));
       return { previous, ticketId: vars.ticketId, tempId, rawText: vars.rawText, wasInternal: vars.isInternal };
     },
-    onSuccess: (data, vars) => {
+    onSuccess: (data, vars, ctx) => {
       const sent = extractSentMessage(data);
       if (sent) {
         qc.setQueryData<MessagesCache>(["hd-messages", vars.ticketId], (prev) => ({
           ...prev,
-          messages: mergeMessageIntoThread(prev?.messages, sent),
+          messages: mergeMessageIntoThread(
+            (prev?.messages || []).map((m) => (ctx?.tempId && m.id === ctx.tempId ? { ...m, ...sent } : m)),
+            sent,
+          ),
         }));
       }
       // Não invalidar hd-messages aqui: o POST costuma retornar antes do job persistir a msg.
@@ -833,7 +850,6 @@ export function HelpdeskWorkspace() {
     onMutate: async (vars) => {
       setText("");
       setError(null);
-      await qc.cancelQueries({ queryKey: ["hd-messages", vars.ticketId] });
       const previous = qc.getQueryData<MessagesCache>(["hd-messages", vars.ticketId]);
       const tempId = `temp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       const mediaType = vars.file.type || "application/octet-stream";
@@ -1445,7 +1461,7 @@ export function HelpdeskWorkspace() {
                       Devolver
                     </button>
                   ) : null}
-                  {current.status !== "closed" ? (
+                  {current.status !== "closed" && !current.computicket_ticket_id ? (
                     <button
                       type="button"
                       onClick={() => {
@@ -1530,11 +1546,11 @@ export function HelpdeskWorkspace() {
                         <span className="rounded-full bg-white/80 px-3 py-1 text-[11px] text-muted shadow-sm">{group.day}</span>
                       </p>
                     ) : null}
-                    {group.items.map((m) => {
+                    {group.items.map((m, idx) => {
                       const system = m.isInternal || m.isPrivate;
                       const mine = !!m.fromMe && !system;
                       return (
-                        <div key={m.id} className={cn("mb-2 flex", system ? "justify-center" : mine ? "justify-end" : "justify-start")}>
+                        <div key={`${m.id}-${idx}`} className={cn("mb-2 flex", system ? "justify-center" : mine ? "justify-end" : "justify-start")}>
                           <div
                             className={cn(
                               "max-w-[75%] rounded-lg px-3 py-1.5 text-sm shadow-sm",
@@ -1627,6 +1643,11 @@ export function HelpdeskWorkspace() {
                       }}
                       onApplyTicket={() => {
                         if (aiResult.kind !== "ticket") return;
+                        if (current?.computicket_ticket_id) {
+                          setAiError("Esta conversa já possui um chamado ativo.");
+                          setAiResult(null);
+                          return;
+                        }
                         setTicketDefaults(
                           ticketDefaultsFromConversation(
                             current,
@@ -1859,6 +1880,10 @@ export function HelpdeskWorkspace() {
         onCreated={(created) => {
           setAiResult(null);
           setTicketDefaults(null);
+          if (current?.computicket_ticket_id) {
+            setError("Esta conversa já possui um chamado ativo.");
+            return;
+          }
           if (current?.id && created?.id) {
             helpdesk.linkTicket(current.id, created.id).then(() => {
               qc.invalidateQueries({ queryKey: ["hd-conversation", current.id] });

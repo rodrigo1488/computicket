@@ -117,7 +117,12 @@ def register_rag(app) -> None:
 		"""Reindexa artigos, tickets, cofre (metadados) e orçamentos."""
 		from .services.rag import reindex_all
 
-		result = reindex_all(remove_stale=not keep_stale)
+		click.echo("Iniciando reindexação RAG…", err=True)
+
+		def _progress(index: int, total: int, source_type: str, source_id: int) -> None:
+			click.echo(f"[{index}/{total}] {source_type} #{source_id}", err=True)
+
+		result = reindex_all(remove_stale=not keep_stale, progress=_progress)
 		click.echo(
 			f"RAG atualizado: {result['sources']} fontes, "
 			f"{result['chunks']} chunks, {result['removed']} obsoletos removidos."

@@ -40,6 +40,7 @@ from ..models import (
     Ticket,
     User,
 )
+from ..timezone_utils import brasilia_to_utc, get_brasilia_now
 from ..services.copilot import CopilotError, answer_question, improve_draft, suggest_reply, suggest_ticket
 
 helpdesk_bp = Blueprint("helpdesk", __name__, url_prefix="/helpdesk")
@@ -1288,7 +1289,14 @@ def link_ticket(ticket_id: int):
         return jsonify({"error": "Chamado não encontrado"}), 404
     row = HelpDeskTicketLink.query.filter_by(engine_ticket_id=ticket_id).first()
     if row:
+        current_linked = db.session.get(Ticket, row.computicket_ticket_id)
+        if current_linked and current_linked.status not in _CLOSED_TICKET_STATUSES:
+            return jsonify({
+                "error": "Esta conversa já possui um chamado ativo.",
+                "computicket_ticket_id": current_linked.id,
+            }), 409
         row.computicket_ticket_id = ticket.id
+        row.created_at = brasilia_to_utc(get_brasilia_now())
     else:
         row = HelpDeskTicketLink(engine_ticket_id=ticket_id, computicket_ticket_id=ticket.id)
         db.session.add(row)

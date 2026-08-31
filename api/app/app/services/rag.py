@@ -245,7 +245,7 @@ def index_source(source_type: str, source_id: int) -> dict:
 	}
 
 
-def reindex_all(remove_stale: bool = True) -> dict:
+def reindex_all(remove_stale: bool = True, progress=None) -> dict:
 	article_ids = [row.id for row in KnowledgeArticle.query.filter_by(status="published").all()]
 	ticket_ids = [
 		row.id
@@ -253,16 +253,19 @@ def reindex_all(remove_stale: bool = True) -> dict:
 	]
 	vault_ids = [row.id for row in PasswordVault.query.all()]
 	budget_ids = [row.id for row in Budget.query.all()]
-	valid = (
-		{(SOURCE_ARTICLE, item) for item in article_ids}
-		| {(SOURCE_TICKET, item) for item in ticket_ids}
-		| {(SOURCE_VAULT, item) for item in vault_ids}
-		| {(SOURCE_BUDGET, item) for item in budget_ids}
+	jobs = (
+		[(SOURCE_ARTICLE, item) for item in article_ids]
+		+ [(SOURCE_TICKET, item) for item in ticket_ids]
+		+ [(SOURCE_VAULT, item) for item in vault_ids]
+		+ [(SOURCE_BUDGET, item) for item in budget_ids]
 	)
-	results = [index_source(SOURCE_ARTICLE, item) for item in article_ids]
-	results.extend(index_source(SOURCE_TICKET, item) for item in ticket_ids)
-	results.extend(index_source(SOURCE_VAULT, item) for item in vault_ids)
-	results.extend(index_source(SOURCE_BUDGET, item) for item in budget_ids)
+	valid = set(jobs)
+	results = []
+	total = len(jobs)
+	for index, (source_type, source_id) in enumerate(jobs, 1):
+		if progress:
+			progress(index, total, source_type, source_id)
+		results.append(index_source(source_type, source_id))
 	removed = 0
 	if remove_stale:
 		for row in KnowledgeChunk.query.all():

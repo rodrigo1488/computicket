@@ -25,10 +25,21 @@ type PushConfig = { enabled: boolean; publicKey?: string | null };
 
 /** Dedupe global — sobrevive Strict Mode / remount e evita toast duplicado. */
 const seenMessageIds = new Set<string>();
+const seenTicketBurst = new Map<string, number>();
 
 function markMessageSeen(messageId: string) {
   seenMessageIds.add(messageId);
   window.setTimeout(() => seenMessageIds.delete(messageId), 60_000);
+}
+
+function markTicketBurst(ticketKey: string) {
+  seenTicketBurst.set(ticketKey, Date.now());
+  window.setTimeout(() => seenTicketBurst.delete(ticketKey), 12_000);
+}
+
+function isTicketBurst(ticketKey: string) {
+  const ts = seenTicketBurst.get(ticketKey);
+  return ts != null && Date.now() - ts < 8000;
 }
 
 function applicationServerKey(value: string): ArrayBuffer {
@@ -150,6 +161,11 @@ export function NotificationCenter() {
         const match = String(notification.url || "").match(/[?&]c=(\d+)/);
         return match ? Number(match[1]) : null;
       })();
+      const burstKey = ticketId != null
+        ? `c:${ticketId}:${(notification.message || "").trim().slice(0, 80)}`
+        : `t:${notification.title}:${(notification.message || "").trim().slice(0, 80)}`;
+      if (isTicketBurst(burstKey)) return false;
+      markTicketBurst(burstKey);
       bumpHelpdeskBadge();
       if (isHelpdeskConversationFocused(ticketId)) return true;
       show(notification);
@@ -177,18 +193,23 @@ export function NotificationCenter() {
     }
   }, [permission, pushConfig?.publicKey]);
 
-  // Único canal de toast/som/badge para mensagens: Flask `app_notification`
-  // (persistido uma vez pelo webhook Baileys → /engine-inbound).
+  // Único canal de toast/som/badge para mensagens: Flask `app_notification`.
+  // Handler em ref para não reconectar o socket a cada render.
+  const showRef = useRef(show);
+  const showMessageRef = useRef(showMessageNotification);
+  showRef.current = show;
+  showMessageRef.current = showMessageNotification;
+
   useEffect(() => {
     if (!user) return;
     const { url } = getFlaskSocketConfig();
     const socket = io(url, flaskSocketOptions());
     const onAppNotification = (notification: AppNotification) => {
       if (notification.type === "message") {
-        showMessageNotification(notification);
+        showMessageRef.current(notification);
         return;
       }
-      show(notification);
+      showRef.current(notification);
     };
     socket.on("connect", () => {
       socket.emit("join_agent_notifications");
@@ -198,7 +219,7 @@ export function NotificationCenter() {
       socket.off("app_notification", onAppNotification);
       socket.disconnect();
     };
-  }, [user, show, showMessageNotification]);
+  }, [user?.id]);
 
   useEffect(() => () => {
     for (const timer of timers.current.values()) clearTimeout(timer);

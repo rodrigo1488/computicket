@@ -11,8 +11,11 @@ from flask import current_app
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 
+from datetime import timedelta
+
 from . import db, socketio
 from .models import AppNotification, PushSubscription, User
+from .timezone_utils import get_brasilia_now
 
 _vapid_lock = threading.Lock()
 
@@ -100,6 +103,8 @@ def create_notifications(
 			).first()
 			if existing:
 				continue
+		if notification_type == "message" and _recent_message_duplicate(user_id, url, message):
+			continue
 		notification = AppNotification(
 			user_id=user_id,
 			notification_type=notification_type,
@@ -127,14 +132,39 @@ def create_notifications(
 	return created
 
 
+def _recent_message_duplicate(user_id: int, url: str | None, message: str) -> bool:
+	"""Baileys pode persistir o mesmo inbound com ids diferentes em poucos segundos."""
+	now = get_brasilia_now()
+	if getattr(now, "tzinfo", None) is not None:
+		now = now.replace(tzinfo=None)
+	cutoff = now - timedelta(seconds=15)
+	body = (message or "").replace("\r\n", "\n").strip()[:1000]
+	q = AppNotification.query.filter(
+		AppNotification.user_id == user_id,
+		AppNotification.notification_type == "message",
+		AppNotification.created_at >= cutoff,
+	)
+	if url:
+		q = q.filter(AppNotification.url == url)
+	for row in q.limit(8).all():
+		if (row.message or "").replace("\r\n", "\n").strip()[:1000] == body:
+			return True
+	return False
+
+
 def _user_has_active_socket(room: str) -> bool:
 	"""True se há cliente Socket.IO na room (aba aberta)."""
 	try:
 		manager = getattr(socketio.server, "manager", None)
 		if manager is None:
 			return False
+		rooms = getattr(manager, "rooms", None)
+		if isinstance(rooms, dict):
+			namespace_rooms = rooms.get("/") or rooms.get("") or {}
+			occupants = namespace_rooms.get(room) if isinstance(namespace_rooms, dict) else None
+			if occupants:
+				return True
 		participants = manager.get_participants("/", room)
-		# get_participants pode ser gerador/lista de (sid, ...)
 		for _ in participants:
 			return True
 	except Exception:

@@ -690,17 +690,21 @@ def create_app() -> Flask:
 		from app.notification_service import ensure_vapid_keys
 		ensure_vapid_keys()
 	
-	# Inicializar sistema de monitoramento de localização
-	from app.websocket_monitoring import init_location_monitoring
-	init_location_monitoring()
-	
-	# Inicializar scheduler de lembretes
-	from app.scheduler import start_scheduler
-	start_scheduler()
+	# Em comandos CLI (ex.: flask rag-reindex) não sobe threads de background.
+	_cli_mode = (os.environ.get("FLASK_RUN_FROM_CLI") or "").strip().lower() in {"1", "true", "yes"}
 
-	# Manutenção do RMM usa este app já inicializado (sem create_app recursivo).
-	from app.remote_monitor_service import start_remote_monitor_maintenance
-	start_remote_monitor_maintenance(app)
+	if not _cli_mode:
+		# Inicializar sistema de monitoramento de localização
+		from app.websocket_monitoring import init_location_monitoring
+		init_location_monitoring()
+
+		# Inicializar scheduler de lembretes
+		from app.scheduler import start_scheduler
+		start_scheduler()
+
+		# Manutenção do RMM usa este app já inicializado (sem create_app recursivo).
+		from app.remote_monitor_service import start_remote_monitor_maintenance
+		start_remote_monitor_maintenance(app)
 
 	# Eventos pós-commit e comando `flask rag-reindex`.
 	from .rag_hooks import register_rag
