@@ -1,7 +1,7 @@
 """JSON para o frontend Next.js — listagens dos módulos existentes."""
 from datetime import datetime, timedelta
 
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, jsonify, request, current_app
 from flask_login import current_user, login_required
 from sqlalchemy import case, cast, func, String
 from werkzeug.security import generate_password_hash
@@ -1265,11 +1265,18 @@ def budgets():
 @bp.route("/budgets/ai", methods=["GET", "POST"])
 @login_required
 def budgets_ai():
-	if request.method == "GET":
-		from .budget import test_builder_ai
-		return test_builder_ai()
-	from .budget import generate_builder_ai
-	return generate_builder_ai()
+	try:
+		if request.method == "GET":
+			from .budget import test_builder_ai
+			return test_builder_ai()
+		from .budget import generate_builder_ai
+		return generate_builder_ai()
+	except Exception as exc:
+		current_app.logger.exception("Erro em /api/web/budgets/ai")
+		return jsonify({
+			"success": False,
+			"error": f"Erro ao gerar orçamento: {exc}",
+		}), 500
 
 
 @bp.route("/budgets/meta")

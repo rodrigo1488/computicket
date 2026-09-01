@@ -14,12 +14,13 @@ services:
   redis:
     image: redis:8.0.1
     restart: unless-stopped
-    command: ["redis-server", "--appendonly", "yes"]
+    command: ["sh", "/fix-aof-and-start.sh"]
     ports:
       - "${COMPUTICKET_REDIS_PORT:-16379}:6379"
     volumes:
       # Nome legado (compose WhatsApp) — preserva dados existentes
       - computicket_whatsapp_redis:/data
+      - ./infra/redis/fix-aof-and-start.sh:/fix-aof-and-start.sh:ro
     healthcheck:
       # Redis 8: redis-cli ping em localhost cai em [::1] e marca unhealthy
       # mesmo com o servidor no ar (IPv4). Força 127.0.0.1 e valida PONG.
@@ -124,7 +125,7 @@ services:
       GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.6-flash}
       GEMINI_EMBEDDING_MODEL: ${GEMINI_EMBEDDING_MODEL:-gemini-embedding-001}
       GEMINI_EMBEDDING_DIMENSION: "768"
-      GEMINI_TIMEOUT_MS: ${GEMINI_TIMEOUT_MS:-30000}
+      GEMINI_TIMEOUT_MS: ${GEMINI_TIMEOUT_MS:-90000}
       COPILOT_RATE_LIMIT_PER_MINUTE: ${COPILOT_RATE_LIMIT_PER_MINUTE:-20}
       RAG_MIN_SCORE: ${RAG_MIN_SCORE:-0.35}
       VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}

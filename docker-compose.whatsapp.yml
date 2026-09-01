@@ -6,11 +6,12 @@ services:
   redis:
     image: redis:8.0.1
     restart: unless-stopped
-    command: ["redis-server", "--appendonly", "yes"]
+    command: ["sh", "/fix-aof-and-start.sh"]
     ports:
       - "${COMPUTICKET_REDIS_PORT:-16379}:6379"
     volumes:
       - computicket_whatsapp_redis:/data
+      - ./infra/redis/fix-aof-and-start.sh:/fix-aof-and-start.sh:ro
     healthcheck:
       test: ["CMD-SHELL", "redis-cli -h 127.0.0.1 ping | grep -q PONG"]
       interval: 5s

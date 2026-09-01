@@ -93,9 +93,9 @@ def embedding_dimension() -> int:
 
 def timeout_ms() -> int:
 	try:
-		return max(1000, min(int(os.environ.get("GEMINI_TIMEOUT_MS") or "30000"), 120000))
+		return max(1000, min(int(os.environ.get("GEMINI_TIMEOUT_MS") or "90000"), 120000))
 	except ValueError:
-		return 30000
+		return 90000
 
 
 def get_client():

@@ -730,4 +730,14 @@ def create_app() -> Flask:
 	except Exception as _inv_err:
 		app.logger.warning("Blueprint inventory (fallback): %s", _inv_err)
 
+	@app.errorhandler(500)
+	def _json_api_500(error):
+		if request.path.startswith("/api/"):
+			return jsonify({
+				"success": False,
+				"error": "Erro interno ao processar o pedido. Tente novamente.",
+			}), 500
+		from werkzeug.exceptions import InternalServerError
+		return InternalServerError().get_response()
+
 	return app

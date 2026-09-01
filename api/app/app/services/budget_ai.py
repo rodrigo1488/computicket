@@ -8,12 +8,12 @@ from typing import Any
 
 from ..models import Service
 from ..rich_text_utils import sanitize_rich_html
-from .faturamento_products import search_products
 from .gemini_client import GeminiConfigError, api_key, generation_model, get_client
 
 MIN_PROMPT_LEN = 15
 MAX_PRODUCT_CANDIDATES = 40
 MAX_SERVICE_CANDIDATES = 30
+BUDGET_GENERATE_TIMEOUT_MS = 90_000
 
 STOPWORDS = {
 	"a", "o", "os", "as", "um", "uma", "uns", "umas", "de", "da", "do", "das", "dos",
@@ -42,22 +42,12 @@ BUDGET_JSON_SCHEMA: dict[str, Any] = {
 					"quantity": {"type": "number"},
 					"unit_price": {"type": "number"},
 					"observations": {"type": "string"},
-					"product_id": {"type": ["integer", "null"]},
-					"service_id": {"type": ["integer", "null"]},
-					"codigo": {"type": ["string", "null"]},
-					"unit_of_measure": {"type": ["string", "null"]},
+					"product_id": {"type": "integer", "nullable": True},
+					"service_id": {"type": "integer", "nullable": True},
+					"codigo": {"type": "string", "nullable": True},
+					"unit_of_measure": {"type": "string", "nullable": True},
 				},
-				"required": [
-					"item_type",
-					"description",
-					"quantity",
-					"unit_price",
-					"observations",
-					"product_id",
-					"service_id",
-					"codigo",
-					"unit_of_measure",
-				],
+				"required": ["item_type", "description", "quantity", "unit_price"],
 			},
 		},
 	},
@@ -133,37 +123,111 @@ def extract_search_terms(prompt: str, limit: int = 8) -> list[str]:
 
 
 def _fetch_product_candidates(prompt: str) -> list[dict[str, Any]]:
-	terms = extract_search_terms(prompt)
-	by_id: dict[int, dict[str, Any]] = {}
+	"""Uma conexão e uma query — várias buscas sequenciais no Unico estouram o proxy."""
+	terms = extract_search_terms(prompt, limit=3)
+	queries = [t for t in (terms or [prompt.strip()[:40]]) if t]
+	if not queries:
+		return []
 
-	queries = terms or [prompt.strip()[:40]]
-	for q in queries:
-		if len(by_id) >= MAX_PRODUCT_CANDIDATES:
-			break
-		try:
-			results = search_products(q)
-		except Exception:
-			continue
-		for row in results:
-			pid = row.get("id")
-			if pid is None or pid in by_id:
+	try:
+		from ..external_pg import _pg_connect
+		conn = _pg_connect(connect_timeout=3)
+	except Exception:
+		return []
+	if not conn:
+		return []
+
+	try:
+		cursor = conn.cursor()
+		clauses: list[str] = []
+		params: list[Any] = []
+		for term in queries:
+			clauses.append("(p.nome ILIKE %s OR p.codigo ILIKE %s)")
+			like = f"%{term}%"
+			params.extend([like, like])
+		sql = (
+			"SELECT p.id, p.codigo, p.nome, p.unidademedida, p.preco "
+			"FROM produto p "
+			"WHERE p.inativo = '0' AND p.tipo = 'P' AND ("
+			+ " OR ".join(clauses)
+			+ ") ORDER BY p.nome ASC LIMIT %s"
+		)
+		params.append(MAX_PRODUCT_CANDIDATES)
+		cursor.execute(sql, params)
+		rows = cursor.fetchall() or []
+		out: list[dict[str, Any]] = []
+		seen: set[int] = set()
+		for row in rows:
+			pid = row[0]
+			if pid is None or pid in seen:
 				continue
-			by_id[pid] = {
+			seen.add(pid)
+			out.append({
 				"id": pid,
-				"codigo": row.get("codigo") or "",
-				"nome": row.get("nome") or "",
-				"unidademedida": row.get("unidademedida") or "",
-				"preco": float(row.get("preco") or 0),
-			}
-			if len(by_id) >= MAX_PRODUCT_CANDIDATES:
-				break
+				"codigo": row[1] or "",
+				"nome": row[2] or "",
+				"unidademedida": row[3] or "",
+				"preco": float(row[4] or 0),
+			})
+		return out
+	except Exception:
+		return []
+	finally:
+		try:
+			conn.close()
+		except Exception:
+			pass
 
-	return list(by_id.values())
+
+def _response_text(response: Any) -> str:
+	"""`response.text` no google-genai é property e pode lançar (AFC / parts vazias)."""
+	try:
+		text = response.text
+		if text:
+			return str(text).strip()
+	except Exception:
+		pass
+	parsed = getattr(response, "parsed", None)
+	if isinstance(parsed, dict):
+		return json.dumps(parsed, ensure_ascii=False)
+	try:
+		for candidate in getattr(response, "candidates", None) or []:
+			content = getattr(candidate, "content", None)
+			chunks: list[str] = []
+			for part in getattr(content, "parts", None) or []:
+				part_text = getattr(part, "text", None)
+				if part_text:
+					chunks.append(str(part_text))
+			if chunks:
+				return "".join(chunks).strip()
+	except Exception:
+		pass
+	return ""
+
+
+def _call_gemini(contents: str, *, use_schema: bool) -> Any:
+	client = get_client()
+	config: dict[str, Any] = {
+		"system_instruction": SYSTEM_INSTRUCTION,
+		"response_mime_type": "application/json",
+		"temperature": 0.4,
+		"http_options": {"timeout": BUDGET_GENERATE_TIMEOUT_MS},
+	}
+	if use_schema:
+		config["response_json_schema"] = BUDGET_JSON_SCHEMA
+	return client.models.generate_content(
+		model=get_gemini_model(),
+		contents=contents,
+		config=config,
+	)
 
 
 def _fetch_service_candidates(prompt: str) -> list[dict[str, Any]]:
-	terms = extract_search_terms(prompt)
-	services = Service.query.order_by(Service.name.asc()).limit(200).all()
+	terms = extract_search_terms(prompt, limit=3)
+	try:
+		services = Service.query.order_by(Service.name.asc()).limit(200).all()
+	except Exception:
+		return []
 	if not services:
 		return []
 
@@ -371,13 +435,13 @@ def test_gemini_connection() -> dict[str, Any]:
 			model=model,
 			contents='Responda apenas com a palavra OK.',
 		)
-		reply = (getattr(response, "text", None) or "").strip()
+		reply = _response_text(response)[:120]
 		return {
 			"ok": True,
 			"has_key": True,
 			"package_ok": True,
 			"model": model,
-			"reply": reply[:120],
+			"reply": reply,
 			"message": "Conexão com o Gemini OK.",
 		}
 	except Exception as exc:
@@ -404,34 +468,35 @@ def generate_budget_draft(prompt: str, client_name: str | None = None) -> dict[s
 			"GEMINI_API_KEY não configurada. Defina a variável no arquivo .env do servidor."
 		)
 
-	products = _fetch_product_candidates(prompt)
-	services = _fetch_service_candidates(prompt)
+	try:
+		products = _fetch_product_candidates(prompt)
+	except Exception:
+		products = []
+	try:
+		services = _fetch_service_candidates(prompt)
+	except Exception:
+		services = []
 	contents = _build_user_contents(prompt, client_name, products, services)
 
-	try:
-		client = get_client()
-		response = client.models.generate_content(
-			model=get_gemini_model(),
-			contents=contents,
-			config={
-				"system_instruction": SYSTEM_INSTRUCTION,
-				"response_mime_type": "application/json",
-				"response_json_schema": BUDGET_JSON_SCHEMA,
-				"temperature": 0.4,
-			},
-		)
-	except GeminiConfigError as exc:
-		raise BudgetAIConfigError(str(exc)) from exc
-	except BudgetAIConfigError:
-		raise
-	except Exception as exc:
-		raise BudgetAIGenerationError(
-			f"Falha ao consultar o Gemini: {exc}"
-		) from exc
+	text = ""
+	last_error: Exception | None = None
+	for use_schema in (True, False):
+		try:
+			response = _call_gemini(contents, use_schema=use_schema)
+			text = _response_text(response)
+			if text:
+				break
+			last_error = BudgetAIGenerationError("A IA retornou uma resposta vazia.")
+		except GeminiConfigError as exc:
+			raise BudgetAIConfigError(str(exc)) from exc
+		except Exception as exc:
+			last_error = exc
+			continue
 
-	text = (getattr(response, "text", None) or "").strip()
 	if not text:
-		raise BudgetAIGenerationError("A IA retornou uma resposta vazia.")
+		raise BudgetAIGenerationError(
+			f"Falha ao consultar o Gemini: {last_error}" if last_error else "A IA retornou uma resposta vazia."
+		)
 
 	try:
 		raw = json.loads(text)
@@ -441,7 +506,10 @@ def generate_budget_draft(prompt: str, client_name: str | None = None) -> dict[s
 	if not isinstance(raw, dict):
 		raise BudgetAIGenerationError("Formato de resposta da IA inesperado.")
 
-	processed = _post_process(raw, products, services)
+	try:
+		processed = _post_process(raw, products, services)
+	except Exception as exc:
+		raise BudgetAIGenerationError(f"Falha ao interpretar o orçamento gerado: {exc}") from exc
 	if not processed["items"]:
 		raise BudgetAIGenerationError(
 			"A IA não gerou itens utilizáveis. Tente detalhar melhor produtos, quantidades e serviços."

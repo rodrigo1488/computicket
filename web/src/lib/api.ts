@@ -23,8 +23,16 @@ function _httpErrorMessage(status: number, data: unknown): string {
   const payload = data as { error?: string; message?: string } | null;
   const raw = String(payload?.error || payload?.message || "").trim();
   const looksHtml = !raw || /^\s*</.test(raw);
-  if (raw && !looksHtml) return raw;
+  if (raw && !looksHtml) {
+    if (/^internal server error$/i.test(raw) || /^error 500$/i.test(raw)) {
+      return "A geração falhou no servidor. Tente novamente; se persistir, descreva menos itens de uma vez.";
+    }
+    return raw;
+  }
   if (status === 404) return "Recurso não encontrado.";
+  if (status === 500) {
+    return "A geração falhou no servidor. Tente novamente; se persistir, descreva menos itens de uma vez.";
+  }
   if (status === 502 || status === 503 || status === 504) {
     return "Serviço temporariamente indisponível. Tente novamente em instantes.";
   }
