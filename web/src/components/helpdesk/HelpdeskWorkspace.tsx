@@ -799,27 +799,6 @@ export function HelpdeskWorkspace() {
     queryKey: ["hd-list", tab, selectedQueues, includeUnassigned, debouncedSearch],
     queryFn: () =>
       helpdesk.conversations(tab, "1", debouncedSearch, selectedQueues.length ? selectedQueues : undefined),
-    enabled: !!health.data?.ok && !mineOnly,
-    refetchInterval: 12000,
-  });
-
-  const minePending = useQuery({
-    queryKey: ["hd-list", "mine-pending", selectedQueues, includeUnassigned, debouncedSearch],
-    queryFn: () =>
-      helpdesk.conversations(
-        "pending",
-        "1",
-        debouncedSearch,
-        selectedQueues.length ? selectedQueues : undefined,
-      ),
-    enabled: !!health.data?.ok,
-    refetchInterval: 12000,
-  });
-
-  const mineOpen = useQuery({
-    queryKey: ["hd-list", "mine-open", selectedQueues, includeUnassigned, debouncedSearch],
-    queryFn: () =>
-      helpdesk.conversations("open", "1", debouncedSearch, selectedQueues.length ? selectedQueues : undefined),
     enabled: !!health.data?.ok,
     refetchInterval: 12000,
   });
@@ -883,30 +862,31 @@ export function HelpdeskWorkspace() {
 
   const engineUserId = session.data?.engineUserId ?? null;
 
-  const mineTickets = useMemo(() => {
-    const byId = new Map<number, HelpdeskConversation>();
-    for (const row of minePending.data?.tickets || []) byId.set(row.id, row);
-    for (const row of mineOpen.data?.tickets || []) {
-      if (isAssignedToEngineUser(row, engineUserId)) byId.set(row.id, row);
-    }
-    return sortInboxConversations(
-      applyQueueVisibility([...byId.values()], selectedQueues, includeUnassigned, unassignedOnly),
-    );
-  }, [
-    minePending.data?.tickets,
-    mineOpen.data?.tickets,
-    selectedQueues,
-    includeUnassigned,
-    unassignedOnly,
-    engineUserId,
-  ]);
+  const visibleTickets = useMemo(
+    () =>
+      sortInboxConversations(
+        applyQueueVisibility(list.data?.tickets || [], selectedQueues, includeUnassigned, unassignedOnly),
+      ),
+    [list.data?.tickets, selectedQueues, includeUnassigned, unassignedOnly],
+  );
 
-  const tickets = useMemo(() => {
-    if (mineOnly) return mineTickets;
-    return sortInboxConversations(
-      applyQueueVisibility(list.data?.tickets || [], selectedQueues, includeUnassigned, unassignedOnly),
-    );
-  }, [mineOnly, mineTickets, list.data?.tickets, selectedQueues, includeUnassigned, unassignedOnly]);
+  const mineTickets = useMemo(() => {
+    if (tab === "pending") return visibleTickets;
+    return visibleTickets.filter((t) => isAssignedToEngineUser(t, engineUserId));
+  }, [visibleTickets, tab, engineUserId]);
+
+  const tickets = useMemo(() => (mineOnly ? mineTickets : visibleTickets), [mineOnly, mineTickets, visibleTickets]);
+
+  const scopeAllCount = useMemo(() => {
+    const rows = applyQueueVisibility(countSource.data?.tickets || [], selectedQueues, includeUnassigned, unassignedOnly);
+    return rows.length;
+  }, [countSource.data?.tickets, selectedQueues, includeUnassigned, unassignedOnly]);
+
+  const scopeMineCount = useMemo(() => {
+    const rows = applyQueueVisibility(countSource.data?.tickets || [], selectedQueues, includeUnassigned, unassignedOnly);
+    if (tab === "pending") return rows.length;
+    return rows.filter((t) => isAssignedToEngineUser(t, engineUserId)).length;
+  }, [countSource.data?.tickets, selectedQueues, includeUnassigned, unassignedOnly, tab, engineUserId]);
 
   const closedGroups = useMemo(
     () => (tab === "closed" ? groupClosedByPhone(tickets) : []),
@@ -943,12 +923,8 @@ export function HelpdeskWorkspace() {
     });
   };
 
-  const listIsError = mineOnly
-    ? minePending.isError || mineOpen.isError
-    : list.isError;
-  const listErrorMessage = mineOnly
-    ? ((minePending.error || mineOpen.error) as Error | null)?.message
-    : (list.error as Error | null)?.message;
+  const listIsError = list.isError;
+  const listErrorMessage = (list.error as Error | null)?.message;
 
   const queueCounts = useMemo(() => {
     const map = new Map<number | "none", number>();
@@ -1470,27 +1446,15 @@ export function HelpdeskWorkspace() {
               <span className={cn("h-1.5 w-1.5 rounded-full", connected ? "bg-done" : "bg-open")} />
               {connectionLabel}
             </span>
-            <div className="flex items-center gap-1">
-              <button
-                type="button"
-                onClick={() => setNewConversationOpen(true)}
-                disabled={engineDown}
-                className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-semibold text-brand hover:bg-progress-bg disabled:cursor-not-allowed disabled:opacity-40"
-                title="Nova conversa"
+            {isAdmin ? (
+              <Link
+                href="/configuracoes?tab=whatsapp&section=conexoes"
+                className="rounded-md p-1 text-brand hover:bg-progress-bg"
+                title="Configurar WhatsApp"
               >
-                <MessageSquarePlus className="h-3.5 w-3.5" />
-                Nova
-              </button>
-              {isAdmin ? (
-                <Link
-                  href="/configuracoes?tab=whatsapp&section=conexoes"
-                  className="rounded-md p-1 text-brand hover:bg-progress-bg"
-                  title="Configurar WhatsApp"
-                >
-                  <Settings className="h-4 w-4" />
-                </Link>
-              ) : null}
-            </div>
+                <Settings className="h-4 w-4" />
+              </Link>
+            ) : null}
           </div>
           <div className="flex border-b border-[#ececec]">
             {TAB_META.map((t) => {
@@ -1522,81 +1486,104 @@ export function HelpdeskWorkspace() {
             })}
           </div>
 
+          <div className="border-b border-[#ececec] px-3 py-2">
+            <button
+              type="button"
+              onClick={() => setNewConversationOpen(true)}
+              disabled={engineDown}
+              className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-brand px-3 py-2 text-sm font-semibold text-white hover:bg-brand/90 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <MessageSquarePlus className="h-4 w-4 shrink-0" />
+              Nova conversa
+            </button>
+          </div>
+
           <div className="px-3 py-2">
             <label className="flex items-center gap-2 rounded-lg border border-line bg-[#fafafa] px-2 py-1.5">
-              <Search className="h-3.5 w-3.5 text-muted" />
+              <Search className="h-3.5 w-3.5 shrink-0 text-muted" />
               <input
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Buscar conversa ou número"
-                className="w-full bg-transparent text-sm outline-none placeholder:text-muted"
+                className="min-w-0 w-full bg-transparent text-sm outline-none placeholder:text-muted"
               />
             </label>
           </div>
 
-          <div className="space-y-1.5 px-3 pb-2">
-            <div className="flex rounded-lg border border-line bg-[#f3f4f6] p-0.5">
-              <button
-                type="button"
-                onClick={() => setMineOnly(true)}
-                className={cn(
-                  "flex-1 rounded-md px-2 py-1 text-[11px] font-semibold uppercase tracking-wide transition-colors",
-                  mineOnly ? "bg-navy text-white shadow-sm" : "text-muted hover:text-ink",
-                )}
-                title="Suas conversas em atendimento e todas as aguardando"
-              >
-                Meus
-                <span className="ml-1 opacity-80">{mineTickets.length}</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setMineOnly(false)}
-                className={cn(
-                  "flex-1 rounded-md px-2 py-1 text-[11px] font-semibold uppercase tracking-wide transition-colors",
-                  !mineOnly ? "bg-brand text-white shadow-sm" : "text-muted hover:text-ink",
-                )}
-              >
-                Todas
-                <span className="ml-1 opacity-80">{countSource.data?.tickets?.length ?? 0}</span>
-              </button>
+          <div className="space-y-2 border-b border-[#ececec] px-3 pb-3">
+            <div>
+              <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted">Atribuição</p>
+              <div className="grid grid-cols-2 gap-1 rounded-lg border border-line bg-[#f3f4f6] p-0.5">
+                <button
+                  type="button"
+                  onClick={() => setMineOnly(true)}
+                  className={cn(
+                    "rounded-md px-2 py-1.5 text-[11px] font-semibold transition-colors",
+                    mineOnly ? "bg-navy text-white shadow-sm" : "text-muted hover:text-ink",
+                  )}
+                  title={
+                    tab === "pending"
+                      ? "Conversas aguardando nas filas visíveis"
+                      : "Conversas atribuídas a você nesta aba"
+                  }
+                >
+                  Meus
+                  <span className="ml-1 tabular-nums opacity-80">{scopeMineCount}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMineOnly(false)}
+                  className={cn(
+                    "rounded-md px-2 py-1.5 text-[11px] font-semibold transition-colors",
+                    !mineOnly ? "bg-brand text-white shadow-sm" : "text-muted hover:text-ink",
+                  )}
+                  title="Todas as conversas visíveis nesta aba"
+                >
+                  Todos
+                  <span className="ml-1 tabular-nums opacity-80">{scopeAllCount}</span>
+                </button>
+              </div>
             </div>
 
-            <label className="relative block">
-              <span className="sr-only">Filtrar por fila</span>
-              {selectedQueueMeta?.color || queueFilterValue === "none" ? (
-                <span
-                  className="pointer-events-none absolute left-2.5 top-1/2 h-2 w-2 -translate-y-1/2 rounded-full"
-                  style={{
-                    background:
-                      queueFilterValue === "none" ? "#6b7280" : selectedQueueMeta?.color || "#3b82f6",
-                  }}
-                />
-              ) : null}
-              <select
-                value={queueFilterValue}
-                onChange={(e) => setQueueFilter(e.target.value)}
-                className={cn(
-                  "w-full appearance-none rounded-lg border border-line bg-[#fafafa] py-1.5 pr-14 text-xs font-medium text-ink outline-none focus:border-brand",
-                  selectedQueueMeta?.color || queueFilterValue === "none" ? "pl-6" : "pl-2.5",
-                )}
-              >
-                <option value="all">
-                  Todas as filas ({countSource.data?.tickets?.length ?? 0})
-                </option>
-                <option value="none">Sem fila ({queueCounts.get("none") ?? 0})</option>
-                {(queues.data || []).map((q) => (
-                  <option key={q.id} value={q.id}>
-                    {q.name} ({queueCounts.get(q.id) ?? 0})
+            <div>
+              <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted">Fila</p>
+              <label className="relative block">
+                <span className="sr-only">Filtrar por fila</span>
+                {selectedQueueMeta?.color || queueFilterValue === "none" ? (
+                  <span
+                    className="pointer-events-none absolute left-2.5 top-1/2 h-2 w-2 -translate-y-1/2 rounded-full"
+                    style={{
+                      background:
+                        queueFilterValue === "none" ? "#6b7280" : selectedQueueMeta?.color || "#3b82f6",
+                    }}
+                  />
+                ) : null}
+                <select
+                  value={queueFilterValue}
+                  onChange={(e) => setQueueFilter(e.target.value)}
+                  className={cn(
+                    "w-full appearance-none rounded-lg border border-line bg-[#fafafa] py-2 pr-14 text-xs font-medium text-ink outline-none focus:border-brand",
+                    selectedQueueMeta?.color || queueFilterValue === "none" ? "pl-6" : "pl-2.5",
+                  )}
+                >
+                  <option value="all">
+                    Todas as filas ({scopeAllCount})
                   </option>
-                ))}
-              </select>
-              <span className="pointer-events-none absolute right-2 top-1/2 flex -translate-y-1/2 items-center gap-1">
-                <span className="rounded-full bg-[#eef2ff] px-1.5 py-0.5 text-[10px] font-semibold text-brand">
-                  {queueFilterCount}
+                  <option value="none">Sem fila ({queueCounts.get("none") ?? 0})</option>
+                  {(queues.data || []).map((q) => (
+                    <option key={q.id} value={q.id}>
+                      {q.name} ({queueCounts.get(q.id) ?? 0})
+                    </option>
+                  ))}
+                </select>
+                <span className="pointer-events-none absolute right-2 top-1/2 flex -translate-y-1/2 items-center gap-1">
+                  <span className="rounded-full bg-[#eef2ff] px-1.5 py-0.5 text-[10px] font-semibold text-brand">
+                    {queueFilterCount}
+                  </span>
+                  <ChevronDown className="h-3.5 w-3.5 text-muted" />
                 </span>
-                <ChevronDown className="h-3.5 w-3.5 text-muted" />
-              </span>
-            </label>
+              </label>
+            </div>
           </div>
           <p className="px-3 pb-2 text-[11px] text-muted">
             {mineOnly ? "Filtro Meus · " : ""}
@@ -1626,7 +1613,9 @@ export function HelpdeskWorkspace() {
             ) : tickets.length === 0 ? (
               <p className="px-4 py-10 text-center text-sm text-muted">
                 {mineOnly
-                  ? "Nenhuma conversa sua ou em aguardando"
+                  ? tab === "pending"
+                    ? "Nenhuma conversa aguardando nas filas selecionadas"
+                    : "Nenhuma conversa sua nesta aba"
                   : allSelected
                     ? "Nenhuma conversa nesta aba"
                     : unassignedOnly
