@@ -2,7 +2,7 @@
 
 import { Monitor, Moon, Sun } from "lucide-react";
 import { cn } from "@/lib/cn";
-import { useTheme, type Theme } from "@/lib/theme-context";
+import { applyTheme, useTheme, type Theme } from "@/lib/theme-context";
 
 export function ThemeQuickToggle({ className }: { className?: string }) {
   const { resolved, setTheme } = useTheme();
@@ -10,7 +10,11 @@ export function ThemeQuickToggle({ className }: { className?: string }) {
   return (
     <button
       type="button"
-      onClick={() => setTheme(dark ? "light" : "dark")}
+      onClick={() => {
+        const next = dark ? "light" : "dark";
+        applyTheme(next);
+        setTheme(next);
+      }}
       title={dark ? "Tema claro" : "Tema escuro"}
       aria-label={dark ? "Ativar tema claro" : "Ativar tema escuro"}
       className={cn(
