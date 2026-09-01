@@ -76,6 +76,22 @@ const TAB_META: { key: HelpdeskTab; label: string }[] = [
 
 const FILTER_KEY = "computicket.helpdesk.filters";
 const SIGN_KEY = "computicket.helpdesk.sign";
+const LIST_WIDTH_KEY = "computicket.helpdesk.listWidth";
+const LIST_WIDTH_DEFAULT = 340;
+const LIST_WIDTH_MIN = 260;
+const LIST_WIDTH_MAX = 560;
+
+function clampListWidth(width: number, parentWidth?: number) {
+  const room = parentWidth != null ? Math.max(LIST_WIDTH_MIN, parentWidth - 380) : LIST_WIDTH_MAX;
+  return Math.round(Math.min(LIST_WIDTH_MAX, room, Math.max(LIST_WIDTH_MIN, width)));
+}
+
+function readListWidth() {
+  if (typeof window === "undefined") return LIST_WIDTH_DEFAULT;
+  const n = Number(window.localStorage.getItem(LIST_WIDTH_KEY));
+  if (!Number.isFinite(n)) return LIST_WIDTH_DEFAULT;
+  return clampListWidth(n);
+}
 
 type AiResult =
   | { kind: "text"; title: string; draft: string; sources: HelpdeskAiSource[] }
@@ -583,7 +599,7 @@ function InboxConversationRow({
         <span className="flex items-center gap-2">
           <span
             className={cn(
-              "truncate text-sm text-ink",
+              "min-w-0 flex-1 truncate text-sm text-ink",
               (c.unreadMessages || 0) > 0 ? "font-bold" : "font-semibold",
             )}
             title={c.contact?.number || name}
@@ -749,6 +765,9 @@ export function HelpdeskWorkspace() {
     if (typeof window === "undefined") return true;
     return window.localStorage.getItem(SIGN_KEY) !== "0";
   });
+  const [listWidth, setListWidth] = useState(LIST_WIDTH_DEFAULT);
+  const listPaneRef = useRef<HTMLElement>(null);
+  const listDragRef = useRef<{ startX: number; startW: number } | null>(null);
   const threadRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const socketRef = useRef<Socket | null>(null);
@@ -816,6 +835,37 @@ export function HelpdeskWorkspace() {
   useEffect(() => {
     window.localStorage.setItem(SIGN_KEY, sign ? "1" : "0");
   }, [sign]);
+
+  useEffect(() => {
+    setListWidth(readListWidth());
+  }, []);
+
+  useEffect(() => {
+    const onMove = (e: PointerEvent) => {
+      const drag = listDragRef.current;
+      if (!drag) return;
+      const parentW = listPaneRef.current?.parentElement?.clientWidth;
+      setListWidth(clampListWidth(drag.startW + (e.clientX - drag.startX), parentW));
+    };
+    const onUp = () => {
+      if (!listDragRef.current) return;
+      listDragRef.current = null;
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+      setListWidth((w) => {
+        window.localStorage.setItem(LIST_WIDTH_KEY, String(w));
+        return w;
+      });
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
+    return () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
+    };
+  }, []);
 
   useEffect(() => {
     setAiResult(null);
@@ -1516,7 +1566,11 @@ export function HelpdeskWorkspace() {
   return (
     <div className="relative flex h-0 min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
       <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
-        <aside className="flex min-h-0 w-[340px] shrink-0 flex-col overflow-hidden border-r border-line">
+        <aside
+          ref={listPaneRef}
+          style={{ width: listWidth }}
+          className="relative flex min-h-0 min-w-0 shrink-0 flex-col overflow-hidden border-r border-line"
+        >
           <div className="flex items-center justify-between gap-2 border-b border-line px-3 py-2">
             <span
               className={cn(
@@ -1551,7 +1605,7 @@ export function HelpdeskWorkspace() {
                     setError(null);
                   }}
                   className={cn(
-                    "relative flex-1 py-3 text-[11px] font-semibold uppercase tracking-wide",
+                    "relative flex-1 truncate px-1 py-3 text-[11px] font-semibold uppercase tracking-wide",
                     active ? "text-brand" : "text-muted hover:text-ink",
                   )}
                 >
@@ -1592,39 +1646,37 @@ export function HelpdeskWorkspace() {
           </div>
 
           <div className="space-y-2 border-b border-line px-3 pb-3">
-            <div>
-              <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted">Atribuição</p>
-              <div className="grid grid-cols-2 gap-1 rounded-lg border border-line bg-wash p-0.5">
-                <button
-                  type="button"
-                  onClick={() => setMineOnly(true)}
-                  className={cn(
-                    "rounded-md px-2 py-1.5 text-[11px] font-semibold transition-colors",
-                    mineOnly ? "bg-inverse text-on-inverse shadow-sm" : "text-muted hover:text-ink",
-                  )}
-                  title={
-                    tab === "pending"
-                      ? "Conversas aguardando nas filas visíveis"
-                      : "Conversas atribuídas a você nesta aba"
-                  }
-                >
-                  Meus
-                  <span className="ml-1 tabular-nums opacity-80">{scopeMineCount}</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setMineOnly(false)}
-                  className={cn(
-                    "rounded-md px-2 py-1.5 text-[11px] font-semibold transition-colors",
-                    !mineOnly ? "bg-brand text-white shadow-sm" : "text-muted hover:text-ink",
-                  )}
-                  title="Todas as conversas visíveis nesta aba"
-                >
-                  Todos
-                  <span className="ml-1 tabular-nums opacity-80">{scopeAllCount}</span>
-                </button>
+            {tab !== "pending" ? (
+              <div>
+                <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted">Atribuição</p>
+                <div className="grid grid-cols-2 gap-1 rounded-lg border border-line bg-wash p-0.5">
+                  <button
+                    type="button"
+                    onClick={() => setMineOnly(true)}
+                    className={cn(
+                      "rounded-md px-2 py-1.5 text-[11px] font-semibold transition-colors",
+                      mineOnly ? "bg-inverse text-on-inverse shadow-sm" : "text-muted hover:text-ink",
+                    )}
+                    title="Conversas atribuídas a você nesta aba"
+                  >
+                    Meus
+                    <span className="ml-1 tabular-nums opacity-80">{scopeMineCount}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setMineOnly(false)}
+                    className={cn(
+                      "rounded-md px-2 py-1.5 text-[11px] font-semibold transition-colors",
+                      !mineOnly ? "bg-brand text-white shadow-sm" : "text-muted hover:text-ink",
+                    )}
+                    title="Todas as conversas visíveis nesta aba"
+                  >
+                    Todos
+                    <span className="ml-1 tabular-nums opacity-80">{scopeAllCount}</span>
+                  </button>
+                </div>
               </div>
-            </div>
+            ) : null}
 
             <div>
               <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted">Fila</p>
@@ -1667,7 +1719,7 @@ export function HelpdeskWorkspace() {
             </div>
           </div>
           <p className="px-3 pb-2 text-[11px] text-muted">
-            {mineOnly ? "Filtro Meus · " : ""}
+            {mineOnly && tab !== "pending" ? "Filtro Meus · " : ""}
             {tab === "closed"
               ? `${closedGroups.length} contato${closedGroups.length === 1 ? "" : "s"}${
                   tickets.length !== closedGroups.length
@@ -1748,6 +1800,19 @@ export function HelpdeskWorkspace() {
               ))
             )}
           </div>
+          <div
+            role="separator"
+            aria-orientation="vertical"
+            aria-label="Redimensionar lista de conversas"
+            title="Arraste para ajustar a largura"
+            className="absolute inset-y-0 right-0 z-10 w-1.5 cursor-col-resize touch-none hover:bg-brand/40 active:bg-brand/50"
+            onPointerDown={(e) => {
+              e.preventDefault();
+              listDragRef.current = { startX: e.clientX, startW: listWidth };
+              document.body.style.cursor = "col-resize";
+              document.body.style.userSelect = "none";
+            }}
+          />
         </aside>
 
         <section className="flex min-h-0 min-w-0 flex-1 basis-0 flex-col overflow-hidden bg-chat">
