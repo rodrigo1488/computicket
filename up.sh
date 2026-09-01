@@ -80,7 +80,7 @@ echo "[1/6] Garantindo postgres e redis..."
 docker compose -f "$COMPOSE_FILE" up -d postgres redis
 echo "      Infra em subida."
 
-# ---- 2) Postgres healthy ----
+# ---- 2) Postgres e Redis healthy ----
 echo "[2/6] Aguardando Postgres healthy..."
 tries=0
 until docker compose -f "$COMPOSE_FILE" exec -T postgres \
@@ -88,11 +88,27 @@ until docker compose -f "$COMPOSE_FILE" exec -T postgres \
   tries=$((tries + 1))
   if [[ $tries -ge 60 ]]; then
     echo "[ERRO] Timeout aguardando Postgres."
+    docker compose -f "$COMPOSE_FILE" logs postgres --tail 80 || true
     exit 1
   fi
   sleep 2
 done
 echo "      Postgres OK."
+
+echo "      Aguardando Redis healthy..."
+tries=0
+until docker compose -f "$COMPOSE_FILE" exec -T redis \
+  redis-cli -h 127.0.0.1 ping 2>/dev/null | grep -q PONG; do
+  tries=$((tries + 1))
+  if [[ $tries -ge 30 ]]; then
+    echo "[ERRO] Timeout aguardando Redis (healthcheck/IPv6 ou processo fora)."
+    docker compose -f "$COMPOSE_FILE" ps redis || true
+    docker compose -f "$COMPOSE_FILE" logs redis --tail 80 || true
+    exit 1
+  fi
+  sleep 2
+done
+echo "      Redis OK."
 
 # ---- 3) Database app ----
 echo "[3/6] Garantindo database \"${APP_DB}\"..."

@@ -21,10 +21,13 @@ services:
       # Nome legado (compose WhatsApp) — preserva dados existentes
       - computicket_whatsapp_redis:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      # Redis 8: redis-cli ping em localhost cai em [::1] e marca unhealthy
+      # mesmo com o servidor no ar (IPv4). Força 127.0.0.1 e valida PONG.
+      test: ["CMD-SHELL", "redis-cli -h 127.0.0.1 ping | grep -q PONG"]
       interval: 5s
-      timeout: 3s
-      retries: 10
+      timeout: 5s
+      retries: 20
+      start_period: 15s
 
   postgres:
     image: pgvector/pgvector:pg16

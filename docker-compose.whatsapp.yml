@@ -12,10 +12,11 @@ services:
     volumes:
       - computicket_whatsapp_redis:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD-SHELL", "redis-cli -h 127.0.0.1 ping | grep -q PONG"]
       interval: 5s
-      timeout: 3s
-      retries: 10
+      timeout: 5s
+      retries: 20
+      start_period: 15s
 
   postgres:
     image: postgres:16.9

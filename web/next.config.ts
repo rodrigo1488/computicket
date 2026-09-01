@@ -13,10 +13,13 @@ const nextConfig: NextConfig = {
         { source: "/orcamentos/publico/:token", destination: `${flaskOrigin}/orcamentos/publico/:token` },
         { source: "/orcamentos/publico/:token/:path*", destination: `${flaskOrigin}/orcamentos/publico/:token/:path*` },
         { source: "/orcamentos/logo", destination: `${flaskOrigin}/orcamentos/logo` },
-        // beforeFiles: `/socket.io/` não pode cair no App Router (308/404 no polling).
+        // beforeFiles: path com `.io` não passa em afterFiles (Next trata como arquivo → 404).
         { source: "/socket.io", destination: `${engineOrigin}/socket.io` },
         { source: "/socket.io/", destination: `${engineOrigin}/socket.io/` },
         { source: "/socket.io/:path*", destination: `${engineOrigin}/socket.io/:path*` },
+        { source: "/flask/socket.io", destination: `${flaskOrigin}/socket.io` },
+        { source: "/flask/socket.io/", destination: `${flaskOrigin}/socket.io/` },
+        { source: "/flask/socket.io/:path*", destination: `${flaskOrigin}/socket.io/:path*` },
       ],
       afterFiles: [
         { source: "/flask/:path*", destination: `${flaskOrigin}/:path*` },

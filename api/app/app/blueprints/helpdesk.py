@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 from urllib.parse import urlparse
 
 import requests
-from flask import Blueprint, Response, jsonify, request
+from flask import Blueprint, Response, current_app, jsonify, request
 from flask_login import current_user, login_required
 from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
@@ -867,6 +867,9 @@ def nav_badge():
     try:
         return jsonify({"count": _helpdesk_nav_badge_count()})
     except EngineError:
+        return jsonify({"count": 0})
+    except Exception:
+        current_app.logger.exception("Falha ao montar badge do Help Desk")
         return jsonify({"count": 0})
 
 
