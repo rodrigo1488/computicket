@@ -176,7 +176,7 @@ function isBrowserUnreachableHost(host: string): boolean {
 /**
  * URL do Socket.IO do engine WhatsApp para o browser.
  * Nunca devolve hostname Docker; em páginas HTTPS força https (WSS) e
- * prefere same-origin (proxy Next `/socket.io` → whatsapp-engine).
+ * prefere same-origin (proxy Next `/engine-sio` → whatsapp-engine).
  */
 export function resolveEngineSocketUrl(engineUrl: string): string {
   if (typeof window === "undefined") return engineUrl;
@@ -227,7 +227,8 @@ export function engineSocketOptions(token: string, extra: Record<string, unknown
   const rest = { ...extra };
   delete rest.sameOrigin;
   return {
-    path: "/socket.io",
+    // Same-origin: path sem `.io` (Next 404 em `/socket.io` como arquivo estático).
+    path: sameOrigin ? "/engine-sio" : "/socket.io",
     addTrailingSlash: false,
     // Rewrite do Next faz polling HTTP; o upgrade para websocket
     // costuma “conectar” sem entregar eventos (só a 1ª mensagem aparece).

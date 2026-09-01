@@ -67,9 +67,13 @@ const processAudioFile = async (audio: string): Promise<string> =>
 export const getMessageOptions = async (
   fileName: string,
   pathMedia: string,
-  body?: string
+  body?: string,
+  mimeHint?: string
 ): Promise<any> => {
-  let mimeType = lookup(pathMedia) || "";
+  let mimeType = (mimeHint || "").split(";")[0].trim();
+  if (!mimeType) {
+    mimeType = lookup(pathMedia) || "";
+  }
   if (!mimeType && fileName) {
     mimeType = lookup(path.extname(fileName)) || "";
   }
@@ -170,7 +174,7 @@ const SendWhatsAppMedia = async ({
     const whatsapp = await ResolveTicketWhatsApp(ticket);
 
     const pathMedia = media.path;
-    const typeMessage = media.mimetype.split("/")[0];
+    const typeMessage = (media.mimetype || "").split("/")[0];
     const bodyMessage = formatBody(body, ticket.contact);
     const chatJid = getChatJid(ticket);
 
@@ -213,7 +217,7 @@ const SendWhatsAppMedia = async ({
       {
         fileName: media.originalname,
         caption: bodyMessage,
-        mimetype: media.mimetype
+        mimetype: media.mimetype || undefined
       }
     );
 

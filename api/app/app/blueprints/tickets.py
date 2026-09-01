@@ -2539,6 +2539,7 @@ def _serialize_ticket_card(ticket: Ticket) -> dict:
 		"solicitante": ticket.solicitante,
 		"assigned_to_id": ticket.assigned_to_id,
 		"assigned_to_name": ticket.assigned_to_user.name if ticket.assigned_to_user else None,
+		"opened_by_id": ticket.opened_by_id,
 		"hours": hours,
 		"hours_label": ticket.formatted_total_hours(),
 		"time_entries_count": len(ticket.time_entries or []),
@@ -2985,49 +2986,61 @@ def _delete_ticket_ps_from_unico(ps_number: str) -> None:
 		conn.close()
 
 
-@bp.route("/api/<int:ticket_id>/cancel", methods=["POST"])
-@login_required
-def api_cancel_closed_ticket(ticket_id: int):
-	if not current_user.has_role("admin"):
-		return jsonify({"error": "Apenas administradores podem cancelar tickets fechados."}), 403
-
-	ticket = Ticket.query.get_or_404(ticket_id)
-	if ticket.status == "cancelado" and not ticket.ps_number:
-		return jsonify({
-			"success": True,
-			"already_cancelled": True,
-			"message": f"Ticket #{ticket_id} já estava cancelado.",
-			"ticket": _serialize_ticket_detail(ticket),
-		})
-	if ticket.status not in ("fechado", "cancelado"):
-		return jsonify({"error": "Apenas tickets fechados podem ser cancelados por esta ação."}), 400
-
-	data = request.get_json(silent=True) or {}
-	reason = (data.get("reason") or "").strip()
-	ps_number = ticket.ps_number
-
-	try:
-		if ps_number:
-			_delete_ticket_ps_from_unico(ps_number)
-
-		cancelled_at = get_brasilia_now()
-		ticket.status = "cancelado"
-		ticket.cancelled_at = brasilia_to_utc(cancelled_at)
-		ticket.cancelled_by_id = current_user.id
-		ticket.cancellation_reason = reason or None
+def _mark_ticket_cancelled(ticket: Ticket, *, reason: str, ps_number: str | None):
+	cancelled_at = get_brasilia_now()
+	ticket.status = "cancelado"
+	ticket.cancelled_at = brasilia_to_utc(cancelled_at)
+	ticket.cancelled_by_id = current_user.id
+	ticket.cancellation_reason = reason or None
+	ticket.in_progress_started_at = None
+	if ps_number:
 		ticket.ps_printed = False
 		ticket.ps_number = None
 		ticket.ps_file = None
 		ticket.ps_registration_status = "cancelled"
 		ticket.ps_registration_updated_at = cancelled_at.replace(tzinfo=None)
 		ticket.ps_job_id = None
+
+
+@bp.route("/api/<int:ticket_id>/cancel", methods=["POST"])
+@login_required
+def api_cancel_ticket(ticket_id: int):
+	ticket = Ticket.query.get_or_404(ticket_id)
+	data = request.get_json(silent=True) or {}
+	reason = (data.get("reason") or "").strip()
+	is_admin = current_user.has_role("admin")
+	is_owner = ticket.assigned_to_id == current_user.id or ticket.opened_by_id == current_user.id
+	is_open = ticket.status not in ("fechado", "cancelado")
+	ps_number = ticket.ps_number
+
+	if ticket.status == "cancelado" and not ps_number:
+		return jsonify({
+			"success": True,
+			"already_cancelled": True,
+			"message": f"Ticket #{ticket_id} já estava cancelado.",
+			"ticket": _serialize_ticket_detail(ticket),
+		})
+
+	if is_open:
+		if not (is_admin or is_owner):
+			return jsonify({"error": "Você não pode cancelar este ticket."}), 403
+		if ps_number and not is_admin:
+			return jsonify({"error": "Apenas administradores podem cancelar um ticket com PS no Unico."}), 403
+	else:
+		if not is_admin:
+			return jsonify({"error": "Apenas administradores podem cancelar tickets fechados."}), 403
+
+	try:
+		if ps_number:
+			_delete_ticket_ps_from_unico(ps_number)
+		_mark_ticket_cancelled(ticket, reason=reason, ps_number=ps_number)
 		db.session.commit()
 	except Exception as exc:
 		db.session.rollback()
-		current_app.logger.exception("Falha ao cancelar ticket fechado #%s", ticket_id)
+		current_app.logger.exception("Falha ao cancelar ticket #%s", ticket_id)
 		return jsonify({
 			"error": f"Não foi possível cancelar o ticket: {exc}",
-			"details": "O ticket local foi preservado. Verifique a conexão com o Unico.",
+			"details": "O ticket local foi preservado. Verifique a conexão com o Unico." if ps_number else None,
 		}), 502
 
 	notify_helpdesk_ticket(

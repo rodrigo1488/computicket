@@ -19,22 +19,37 @@ export function asItems<T>(data: T[] | { items?: T[] } | null | undefined): T[] 
   return data.items || [];
 }
 
-function _httpErrorMessage(status: number, data: unknown): string {
+const _GENERIC_500 = /^internal server error$|^error 500$|^err_internal_server_error$/i;
+
+function _isAiGenerationPath(path: string): boolean {
+  return /\/budgets\/ai\b/.test(path) || /\/helpdesk\/api\/(?:conversations\/[^/]+\/)?ai\b/.test(path);
+}
+
+function _httpErrorMessage(
+  status: number,
+  data: unknown,
+  ctx?: { path?: string; isFormData?: boolean },
+): string {
+  const path = ctx?.path || "";
   const payload = data as { error?: string; message?: string } | null;
   const raw = String(payload?.error || payload?.message || "").trim();
   const looksHtml = !raw || /^\s*</.test(raw);
+  const generic500 = ctx?.isFormData
+    ? "Não foi possível enviar o arquivo. Tente novamente; se persistir, envie um vídeo menor ou em MP4."
+    : _isAiGenerationPath(path)
+      ? "A geração falhou no servidor. Tente novamente; se persistir, descreva menos itens de uma vez."
+      : "Erro interno no servidor. Tente novamente.";
   if (raw && !looksHtml) {
-    if (/^internal server error$/i.test(raw) || /^error 500$/i.test(raw)) {
-      return "A geração falhou no servidor. Tente novamente; se persistir, descreva menos itens de uma vez.";
-    }
+    if (_GENERIC_500.test(raw)) return generic500;
     return raw;
   }
   if (status === 404) return "Recurso não encontrado.";
-  if (status === 500) {
-    return "A geração falhou no servidor. Tente novamente; se persistir, descreva menos itens de uma vez.";
-  }
+  if (status === 500) return generic500;
   if (status === 413) return "Arquivo muito grande. O WhatsApp aceita no máximo 100 MB.";
   if (status === 502 || status === 503 || status === 504) {
+    if (ctx?.isFormData) {
+      return "Não foi possível enviar o arquivo. O WhatsApp pode estar lento; tente um vídeo menor ou em MP4.";
+    }
     return "Serviço temporariamente indisponível. Tente novamente em instantes.";
   }
   return `Erro ${status}`;
@@ -64,7 +79,12 @@ export async function api<T = unknown>(
     }
   }
   if (!res.ok) {
-    throw new Error(_httpErrorMessage(res.status, data));
+    throw new Error(
+      _httpErrorMessage(res.status, data, {
+        path,
+        isFormData: init.body instanceof FormData,
+      }),
+    );
   }
   return data as T;
 }

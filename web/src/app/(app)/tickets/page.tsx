@@ -7,8 +7,8 @@ import { useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
 import { PageTitle } from "@/components/layout/AppShell";
 import { TicketCreateDialog } from "@/components/tickets/TicketCreateDialog";
+import { CancelTicketDialog } from "@/components/tickets/CancelTicketDialog";
 import { DataTable } from "@/components/ui/DataTable";
-import { Modal } from "@/components/ui/Modal";
 import { Pagination } from "@/components/ui/Pagination";
 import { IconAction, RowActions, ViewAction } from "@/components/ui/RowActions";
 import { StatusBadge } from "@/components/ui/StatusBadge";
@@ -283,7 +283,8 @@ function TicketsPageInner() {
                   onClick={() => assume.mutate(t.id)}
                 />
               ) : null}
-              {isAdmin && t.status === "fechado" ? (
+              {(isAdmin && t.status === "fechado") ||
+              (!closed && (isAdmin || mine || t.opened_by_id === uid)) ? (
                 <IconAction
                   label="Cancelar"
                   icon={Ban}
@@ -312,53 +313,17 @@ function TicketsPageInner() {
           qc.invalidateQueries({ queryKey: ["tickets"] });
         }}
       />
-      <Modal
-        open={!!cancelTarget}
-        onClose={() => {
-          if (!cancelTicket.isPending) setCancelTarget(null);
+      <CancelTicketDialog
+        ticket={cancelTarget}
+        reason={cancelReason}
+        pending={cancelTicket.isPending}
+        onReason={setCancelReason}
+        onClose={() => setCancelTarget(null)}
+        onConfirm={() => {
+          if (!cancelTarget) return;
+          cancelTicket.mutate({ id: cancelTarget.id, reason: cancelReason.trim() });
         }}
-        title="Cancelar ticket fechado"
-      >
-        {cancelTarget ? (
-          <div>
-            <div className="rounded-xl bg-open-bg p-4 text-sm text-open">
-              <p className="font-semibold">Ticket #{cancelTarget.id} · {cancelTarget.title}</p>
-              <p className="mt-1">
-                O ticket será marcado como cancelado. Apontamentos e valor serão preservados para auditoria.
-                {cancelTarget.ps_number ? ` A PS ${cancelTarget.ps_number} será removida do Unico.` : ""}
-              </p>
-            </div>
-            <label className="mt-4 block text-sm">
-              <span className="mb-1 block text-[11px] uppercase tracking-wide text-muted">Motivo (opcional)</span>
-              <textarea
-                value={cancelReason}
-                onChange={(event) => setCancelReason(event.target.value)}
-                rows={3}
-                disabled={cancelTicket.isPending}
-                className="w-full rounded-xl border border-line px-3 py-2 text-sm"
-              />
-            </label>
-            <div className="mt-5 flex justify-end gap-3">
-              <button
-                type="button"
-                disabled={cancelTicket.isPending}
-                onClick={() => setCancelTarget(null)}
-                className="rounded-xl border border-line px-4 py-2 text-sm"
-              >
-                Voltar
-              </button>
-              <button
-                type="button"
-                disabled={cancelTicket.isPending}
-                onClick={() => cancelTicket.mutate({ id: cancelTarget.id, reason: cancelReason.trim() })}
-                className="rounded-xl bg-open px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
-              >
-                {cancelTicket.isPending ? "Cancelando…" : "Confirmar cancelamento"}
-              </button>
-            </div>
-          </div>
-        ) : null}
-      </Modal>
+      />
     </div>
   );
 }

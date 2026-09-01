@@ -128,7 +128,7 @@ services:
       COMPUTICKET_PUBLIC_URL: ${COMPUTICKET_PUBLIC_URL:-http://localhost:3000}
       WHATSAPP_ENGINE_URL: http://whatsapp-engine:4000
       # URL do Socket.IO no browser. Vazio = deriva de COMPUTICKET_PUBLIC_URL / Origin
-      # (same-origin; Next faz proxy de /socket.io). Em prod: https://computicket.space
+      # (same-origin; Next faz proxy de /engine-sio). Em prod: https://computicket.space
       # NÃO use http://whatsapp-engine:4000 aqui.
       WHATSAPP_ENGINE_PUBLIC_URL: ${WHATSAPP_ENGINE_PUBLIC_URL:-}
       COMPUTICKET_WHATSAPP_PORT: ${COMPUTICKET_WHATSAPP_PORT:-4000}

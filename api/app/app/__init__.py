@@ -738,10 +738,24 @@ def create_app() -> Flask:
 
 	@app.errorhandler(500)
 	def _json_api_500(error):
-		if request.path.startswith("/api/"):
+		wants_json = (
+			"/api/" in (request.path or "")
+			or request.path.startswith("/helpdesk/")
+			or request.is_json
+			or "application/json" in (request.headers.get("Accept") or "")
+		)
+		if wants_json:
+			is_media = (
+				request.method == "POST"
+				and "/messages" in (request.path or "")
+				and "/ai/" not in (request.path or "")
+			)
 			return jsonify({
-				"success": False,
-				"error": "Erro interno ao processar o pedido. Tente novamente.",
+				"error": (
+					"Não foi possível enviar o arquivo. Tente novamente; se persistir, envie um vídeo menor ou em MP4."
+					if is_media
+					else "Erro interno ao processar o pedido. Tente novamente."
+				),
 			}), 500
 		from werkzeug.exceptions import InternalServerError
 		return InternalServerError().get_response()

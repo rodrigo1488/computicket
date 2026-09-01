@@ -26,10 +26,13 @@ import { logger } from "../../../utils/logger";
  */
 export class OpenAIProvider implements IAIProvider {
   readonly name = "openai";
-  private client: ReturnType<typeof createOpenAIClient>;
+  private _client: ReturnType<typeof createOpenAIClient> | null = null;
 
-  constructor() {
-    this.client = createOpenAIClient();
+  private get client(): ReturnType<typeof createOpenAIClient> {
+    if (!this._client) {
+      this._client = createOpenAIClient();
+    }
+    return this._client;
   }
 
   /**

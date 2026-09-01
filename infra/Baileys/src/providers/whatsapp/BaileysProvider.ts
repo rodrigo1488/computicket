@@ -1,5 +1,7 @@
 import { WAMessage, MiscMessageGenerationOptions } from "baileys";
 import * as Sentry from "@sentry/node";
+import fs from "fs";
+import path from "path";
 import AppError from "../../errors/AppError";
 import GetWhatsappWbot from "../../helpers/GetWhatsappWbot";
 import Whatsapp from "../../models/Whatsapp";
@@ -10,6 +12,7 @@ import {
 } from "./IWhatsAppProvider";
 import { getMessageOptions } from "../../services/WbotServices/SendWhatsAppMedia";
 import { toWhatsAppGroupJid, toWhatsAppPrivateJid } from "../../helpers/chatJid";
+import { logger } from "../../utils/logger";
 
 const isWbotSocketOpen = (wbot: { ws?: unknown }): boolean => {
   const wsSocket = (wbot.ws as { socket?: { readyState?: number | string } })?.socket;
@@ -128,16 +131,34 @@ class BaileysProvider implements IWhatsAppProvider {
         const messageOptions = await getMessageOptions(
           options?.fileName || "",
           mediaPath,
-          options?.caption
+          options?.caption,
+          options?.mimetype
         );
 
         if (!messageOptions) {
-          throw new AppError("ERR_INVALID_MEDIA");
+          throw new AppError(
+            "Este arquivo não pôde ser enviado pelo WhatsApp. Tente um vídeo menor ou em MP4.",
+            400
+          );
         }
 
-        const sentMessage = await wbot.sendMessage(chatId, messageOptions);
-
-        return sentMessage;
+        try {
+          return await wbot.sendMessage(chatId, messageOptions);
+        } catch (sendErr) {
+          if (!messageOptions.video || messageOptions.document) {
+            throw sendErr;
+          }
+          logger.warn({
+            msg: "BaileysProvider: vídeo inline falhou, reenviando como documento",
+            error: sendErr
+          });
+          return await wbot.sendMessage(chatId, {
+            document: { stream: fs.createReadStream(mediaPath) },
+            caption: options?.caption || undefined,
+            fileName: options?.fileName || path.basename(mediaPath),
+            mimetype: messageOptions.mimetype || options?.mimetype || "video/mp4"
+          });
+        }
       });
     } catch (err) {
       Sentry.captureException(err);

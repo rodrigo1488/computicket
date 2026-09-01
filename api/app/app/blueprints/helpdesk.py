@@ -88,10 +88,57 @@ _CONTACT_STRIP_KEYS = frozenset(
 )
 
 
+_ENGINE_ERROR_PT = {
+    "ERR_INTERNAL_SERVER_ERROR": "Erro interno no WhatsApp. Tente novamente.",
+    "ERR_INVALID_MEDIA": "Este arquivo não pôde ser enviado pelo WhatsApp. Tente um vídeo menor ou em MP4.",
+    "ERR_SENDING_WAPP_MSG": "Não foi possível enviar pelo WhatsApp. Tente novamente.",
+    "ERR_SENDING_WAPP_MSG_INCOMPLETE": "Não foi possível enviar pelo WhatsApp. Tente novamente.",
+    "ERR_SENDING_INSTAGRAM_MEDIA": "Não foi possível enviar a mídia pelo Instagram.",
+    "ERR_WAPP_NOT_CONNECTED": "WhatsApp desconectado. Reconecte a sessão e tente de novo.",
+    "ERR_WAPP_NOT_INITIALIZED": "WhatsApp ainda não está pronto. Tente novamente em instantes.",
+    "ERR_WAPP_NOT_FOUND": "Conexão WhatsApp não encontrada.",
+    "ERR_TICKET_CLOSED_CANNOT_SEND": "Esta conversa está encerrada. Reabra para enviar mensagens.",
+    "ERR_TICKET_PENDING_MUST_ACCEPT": "Aceite a conversa antes de enviar mensagens.",
+    "ERR_ACCESS_DENIED_TICKET": "Você não tem permissão para enviar nesta conversa.",
+}
+
+_UNAVAILABLE_PREFIX = "engine whatsapp indisponível:"
+
+
+def _is_helpdesk_media_post() -> bool:
+    path = request.path or ""
+    if request.method != "POST":
+        return False
+    if "/messages" not in path or "/ai/" in path:
+        return False
+    ctype = (request.content_type or "").lower()
+    return "multipart" in ctype or bool(request.files)
+
+
+def _humanize_engine_error(message: str, status: int) -> str:
+    raw = (message or "").strip()
+    code = raw
+    if code.lower().startswith(_UNAVAILABLE_PREFIX):
+        code = code[len(_UNAVAILABLE_PREFIX) :].strip()
+    mapped = _ENGINE_ERROR_PT.get(code) or _ENGINE_ERROR_PT.get(raw)
+    if mapped:
+        return mapped
+    blob = f"{raw} {code}".lower()
+    if "timed out" in blob or "timeout" in blob:
+        if _is_helpdesk_media_post():
+            return "O envio do arquivo demorou demais. Tente um vídeo menor ou em MP4."
+        return "O WhatsApp demorou demais para responder. Tente novamente."
+    return raw or f"Erro do engine ({status})"
+
+
 def _fail(exc: EngineError):
     status = int(exc.status_code or 502)
-    message = (str(exc) or "").strip() or f"Erro do engine ({status})"
-    if status >= 500 and "indispon" not in message.lower():
+    original = (str(exc) or "").strip()
+    message = _humanize_engine_error(original, status)
+    is_timeout = "demorou demais" in message.lower() or "timed out" in original.lower() or "timeout" in original.lower()
+    already_unavail = "indispon" in message.lower()
+    connectivity = (status in (502, 503) and not is_timeout) or original.lower().startswith(_UNAVAILABLE_PREFIX)
+    if connectivity and not is_timeout and not already_unavail:
         message = f"Engine WhatsApp indisponível: {message}"
     return jsonify({"error": message, "details": exc.payload}), status
 
@@ -1089,38 +1136,62 @@ def send_message(ticket_id: int):
             files = []
             for storage in storages:
                 stream = storage.stream
+                size = None
                 if hasattr(stream, "seek") and hasattr(stream, "tell"):
-                    stream.seek(0, os.SEEK_END)
-                    size = stream.tell()
-                    stream.seek(0)
-                    if size > 100 * 1024 * 1024:
-                        return jsonify(
-                            {"error": "Arquivo muito grande. O WhatsApp aceita no máximo 100 MB."}
-                        ), 413
+                    try:
+                        stream.seek(0, os.SEEK_END)
+                        size = stream.tell()
+                        stream.seek(0)
+                    except (OSError, ValueError):
+                        size = None
+                if size is not None and size > 100 * 1024 * 1024:
+                    return jsonify(
+                        {"error": "Arquivo muito grande. O WhatsApp aceita no máximo 100 MB."}
+                    ), 413
+                filename = storage.filename or "arquivo"
                 files.append(
                     (
                         "medias",
                         (
-                            storage.filename,
+                            filename,
                             stream,
-                            storage.mimetype or "application/octet-stream",
+                            storage.mimetype or _media_mime(filename),
                         ),
                     )
                 )
             data = {k: v for k, v in request.form.items()}
             if "body" not in data:
                 data["body"] = request.form.get("message") or ""
-            result = agent_request("POST", f"/messages/{ticket_id}", files=files, data=data, timeout=240)
-            return jsonify(result or {"ok": True})
+            result = agent_request(
+                "POST",
+                f"/messages/{ticket_id}",
+                files=files,
+                data=data,
+                timeout=(30, 240),
+            )
+            if not isinstance(result, (dict, list)):
+                return jsonify({"ok": True})
+            return jsonify(result)
         payload = request.get_json(silent=True) or {}
         body = payload.get("body") or payload.get("message") or ""
         data = {"body": body}
         if payload.get("isInternal") or payload.get("isPrivate"):
             data["isInternal"] = True
         result = agent_request("POST", f"/messages/{ticket_id}", json=data)
-        return jsonify(result or {"ok": True})
+        if not isinstance(result, (dict, list)):
+            return jsonify({"ok": True})
+        return jsonify(result)
     except EngineError as exc:
         return _fail(exc)
+    except Exception:
+        current_app.logger.exception("Falha ao enviar mensagem no Help Desk")
+        if request.files:
+            return jsonify(
+                {
+                    "error": "Não foi possível enviar o arquivo. Tente novamente; se persistir, envie um vídeo menor ou em MP4."
+                }
+            ), 500
+        return jsonify({"error": "Não foi possível enviar a mensagem. Tente novamente."}), 500
 
 
 @helpdesk_bp.route("/api/conversations/<int:ticket_id>/assume", methods=["PUT", "POST"])

@@ -170,6 +170,11 @@ export const getTranscriptionOpenAIClient = (): OpenAIApi => {
   if (isWhisperTranscriptionConfigured()) {
     return createWhisperClient();
   }
+  if (!isAiBackendConfigured()) {
+    throw new Error(
+      "Transcrição indisponível: defina WHISPER_API_BASE_URL (ex.: http://whisper:9000/v1)."
+    );
+  }
   return createOpenAIClient();
 };
 

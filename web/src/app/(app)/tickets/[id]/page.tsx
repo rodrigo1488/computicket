@@ -1,11 +1,12 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check, Clock, Hand, MessageCircle, Plus, Printer, Trash2 } from "lucide-react";
+import { Ban, Check, Clock, Hand, MessageCircle, Plus, Printer, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useState } from "react";
 import { AdditionalServiceDialog } from "@/components/tickets/AdditionalServiceDialog";
+import { CancelTicketDialog } from "@/components/tickets/CancelTicketDialog";
 import { CloseTicketDialog } from "@/components/tickets/CloseTicketDialog";
 import { TimeEntryDialog } from "@/components/tickets/TimeEntryDialog";
 import { StatusBadge } from "@/components/ui/StatusBadge";
@@ -23,6 +24,8 @@ export default function TicketDetailPage() {
   const [addonOpen, setAddonOpen] = useState(false);
   const [entryMode, setEntryMode] = useState<"stop" | "add" | null>(null);
   const [closeOpen, setCloseOpen] = useState(false);
+  const [cancelOpen, setCancelOpen] = useState(false);
+  const [cancelReason, setCancelReason] = useState("");
   const [err, setErr] = useState("");
   const [printing, setPrinting] = useState(false);
 
@@ -45,6 +48,16 @@ export default function TicketDetailPage() {
   const assume = useMutation({
     mutationFn: () => flask.post(`/tickets/api/${id}/assume`),
     onSuccess: invalidate,
+    onError: (e: Error) => setErr(e.message),
+  });
+  const cancelTicket = useMutation({
+    mutationFn: (reason: string) => flask.post<{ message?: string }>(`/tickets/api/${id}/cancel`, { reason }),
+    onSuccess: (result) => {
+      setCancelOpen(false);
+      setCancelReason("");
+      invalidate();
+      if (result.message) window.alert(result.message);
+    },
     onError: (e: Error) => setErr(e.message),
   });
 
@@ -83,8 +96,12 @@ export default function TicketDetailPage() {
   }
 
   const uid = user?.id;
+  const isAdmin = ["admin", "administrador", "administrator"].includes((user?.role || "").toLowerCase());
   const mine = data.assigned_to_id === uid;
+  const openedByMe = data.opened_by_id === uid;
   const openTicket = data.status !== "fechado" && data.status !== "cancelado";
+  const canCancelOpen = openTicket && (isAdmin || mine || openedByMe);
+  const canCancelClosed = isAdmin && data.status === "fechado";
   const entries = data.time_entries || [];
   const canClose = openTicket && entries.length > 0;
   const canPrint =
@@ -152,6 +169,20 @@ export default function TicketDetailPage() {
             >
               <Check className="h-4 w-4" />
               Fechar
+            </button>
+          ) : null}
+          {canCancelOpen || canCancelClosed ? (
+            <button
+              type="button"
+              onClick={() => {
+                setErr("");
+                setCancelReason("");
+                setCancelOpen(true);
+              }}
+              className="inline-flex items-center gap-2 rounded-xl border border-open/30 bg-open-bg px-4 py-2.5 text-sm font-medium text-open"
+            >
+              <Ban className="h-4 w-4" />
+              Cancelar
             </button>
           ) : null}
           {canPrint ? (
@@ -360,6 +391,14 @@ export default function TicketDetailPage() {
         onSaved={invalidate}
       />
       <CloseTicketDialog open={closeOpen} onClose={() => setCloseOpen(false)} ticket={data} onClosed={invalidate} />
+      <CancelTicketDialog
+        ticket={cancelOpen ? data : null}
+        reason={cancelReason}
+        pending={cancelTicket.isPending}
+        onReason={setCancelReason}
+        onClose={() => setCancelOpen(false)}
+        onConfirm={() => cancelTicket.mutate(cancelReason.trim())}
+      />
     </div>
   );
 }

@@ -61,6 +61,7 @@ export type TicketCard = {
   solicitante?: string | null;
   assigned_to_id?: number | null;
   assigned_to_name?: string | null;
+  opened_by_id?: number | null;
   hours?: number;
   hours_label?: string;
   time_entries_count?: number;

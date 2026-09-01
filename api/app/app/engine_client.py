@@ -196,7 +196,7 @@ def _request(
     params: Optional[dict] = None,
     files: Any = None,
     data: Any = None,
-    timeout: int = 30,
+    timeout: float | tuple[float, float] = 30,
 ) -> Any:
     url = urljoin(engine_url() + "/", path.lstrip("/"))
     headers = {"Authorization": f"Bearer {token}"}
@@ -213,15 +213,26 @@ def _request(
             data=data,
             timeout=timeout,
         )
+    except requests.Timeout as exc:
+        if files is not None:
+            raise EngineError(
+                "O envio do arquivo demorou demais. Tente um vídeo menor ou em MP4.",
+                504,
+            ) from exc
+        raise EngineError("O WhatsApp demorou demais para responder. Tente novamente.", 504) from exc
     except requests.RequestException as exc:
         raise EngineError(f"Engine WhatsApp indisponível: {exc}", 503) from exc
 
     if res.status_code == 401:
         raise EngineError("Sessão do engine expirada", 401)
     if res.status_code >= 400:
-        payload = res.json() if _is_json(res) else {"error": res.text[:500]}
+        try:
+            parsed = res.json() if _is_json(res) else {"error": (res.text or "")[:500]}
+        except ValueError:
+            parsed = {"error": (res.text or "")[:500] or f"Erro do engine ({res.status_code})"}
+        payload = parsed if isinstance(parsed, dict) else {"error": str(parsed)[:500]}
         message = payload.get("error") or payload.get("message") or f"Erro do engine ({res.status_code})"
-        raise EngineError(message, res.status_code, payload)
+        raise EngineError(str(message), res.status_code, payload)
     if res.status_code == 204 or not res.content:
         return None
     if _is_json(res):

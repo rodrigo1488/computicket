@@ -150,11 +150,25 @@ export const store = async (req: Request, res: Response): Promise<Response> => {
 
   // Mensagem normal - enviar via WhatsApp
   if (medias) {
-    await Promise.all(
-      medias.map(async (media: Express.Multer.File, index) => {
-        await SendWhatsAppMedia({ media, ticket, body: Array.isArray(body) ? body[index] : body });
-      })
-    );
+    try {
+      await Promise.all(
+        medias.map(async (media: Express.Multer.File, index) => {
+          await SendWhatsAppMedia({ media, ticket, body: Array.isArray(body) ? body[index] : body });
+        })
+      );
+    } catch (error: any) {
+      if (error instanceof AppError) throw error;
+      logger.error({
+        msg: "MessageController.store: Erro ao enviar mídia via WhatsApp",
+        ticketId: ticket.id,
+        companyId,
+        error: error?.message || error
+      });
+      throw new AppError(
+        "Não foi possível enviar o arquivo pelo WhatsApp. Tente um vídeo menor ou em MP4.",
+        400
+      );
+    }
   } else {
     // Enfileirar envio para responder rápido ao frontend (otimização de UX).
     // O frontend já exibe a mensagem via atualização otimista; o job persiste e emite socket ao concluir.
