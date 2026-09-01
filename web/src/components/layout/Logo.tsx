@@ -14,7 +14,7 @@ export function Logo({ collapsed }: { collapsed: boolean }) {
           alt="Computicket"
           width={80}
           height={67}
-          className="mx-auto h-10 w-10 object-contain"
+          className="mx-auto h-10 w-10 object-contain dark:brightness-0 dark:invert"
           priority
         />
       ) : (
@@ -23,7 +23,7 @@ export function Logo({ collapsed }: { collapsed: boolean }) {
           alt="Computicket — Ticket Management System"
           width={500}
           height={120}
-          className="h-auto w-full max-w-[174px] object-contain object-left"
+          className="h-auto w-full max-w-[174px] object-contain object-left dark:brightness-0 dark:invert"
           priority
         />
       )}

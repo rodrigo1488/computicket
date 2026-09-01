@@ -132,7 +132,7 @@ export function CloseTicketDialog({
       {!preview && !error ? <p className="text-sm text-muted">Carregando resumo…</p> : null}
       {preview && !closed ? (
         <div className="space-y-5">
-          <div className="grid gap-3 rounded-2xl border border-[#eee] p-4 text-sm md:grid-cols-2">
+          <div className="grid gap-3 rounded-2xl border border-line p-4 text-sm md:grid-cols-2">
             <p>
               <span className="text-muted">Cliente</span>
               <br />
@@ -156,7 +156,7 @@ export function CloseTicketDialog({
           </div>
 
           {preview.no_charge ? (
-            <div className="rounded-xl bg-[#fff6e5] p-3 text-sm">
+            <div className="rounded-xl bg-warn-bg p-3 text-sm">
               <p className="font-medium text-ink">Sem cobrança</p>
               <p className="mt-1 text-muted">
                 {preview.charge_reason || "Cliente com isenção de contrato."} O total será {formatBRL(0)}.
@@ -170,7 +170,7 @@ export function CloseTicketDialog({
               </button>
             </div>
           ) : (
-            <div className="rounded-xl bg-[#f6f8fb] p-3 text-sm">
+            <div className="rounded-xl bg-wash p-3 text-sm">
               <p>
                 {formatHours(preview.hours)} × {formatBRL(preview.hourly_rate)} ={" "}
                 <strong>{formatBRL(preview.computed_total)}</strong>

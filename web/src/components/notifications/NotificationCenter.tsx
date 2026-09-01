@@ -68,7 +68,7 @@ function iconFor(type: string) {
 
 function notificationTone(type: string) {
   if (type === "message") return "bg-progress-bg text-progress";
-  if (type === "appointment") return "bg-[#fff3e0] text-[#e67e22]";
+  if (type === "appointment") return "bg-open-bg text-warn-fg";
   if (type === "ticket") return "bg-open-bg text-open";
   return "bg-line text-navy";
 }
@@ -253,7 +253,7 @@ export function NotificationCenter() {
   return (
     <div className="pointer-events-none fixed bottom-5 right-5 z-[100] flex w-[min(390px,calc(100vw-2.5rem))] flex-col gap-3">
       {canEnable ? (
-        <div className="pointer-events-auto rounded-2xl border border-line bg-white p-4 shadow-xl">
+        <div className="pointer-events-auto rounded-2xl border border-line bg-surface p-4 shadow-xl">
           <div className="flex items-start gap-3">
             <span className="rounded-xl bg-progress-bg p-2 text-progress"><Bell size={18} /></span>
             <div className="min-w-0 flex-1">
@@ -276,7 +276,7 @@ export function NotificationCenter() {
         return (
           <div
             key={item.id}
-            className="pointer-events-auto relative overflow-hidden rounded-2xl border border-line bg-white shadow-xl"
+            className="pointer-events-auto relative overflow-hidden rounded-2xl border border-line bg-surface shadow-xl"
             role="status"
           >
             <button

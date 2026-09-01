@@ -139,7 +139,7 @@ export default function RemoteMonitoringPage() {
           <button
             type="button"
             onClick={() => setCreating(true)}
-            className="inline-flex h-10 items-center gap-2 rounded-xl bg-ink px-4 text-sm font-medium text-white"
+            className="inline-flex h-10 items-center gap-2 rounded-xl bg-inverse px-4 text-sm font-medium text-on-inverse"
           >
             <Plus className="h-4 w-4" />
             Novo agente
@@ -155,12 +155,12 @@ export default function RemoteMonitoringPage() {
           value={q}
           onChange={(e) => setQ(e.target.value)}
           placeholder="Buscar por agente, cliente ou dispositivo…"
-          className="h-10 min-w-[220px] flex-1 rounded-lg border border-[#e5e7eb] bg-white px-3 text-sm text-ink"
+          className="h-10 min-w-[220px] flex-1 rounded-lg border border-line bg-surface px-3 text-sm text-ink"
         />
         <select
           value={status}
           onChange={(e) => setStatus(e.target.value)}
-          className="h-10 rounded-lg border border-[#e5e7eb] bg-white px-3 text-sm text-ink"
+          className="h-10 rounded-lg border border-line bg-surface px-3 text-sm text-ink"
         >
           {statusOptions.map((option) => (
             <option key={option.value} value={option.value}>
@@ -173,7 +173,7 @@ export default function RemoteMonitoringPage() {
       {agents.isLoading ? <p className="text-sm text-muted">Carregando agentes…</p> : null}
 
       {!agents.isLoading && !groups.length ? (
-        <p className="rounded-2xl border border-dashed border-[#e5e7eb] px-5 py-10 text-center text-sm text-muted">
+        <p className="rounded-2xl border border-dashed border-line px-5 py-10 text-center text-sm text-muted">
           Nenhum agente encontrado
         </p>
       ) : null}
@@ -189,8 +189,8 @@ export default function RemoteMonitoringPage() {
           const canCollapse = limit > PREVIEW_COUNT;
 
           return (
-            <section key={group.key} className="overflow-hidden rounded-2xl border border-[#eee] bg-white">
-              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#f0f0f0] px-5 py-4">
+            <section key={group.key} className="overflow-hidden rounded-2xl border border-line bg-surface">
+              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-5 py-4">
                 <div>
                   <h2 className="text-base font-semibold text-navy">{group.clientName}</h2>
                   <p className="mt-0.5 text-sm text-muted">
@@ -273,7 +273,7 @@ export default function RemoteMonitoringPage() {
               </ul>
 
               {canExpand || canCollapse ? (
-                <div className="flex flex-wrap items-center justify-between gap-2 border-t border-[#f0f0f0] px-5 py-3">
+                <div className="flex flex-wrap items-center justify-between gap-2 border-t border-line px-5 py-3">
                   {canCollapse ? (
                     <button
                       type="button"
@@ -316,7 +316,7 @@ function StatusBadge({ agent }: { agent: RemoteAgent }) {
         ? "bg-progress-bg text-progress"
         : label === "Revogado"
           ? "bg-open-bg text-open"
-          : "bg-[#f3f4f6] text-muted";
+          : "bg-wash text-muted";
   return (
     <span className={cn("inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium", tone)}>
       <span className="h-1.5 w-1.5 rounded-full bg-current" />
@@ -426,7 +426,7 @@ function CreateAgentModal({ open, onClose }: { open: boolean; onClose: () => voi
           <button
             type="button"
             onClick={download}
-            className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-xl bg-ink text-sm font-medium text-white"
+            className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-xl bg-inverse text-sm font-medium text-on-inverse"
           >
             <Download className="h-4 w-4" /> Baixar executável
           </button>
@@ -459,7 +459,7 @@ function CreateAgentModal({ open, onClose }: { open: boolean; onClose: () => voi
                 setClient(null);
               }}
               placeholder="Buscar cliente…"
-              className="mt-1 w-full border-0 border-b border-[#d7d7d7] bg-transparent py-2 text-[15px] text-ink"
+              className="mt-1 w-full border-0 border-b border-line bg-transparent py-2 text-[15px] text-ink"
               autoComplete="off"
             />
             {client ? (
@@ -474,7 +474,7 @@ function CreateAgentModal({ open, onClose }: { open: boolean; onClose: () => voi
                       setClient(item);
                       setClientQuery(item.name);
                     }}
-                    className="block w-full border-b border-line px-3 py-2 text-left text-sm last:border-0 hover:bg-[#f7f7f8]"
+                    className="block w-full border-b border-line px-3 py-2 text-left text-sm last:border-0 hover:bg-wash"
                   >
                     {item.name}
                   </button>

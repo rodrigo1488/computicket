@@ -363,7 +363,7 @@ export function DataTable({
                 onChange={(e) => setDraft(e.target.value)}
                 placeholder={searchPlaceholder}
                 disabled={loading || refreshing}
-                className="h-10 min-w-[220px] max-w-md flex-1 rounded-lg border border-[#e5e7eb] bg-white px-3 text-sm text-ink placeholder:text-[#9ca3af]"
+                className="h-10 min-w-[220px] max-w-md flex-1 rounded-lg border border-line bg-surface px-3 text-sm text-ink placeholder:text-muted"
               />
               <button
                 type="submit"
@@ -384,9 +384,9 @@ export function DataTable({
                   cur?.kind === "cols" ? null : { kind: "cols", el: e.currentTarget },
                 )
               }
-              className="inline-flex h-10 items-center gap-2 rounded-lg border border-[#e5e7eb] bg-white px-3 text-sm text-ink hover:bg-[#fafafa] disabled:cursor-wait disabled:opacity-60"
+              className="inline-flex h-10 items-center gap-2 rounded-lg border border-line bg-surface px-3 text-sm text-ink hover:bg-wash disabled:cursor-wait disabled:opacity-60"
             >
-              <Columns3 className="h-4 w-4 text-[#6b7280]" />
+              <Columns3 className="h-4 w-4 text-muted" />
               Personalizar Colunas
               <ChevronDown className="h-4 w-4 text-muted" />
             </button>
@@ -413,7 +413,7 @@ export function DataTable({
                 key={`${i}-${c || "acoes"}`}
                 className={cn(
                   "flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm",
-                  locked ? "cursor-default text-muted" : "cursor-pointer hover:bg-[#f5f5f5]",
+                  locked ? "cursor-default text-muted" : "cursor-pointer hover:bg-wash",
                 )}
               >
                 <input
@@ -470,10 +470,10 @@ export function DataTable({
         />
       ) : null}
 
-      <div className="relative overflow-x-auto rounded-2xl border border-[#eee]">
+      <div className="relative overflow-x-auto rounded-2xl border border-line">
         <table className="w-full text-left text-sm" aria-busy={loading || refreshing}>
           <thead>
-            <tr className="border-b border-[#eee] bg-[#f7f7f8] text-ink">
+            <tr className="border-b border-line bg-wash text-ink">
               {selectable ? (
                 <th className="w-10 px-3 py-2.5">
                   <input
@@ -520,8 +520,8 @@ export function DataTable({
                           disabled={loading || refreshing}
                           onClick={() => toggleSort(i)}
                           className={cn(
-                            "rounded p-0.5 hover:bg-[#ececec]",
-                            activeSort ? "text-brand" : "text-[#9ca3af]",
+                            "rounded p-0.5 hover:bg-line",
+                            activeSort ? "text-brand" : "text-muted",
                           )}
                           aria-label={`Ordenar por ${name}`}
                         >
@@ -542,8 +542,8 @@ export function DataTable({
                               setOpen({ kind: "filter", col: i, el: e.currentTarget });
                             }}
                             className={cn(
-                              "rounded p-0.5 hover:bg-[#ececec]",
-                              activeFilter ? "text-brand" : "text-[#9ca3af]",
+                              "rounded p-0.5 hover:bg-line",
+                              activeFilter ? "text-brand" : "text-muted",
                             )}
                             aria-label={`Filtrar ${name}`}
                           >
@@ -574,7 +574,7 @@ export function DataTable({
               </tr>
             ) : (
               processed.map(({ row, index }) => (
-                <tr key={index} className="border-t border-[#f1f1f1] hover:bg-[#fafafa]">
+                <tr key={index} className="border-t border-line hover:bg-wash">
                   {selectable ? (
                     <td className="px-3 py-3">
                       <input
@@ -650,7 +650,7 @@ function FilterValueSelect({
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Buscar valor…"
-          className="mb-2 w-full rounded-lg border border-[#e5e7eb] bg-white px-2 py-2 text-sm placeholder:text-[#9ca3af]"
+          className="mb-2 w-full rounded-lg border border-line bg-surface px-2 py-2 text-sm placeholder:text-muted"
         />
       ) : null}
       <select
@@ -660,7 +660,7 @@ function FilterValueSelect({
           const v = raw.startsWith("__custom__:") ? raw.slice("__custom__:".length) : raw;
           onChange(v);
         }}
-        className="w-full rounded-lg border border-[#e5e7eb] bg-white px-2 py-2 text-sm"
+        className="w-full rounded-lg border border-line bg-surface px-2 py-2 text-sm"
       >
         <option value="">Todos</option>
         {!known && value ? <option value={`__custom__:${value}`}>{value}</option> : null}
@@ -719,7 +719,7 @@ function FilterPopover({
           <select
             value={draft.op}
             onChange={(e) => setDraft({ ...draft, op: e.target.value as ColumnFilterOp })}
-            className="mb-2 w-full rounded-lg border border-[#e5e7eb] bg-white px-2 py-2 text-sm"
+            className="mb-2 w-full rounded-lg border border-line bg-surface px-2 py-2 text-sm"
           >
             <option value="contains">Contém</option>
             <option value="equals">Igual a</option>
@@ -739,13 +739,13 @@ function FilterPopover({
                 if (e.key === "Enter") onApply();
               }}
               placeholder="Valor…"
-              className="mb-3 w-full rounded-lg border border-[#e5e7eb] px-2 py-2 text-sm"
+              className="mb-3 w-full rounded-lg border border-line px-2 py-2 text-sm"
             />
           )}
         </>
       )}
       <div className="flex justify-end gap-2">
-        <button type="button" onClick={onClear} className="rounded-lg px-3 py-1.5 text-sm text-muted hover:bg-[#f5f5f5]">
+        <button type="button" onClick={onClear} className="rounded-lg px-3 py-1.5 text-sm text-muted hover:bg-wash">
           Limpar
         </button>
         <button
@@ -763,7 +763,7 @@ function FilterPopover({
 export const FilterableTable = DataTable;
 
 const KPI_TONE: Record<KpiTone, { box: string; value: string; bar?: string }> = {
-  default: { box: "border-[#eee] bg-white", value: "text-navy" },
+  default: { box: "border-line bg-surface", value: "text-navy" },
   open: { box: "border-open/15 bg-open-bg", value: "text-open", bar: "bg-open" },
   progress: { box: "border-progress/15 bg-progress-bg", value: "text-progress", bar: "bg-progress" },
   done: { box: "border-done/15 bg-done-bg", value: "text-done", bar: "bg-done" },

@@ -142,7 +142,7 @@ export function NovaVendaAvulsaDialog({
               required
               value={clientId}
               onChange={(e) => setClientId(e.target.value)}
-              className="mt-1 w-full border-0 border-b border-[#d7d7d7] bg-transparent py-2 text-[15px]"
+              className="mt-1 w-full border-0 border-b border-line bg-transparent py-2 text-[15px]"
             >
               <option value="">{clients.isLoading ? "Carregando clientes…" : "Selecione um cliente…"}</option>
               {(clients.data?.clients || []).map((c) => (
@@ -158,7 +158,7 @@ export function NovaVendaAvulsaDialog({
               required
               value={sellerId}
               onChange={(e) => setSellerId(e.target.value)}
-              className="mt-1 w-full border-0 border-b border-[#d7d7d7] bg-transparent py-2 text-[15px]"
+              className="mt-1 w-full border-0 border-b border-line bg-transparent py-2 text-[15px]"
             >
               <option value="">{sellers.isLoading ? "Carregando vendedores…" : "Selecione um vendedor…"}</option>
               {(sellers.data?.users || []).map((s) => (
@@ -170,7 +170,7 @@ export function NovaVendaAvulsaDialog({
           </label>
         </div>
 
-        <div className="space-y-3 rounded-xl border border-[#ececec] p-4">
+        <div className="space-y-3 rounded-xl border border-line p-4">
           <p className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted">Adicionar produto</p>
           <UnderlineField
             label="Nome do produto"
@@ -203,9 +203,9 @@ export function NovaVendaAvulsaDialog({
         </div>
 
         {items.length ? (
-          <div className="overflow-hidden rounded-xl border border-[#ececec]">
+          <div className="overflow-hidden rounded-xl border border-line">
             <table className="w-full text-sm">
-              <thead className="bg-[#f7f7f8] text-left text-[11px] uppercase tracking-wide text-muted">
+              <thead className="bg-wash text-left text-[11px] uppercase tracking-wide text-muted">
                 <tr>
                   <th className="px-3 py-2 font-medium">Produto</th>
                   <th className="px-3 py-2 text-center font-medium">Qtd</th>
@@ -216,7 +216,7 @@ export function NovaVendaAvulsaDialog({
               </thead>
               <tbody>
                 {items.map((item, idx) => (
-                  <tr key={item.id} className="border-t border-[#ececec]">
+                  <tr key={item.id} className="border-t border-line">
                     <td className="px-3 py-2">{item.product_name}</td>
                     <td className="px-3 py-2 text-center">{item.quantity}</td>
                     <td className="px-3 py-2 text-right">{formatBRL(item.unit_price)}</td>
@@ -238,7 +238,7 @@ export function NovaVendaAvulsaDialog({
           </div>
         ) : null}
 
-        <div className="flex items-center justify-between rounded-xl bg-[#fff7ed] px-4 py-3 text-sm">
+        <div className="flex items-center justify-between rounded-xl bg-warn-bg px-4 py-3 text-sm">
           <span className="text-muted">Valor total a lançar</span>
           <strong className="text-ink">{formatBRL(total)}</strong>
         </div>

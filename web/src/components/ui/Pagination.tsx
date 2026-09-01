@@ -50,7 +50,7 @@ export function Pagination({
           type="button"
           disabled={current <= 1}
           onClick={() => onPage(current - 1)}
-          className="inline-flex h-8 items-center gap-1 rounded-lg border border-[#eee] px-2.5 text-sm text-ink disabled:opacity-40"
+          className="inline-flex h-8 items-center gap-1 rounded-lg border border-line px-2.5 text-sm text-ink disabled:opacity-40"
           aria-label="Página anterior"
         >
           <ChevronLeft className="h-4 w-4" />
@@ -75,7 +75,7 @@ export function Pagination({
           type="button"
           disabled={current >= pages}
           onClick={() => onPage(current + 1)}
-          className="inline-flex h-8 items-center gap-1 rounded-lg border border-[#eee] px-2.5 text-sm text-ink disabled:opacity-40"
+          className="inline-flex h-8 items-center gap-1 rounded-lg border border-line px-2.5 text-sm text-ink disabled:opacity-40"
           aria-label="Próxima página"
         >
           Próxima
@@ -93,7 +93,7 @@ function PageNum({ n, current, onPage }: { n: number; current: number; onPage: (
       onClick={() => onPage(n)}
       className={cn(
         "inline-flex h-8 min-w-8 items-center justify-center rounded-lg px-2 text-sm",
-        n === current ? "bg-ink text-white" : "text-muted hover:bg-[#f5f5f5]",
+        n === current ? "bg-inverse text-on-inverse" : "text-muted hover:bg-wash",
       )}
     >
       {n}

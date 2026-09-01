@@ -98,7 +98,7 @@ export default function ClientesPage() {
         <button
           type="button"
           onClick={openCreate}
-          className="inline-flex h-10 items-center gap-2 rounded-xl bg-ink px-4 text-sm font-medium text-white"
+          className="inline-flex h-10 items-center gap-2 rounded-xl bg-inverse px-4 text-sm font-medium text-on-inverse"
         >
           <Plus className="h-4 w-4" />
           Novo cliente

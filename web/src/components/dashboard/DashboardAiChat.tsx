@@ -78,7 +78,7 @@ function Sources({ sources }: { sources: HelpdeskAiSource[] }) {
                   : `Artigo #${source.source_id || index + 1}`;
           const label = source.title || source.name || typeLabel;
           const chip = (
-            <span className="inline-flex max-w-full truncate rounded-md border border-[#dbe4f3] bg-white px-2 py-0.5 text-[11px] text-navy">
+            <span className="inline-flex max-w-full truncate rounded-md border border-[#dbe4f3] bg-surface px-2 py-0.5 text-[11px] text-navy">
               {label}
             </span>
           );
@@ -187,7 +187,7 @@ export function DashboardAiChat() {
         type="button"
         onClick={() => setOpen(true)}
         className={cn(
-          "fixed bottom-6 right-6 z-40 flex items-center gap-2 rounded-full bg-navy px-4 py-3 text-sm font-semibold text-white shadow-lg transition hover:bg-[#1c2f52]",
+          "fixed bottom-6 right-6 z-40 flex items-center gap-2 rounded-full bg-inverse px-4 py-3 text-sm font-semibold text-on-inverse shadow-lg transition hover:bg-[#1c2f52]",
           open && "pointer-events-none opacity-0",
         )}
         aria-label="Abrir assistente de IA"
@@ -199,7 +199,7 @@ export function DashboardAiChat() {
       {open ? (
         <div className="fixed inset-0 z-50 flex justify-end bg-black/25" onClick={() => setOpen(false)}>
           <aside
-            className="flex h-full w-full max-w-md flex-col border-l border-line bg-white shadow-2xl"
+            className="flex h-full w-full max-w-md flex-col border-l border-line bg-surface shadow-2xl"
             onClick={(e) => e.stopPropagation()}
             role="dialog"
             aria-label="Assistente IA Computicket"
@@ -239,7 +239,7 @@ export function DashboardAiChat() {
             <div ref={listRef} className="flex-1 space-y-3 overflow-y-auto bg-[#f7f8fb] px-4 py-4">
               {!messages.length && !pending ? (
                 <div className="flex h-full flex-col items-center justify-center px-2 text-center">
-                  <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-white shadow-sm">
+                  <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-surface shadow-sm">
                     <MessageCircle className="h-6 w-6 text-brand" />
                   </div>
                   <p className="text-sm font-semibold text-navy">Como posso ajudar?</p>
@@ -252,7 +252,7 @@ export function DashboardAiChat() {
                         key={item}
                         type="button"
                         onClick={() => void send(item)}
-                        className="rounded-xl border border-[#e2e8f0] bg-white px-3 py-2 text-left text-xs text-ink shadow-sm hover:border-brand/40"
+                        className="rounded-xl border border-[#e2e8f0] bg-surface px-3 py-2 text-left text-xs text-ink shadow-sm hover:border-brand/40"
                       >
                         {item}
                       </button>
@@ -270,10 +270,10 @@ export function DashboardAiChat() {
                         className={cn(
                           "max-w-[92%] rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed shadow-sm",
                           msg.role === "user"
-                            ? "bg-navy text-white"
+                            ? "bg-inverse text-on-inverse"
                             : msg.error
                               ? "border border-open/30 bg-open-bg text-open"
-                              : "border border-[#e5ebf5] bg-white text-ink",
+                              : "border border-[#e5ebf5] bg-surface text-ink",
                         )}
                       >
                         <p className="whitespace-pre-wrap">{msg.content}</p>
@@ -285,7 +285,7 @@ export function DashboardAiChat() {
                   ))}
                   {pending ? (
                     <div className="flex justify-start">
-                      <div className="inline-flex items-center gap-2 rounded-2xl border border-[#e5ebf5] bg-white px-3.5 py-2.5 text-xs text-muted shadow-sm">
+                      <div className="inline-flex items-center gap-2 rounded-2xl border border-[#e5ebf5] bg-surface px-3.5 py-2.5 text-xs text-muted shadow-sm">
                         <LoaderCircle className="h-3.5 w-3.5 animate-spin text-brand" />
                         Consultando a base de conhecimento…
                       </div>
@@ -295,7 +295,7 @@ export function DashboardAiChat() {
               )}
             </div>
 
-            <footer className="border-t border-line bg-white p-3">
+            <footer className="border-t border-line bg-surface p-3">
               <form
                 className="flex items-end gap-2"
                 onSubmit={(e) => {

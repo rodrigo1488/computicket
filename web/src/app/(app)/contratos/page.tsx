@@ -133,7 +133,7 @@ export default function ContratosPage() {
         {clientsQuery.isLoading ? <p className="text-sm text-muted">Carregando…</p> : null}
         <ul className="space-y-2">
           {(clientsQuery.data?.clients || []).map((cl) => (
-            <li key={cl.id} className="rounded-xl border border-[#eee] px-4 py-3 text-sm">
+            <li key={cl.id} className="rounded-xl border border-line px-4 py-3 text-sm">
               <p className="font-medium text-ink">{cl.name}</p>
               <p className="text-xs text-muted">{[cl.document, cl.phone].filter(Boolean).join(" · ") || "—"}</p>
             </li>

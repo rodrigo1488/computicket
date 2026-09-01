@@ -1,7 +1,7 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { FileDown, Link2, Plus } from "lucide-react";
+import { FileDown, Link2, Plus, Sparkles } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { PageTitle } from "@/components/layout/AppShell";
@@ -60,14 +60,24 @@ export default function OrcamentosPage() {
           <PageTitle className="mb-1">Orçamentos</PageTitle>
           <p className="text-sm text-muted">Gerencie orçamentos e propostas comerciais</p>
         </div>
-        <button
-          type="button"
-          onClick={() => router.push("/orcamentos/novo")}
-          className="inline-flex h-10 items-center gap-2 rounded-xl bg-ink px-4 text-sm font-medium text-white"
-        >
-          <Plus className="h-4 w-4" />
-          Novo orçamento
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => router.push("/orcamentos/novo?ia=1")}
+            className="inline-flex h-10 items-center gap-2 rounded-xl border border-line px-4 text-sm font-medium text-ink hover:bg-wash"
+          >
+            <Sparkles className="h-4 w-4" />
+            Gerar com IA
+          </button>
+          <button
+            type="button"
+            onClick={() => router.push("/orcamentos/novo")}
+            className="inline-flex h-10 items-center gap-2 rounded-xl bg-inverse px-4 text-sm font-medium text-on-inverse"
+          >
+            <Plus className="h-4 w-4" />
+            Novo orçamento
+          </button>
+        </div>
       </div>
       <DataTable
         id="orcamentos"

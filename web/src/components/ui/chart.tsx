@@ -51,7 +51,7 @@ function ChartTooltipContent({
 }) {
   if (!active || !payload?.length) return null;
   return (
-    <div className="min-w-36 rounded-xl border border-line bg-white px-3 py-2.5 text-xs shadow-xl">
+    <div className="min-w-36 rounded-xl border border-line bg-surface px-3 py-2.5 text-xs shadow-xl">
       <p className="mb-2 font-medium text-navy">{labelFormatter ? labelFormatter(label ?? "") : label}</p>
       <div className="grid gap-1.5">
         {payload.map((item) => {

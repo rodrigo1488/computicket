@@ -57,7 +57,7 @@ export default function ServiceRatingPage({ params }: { params: Promise<{ token:
 
   return (
     <main className="flex h-full min-h-0 items-start justify-center overflow-y-auto bg-[#f5f7fb] px-4 py-10">
-      <section className="w-full max-w-lg rounded-3xl bg-white p-7 shadow-[0_20px_70px_rgba(15,23,42,0.12)] sm:p-10">
+      <section className="w-full max-w-lg rounded-3xl bg-surface p-7 shadow-[0_20px_70px_rgba(15,23,42,0.12)] sm:p-10">
         <div className="mb-8 flex items-center gap-3">
           <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-brand text-lg font-bold text-white">
             C

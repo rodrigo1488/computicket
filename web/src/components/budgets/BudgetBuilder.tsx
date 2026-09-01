@@ -1,9 +1,10 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { FileDown, GripVertical, Link2, Plus, Trash2, Unlink, X } from "lucide-react";
+import { FileDown, GripVertical, Link2, Plus, Sparkles, Trash2, Unlink, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
+import { BudgetAiDialog, type BudgetAiDraft } from "@/components/budgets/BudgetAiDialog";
 import { PrimaryButton, UnderlineField } from "@/components/ui/UnderlineField";
 import { flask } from "@/lib/api";
 import {
@@ -145,6 +146,7 @@ export function BudgetBuilder({ budget }: { budget?: BudgetDetail | null }) {
   const [shareMsg, setShareMsg] = useState("");
   const [busyFile, setBusyFile] = useState("");
   const [error, setError] = useState("");
+  const [aiOpen, setAiOpen] = useState(false);
 
   const meta = useQuery({
     queryKey: ["budget-meta"],
@@ -169,6 +171,12 @@ export function BudgetBuilder({ budget }: { budget?: BudgetDetail | null }) {
   useEffect(() => {
     setToken(budget?.public_token || "");
   }, [budget?.public_token]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("ia") === "1") setAiOpen(true);
+  }, []);
 
   useEffect(() => {
     if (!themeId && meta.data?.themes?.length) {
@@ -305,6 +313,38 @@ export function BudgetBuilder({ budget }: { budget?: BudgetDetail | null }) {
     }
   }
 
+  function applyAiDraft(draft: BudgetAiDraft) {
+    const existingMeaningful = items.some(
+      (it) => it.description.trim() || Number(it.unit_price.replace(",", ".")) > 0,
+    );
+    if (existingMeaningful && !window.confirm("Substituir os itens atuais pelos gerados pela IA?")) {
+      return false;
+    }
+    if (draft.title) {
+      if (!title.trim()) {
+        setTitle(draft.title);
+      } else if (title.trim() !== draft.title && window.confirm("Substituir o título atual pelo sugerido pela IA?")) {
+        setTitle(draft.title);
+      }
+    }
+    setDescription(stripHtml(draft.description) || "");
+    setPaymentTerms(stripHtml(draft.payment_terms) || "");
+    setInternalNotes(stripHtml(draft.internal_notes) || "");
+    const nextItems = (draft.items || []).map((it) => ({
+      ...emptyItem((it.item_type as BudgetItemForm["item_type"]) || "manual"),
+      product_id: it.product_id,
+      service_id: it.service_id,
+      codigo: it.codigo || "",
+      description: stripHtml(it.description) || it.description || "",
+      quantity: String(it.quantity ?? 1),
+      unit_price: String(it.unit_price ?? 0),
+      unit_of_measure: it.unit_of_measure || "",
+      observations: stripHtml(it.observations) || it.observations || "",
+    }));
+    setItems(nextItems.length ? nextItems : [emptyItem()]);
+    return true;
+  }
+
   async function revokeLink() {
     if (!budget?.id) return;
     setBusyFile("revoke");
@@ -323,8 +363,18 @@ export function BudgetBuilder({ budget }: { budget?: BudgetDetail | null }) {
   return (
     <div className="grid gap-6 lg:grid-cols-3">
       <div className="space-y-6 lg:col-span-2">
-        <section className="rounded-2xl border border-[#eee] p-6">
-          <h2 className="mb-4 text-lg font-semibold text-navy">Dados do orçamento</h2>
+        <section className="rounded-2xl border border-line p-6">
+          <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+            <h2 className="text-lg font-semibold text-navy">Dados do orçamento</h2>
+            <button
+              type="button"
+              onClick={() => setAiOpen(true)}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-inverse px-3 py-1.5 text-sm text-on-inverse"
+            >
+              <Sparkles className="h-3.5 w-3.5" />
+              Gerar com IA
+            </button>
+          </div>
           <div className="space-y-4">
             <UnderlineField label="Título" value={title} onChange={setTitle} placeholder="Ex: Infraestrutura de rede" />
             <div>
@@ -342,13 +392,13 @@ export function BudgetBuilder({ budget }: { budget?: BudgetDetail | null }) {
                     value={clientSearch}
                     onChange={(e) => setClientSearch(e.target.value)}
                     placeholder="Digite para buscar o cliente…"
-                    className="w-full border-0 border-b border-[#d7d7d7] bg-transparent py-2 text-[15px]"
+                    className="w-full border-0 border-b border-line bg-transparent py-2 text-[15px]"
                   />
                   {clients.isError ? (
                     <p className="mt-2 text-sm text-open">{(clients.error as Error).message}</p>
                   ) : null}
                   {clientSearch.trim() ? (
-                    <div className="absolute z-10 mt-1 max-h-48 w-full overflow-auto rounded-xl border border-[#eee] bg-white shadow-lg">
+                    <div className="absolute z-10 mt-1 max-h-48 w-full overflow-auto rounded-xl border border-line bg-surface shadow-lg">
                       {clients.isLoading ? (
                         <p className="px-3 py-2 text-sm text-muted">Carregando clientes…</p>
                       ) : clientOpts.length === 0 ? (
@@ -362,7 +412,7 @@ export function BudgetBuilder({ budget }: { budget?: BudgetDetail | null }) {
                               setClient(c);
                               setClientSearch("");
                             }}
-                            className="block w-full px-3 py-2 text-left text-sm hover:bg-[#fafafa]"
+                            className="block w-full px-3 py-2 text-left text-sm hover:bg-wash"
                           >
                             {c.name}
                             <span className="ml-2 text-xs text-muted">{c.type === "external" ? "Externo" : "Interno"}</span>
@@ -381,7 +431,7 @@ export function BudgetBuilder({ budget }: { budget?: BudgetDetail | null }) {
                   type="date"
                   value={validUntil}
                   onChange={(e) => setValidUntil(e.target.value)}
-                  className="mt-1 w-full border-0 border-b border-[#d7d7d7] bg-transparent py-2 text-[15px]"
+                  className="mt-1 w-full border-0 border-b border-line bg-transparent py-2 text-[15px]"
                 />
               </label>
               <label className="block">
@@ -389,7 +439,7 @@ export function BudgetBuilder({ budget }: { budget?: BudgetDetail | null }) {
                 <select
                   value={status}
                   onChange={(e) => setStatus(e.target.value)}
-                  className="mt-1 w-full border-0 border-b border-[#d7d7d7] bg-transparent py-2 text-[15px]"
+                  className="mt-1 w-full border-0 border-b border-line bg-transparent py-2 text-[15px]"
                 >
                   <option value="draft">Rascunho</option>
                   <option value="sent">Enviado</option>
@@ -404,34 +454,42 @@ export function BudgetBuilder({ budget }: { budget?: BudgetDetail | null }) {
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
                 rows={4}
-                className="mt-1 w-full border-0 border-b border-[#d7d7d7] bg-transparent py-2 text-[15px]"
+                className="mt-1 w-full border-0 border-b border-line bg-transparent py-2 text-[15px]"
               />
             </label>
           </div>
         </section>
 
-        <section className="rounded-2xl border border-[#eee] p-6">
+        <section className="rounded-2xl border border-line p-6">
           <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
             <h2 className="text-lg font-semibold text-navy">Itens</h2>
             <div className="flex flex-wrap gap-2">
               <button
                 type="button"
+                onClick={() => setAiOpen(true)}
+                className="inline-flex items-center gap-1 rounded-lg border border-line px-3 py-1.5 text-sm"
+              >
+                <Sparkles className="h-3.5 w-3.5" />
+                IA
+              </button>
+              <button
+                type="button"
                 onClick={() => setServiceOpen(true)}
-                className="rounded-lg border border-[#e5e7eb] px-3 py-1.5 text-sm"
+                className="rounded-lg border border-line px-3 py-1.5 text-sm"
               >
                 Serviço
               </button>
               <button
                 type="button"
                 onClick={() => setItems((prev) => [...prev, emptyItem("product")])}
-                className="rounded-lg border border-[#e5e7eb] px-3 py-1.5 text-sm"
+                className="rounded-lg border border-line px-3 py-1.5 text-sm"
               >
                 Produto
               </button>
               <button
                 type="button"
                 onClick={() => setItems((prev) => [...prev, emptyItem("manual")])}
-                className="inline-flex items-center gap-1 rounded-lg bg-ink px-3 py-1.5 text-sm text-white"
+                className="inline-flex items-center gap-1 rounded-lg bg-inverse px-3 py-1.5 text-sm text-on-inverse"
               >
                 <Plus className="h-3.5 w-3.5" />
                 Item manual
@@ -458,7 +516,7 @@ export function BudgetBuilder({ budget }: { budget?: BudgetDetail | null }) {
                 }}
                 className={cn(
                   "rounded-xl border p-4",
-                  overIdx === idx && dragFrom !== null && dragFrom !== idx ? "border-brand bg-brand/5" : "border-[#eee]",
+                  overIdx === idx && dragFrom !== null && dragFrom !== idx ? "border-brand bg-brand/5" : "border-line",
                 )}
               >
                 <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
@@ -479,7 +537,7 @@ export function BudgetBuilder({ budget }: { budget?: BudgetDetail | null }) {
                     >
                       <GripVertical className="h-5 w-5" />
                     </span>
-                    <span className="rounded-full bg-[#f3f4f6] px-2 py-0.5 text-xs font-medium text-ink">
+                    <span className="rounded-full bg-wash px-2 py-0.5 text-xs font-medium text-ink">
                       {TYPE_LABEL[it.item_type] || "Item"}
                     </span>
                     <button
@@ -491,7 +549,7 @@ export function BudgetBuilder({ budget }: { budget?: BudgetDetail | null }) {
                       }
                       className={cn(
                         "rounded-full px-3 py-1 text-xs font-medium",
-                        it.is_recurring ? "bg-brand text-white" : "bg-[#f3f4f6] text-muted hover:text-ink",
+                        it.is_recurring ? "bg-brand text-white" : "bg-wash text-muted hover:text-ink",
                       )}
                     >
                       Recorrente
@@ -508,7 +566,7 @@ export function BudgetBuilder({ budget }: { budget?: BudgetDetail | null }) {
                             ),
                           )
                         }
-                        className="rounded-lg border border-[#e5e7eb] px-2 py-1 text-xs"
+                        className="rounded-lg border border-line px-2 py-1 text-xs"
                       >
                         <option value="monthly">Mensal</option>
                         <option value="quarterly">Trimestral</option>
@@ -536,7 +594,7 @@ export function BudgetBuilder({ budget }: { budget?: BudgetDetail | null }) {
                       : "Descrição do item"
                   }
                   rows={2}
-                  className="mb-3 w-full rounded-lg border border-[#e5e7eb] px-3 py-2 text-sm"
+                  className="mb-3 w-full rounded-lg border border-line px-3 py-2 text-sm"
                 />
                 <div className="grid gap-3 sm:grid-cols-3">
                   <label className="text-xs text-muted">
@@ -549,7 +607,7 @@ export function BudgetBuilder({ budget }: { budget?: BudgetDetail | null }) {
                       onChange={(e) =>
                         setItems((prev) => prev.map((row, i) => (i === idx ? { ...row, quantity: e.target.value } : row)))
                       }
-                      className="mt-1 w-full border-b border-[#d7d7d7] py-1 text-sm text-ink"
+                      className="mt-1 w-full border-b border-line py-1 text-sm text-ink"
                     />
                   </label>
                   <label className="text-xs text-muted">
@@ -562,7 +620,7 @@ export function BudgetBuilder({ budget }: { budget?: BudgetDetail | null }) {
                       onChange={(e) =>
                         setItems((prev) => prev.map((row, i) => (i === idx ? { ...row, unit_price: e.target.value } : row)))
                       }
-                      className="mt-1 w-full border-b border-[#d7d7d7] py-1 text-sm text-ink"
+                      className="mt-1 w-full border-b border-line py-1 text-sm text-ink"
                     />
                   </label>
                   <div className="flex items-end justify-between text-sm font-medium text-navy">
@@ -575,7 +633,7 @@ export function BudgetBuilder({ budget }: { budget?: BudgetDetail | null }) {
                     setItems((prev) => prev.map((row, i) => (i === idx ? { ...row, observations: e.target.value } : row)))
                   }
                   placeholder="Observações (visível ao cliente)"
-                  className="mt-3 w-full border-0 border-b border-[#d7d7d7] py-1 text-sm"
+                  className="mt-3 w-full border-0 border-b border-line py-1 text-sm"
                 />
               </div>
             ))}
@@ -599,48 +657,48 @@ export function BudgetBuilder({ budget }: { budget?: BudgetDetail | null }) {
                 step="0.01"
                 value={discount}
                 onChange={(e) => setDiscount(e.target.value)}
-                className="w-28 border-b border-[#d7d7d7] py-1 text-right"
+                className="w-28 border-b border-line py-1 text-right"
               />
             </label>
-            <div className="flex justify-between border-t border-[#eee] pt-2 font-semibold text-navy">
+            <div className="flex justify-between border-t border-line pt-2 font-semibold text-navy">
               <span>TOTAL (único)</span>
               <span>{formatBRL(totals.total)}</span>
             </div>
           </div>
         </section>
 
-        <section className="rounded-2xl border border-[#eee] p-6">
+        <section className="rounded-2xl border border-line p-6">
           <h2 className="mb-3 text-lg font-semibold text-navy">Condições e observações</h2>
           <p className="mb-2 text-xs text-muted">Visível ao cliente no PDF e no link público.</p>
           <textarea
             value={paymentTerms}
             onChange={(e) => setPaymentTerms(e.target.value)}
             rows={4}
-            className="w-full rounded-lg border border-[#e5e7eb] px-3 py-2 text-sm"
+            className="w-full rounded-lg border border-line px-3 py-2 text-sm"
           />
         </section>
 
-        <section className="rounded-2xl border border-[#eee] p-6">
+        <section className="rounded-2xl border border-line p-6">
           <h2 className="mb-1 text-lg font-semibold text-navy">Observações internas</h2>
           <p className="mb-3 text-xs text-muted">Uso exclusivo da empresa — não aparece para o cliente.</p>
           <textarea
             value={internalNotes}
             onChange={(e) => setInternalNotes(e.target.value)}
             rows={3}
-            className="w-full rounded-lg border border-[#e5e7eb] px-3 py-2 text-sm"
+            className="w-full rounded-lg border border-line px-3 py-2 text-sm"
           />
         </section>
       </div>
 
       <div className="space-y-6">
-        <section className="rounded-2xl border border-[#eee] p-6">
+        <section className="rounded-2xl border border-line p-6">
           <h2 className="mb-4 text-lg font-semibold text-navy">Aparência</h2>
           <label className="block">
             <span className="text-[11px] font-medium tracking-[0.08em] text-muted uppercase">Tema de cores</span>
             <select
               value={themeId}
               onChange={(e) => setThemeId(e.target.value)}
-              className="mt-1 w-full border-0 border-b border-[#d7d7d7] bg-transparent py-2 text-[15px]"
+              className="mt-1 w-full border-0 border-b border-line bg-transparent py-2 text-[15px]"
             >
               <option value="">Padrão</option>
               {(meta.data?.themes || []).map((t) => (
@@ -655,7 +713,7 @@ export function BudgetBuilder({ budget }: { budget?: BudgetDetail | null }) {
             Exibir logo no PDF
           </label>
         </section>
-        <section className="rounded-2xl border border-[#eee] p-6">
+        <section className="rounded-2xl border border-line p-6">
           <h2 className="mb-3 text-lg font-semibold text-navy">Resumo</h2>
           <p className="text-sm text-muted">Cliente: {client?.name || "Sem cliente"}</p>
           <p className="mt-1 text-2xl font-semibold text-navy">{formatBRL(totals.total)}</p>
@@ -670,7 +728,7 @@ export function BudgetBuilder({ budget }: { budget?: BudgetDetail | null }) {
                 type="button"
                 onClick={() => void exportPdf()}
                 disabled={!!busyFile}
-                className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-[#eee] py-2.5 text-sm font-medium hover:bg-[#f5f5f5] disabled:opacity-50"
+                className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-line py-2.5 text-sm font-medium hover:bg-wash disabled:opacity-50"
               >
                 <FileDown className="h-4 w-4" />
                 {busyFile === "pdf" ? "Gerando PDF…" : "Exportar PDF"}
@@ -679,7 +737,7 @@ export function BudgetBuilder({ budget }: { budget?: BudgetDetail | null }) {
                 type="button"
                 onClick={() => void shareLink()}
                 disabled={!!busyFile}
-                className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-[#eee] py-2.5 text-sm font-medium hover:bg-[#f5f5f5] disabled:opacity-50"
+                className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-line py-2.5 text-sm font-medium hover:bg-wash disabled:opacity-50"
               >
                 <Link2 className="h-4 w-4" />
                 {busyFile === "share" ? "Gerando…" : token ? "Copiar link público" : "Gerar link público"}
@@ -714,9 +772,9 @@ export function BudgetBuilder({ budget }: { budget?: BudgetDetail | null }) {
 
       {serviceOpen ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4" onClick={() => setServiceOpen(false)}>
-          <div className="max-h-[80vh] w-full max-w-lg overflow-y-auto rounded-2xl bg-white p-5" onClick={(e) => e.stopPropagation()}>
+          <div className="max-h-[80vh] w-full max-w-lg overflow-y-auto rounded-2xl bg-surface p-5" onClick={(e) => e.stopPropagation()}>
             <h3 className="mb-3 text-lg font-semibold">Adicionar serviço</h3>
-            <div className="mb-4 rounded-xl border border-[#eee] p-3">
+            <div className="mb-4 rounded-xl border border-line p-3">
               <p className="mb-2 text-sm font-medium text-navy">Serviço personalizado</p>
               <p className="mb-3 text-xs text-muted">Descreva um serviço que não está cadastrado.</p>
               <textarea
@@ -724,7 +782,7 @@ export function BudgetBuilder({ budget }: { budget?: BudgetDetail | null }) {
                 onChange={(e) => setCustomService((s) => ({ ...s, description: e.target.value }))}
                 placeholder="Ex: Instalação de câmeras, configuração de firewall…"
                 rows={2}
-                className="mb-2 w-full rounded-lg border border-[#e5e7eb] px-3 py-2 text-sm"
+                className="mb-2 w-full rounded-lg border border-line px-3 py-2 text-sm"
               />
               <div className="flex items-end gap-3">
                 <label className="flex-1 text-xs text-muted">
@@ -735,14 +793,14 @@ export function BudgetBuilder({ budget }: { budget?: BudgetDetail | null }) {
                     step="0.01"
                     value={customService.unit_price}
                     onChange={(e) => setCustomService((s) => ({ ...s, unit_price: e.target.value }))}
-                    className="mt-1 w-full border-b border-[#d7d7d7] py-1 text-sm text-ink"
+                    className="mt-1 w-full border-b border-line py-1 text-sm text-ink"
                   />
                 </label>
                 <button
                   type="button"
                   onClick={addCustomService}
                   disabled={!customService.description.trim()}
-                  className="rounded-lg bg-ink px-3 py-2 text-sm text-white disabled:opacity-40"
+                  className="rounded-lg bg-inverse px-3 py-2 text-sm text-on-inverse disabled:opacity-40"
                 >
                   Incluir
                 </button>
@@ -752,7 +810,7 @@ export function BudgetBuilder({ budget }: { budget?: BudgetDetail | null }) {
               value={serviceQ}
               onChange={(e) => setServiceQ(e.target.value)}
               placeholder="Buscar serviço cadastrado…"
-              className="mb-3 w-full rounded-lg border border-[#e5e7eb] px-3 py-2 text-sm"
+              className="mb-3 w-full rounded-lg border border-line px-3 py-2 text-sm"
             />
             {filteredServices.map((s) => (
               <button
@@ -770,7 +828,7 @@ export function BudgetBuilder({ budget }: { budget?: BudgetDetail | null }) {
                   ]);
                   setServiceOpen(false);
                 }}
-                className="mb-2 flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm hover:bg-[#f5f5f5]"
+                className="mb-2 flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm hover:bg-wash"
               >
                 <span>{s.name}</span>
                 <span className="text-muted">{formatBRL(s.hourly_rate)}</span>
@@ -780,6 +838,13 @@ export function BudgetBuilder({ budget }: { budget?: BudgetDetail | null }) {
           </div>
         </div>
       ) : null}
+
+      <BudgetAiDialog
+        open={aiOpen}
+        onClose={() => setAiOpen(false)}
+        clientName={client?.name}
+        onApply={applyAiDraft}
+      />
     </div>
   );
 }

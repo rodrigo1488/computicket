@@ -112,11 +112,11 @@ export function UniplusSettings() {
         </p>
       </div>
 
-      <div className="flex flex-wrap items-center gap-3 rounded-xl border border-[#eee] px-4 py-3">
+      <div className="flex flex-wrap items-center gap-3 rounded-xl border border-line px-4 py-3">
         <span
           className={cn(
             "rounded-full px-2.5 py-0.5 text-xs font-semibold",
-            connected ? "bg-done-bg text-done" : "bg-[#f3f4f6] text-muted",
+            connected ? "bg-done-bg text-done" : "bg-wash text-muted",
           )}
         >
           {connected ? `${data?.connected_agents} agente(s) online` : "Nenhum agente conectado"}
@@ -155,7 +155,7 @@ export function UniplusSettings() {
           save.mutate();
         }}
       >
-        <label className="flex cursor-pointer items-center justify-between gap-4 rounded-xl border border-[#eee] px-4 py-3">
+        <label className="flex cursor-pointer items-center justify-between gap-4 rounded-xl border border-line px-4 py-3">
           <div>
             <p className="text-sm font-semibold text-ink">Agente habilitado</p>
             <p className="mt-0.5 text-xs text-muted">
@@ -199,7 +199,7 @@ export function UniplusSettings() {
           </button>
         </div>
 
-        <div className="space-y-4 border-t border-[#eee] pt-6">
+        <div className="space-y-4 border-t border-line pt-6">
           <div>
             <p className="text-sm font-semibold text-ink">Postgres Unico (API)</p>
             <p className="mt-0.5 text-xs text-muted">

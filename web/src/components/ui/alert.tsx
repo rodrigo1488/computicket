@@ -6,7 +6,7 @@ function Alert({ className, ...props }: React.ComponentProps<"div">) {
     <div
       role="alert"
       data-slot="alert"
-      className={cn("relative grid grid-cols-[auto_1fr] items-start gap-x-3 rounded-xl border border-line bg-white p-4", className)}
+      className={cn("relative grid grid-cols-[auto_1fr] items-start gap-x-3 rounded-xl border border-line bg-surface p-4", className)}
       {...props}
     />
   );

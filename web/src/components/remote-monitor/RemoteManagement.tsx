@@ -277,7 +277,7 @@ export function RemoteManagement({ agent }: { agent: RemoteAgent }) {
         {actionError ? <InlineAlert>{actionError}</InlineAlert> : null}
       </section>
 
-      <section className="mt-8 rounded-2xl border border-line bg-white" aria-labelledby="files-title">
+      <section className="mt-8 rounded-2xl border border-line bg-surface" aria-labelledby="files-title">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line p-4 sm:p-5">
           <div>
             <h2 id="files-title" className="text-lg font-semibold text-navy">Arquivos</h2>
@@ -335,7 +335,7 @@ export function RemoteManagement({ agent }: { agent: RemoteAgent }) {
 
         <div className="relative overflow-x-auto">
           <table className="w-full min-w-[720px] text-left text-sm" aria-busy={filesBusy}>
-            <thead className="bg-[#f7f7f8] text-xs uppercase tracking-wide text-muted">
+            <thead className="bg-wash text-xs uppercase tracking-wide text-muted">
               <tr>
                 <th className="px-4 py-3 sm:px-5">Nome</th>
                 <th className="px-3 py-3">Tipo</th>
@@ -349,7 +349,7 @@ export function RemoteManagement({ agent }: { agent: RemoteAgent }) {
               {directory?.entries.map((entry) => (
                 <tr
                   key={entry.path}
-                  className={cn("cursor-pointer border-t border-line hover:bg-[#fafafa]", selected?.path === entry.path && "bg-progress-bg")}
+                  className={cn("cursor-pointer border-t border-line hover:bg-wash", selected?.path === entry.path && "bg-progress-bg")}
                   tabIndex={0}
                   aria-selected={selected?.path === entry.path}
                   onClick={() => setSelected(entry)}
@@ -423,7 +423,7 @@ export function RemoteManagement({ agent }: { agent: RemoteAgent }) {
             </>
           ) : (
             <>
-              {selected ? <p className="mb-4 break-all rounded-xl bg-[#f7f7f8] p-3 text-xs text-muted">Origem: {selected.path}</p> : null}
+              {selected ? <p className="mb-4 break-all rounded-xl bg-wash p-3 text-xs text-muted">Origem: {selected.path}</p> : null}
               <UnderlineField
                 label={operation === "mkdir" ? "Nome da pasta" : operation === "rename" ? "Novo nome" : "Caminho completo de destino"}
                 value={operationValue}
@@ -450,9 +450,9 @@ function CommandHistory({ commands, loading, error }: { commands: RemoteCommand[
         <History className="h-5 w-5 text-brand" />
         <h2 id="commands-title" className="text-lg font-semibold text-navy">Histórico de comandos</h2>
       </div>
-      <div className="relative overflow-x-auto rounded-2xl border border-line bg-white">
+      <div className="relative overflow-x-auto rounded-2xl border border-line bg-surface">
         <table className="w-full min-w-[760px] text-left text-sm" aria-busy={loading}>
-          <thead className="bg-[#f7f7f8] text-xs uppercase tracking-wide text-muted">
+          <thead className="bg-wash text-xs uppercase tracking-wide text-muted">
             <tr><th className="px-4 py-3">Tipo</th><th className="px-3 py-3">Solicitante</th><th className="px-3 py-3">Status</th><th className="px-3 py-3">Solicitado</th><th className="px-3 py-3">Finalizado / erro</th></tr>
           </thead>
           <tbody>
@@ -487,7 +487,7 @@ function ActionButton({ icon, children, danger, disabled, onClick }: { icon: Rea
 function buttonClasses(disabled?: boolean, danger?: boolean) {
   return cn(
     "inline-flex h-9 cursor-pointer items-center gap-2 rounded-xl border px-3 text-sm font-medium",
-    danger ? "border-open/20 text-open hover:bg-open-bg" : "border-line text-ink hover:bg-[#f7f7f8]",
+    danger ? "border-open/20 text-open hover:bg-open-bg" : "border-line text-ink hover:bg-wash",
     disabled && "pointer-events-none cursor-not-allowed opacity-50",
   );
 }

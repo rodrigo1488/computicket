@@ -12,6 +12,7 @@ import { useAuth } from "@/lib/auth-context";
 import { UserAvatar } from "@/components/ui/UserAvatar";
 import { ProfileDialog } from "@/components/profile/ProfileDialog";
 import { Logo } from "@/components/layout/Logo";
+import { ThemeQuickToggle, ThemeToggle } from "@/components/layout/ThemeToggle";
 
 const SIDEBAR_KEY = "computicket.sidebar";
 const STALE_POLL_MS = 90_000;
@@ -108,16 +109,19 @@ export function AppSidebar() {
         )}
       >
         {!collapsed && <Logo collapsed={collapsed} />}
-        <button
-          type="button"
-          onClick={toggleCollapsed}
-          title={collapsed ? "Expandir menu" : "Recolher menu"}
-          aria-label={collapsed ? "Expandir menu" : "Recolher menu"}
-          aria-expanded={!collapsed}
-          className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-muted transition-colors hover:bg-sidebar-hover hover:text-navy"
-        >
-          {collapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
-        </button>
+        <div className={cn("flex shrink-0 items-center", collapsed ? "flex-col gap-1" : "gap-1")}>
+          <ThemeQuickToggle />
+          <button
+            type="button"
+            onClick={toggleCollapsed}
+            title={collapsed ? "Expandir menu" : "Recolher menu"}
+            aria-label={collapsed ? "Expandir menu" : "Recolher menu"}
+            aria-expanded={!collapsed}
+            className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-muted transition-colors hover:bg-sidebar-hover hover:text-navy"
+          >
+            {collapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
+          </button>
+        </div>
         {collapsed && <Logo collapsed={collapsed} />}
       </div>
       <nav className={cn("no-scrollbar flex-1 space-y-1 overflow-y-auto py-3", collapsed ? "px-2" : "px-3")}>
@@ -167,7 +171,7 @@ export function AppSidebar() {
         {menuOpen ? (
           <div
             className={cn(
-              "absolute z-20 overflow-hidden rounded-xl border border-line bg-white py-2 shadow-[0_1px_2px_rgba(15,23,42,0.04)]",
+              "absolute z-20 overflow-hidden rounded-xl border border-line bg-surface py-2 shadow-[0_1px_2px_rgba(15,23,42,0.04)]",
               collapsed ? "fixed bottom-4 left-[80px] z-50 w-52" : "bottom-[76px] left-4 right-4",
             )}
           >
@@ -183,6 +187,7 @@ export function AppSidebar() {
               <UserRound className="h-4 w-4 text-brand" />
               Perfil
             </button>
+            <ThemeToggle />
             <button
               type="button"
               onClick={logout}

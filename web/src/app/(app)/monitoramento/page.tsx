@@ -153,7 +153,7 @@ export default function MonitoramentoPage() {
               key={`${t.user_id}-st`}
               className={cn(
                 "inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium",
-                t.is_online ? "bg-done-bg text-done" : "bg-[#f3f4f6] text-muted",
+                t.is_online ? "bg-done-bg text-done" : "bg-wash text-muted",
               )}
             >
               <span className={cn("h-1.5 w-1.5 rounded-full", t.is_online ? "bg-done" : "bg-muted")} />

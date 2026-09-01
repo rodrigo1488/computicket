@@ -108,7 +108,7 @@ export default function TicketDetailPage() {
             <button
               type="button"
               onClick={() => start.mutate()}
-              className="inline-flex items-center gap-2 rounded-xl bg-navy px-4 py-2.5 text-sm font-medium text-white"
+              className="inline-flex items-center gap-2 rounded-xl bg-inverse px-4 py-2.5 text-sm font-medium text-on-inverse"
             >
               <Clock className="h-4 w-4" />
               Iniciar
@@ -118,7 +118,7 @@ export default function TicketDetailPage() {
             <button
               type="button"
               onClick={() => assume.mutate()}
-              className="inline-flex items-center gap-2 rounded-xl border border-[#e5e5e5] bg-white px-4 py-2.5 text-sm font-medium text-ink"
+              className="inline-flex items-center gap-2 rounded-xl border border-line bg-surface px-4 py-2.5 text-sm font-medium text-ink"
             >
               <Hand className="h-4 w-4" />
               Assumir
@@ -128,7 +128,7 @@ export default function TicketDetailPage() {
             <button
               type="button"
               onClick={() => setEntryMode("stop")}
-              className="inline-flex items-center gap-2 rounded-xl border border-[#e5e5e5] bg-white px-4 py-2.5 text-sm font-medium text-ink"
+              className="inline-flex items-center gap-2 rounded-xl border border-line bg-surface px-4 py-2.5 text-sm font-medium text-ink"
             >
               Encerrar sessão
             </button>
@@ -137,7 +137,7 @@ export default function TicketDetailPage() {
             <button
               type="button"
               onClick={() => setEntryMode("add")}
-              className="inline-flex items-center gap-2 rounded-xl border border-[#e5e5e5] bg-white px-4 py-2.5 text-sm font-medium text-ink"
+              className="inline-flex items-center gap-2 rounded-xl border border-line bg-surface px-4 py-2.5 text-sm font-medium text-ink"
             >
               Incluir apontamento
             </button>
@@ -148,7 +148,7 @@ export default function TicketDetailPage() {
               disabled={!canClose}
               title={!canClose ? "Adicione ao menos um apontamento antes de fechar" : undefined}
               onClick={() => canClose && setCloseOpen(true)}
-              className="inline-flex items-center gap-2 rounded-xl border border-[#e5e5e5] bg-white px-4 py-2.5 text-sm font-medium text-ink disabled:cursor-not-allowed disabled:opacity-40"
+              className="inline-flex items-center gap-2 rounded-xl border border-line bg-surface px-4 py-2.5 text-sm font-medium text-ink disabled:cursor-not-allowed disabled:opacity-40"
             >
               <Check className="h-4 w-4" />
               Fechar
@@ -159,7 +159,7 @@ export default function TicketDetailPage() {
               type="button"
               disabled={printing}
               onClick={() => void printPs()}
-              className="inline-flex items-center gap-2 rounded-xl bg-ink px-4 py-2.5 text-sm font-medium text-white"
+              className="inline-flex items-center gap-2 rounded-xl bg-inverse px-4 py-2.5 text-sm font-medium text-on-inverse"
             >
               <Printer className="h-4 w-4" />
               {printing ? "Gerando PS…" : "Imprimir PS"}
@@ -171,7 +171,7 @@ export default function TicketDetailPage() {
       {data.helpdesk_conversation?.engine_ticket_id ? (
         <Link
           href={data.helpdesk_conversation.href || `/helpdesk?c=${data.helpdesk_conversation.engine_ticket_id}`}
-          className="mb-4 flex items-center gap-3 rounded-2xl border border-[#dbeafe] bg-[#eef5ff] px-4 py-3 text-sm text-ink hover:bg-[#e4efff]"
+          className="mb-4 flex items-center gap-3 rounded-2xl border border-progress/30 bg-progress-bg px-4 py-3 text-sm text-ink hover:bg-progress-bg"
         >
           <MessageCircle className="h-4 w-4 shrink-0 text-brand" />
           <span className="min-w-0">
@@ -191,7 +191,7 @@ export default function TicketDetailPage() {
 
       <div className="grid gap-6 lg:grid-cols-[1.4fr_0.9fr]">
         <div className="space-y-6">
-          <section className="rounded-2xl border border-[#eee] p-6">
+          <section className="rounded-2xl border border-line p-6">
             <div className="flex items-center justify-between">
               <span className="text-muted">{data.code}</span>
               <StatusBadge status={data.status} />
@@ -217,20 +217,20 @@ export default function TicketDetailPage() {
               <span>{data.client_name}</span>
             </div>
             {data.no_charge ? (
-              <p className="mt-4 rounded-xl bg-[#fff6e5] px-3 py-2 text-sm">
+              <p className="mt-4 rounded-xl bg-warn-bg px-3 py-2 text-sm">
                 {data.charge_reason || "Cliente com isenção de contrato — sem cobrança no fechamento."}
               </p>
             ) : null}
           </section>
 
-          <section className="rounded-2xl border border-[#eee] p-6">
+          <section className="rounded-2xl border border-line p-6">
             <div className="mb-4 flex items-center justify-between">
               <h3 className="text-lg font-semibold">Apontamentos</h3>
               {openTicket ? (
                 <button
                   type="button"
                   onClick={() => setEntryMode("add")}
-                  className="flex h-8 w-8 items-center justify-center rounded-lg bg-ink text-white"
+                  className="flex h-8 w-8 items-center justify-center rounded-lg bg-inverse text-on-inverse"
                   aria-label="Incluir apontamento"
                 >
                   <Plus className="h-4 w-4" />
@@ -259,14 +259,14 @@ export default function TicketDetailPage() {
             </ul>
           </section>
 
-          <section className="rounded-2xl border border-[#eee] p-6">
+          <section className="rounded-2xl border border-line p-6">
             <div className="mb-4 flex items-center justify-between">
               <h3 className="text-lg font-semibold">Serviços adicionais</h3>
               {openTicket ? (
                 <button
                   type="button"
                   onClick={() => setAddonOpen(true)}
-                  className="flex h-8 w-8 items-center justify-center rounded-lg bg-ink text-white"
+                  className="flex h-8 w-8 items-center justify-center rounded-lg bg-inverse text-on-inverse"
                 >
                   <Plus className="h-4 w-4" />
                 </button>
@@ -296,7 +296,7 @@ export default function TicketDetailPage() {
           </section>
         </div>
 
-        <aside className="h-fit rounded-2xl border border-[#eee] p-6">
+        <aside className="h-fit rounded-2xl border border-line p-6">
           <p className="text-[13px] uppercase tracking-wide text-muted">Técnico responsável</p>
           {data.technician ? (
             <div className="mt-3 flex items-center gap-3">
@@ -325,13 +325,13 @@ export default function TicketDetailPage() {
                   <span className="text-muted">Adicionais</span>
                   <span>{formatBRL(data.addons_total)}</span>
                 </div>
-                <div className="flex justify-between border-t border-[#eee] pt-3 text-base font-semibold">
+                <div className="flex justify-between border-t border-line pt-3 text-base font-semibold">
                   <span>{data.status === "fechado" ? "Total fechado" : "Estimativa"}</span>
                   <span>{formatBRL(data.status === "fechado" ? data.total_cost : data.hours && data.hourly_rate ? data.hours * data.hourly_rate : data.total)}</span>
                 </div>
               </>
             ) : (
-              <div className="flex justify-between border-t border-[#eee] pt-3 text-base font-semibold">
+              <div className="flex justify-between border-t border-line pt-3 text-base font-semibold">
                 <span>Total</span>
                 <span>{formatBRL(0)}</span>
               </div>

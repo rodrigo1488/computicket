@@ -34,7 +34,7 @@ export function Modal({
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4" onClick={onClose}>
       <div
         className={cn(
-          "relative w-full rounded-2xl bg-white p-6 shadow-2xl max-h-[90vh] overflow-y-auto",
+          "relative w-full rounded-2xl bg-surface p-6 shadow-2xl max-h-[90vh] overflow-y-auto",
           wide ? "max-w-2xl" : "max-w-[440px]",
         )}
         onClick={(e) => e.stopPropagation()}

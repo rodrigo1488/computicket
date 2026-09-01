@@ -93,7 +93,7 @@ export default function UsuariosPage() {
           <button
             type="button"
             onClick={openCreate}
-            className="inline-flex h-10 items-center gap-2 rounded-xl bg-ink px-4 text-sm font-medium text-white"
+            className="inline-flex h-10 items-center gap-2 rounded-xl bg-inverse px-4 text-sm font-medium text-on-inverse"
           >
             <Plus className="h-4 w-4" />
             Novo usuário
@@ -169,7 +169,7 @@ export default function UsuariosPage() {
             <select
               value={form.role}
               onChange={(e) => setForm((f) => ({ ...f, role: e.target.value }))}
-              className="mt-1 w-full border-0 border-b border-[#d7d7d7] bg-transparent py-2 text-[15px] text-ink"
+              className="mt-1 w-full border-0 border-b border-line bg-transparent py-2 text-[15px] text-ink"
             >
               <option value="admin">Administrador</option>
               <option value="tecnico">Técnico</option>
@@ -181,7 +181,7 @@ export default function UsuariosPage() {
             <select
               value={form.team}
               onChange={(e) => setForm((f) => ({ ...f, team: e.target.value }))}
-              className="mt-1 w-full border-0 border-b border-[#d7d7d7] bg-transparent py-2 text-[15px] text-ink"
+              className="mt-1 w-full border-0 border-b border-line bg-transparent py-2 text-[15px] text-ink"
             >
               <option value="Equipe 1">Equipe 1</option>
               <option value="Equipe 2">Equipe 2</option>

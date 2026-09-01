@@ -3,7 +3,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Ban, Hand, Play, Plus, Square } from "lucide-react";
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { Suspense, useEffect, useState } from "react";
 import { PageTitle } from "@/components/layout/AppShell";
 import { TicketCreateDialog } from "@/components/tickets/TicketCreateDialog";
 import { DataTable } from "@/components/ui/DataTable";
@@ -27,6 +28,8 @@ const STATUS_PILLS: { value: string; label: string }[] = [
   { value: "all", label: "Todos" },
 ];
 
+const STATUS_VALUES = new Set(STATUS_PILLS.map((p) => p.value));
+
 function qs(params: Record<string, string | number | undefined>) {
   const u = new URLSearchParams();
   Object.entries(params).forEach(([k, v]) => {
@@ -35,16 +38,23 @@ function qs(params: Record<string, string | number | undefined>) {
   return u.toString();
 }
 
-export default function TicketsPage() {
+function paramStatus(raw: string | null) {
+  const value = (raw || "").trim();
+  return STATUS_VALUES.has(value) ? value : "aberto";
+}
+
+function TicketsPageInner() {
   const qc = useQueryClient();
+  const params = useSearchParams();
   const { user } = useAuth();
   const uid = user?.id;
   const isAdmin = ["admin", "administrador", "administrator"].includes((user?.role || "").toLowerCase());
-  const [status, setStatus] = useState("aberto");
+  const [status, setStatus] = useState(() => paramStatus(params.get("status")));
   const [assigned, setAssigned] = useState("");
   const [q, setQ] = useState("");
-  const [dateFrom, setDateFrom] = useState("");
-  const [dateTo, setDateTo] = useState("");
+  const [dateFrom, setDateFrom] = useState(() => (params.get("date_from") || "").trim());
+  const [dateTo, setDateTo] = useState(() => (params.get("date_to") || "").trim());
+  const [dateBy, setDateBy] = useState(() => ((params.get("date_by") || "").trim() === "closed_at" ? "closed_at" : ""));
   const [page, setPage] = useState(1);
   const [err, setErr] = useState("");
   const [createOpen, setCreateOpen] = useState(false);
@@ -52,7 +62,7 @@ export default function TicketsPage() {
   const [cancelReason, setCancelReason] = useState("");
   const { colQuery, colFilters, onFiltersChange } = useColFilters();
 
-  useEffect(() => setPage(1), [status, assigned, q, dateFrom, dateTo, colFilters]);
+  useEffect(() => setPage(1), [status, assigned, q, dateFrom, dateTo, dateBy, colFilters]);
 
   const users = useQuery({
     queryKey: ["users-ticket-filter"],
@@ -60,7 +70,7 @@ export default function TicketsPage() {
   });
 
   const { data, isLoading, isFetching, error } = useQuery({
-    queryKey: ["tickets", status, assigned, q, dateFrom, dateTo, page, colQuery],
+    queryKey: ["tickets", status, assigned, q, dateFrom, dateTo, dateBy, page, colQuery],
     queryFn: () =>
       flask.get<PageRes<TicketRow>>(
         `/tickets/api/list?${qs({
@@ -69,6 +79,7 @@ export default function TicketsPage() {
           q: q || undefined,
           date_from: dateFrom || undefined,
           date_to: dateTo || undefined,
+          date_by: dateBy || undefined,
           page,
           per_page: 20,
         })}${colQuery}`,
@@ -121,7 +132,7 @@ export default function TicketsPage() {
         <button
           type="button"
           onClick={() => setCreateOpen(true)}
-          className="inline-flex h-10 items-center gap-2 rounded-xl bg-ink px-4 text-sm font-medium text-white"
+          className="inline-flex h-10 items-center gap-2 rounded-xl bg-inverse px-4 text-sm font-medium text-on-inverse"
         >
           <Plus className="h-4 w-4" />
           Abrir ticket
@@ -136,7 +147,7 @@ export default function TicketsPage() {
             onClick={() => setStatus(p.value)}
             className={cn(
               "rounded-full px-3 py-1.5 text-sm font-medium",
-              status === p.value ? "bg-ink text-white" : "bg-[#f3f4f6] text-ink hover:bg-[#e5e7eb]",
+              status === p.value ? "bg-inverse text-on-inverse" : "bg-wash text-ink hover:bg-line",
             )}
           >
             {p.label}
@@ -150,7 +161,7 @@ export default function TicketsPage() {
           <select
             value={assigned}
             onChange={(e) => setAssigned(e.target.value)}
-            className="w-full rounded-xl border border-[#eee] bg-white px-3 py-2 text-sm"
+            className="w-full rounded-xl border border-line bg-surface px-3 py-2 text-sm"
           >
             <option value="">Todos</option>
             {(users.data?.items || []).map((u) => (
@@ -166,7 +177,7 @@ export default function TicketsPage() {
             type="date"
             value={dateFrom}
             onChange={(e) => setDateFrom(e.target.value)}
-            className="w-full rounded-xl border border-[#eee] px-3 py-2 text-sm"
+            className="w-full rounded-xl border border-line px-3 py-2 text-sm"
           />
         </label>
         <label className="block text-sm">
@@ -175,7 +186,7 @@ export default function TicketsPage() {
             type="date"
             value={dateTo}
             onChange={(e) => setDateTo(e.target.value)}
-            className="w-full rounded-xl border border-[#eee] px-3 py-2 text-sm"
+            className="w-full rounded-xl border border-line px-3 py-2 text-sm"
           />
         </label>
         <div className="flex items-end">
@@ -184,8 +195,9 @@ export default function TicketsPage() {
             onClick={() => {
               setDateFrom("");
               setDateTo("");
+              setDateBy("");
             }}
-            className="rounded-xl border border-[#eee] px-3 py-2 text-sm text-muted hover:bg-[#f5f5f5]"
+            className="rounded-xl border border-line px-3 py-2 text-sm text-muted hover:bg-wash"
           >
             Limpar datas
           </button>
@@ -323,7 +335,7 @@ export default function TicketsPage() {
                 onChange={(event) => setCancelReason(event.target.value)}
                 rows={3}
                 disabled={cancelTicket.isPending}
-                className="w-full rounded-xl border border-[#e5e7eb] px-3 py-2 text-sm"
+                className="w-full rounded-xl border border-line px-3 py-2 text-sm"
               />
             </label>
             <div className="mt-5 flex justify-end gap-3">
@@ -331,7 +343,7 @@ export default function TicketsPage() {
                 type="button"
                 disabled={cancelTicket.isPending}
                 onClick={() => setCancelTarget(null)}
-                className="rounded-xl border border-[#e5e7eb] px-4 py-2 text-sm"
+                className="rounded-xl border border-line px-4 py-2 text-sm"
               >
                 Voltar
               </button>
@@ -348,5 +360,13 @@ export default function TicketsPage() {
         ) : null}
       </Modal>
     </div>
+  );
+}
+
+export default function TicketsPage() {
+  return (
+    <Suspense fallback={<p className="text-sm text-muted">Carregando tickets…</p>}>
+      <TicketsPageInner />
+    </Suspense>
   );
 }

@@ -27,7 +27,7 @@ export function TicketCard({
   return (
     <article
       onClick={goDetail}
-      className="flex min-h-[168px] cursor-pointer flex-col rounded-2xl border border-[#ececec] bg-white p-4 shadow-[0_1px_2px_rgba(16,24,40,0.04)] transition hover:shadow-md"
+      className="flex min-h-[168px] cursor-pointer flex-col rounded-2xl border border-line bg-surface p-4 shadow-[0_1px_2px_rgba(16,24,40,0.04)] transition hover:shadow-md"
     >
       <div className="flex items-start justify-between gap-2">
         <span className="text-sm text-muted">{ticket.code}</span>
@@ -35,7 +35,7 @@ export function TicketCard({
           <button
             type="button"
             onClick={goEdit}
-            className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#f3f4f6] text-[#6b7280] hover:bg-[#e5e7eb]"
+            className="flex h-8 w-8 items-center justify-center rounded-lg bg-wash text-muted hover:bg-line"
             aria-label="Editar"
           >
             <Pencil className="h-3.5 w-3.5" />
@@ -45,7 +45,7 @@ export function TicketCard({
               type="button"
               disabled={busy}
               onClick={() => onStart?.(ticket.id)}
-              className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-ink px-3 text-[13px] font-medium text-white disabled:opacity-60"
+              className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-inverse px-3 text-[13px] font-medium text-on-inverse disabled:opacity-60"
             >
               <Clock className="h-3.5 w-3.5" />
               Iniciar
@@ -56,7 +56,7 @@ export function TicketCard({
               type="button"
               disabled={busy}
               onClick={() => onClose?.(ticket.id)}
-              className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-ink px-3 text-[13px] font-medium text-white disabled:opacity-60"
+              className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-inverse px-3 text-[13px] font-medium text-on-inverse disabled:opacity-60"
             >
               <Check className="h-3.5 w-3.5" />
               Encerrar
@@ -76,7 +76,7 @@ export function TicketCard({
         <span className="font-medium text-ink">{formatBRL(ticket.base_price)}</span>
       </div>
 
-      <div className="mt-3 flex items-center justify-between border-t border-[#f1f1f1] pt-3">
+      <div className="mt-3 flex items-center justify-between border-t border-line pt-3">
         <div className="flex items-center gap-2">
           <UserAvatar name={ticket.client_name} size="sm" />
           <span className="text-sm text-navy">{ticket.client_name}</span>

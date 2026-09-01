@@ -74,7 +74,7 @@ export function ProductPicker({
                       picked.map((x) => (x.id === p.id ? { ...x, quantidade: Number(e.target.value) || 1 } : x)),
                     )
                   }
-                  className="w-16 border-0 border-b border-[#d7d7d7] bg-transparent py-1 text-right"
+                  className="w-16 border-0 border-b border-line bg-transparent py-1 text-right"
                 />
                 <button
                   type="button"

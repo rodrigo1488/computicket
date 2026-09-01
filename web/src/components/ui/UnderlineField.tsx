@@ -24,7 +24,7 @@ export function UnderlineField({
         placeholder={placeholder}
         onChange={(e) => onChange(e.target.value)}
         className={cn(
-          "mt-1 w-full border-0 border-b border-[#d7d7d7] bg-transparent py-2 text-[15px] text-ink placeholder:text-[#c5c5c5]",
+          "mt-1 w-full border-0 border-b border-line bg-transparent py-2 text-[15px] text-ink placeholder:text-muted",
         )}
       />
       {hint ? <p className="mt-1 text-xs italic text-muted">{hint}</p> : null}
@@ -41,7 +41,7 @@ export function PrimaryButton({
     <button
       {...props}
       className={cn(
-        "w-full rounded-xl bg-[#2c2c2c] py-3.5 text-[15px] font-medium text-white disabled:opacity-50",
+        "w-full rounded-xl bg-inverse py-3.5 text-[15px] font-medium text-on-inverse disabled:opacity-50",
         className,
       )}
     >

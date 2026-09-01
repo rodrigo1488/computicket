@@ -182,7 +182,7 @@ function MiniBars({
           <span>{fmt(0)}</span>
         </div>
         <div className="flex min-w-0 flex-1 flex-col">
-          <div className="flex h-52 items-stretch gap-px border-b border-[#e5e5e5] sm:gap-1">
+          <div className="flex h-52 items-stretch gap-px border-b border-line sm:gap-1">
             {items.map((item) => {
               const v = Number(item[valueKey] || 0);
               const h = v > 0 ? Math.max(6, (v / max) * chartH) : 0;
@@ -235,7 +235,7 @@ function ExportBar({
         type="button"
         onClick={onExcel}
         disabled={exporting}
-        className="inline-flex h-10 items-center gap-2 rounded-xl border border-[#eee] px-4 text-sm font-medium text-ink hover:bg-[#f5f5f5] disabled:opacity-50"
+        className="inline-flex h-10 items-center gap-2 rounded-xl border border-line px-4 text-sm font-medium text-ink hover:bg-wash disabled:opacity-50"
       >
         <FileSpreadsheet className="h-4 w-4" />
         {exporting ? "Exportando…" : "Exportar Excel"}
@@ -245,7 +245,7 @@ function ExportBar({
           type="button"
           onClick={onPdf}
           disabled={exporting}
-          className="inline-flex h-10 items-center gap-2 rounded-xl bg-ink px-4 text-sm font-medium text-white disabled:opacity-50"
+          className="inline-flex h-10 items-center gap-2 rounded-xl bg-inverse px-4 text-sm font-medium text-on-inverse disabled:opacity-50"
         >
           <FileText className="h-4 w-4" />
           Exportar PDF
@@ -398,7 +398,7 @@ export default function RelatoriosPage() {
           <select
             value={period}
             onChange={(e) => applyQuick(e.target.value)}
-            className="mt-1 w-full border-0 border-b border-[#d7d7d7] bg-transparent py-2 text-[15px] text-ink"
+            className="mt-1 w-full border-0 border-b border-line bg-transparent py-2 text-[15px] text-ink"
           >
             <option value="">Selecionar período</option>
             <option value="today">Hoje</option>
@@ -412,7 +412,7 @@ export default function RelatoriosPage() {
           <button
             type="button"
             onClick={() => setApplied({ start, end })}
-            className="h-11 rounded-xl bg-ink px-5 text-sm font-medium text-white"
+            className="h-11 rounded-xl bg-inverse px-5 text-sm font-medium text-on-inverse"
           >
             Aplicar filtros
           </button>
@@ -446,7 +446,7 @@ export default function RelatoriosPage() {
             }}
             className={cn(
               "rounded-xl px-4 py-2 text-sm font-medium transition",
-              tab === item.id ? "bg-ink text-white" : "bg-[#f3f4f6] text-muted hover:text-ink",
+              tab === item.id ? "bg-inverse text-on-inverse" : "bg-wash text-muted hover:text-ink",
             )}
           >
             {item.label}
@@ -673,7 +673,7 @@ export default function RelatoriosPage() {
         <>
           <ExportBar onExcel={exportExcel} exporting={exporting} />
           <div className="grid gap-6 lg:grid-cols-2">
-          <div className="rounded-2xl border border-[#eee] p-5">
+          <div className="rounded-2xl border border-line p-5">
             <h3 className="mb-4 font-semibold text-navy">Tickets por dia</h3>
             <MiniBars
               items={fillDaily(prod?.daily_tickets || [], applied.start, applied.end, "count")}
@@ -681,7 +681,7 @@ export default function RelatoriosPage() {
               barClass="bg-brand"
             />
           </div>
-          <div className="rounded-2xl border border-[#eee] p-5">
+          <div className="rounded-2xl border border-line p-5">
             <h3 className="mb-4 font-semibold text-navy">Horas por dia</h3>
             <MiniBars
               items={fillDaily(prod?.daily_hours || [], applied.start, applied.end, "hours")}
@@ -743,7 +743,7 @@ export default function RelatoriosPage() {
             <select
               value={pdfClient}
               onChange={(e) => setPdfClient(e.target.value)}
-              className="w-full rounded-xl border border-[#eee] bg-white px-3 py-2"
+              className="w-full rounded-xl border border-line bg-surface px-3 py-2"
             >
               <option value="">Selecione…</option>
               {(data?.hours_by_client || []).map((c, i) => (

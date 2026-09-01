@@ -258,7 +258,7 @@ function StatusBadge({ agent }: { agent: RemoteAgent }) {
       "inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium",
       label === "Online" ? "bg-done-bg text-done" :
       label === "Pendente" ? "bg-progress-bg text-progress" :
-      label === "Revogado" ? "bg-open-bg text-open" : "bg-[#f3f4f6] text-muted",
+      label === "Revogado" ? "bg-open-bg text-open" : "bg-wash text-muted",
     )}>
       <span className="h-1.5 w-1.5 rounded-full bg-current" /> {label}
     </span>
@@ -275,7 +275,7 @@ function ActionButton({ children, icon, onClick, danger, disabled }: {
   return (
     <button type="button" onClick={onClick} disabled={disabled} className={cn(
       "inline-flex h-10 items-center gap-2 rounded-xl border px-3 text-sm font-medium disabled:opacity-50",
-      danger ? "border-open/20 text-open hover:bg-open-bg" : "border-line text-ink hover:bg-[#f7f7f8]",
+      danger ? "border-open/20 text-open hover:bg-open-bg" : "border-line text-ink hover:bg-wash",
     )}>
       {icon}{children}
     </button>
@@ -284,7 +284,7 @@ function ActionButton({ children, icon, onClick, danger, disabled }: {
 
 function MetricCard({ icon, label, value }: { icon: ReactNode; label: string; value: string }) {
   return (
-    <div className="rounded-2xl border border-line bg-white p-4">
+    <div className="rounded-2xl border border-line bg-surface p-4">
       <span className="mb-3 block h-5 w-5 text-brand [&_svg]:h-5 [&_svg]:w-5">{icon}</span>
       <p className="text-xs text-muted">{label}</p>
       <p className="mt-1 text-lg font-semibold text-navy">{value}</p>
@@ -306,7 +306,7 @@ function HistoryChart({ items }: { items: RemoteHistoryItem[] }) {
   const x = (index: number) => 42 + (index / Math.max(1, items.length - 1)) * 650;
   const y = (value: number) => 210 - (Math.min(100, Math.max(0, value)) / 100) * 180;
   return (
-    <div className="overflow-x-auto rounded-2xl border border-line bg-white p-3">
+    <div className="overflow-x-auto rounded-2xl border border-line bg-surface p-3">
       <svg viewBox="0 0 720 240" role="img" aria-label="Gráfico de histórico de CPU, RAM, disco e temperatura" className="h-auto min-w-[620px] w-full">
         {[0, 25, 50, 75, 100].map((value) => (
           <g key={value}>
@@ -392,7 +392,7 @@ function UpdatesPanel({ updates }: { updates?: Record<string, unknown> | null })
           {items.map((update, index) => {
             const item = objectValue(update);
             return (
-              <li key={index} className="rounded-xl bg-[#f7f7f8] p-3 text-sm">
+              <li key={index} className="rounded-xl bg-wash p-3 text-sm">
                 <p className="font-medium text-ink">{textValue(item.title) || `Atualização ${index + 1}`}</p>
                 <p className="mt-1 text-xs text-muted">{[displayValue(item.kb), textValue(item.severity)].filter(Boolean).join(" · ") || "Sem detalhes adicionais"}</p>
               </li>

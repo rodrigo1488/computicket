@@ -77,7 +77,7 @@ export function AiSettings() {
 
   return (
     <div className="max-w-xl space-y-7">
-      <div className="rounded-xl border border-[#eee] p-4">
+      <div className="rounded-xl border border-line p-4">
         <div className="flex items-start gap-3">
           <Bot className="mt-0.5 h-5 w-5 text-brand" />
           <div>

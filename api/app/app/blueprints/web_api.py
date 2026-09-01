@@ -1262,6 +1262,16 @@ def budgets():
 	})
 
 
+@bp.route("/budgets/ai", methods=["GET", "POST"])
+@login_required
+def budgets_ai():
+	if request.method == "GET":
+		from .budget import test_builder_ai
+		return test_builder_ai()
+	from .budget import generate_builder_ai
+	return generate_builder_ai()
+
+
 @bp.route("/budgets/meta")
 @login_required
 def budgets_meta():

@@ -43,12 +43,16 @@ type Cliente = {
 type OsSearch = {
   codigo: string;
   data_abertura?: string;
+  data_conclusao?: string;
   equipamento?: string;
   problema_descrito?: string;
   tecnico?: string;
   valor?: number;
   servico_executado?: string;
   no_charge?: boolean;
+  orphan?: boolean;
+  ps_number?: string | null;
+  status?: number;
   cliente?: Cliente;
 };
 
@@ -95,12 +99,20 @@ export default function OSPage() {
     setSuccessMsg("");
     setSearching(true);
     try {
-      const res = await flask.get<{ results?: OsSearch[]; error?: string }>(
-        `/ordens-servico/search?q=${encodeURIComponent(term.trim())}`,
-      );
+      const res = await flask.get<{
+        results?: OsSearch[];
+        already_in_computicket?: boolean;
+        error?: string;
+      }>(`/ordens-servico/search?q=${encodeURIComponent(term.trim())}`);
       const list = res.results || [];
       setResults(list);
-      if (!list.length) setFormError("Ordem de serviço não encontrada ou já finalizada.");
+      if (!list.length) {
+        setFormError(
+          res.already_in_computicket
+            ? "Esta OS já está no Computicket."
+            : "Ordem de serviço não encontrada.",
+        );
+      }
     } catch (e) {
       setResults([]);
       setFormError(e instanceof Error ? e.message : "Erro ao buscar ordem de serviço");
@@ -125,14 +137,22 @@ export default function OSPage() {
     setTerm(codigo);
     setSearching(true);
     try {
-      const res = await flask.get<{ results?: OsSearch[]; error?: string }>(
-        `/ordens-servico/search?q=${encodeURIComponent(codigo)}`,
-      );
+      const res = await flask.get<{
+        results?: OsSearch[];
+        already_in_computicket?: boolean;
+        error?: string;
+      }>(`/ordens-servico/search?q=${encodeURIComponent(codigo)}`);
       const list = res.results || [];
       setResults(list);
       const match = list.find((x) => String(x.codigo) === String(codigo)) || list[0];
       if (match) pickOs(match);
-      else setFormError("Ordem de serviço não encontrada ou já finalizada.");
+      else {
+        setFormError(
+          res.already_in_computicket
+            ? "Esta OS já está no Computicket."
+            : "Ordem de serviço não encontrada.",
+        );
+      }
     } catch (e) {
       setFormError(e instanceof Error ? e.message : "Erro ao buscar ordem de serviço");
     } finally {
@@ -164,7 +184,7 @@ export default function OSPage() {
         if (res.ps_file) await flask.open(`/ordens-servico/pdf/${encodeURIComponent(res.ps_file)}`);
         if (res.delivery_file) await flask.open(`/ordens-servico/pdf/${encodeURIComponent(res.delivery_file)}`);
       } catch (e) {
-        setFormError(e instanceof Error ? e.message : "OS finalizada, mas não foi possível abrir o PDF");
+        setFormError(e instanceof Error ? e.message : "OS gravada, mas não foi possível abrir o PDF");
       }
       qc.invalidateQueries({ queryKey: ["os"] });
       resetForm();
@@ -180,7 +200,7 @@ export default function OSPage() {
         <button
           type="button"
           onClick={() => void openFinalize()}
-          className="inline-flex h-10 items-center gap-2 rounded-xl bg-ink px-4 text-sm font-medium text-white"
+          className="inline-flex h-10 items-center gap-2 rounded-xl bg-inverse px-4 text-sm font-medium text-on-inverse"
         >
           <CheckCircle className="h-4 w-4" />
           Finalizar ordem
@@ -308,12 +328,17 @@ export default function OSPage() {
                     <button
                       type="button"
                       onClick={() => pickOs(os)}
-                      className="w-full rounded-xl border border-[#eee] px-4 py-3 text-left hover:bg-[#fafafa]"
+                      className="w-full rounded-xl border border-line px-4 py-3 text-left hover:bg-wash"
                     >
                       <p className="text-sm font-medium text-ink">
                         #{os.codigo} · {os.cliente?.nome || "Cliente"}
                       </p>
                       <p className="text-xs text-muted">{os.equipamento || "Equipamento não informado"}</p>
+                      {os.orphan ? (
+                        <p className="mt-1 text-[11px] font-medium text-navy">
+                          Já finalizada no Uniplus — gravar no Computicket
+                        </p>
+                      ) : null}
                     </button>
                   </li>
                 ))}
@@ -328,7 +353,12 @@ export default function OSPage() {
               finalizar.mutate();
             }}
           >
-            <div className="grid gap-3 rounded-2xl border border-[#eee] p-4 text-sm md:grid-cols-2">
+            <div className="grid gap-3 rounded-2xl border border-line p-4 text-sm md:grid-cols-2">
+              {selected.orphan ? (
+                <p className="md:col-span-2 rounded-xl bg-[#eef6ff] px-3 py-2 text-sm text-navy">
+                  Já finalizada no Uniplus — gravar no Computicket. O ERP não será alterado.
+                </p>
+              ) : null}
               <p>
                 <span className="text-muted">Código</span>
                 <br />
@@ -339,6 +369,20 @@ export default function OSPage() {
                 <br />
                 {selected.data_abertura || "—"}
               </p>
+              {selected.orphan ? (
+                <>
+                  <p>
+                    <span className="text-muted">Conclusão (Uniplus)</span>
+                    <br />
+                    {selected.data_conclusao || "—"}
+                  </p>
+                  <p>
+                    <span className="text-muted">Técnico (Uniplus)</span>
+                    <br />
+                    {selected.tecnico || "—"}
+                  </p>
+                </>
+              ) : null}
               <p>
                 <span className="text-muted">Cliente</span>
                 <br />
@@ -359,6 +403,13 @@ export default function OSPage() {
                 <br />
                 {selected.equipamento || "—"}
               </p>
+              {selected.orphan && selected.ps_number ? (
+                <p className="md:col-span-2">
+                  <span className="text-muted">PS no Uniplus</span>
+                  <br />
+                  {selected.ps_number}
+                </p>
+              ) : null}
               {selected.cliente?.extra9 ? (
                 <p className="md:col-span-2">
                   <span className="text-muted">Contrato (extra9)</span>
@@ -374,13 +425,19 @@ export default function OSPage() {
                 onChange={(e) => setServico(e.target.value)}
                 rows={4}
                 required
+                readOnly={!!selected.orphan}
                 placeholder="Descreva o serviço executado…"
-                className="mt-1 w-full border-0 border-b border-[#d7d7d7] bg-transparent py-2 text-[15px] text-ink"
+                className="mt-1 w-full border-0 border-b border-line bg-transparent py-2 text-[15px] text-ink"
               />
             </label>
-            <UnderlineField label="Valor (R$)" value={valor} onChange={setValor} placeholder="0,00" />
-            {selected.no_charge ? (
-              <div className="rounded-xl bg-[#fff6e5] p-3 text-sm">
+            <UnderlineField
+              label="Valor (R$)"
+              value={valor}
+              onChange={selected.orphan ? () => undefined : setValor}
+              placeholder="0,00"
+            />
+            {selected.no_charge && !selected.orphan ? (
+              <div className="rounded-xl bg-warn-bg p-3 text-sm">
                 <p className="text-ink">Cliente com contrato “não cobra atendimento”. O valor será R$ 0,00.</p>
                 <button
                   type="button"
@@ -391,10 +448,18 @@ export default function OSPage() {
                 </button>
               </div>
             ) : null}
-            <ProductPicker searchPath="/ordens-servico/produtos" picked={picked} onChange={setPicked} />
+            {selected.orphan ? null : (
+              <ProductPicker searchPath="/ordens-servico/produtos" picked={picked} onChange={setPicked} />
+            )}
             {formError ? <p className="text-sm text-open">{formError}</p> : null}
             <PrimaryButton type="submit" disabled={finalizar.isPending}>
-              {finalizar.isPending ? "Finalizando…" : "Finalizar ordem"}
+              {finalizar.isPending
+                ? selected.orphan
+                  ? "Gravando…"
+                  : "Finalizando…"
+                : selected.orphan
+                  ? "Gravar no sistema"
+                  : "Finalizar ordem"}
             </PrimaryButton>
           </form>
         )}

@@ -265,7 +265,7 @@ export default function AgendaPage() {
         <button
           type="button"
           onClick={() => openCreate()}
-          className="inline-flex h-10 items-center gap-2 rounded-xl bg-ink px-4 text-sm font-medium text-white"
+          className="inline-flex h-10 items-center gap-2 rounded-xl bg-inverse px-4 text-sm font-medium text-on-inverse"
         >
           <Plus className="h-4 w-4" />
           Novo agendamento
@@ -276,7 +276,7 @@ export default function AgendaPage() {
         <button
           type="button"
           onClick={() => changeWeek(-7)}
-          className="rounded-xl border border-[#eee] p-2 text-ink hover:bg-[#fafafa]"
+          className="rounded-xl border border-line p-2 text-ink hover:bg-wash"
           aria-label="Semana anterior"
         >
           <ChevronLeft className="h-4 w-4" />
@@ -285,7 +285,7 @@ export default function AgendaPage() {
         <button
           type="button"
           onClick={() => changeWeek(7)}
-          className="rounded-xl border border-[#eee] p-2 text-ink hover:bg-[#fafafa]"
+          className="rounded-xl border border-line p-2 text-ink hover:bg-wash"
           aria-label="Próxima semana"
         >
           <ChevronRight className="h-4 w-4" />
@@ -293,7 +293,7 @@ export default function AgendaPage() {
         <button
           type="button"
           onClick={goToToday}
-          className="rounded-xl border border-[#eee] px-3 py-2 text-sm text-muted hover:text-ink"
+          className="rounded-xl border border-line px-3 py-2 text-sm text-muted hover:text-ink"
         >
           Hoje
         </button>
@@ -310,7 +310,7 @@ export default function AgendaPage() {
           return (
             <div
               key={key}
-              className={cn("min-h-[180px] rounded-2xl border border-[#eee] p-3", isToday && "border-brand/40 bg-[#f7f9ff]")}
+              className={cn("min-h-[180px] rounded-2xl border border-line p-3", isToday && "border-brand/40 bg-progress-bg")}
             >
               <button type="button" onClick={() => openCreate(day)} className="mb-3 w-full text-left">
                 <p className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted">{WEEKDAYS[i]}</p>
@@ -342,7 +342,7 @@ export default function AgendaPage() {
                           <button
                             type="button"
                             onClick={() => openEdit(ev)}
-                            className="flex h-7 w-7 items-center justify-center rounded-lg bg-white text-[#6b7280] hover:bg-[#e5e7eb]"
+                            className="flex h-7 w-7 items-center justify-center rounded-lg bg-surface text-muted hover:bg-line"
                             aria-label="Editar"
                           >
                             <Pencil className="h-3.5 w-3.5" />
@@ -352,7 +352,7 @@ export default function AgendaPage() {
                             onClick={() => {
                               if (window.confirm("Excluir este agendamento?")) removeAppt.mutate(apptId);
                             }}
-                            className="flex h-7 w-7 items-center justify-center rounded-lg bg-white text-open hover:bg-open/10"
+                            className="flex h-7 w-7 items-center justify-center rounded-lg bg-surface text-open hover:bg-open/10"
                             aria-label="Excluir"
                           >
                             <Trash2 className="h-3.5 w-3.5" />
@@ -368,8 +368,8 @@ export default function AgendaPage() {
         })}
       </div>
 
-      <section className="mt-8 overflow-hidden rounded-2xl border border-[#eee] bg-white">
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#eee] px-4 py-4 sm:px-5">
+      <section className="mt-8 overflow-hidden rounded-2xl border border-line bg-surface">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-4 py-4 sm:px-5">
           <div>
             <p className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted">Visão mensal</p>
             <h2 className="mt-0.5 text-lg font-semibold text-navy">{formatMonthLabel(monthAnchor)}</h2>
@@ -378,7 +378,7 @@ export default function AgendaPage() {
             <button
               type="button"
               onClick={() => changeMonth(-1)}
-              className="rounded-xl border border-[#eee] p-2 text-ink hover:bg-[#fafafa]"
+              className="rounded-xl border border-line p-2 text-ink hover:bg-wash"
               aria-label="Mês anterior"
             >
               <ChevronLeft className="h-4 w-4" />
@@ -386,14 +386,14 @@ export default function AgendaPage() {
             <button
               type="button"
               onClick={goToToday}
-              className="rounded-xl border border-[#eee] px-3 py-2 text-sm text-muted hover:text-ink"
+              className="rounded-xl border border-line px-3 py-2 text-sm text-muted hover:text-ink"
             >
               Hoje
             </button>
             <button
               type="button"
               onClick={() => changeMonth(1)}
-              className="rounded-xl border border-[#eee] p-2 text-ink hover:bg-[#fafafa]"
+              className="rounded-xl border border-line p-2 text-ink hover:bg-wash"
               aria-label="Próximo mês"
             >
               <ChevronRight className="h-4 w-4" />
@@ -401,7 +401,7 @@ export default function AgendaPage() {
           </div>
         </div>
 
-        <div className="grid grid-cols-7 border-b border-[#eee] bg-[#fafafa]">
+        <div className="grid grid-cols-7 border-b border-line bg-wash">
           {MONTH_WEEKDAYS.map((weekday, index) => (
             <div
               key={`${weekday}-${index}`}
@@ -426,9 +426,9 @@ export default function AgendaPage() {
                 type="button"
                 onClick={() => selectCalendarDay(day)}
                 className={cn(
-                  "min-h-20 border-b border-r border-[#eee] p-1.5 text-left transition-colors hover:bg-[#fafafa] sm:min-h-28 sm:p-2",
-                  !isCurrentMonth && "bg-[#fcfcfc] text-muted",
-                  isSelected && "bg-[#f7f9ff] ring-2 ring-inset ring-brand/30",
+                  "min-h-20 border-b border-r border-line p-1.5 text-left transition-colors hover:bg-wash sm:min-h-28 sm:p-2",
+                  !isCurrentMonth && "bg-wash text-muted",
+                  isSelected && "bg-progress-bg ring-2 ring-inset ring-brand/30",
                 )}
                 aria-label={`${day.toLocaleDateString("pt-BR")}: ${dayEvents.length} agendamento(s)`}
                 aria-pressed={isSelected}
@@ -487,7 +487,7 @@ export default function AgendaPage() {
             <button
               type="button"
               onClick={() => openCreate(selectedDate)}
-              className="inline-flex h-9 items-center gap-2 rounded-xl border border-[#eee] px-3 text-sm font-medium text-ink hover:bg-[#fafafa]"
+              className="inline-flex h-9 items-center gap-2 rounded-xl border border-line px-3 text-sm font-medium text-ink hover:bg-wash"
             >
               <Plus className="h-4 w-4" />
               Agendar neste dia
@@ -495,7 +495,7 @@ export default function AgendaPage() {
           </div>
 
           {selectedEvents.length === 0 ? (
-            <p className="rounded-xl bg-[#fafafa] px-3 py-4 text-sm text-muted">Nenhum agendamento para este dia.</p>
+            <p className="rounded-xl bg-wash px-3 py-4 text-sm text-muted">Nenhum agendamento para este dia.</p>
           ) : (
             <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
               {selectedEvents.map((ev) => {
@@ -511,8 +511,8 @@ export default function AgendaPage() {
                       if (isAppt) openEdit(ev);
                     }}
                     className={cn(
-                      "rounded-xl border border-[#eee] p-3 text-left",
-                      isAppt ? "hover:border-brand/30 hover:bg-[#fafbff]" : "cursor-default",
+                      "rounded-xl border border-line p-3 text-left",
+                      isAppt ? "hover:border-brand/30 hover:bg-progress-bg" : "cursor-default",
                     )}
                   >
                     <p className="text-xs font-medium text-brand">{eventTime(ev)}</p>
@@ -548,7 +548,7 @@ export default function AgendaPage() {
             <select
               value={clientId}
               onChange={(e) => setClientId(e.target.value)}
-              className="mt-1 w-full border-0 border-b border-[#d7d7d7] bg-transparent py-2 text-[15px] text-ink"
+              className="mt-1 w-full border-0 border-b border-line bg-transparent py-2 text-[15px] text-ink"
             >
               <option value="">Selecione</option>
               {(clients.data?.items || []).map((c) => (
@@ -563,7 +563,7 @@ export default function AgendaPage() {
             <select
               value={userId}
               onChange={(e) => setUserId(e.target.value)}
-              className="mt-1 w-full border-0 border-b border-[#d7d7d7] bg-transparent py-2 text-[15px] text-ink"
+              className="mt-1 w-full border-0 border-b border-line bg-transparent py-2 text-[15px] text-ink"
             >
               <option value="">Selecione</option>
               {(users.data ? asItems(users.data) : [])
@@ -580,7 +580,7 @@ export default function AgendaPage() {
             <select
               value={serviceId}
               onChange={(e) => setServiceId(e.target.value)}
-              className="mt-1 w-full border-0 border-b border-[#d7d7d7] bg-transparent py-2 text-[15px] text-ink"
+              className="mt-1 w-full border-0 border-b border-line bg-transparent py-2 text-[15px] text-ink"
             >
               <option value="">Opcional</option>
               {asItems(services.data).map((s) => (
@@ -596,7 +596,7 @@ export default function AgendaPage() {
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               rows={3}
-              className="mt-1 w-full border-0 border-b border-[#d7d7d7] bg-transparent py-2 text-[15px] text-ink"
+              className="mt-1 w-full border-0 border-b border-line bg-transparent py-2 text-[15px] text-ink"
             />
           </label>
           {formError ? <p className="text-sm text-open">{formError}</p> : null}

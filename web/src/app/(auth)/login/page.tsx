@@ -6,6 +6,7 @@ import Image from "next/image";
 import { flask } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import { PrimaryButton, UnderlineField } from "@/components/ui/UnderlineField";
+import { ThemeQuickToggle } from "@/components/layout/ThemeToggle";
 
 function LoginForm() {
   const { user, loading, refresh } = useAuth();
@@ -36,8 +37,9 @@ function LoginForm() {
   };
 
   return (
-    <div className="flex h-full min-h-0 items-center justify-center overflow-y-auto bg-canvas p-6">
-      <form onSubmit={submit} className="w-full max-w-[420px] rounded-3xl bg-white p-10 shadow-sm">
+    <div className="relative flex h-full min-h-0 items-center justify-center overflow-y-auto bg-canvas p-6">
+      <ThemeQuickToggle className="absolute right-4 top-4 h-9 w-9 hover:bg-surface" />
+      <form onSubmit={submit} className="w-full max-w-[420px] rounded-3xl bg-surface p-10 shadow-sm">
         <div className="mb-8 flex flex-col items-center text-center">
           <Image src="/logo-light.jpg" alt="Computicket" width={220} height={220} className="h-auto w-40 object-contain" priority />
           <p className="mt-3 text-sm text-muted">Entre para continuar</p>

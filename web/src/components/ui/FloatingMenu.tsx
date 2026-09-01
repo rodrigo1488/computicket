@@ -69,7 +69,7 @@ export function FloatingMenu({
       ref={ref}
       role="menu"
       style={{ position: "fixed", top: pos.top, left: pos.left, width, zIndex: 45 }}
-      className={cn("rounded-xl border border-[#e5e7eb] bg-white py-1 shadow-lg", className)}
+      className={cn("rounded-xl border border-line bg-surface py-1 shadow-lg", className)}
     >
       {children}
     </div>,

@@ -83,7 +83,7 @@ function DateTime24Field({
             setText(toDisplay24(value));
           }
         }}
-        className="mt-1 w-full border-0 border-b border-[#d7d7d7] bg-transparent py-2 text-[15px] text-ink placeholder:text-[#c5c5c5]"
+        className="mt-1 w-full border-0 border-b border-line bg-transparent py-2 text-[15px] text-ink placeholder:text-muted"
       />
       <p className="mt-1 text-xs italic text-muted">Formato 24h — ex.: 29/08/2026 16:48</p>
     </label>
@@ -208,7 +208,7 @@ export function TimeEntryDialog({
             onChange={(e) => setComment(e.target.value)}
             rows={3}
             placeholder="O que foi feito nesta sessão"
-            className="mt-1 w-full border-0 border-b border-[#d7d7d7] bg-transparent py-2 text-[15px] text-ink"
+            className="mt-1 w-full border-0 border-b border-line bg-transparent py-2 text-[15px] text-ink"
           />
         </label>
         {loadingTimes ? <p className="text-xs text-muted">Carregando horários…</p> : null}

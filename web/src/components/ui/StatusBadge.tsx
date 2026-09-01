@@ -23,7 +23,7 @@ const MAP: Record<
   },
   cancelado: {
     label: "Cancelado",
-    className: "bg-[#f3f4f6] text-muted",
+    className: "bg-wash text-muted",
     icon: Ban,
   },
 };

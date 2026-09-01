@@ -45,6 +45,40 @@ from ..services.copilot import CopilotError, answer_question, improve_draft, sug
 
 helpdesk_bp = Blueprint("helpdesk", __name__, url_prefix="/helpdesk")
 
+_PLAYABLE_MIME = {
+    "mp3": "audio/mpeg",
+    "ogg": "audio/ogg",
+    "oga": "audio/ogg",
+    "opus": "audio/ogg",
+    "wav": "audio/wav",
+    "m4a": "audio/mp4",
+    "aac": "audio/aac",
+    "weba": "audio/webm",
+    "flac": "audio/flac",
+    "amr": "audio/amr",
+    "mp4": "video/mp4",
+    "webm": "video/webm",
+    "mov": "video/quicktime",
+    "m4v": "video/x-m4v",
+    "3gp": "video/3gpp",
+    "3gpp": "video/3gpp",
+    "mkv": "video/x-matroska",
+    "avi": "video/x-msvideo",
+}
+
+
+def _media_mime(filename: str, fallback: str | None = None) -> str:
+    ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+    if ext in _PLAYABLE_MIME:
+        return _PLAYABLE_MIME[ext]
+    guessed = mimetypes.guess_type(filename)[0]
+    if guessed:
+        return guessed
+    if fallback and fallback != "application/octet-stream":
+        return fallback
+    return fallback or "application/octet-stream"
+
+
 _ai_rate_lock = threading.Lock()
 _ai_rate_hits: dict[int, deque[float]] = defaultdict(deque)
 
@@ -1962,5 +1996,5 @@ def proxy_media(filename: str):
         return jsonify({"error": "Mídia não encontrada"}), 404
     if res.status_code >= 400:
         return jsonify({"error": f"Falha ao obter mídia ({res.status_code})"}), 502
-    mime = mimetypes.guess_type(safe)[0] or res.headers.get("Content-Type") or "application/octet-stream"
+    mime = _media_mime(safe, res.headers.get("Content-Type"))
     return Response(res.content, mimetype=mime)

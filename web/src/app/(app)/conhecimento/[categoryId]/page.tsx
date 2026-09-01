@@ -147,7 +147,7 @@ export default function ConhecimentoCategoriaPage() {
             setEdit(null);
             setCreating(true);
           }}
-          className="inline-flex h-10 items-center gap-2 rounded-xl bg-ink px-4 text-sm font-medium text-white"
+          className="inline-flex h-10 items-center gap-2 rounded-xl bg-inverse px-4 text-sm font-medium text-on-inverse"
         >
           <Plus className="h-4 w-4" />
           Novo artigo
@@ -238,7 +238,7 @@ export default function ConhecimentoCategoriaPage() {
               value={form.content}
               onChange={(e) => setForm((f) => ({ ...f, content: e.target.value }))}
               rows={8}
-              className="mt-1 w-full border-0 border-b border-[#d7d7d7] bg-transparent py-2 text-[15px] text-ink"
+              className="mt-1 w-full border-0 border-b border-line bg-transparent py-2 text-[15px] text-ink"
             />
           </label>
           <UnderlineField label="Tags" value={form.tags} onChange={(v) => setForm((f) => ({ ...f, tags: v }))} />
@@ -247,7 +247,7 @@ export default function ConhecimentoCategoriaPage() {
             <select
               value={form.status}
               onChange={(e) => setForm((f) => ({ ...f, status: e.target.value }))}
-              className="mt-1 w-full border-0 border-b border-[#d7d7d7] bg-transparent py-2 text-[15px] text-ink"
+              className="mt-1 w-full border-0 border-b border-line bg-transparent py-2 text-[15px] text-ink"
             >
               <option value="published">Publicado</option>
               <option value="draft">Rascunho</option>

@@ -158,7 +158,7 @@ function CofreClienteInner() {
             setEdit(null);
             setCreating(true);
           }}
-          className="inline-flex h-10 items-center gap-2 rounded-xl bg-ink px-4 text-sm font-medium text-white"
+          className="inline-flex h-10 items-center gap-2 rounded-xl bg-inverse px-4 text-sm font-medium text-on-inverse"
         >
           <Plus className="h-4 w-4" />
           Nova senha
@@ -259,18 +259,18 @@ function CofreClienteInner() {
         {reveal ? (
           <div className="space-y-4">
             <p className="text-sm font-medium text-navy">{reveal.machine}</p>
-            {reveal.warning ? <p className="rounded-lg bg-[#fff7ed] px-3 py-2 text-sm text-[#c2410c]">{reveal.warning}</p> : null}
+            {reveal.warning ? <p className="rounded-lg bg-warn-bg px-3 py-2 text-sm text-warn-fg">{reveal.warning}</p> : null}
             <div className="flex items-center gap-2">
               <input
                 type={showPw ? "text" : "password"}
                 readOnly
                 value={reveal.password}
-                className="h-10 flex-1 rounded-lg border border-[#e5e7eb] px-3 text-sm"
+                className="h-10 flex-1 rounded-lg border border-line px-3 text-sm"
               />
               <button
                 type="button"
                 onClick={() => setShowPw((v) => !v)}
-                className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-[#e5e7eb]"
+                className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-line"
                 aria-label={showPw ? "Ocultar senha" : "Mostrar senha"}
               >
                 {showPw ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
@@ -279,7 +279,7 @@ function CofreClienteInner() {
             <button
               type="button"
               onClick={copyPassword}
-              className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-xl bg-ink text-sm font-medium text-white"
+              className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-xl bg-inverse text-sm font-medium text-on-inverse"
             >
               <Copy className="h-4 w-4" />
               {copied ? "Copiado!" : "Copiar"}

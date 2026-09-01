@@ -130,9 +130,9 @@ function withAgentSignature(body: string, name?: string | null, enabled?: boolea
 
 function statusChip(c: HelpdeskConversation) {
   if (c.status === "pending" || (c.unreadMessages || 0) > 0) {
-    return { label: "Aguardando resposta", className: "bg-[#fff3e0] text-[#e67e22]" };
+    return { label: "Aguardando resposta", className: "bg-open-bg text-warn-fg" };
   }
-  if (c.status === "closed") return { label: "Finalizada", className: "bg-[#f3f4f6] text-muted" };
+  if (c.status === "closed") return { label: "Finalizada", className: "bg-wash text-muted" };
   return { label: "Em atendimento", className: "bg-progress-bg text-progress" };
 }
 
@@ -158,6 +158,85 @@ function isMediaMessage(m: HelpdeskMessage) {
   const t = (m.mediaType || "").toLowerCase();
   if (!t || t === "conversation" || t === "chat") return false;
   return /^(image|audio|video|application|document|sticker|ptt)/.test(t);
+}
+
+const IMAGE_EXT = new Set(["jpg", "jpeg", "png", "gif", "webp", "bmp", "svg", "heic", "heif"]);
+const AUDIO_EXT = new Set(["mp3", "ogg", "oga", "opus", "wav", "m4a", "aac", "weba", "caf", "flac", "amr"]);
+const VIDEO_EXT = new Set(["mp4", "webm", "mov", "m4v", "3gp", "3gpp", "mkv", "avi"]);
+
+function mediaExt(url?: string | null) {
+  const path = (url || "").split(/[?#]/)[0];
+  const base = path.split("/").pop() || "";
+  const dot = base.lastIndexOf(".");
+  return dot >= 0 ? base.slice(dot + 1).toLowerCase() : "";
+}
+
+function mediaKind(mediaType?: string | null, mediaUrl?: string | null): "image" | "audio" | "video" | "file" {
+  const raw = (mediaType || "").toLowerCase().split(";")[0].trim();
+  const type = raw.replace(/message$/, "");
+  const ext = mediaExt(mediaUrl);
+  if (type === "ptt" || type.startsWith("ptt/") || type.startsWith("audio") || AUDIO_EXT.has(ext)) return "audio";
+  if (type.startsWith("video") || VIDEO_EXT.has(ext)) return "video";
+  if (type === "sticker" || type.startsWith("image") || IMAGE_EXT.has(ext)) return "image";
+  return "file";
+}
+
+function isInlinePlayableMedia(mediaType?: string | null, mediaUrl?: string | null) {
+  return mediaKind(mediaType, mediaUrl) !== "file";
+}
+
+function ThreadMedia({
+  mediaUrl,
+  mediaType,
+  onReady,
+}: {
+  mediaUrl: string;
+  mediaType?: string | null;
+  onReady?: () => void;
+}) {
+  const src = publicMediaUrl(mediaUrl) || mediaUrl;
+  const kind = mediaKind(mediaType, src);
+  if (kind === "image") {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img
+        src={src}
+        alt=""
+        className="mb-1 block max-h-56 max-w-full rounded-md object-contain"
+        onLoad={onReady}
+      />
+    );
+  }
+  if (kind === "audio") {
+    return (
+      <audio
+        controls
+        preload="metadata"
+        src={src}
+        aria-label="Áudio"
+        className="mb-1 block h-10 w-[min(100%,260px)] max-w-full"
+        onLoadedMetadata={onReady}
+      />
+    );
+  }
+  if (kind === "video") {
+    return (
+      <video
+        controls
+        playsInline
+        preload="metadata"
+        src={src}
+        aria-label="Vídeo"
+        className="mb-1 block max-h-64 w-full max-w-[280px] rounded-md bg-black"
+        onLoadedMetadata={onReady}
+      />
+    );
+  }
+  return (
+    <a href={src} target="_blank" rel="noreferrer" className="mb-1 block text-xs text-brand underline">
+      Abrir anexo
+    </a>
+  );
 }
 
 type AppMessagePayload = {
@@ -477,11 +556,11 @@ function InboxConversationRow({
   return (
     <div
       className={cn(
-        "flex w-full border-b border-[#f3f3f3] hover:bg-[#fafafa]",
-        selected && "bg-[#eef5ff]",
-        (c.unreadMessages || 0) > 0 && !selected && "bg-[#fffbf5]",
-        nested && "bg-[#f7f7f7] hover:bg-[#f0f0f0]",
-        nested && selected && "bg-[#eef5ff]",
+        "flex w-full border-b border-line hover:bg-wash",
+        selected && "bg-progress-bg",
+        (c.unreadMessages || 0) > 0 && !selected && "bg-open-bg/40",
+        nested && "bg-wash hover:bg-wash",
+        nested && selected && "bg-progress-bg",
       )}
     >
       <button
@@ -493,7 +572,7 @@ function InboxConversationRow({
         <UserAvatar name={name} src={publicMediaUrl(profilePicUrl ?? c.contact?.profilePicUrl)} size="sm" />
         {c.user?.name ? (
           <span
-            className="absolute -bottom-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-navy text-[8px] font-bold text-white ring-2 ring-white"
+            className="absolute -bottom-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-inverse text-[8px] font-bold text-on-inverse ring-2 ring-white"
             title={c.user.name}
           >
             {c.user.name.slice(0, 1).toUpperCase()}
@@ -513,7 +592,7 @@ function InboxConversationRow({
           </span>
           {grouped ? (
             <span
-              className="shrink-0 rounded-full bg-[#eef2ff] px-1.5 py-0.5 text-[10px] font-semibold text-brand"
+              className="shrink-0 rounded-full bg-progress-bg px-1.5 py-0.5 text-[10px] font-semibold text-brand"
               title={`${sessionCount} atendimentos neste número`}
               onClick={(e) => {
                 if (!onToggleExpand) return;
@@ -551,7 +630,7 @@ function InboxConversationRow({
             queue.id === "none" ? (
               <span
                 key="none"
-                className="rounded bg-[#f3f4f6] px-1.5 py-0.5 text-[10px] font-bold uppercase text-muted"
+                className="rounded bg-wash px-1.5 py-0.5 text-[10px] font-bold uppercase text-muted"
               >
                 Sem fila
               </span>
@@ -584,12 +663,12 @@ function InboxConversationRow({
           {chipItem.label}
         </span>
         {c.status === "closed" && c.rating?.answered ? (
-          <span className="ml-1 inline-flex items-center gap-0.5 rounded bg-[#fff8df] px-1.5 py-0.5 text-[10px] font-semibold text-[#765a00]">
+          <span className="ml-1 inline-flex items-center gap-0.5 rounded bg-open-bg/50 px-1.5 py-0.5 text-[10px] font-semibold text-open">
             <Star className="h-3 w-3 fill-[#f6b91a] text-[#f6b91a]" />
             {c.rating.score}/5
           </span>
         ) : c.status === "closed" && c.rating ? (
-          <span className="ml-1 inline-flex rounded bg-[#f3f4f6] px-1.5 py-0.5 text-[10px] text-muted">
+          <span className="ml-1 inline-flex rounded bg-wash px-1.5 py-0.5 text-[10px] text-muted">
             Aguardando avaliação
           </span>
         ) : null}
@@ -609,7 +688,7 @@ function InboxConversationRow({
           aria-label={expanded ? "Ocultar atendimentos deste número" : "Ver atendimentos deste número"}
           title={expanded ? "Ocultar atendimentos" : "Ver atendimentos"}
           onClick={onToggleExpand}
-          className="mr-2 mt-3 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-muted hover:bg-[#ececec] hover:text-ink"
+          className="mr-2 mt-3 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-muted hover:bg-line hover:text-ink"
         >
           <ChevronDown className={cn("h-3.5 w-3.5 transition-transform", expanded && "rotate-180")} />
         </button>
@@ -1155,7 +1234,9 @@ export function HelpdeskWorkspace() {
       const previous = qc.getQueryData<MessagesCache>(["hd-messages", vars.ticketId]);
       const tempId = `temp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       const mediaType = vars.file.type || "application/octet-stream";
-      const objectUrl = mediaType.startsWith("image/") ? URL.createObjectURL(vars.file) : null;
+      const objectUrl = isInlinePlayableMedia(mediaType, vars.file.name)
+        ? URL.createObjectURL(vars.file)
+        : null;
       const optimistic: HelpdeskMessage = {
         id: tempId,
         body: vars.body || vars.file.name,
@@ -1435,8 +1516,8 @@ export function HelpdeskWorkspace() {
   return (
     <div className="relative flex h-0 min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
       <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
-        <aside className="flex min-h-0 w-[340px] shrink-0 flex-col overflow-hidden border-r border-[#ececec]">
-          <div className="flex items-center justify-between gap-2 border-b border-[#ececec] px-3 py-2">
+        <aside className="flex min-h-0 w-[340px] shrink-0 flex-col overflow-hidden border-r border-line">
+          <div className="flex items-center justify-between gap-2 border-b border-line px-3 py-2">
             <span
               className={cn(
                 "inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase",
@@ -1456,7 +1537,7 @@ export function HelpdeskWorkspace() {
               </Link>
             ) : null}
           </div>
-          <div className="flex border-b border-[#ececec]">
+          <div className="flex border-b border-line">
             {TAB_META.map((t) => {
               const count = t.key === "open" ? counts.open : t.key === "pending" ? counts.pending : counts.closed;
               const active = tab === t.key;
@@ -1486,7 +1567,7 @@ export function HelpdeskWorkspace() {
             })}
           </div>
 
-          <div className="border-b border-[#ececec] px-3 py-2">
+          <div className="border-b border-line px-3 py-2">
             <button
               type="button"
               onClick={() => setNewConversationOpen(true)}
@@ -1499,7 +1580,7 @@ export function HelpdeskWorkspace() {
           </div>
 
           <div className="px-3 py-2">
-            <label className="flex items-center gap-2 rounded-lg border border-line bg-[#fafafa] px-2 py-1.5">
+            <label className="flex items-center gap-2 rounded-lg border border-line bg-wash px-2 py-1.5">
               <Search className="h-3.5 w-3.5 shrink-0 text-muted" />
               <input
                 value={search}
@@ -1510,16 +1591,16 @@ export function HelpdeskWorkspace() {
             </label>
           </div>
 
-          <div className="space-y-2 border-b border-[#ececec] px-3 pb-3">
+          <div className="space-y-2 border-b border-line px-3 pb-3">
             <div>
               <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted">Atribuição</p>
-              <div className="grid grid-cols-2 gap-1 rounded-lg border border-line bg-[#f3f4f6] p-0.5">
+              <div className="grid grid-cols-2 gap-1 rounded-lg border border-line bg-wash p-0.5">
                 <button
                   type="button"
                   onClick={() => setMineOnly(true)}
                   className={cn(
                     "rounded-md px-2 py-1.5 text-[11px] font-semibold transition-colors",
-                    mineOnly ? "bg-navy text-white shadow-sm" : "text-muted hover:text-ink",
+                    mineOnly ? "bg-inverse text-on-inverse shadow-sm" : "text-muted hover:text-ink",
                   )}
                   title={
                     tab === "pending"
@@ -1562,7 +1643,7 @@ export function HelpdeskWorkspace() {
                   value={queueFilterValue}
                   onChange={(e) => setQueueFilter(e.target.value)}
                   className={cn(
-                    "w-full appearance-none rounded-lg border border-line bg-[#fafafa] py-2 pr-14 text-xs font-medium text-ink outline-none focus:border-brand",
+                    "w-full appearance-none rounded-lg border border-line bg-wash py-2 pr-14 text-xs font-medium text-ink outline-none focus:border-brand",
                     selectedQueueMeta?.color || queueFilterValue === "none" ? "pl-6" : "pl-2.5",
                   )}
                 >
@@ -1577,7 +1658,7 @@ export function HelpdeskWorkspace() {
                   ))}
                 </select>
                 <span className="pointer-events-none absolute right-2 top-1/2 flex -translate-y-1/2 items-center gap-1">
-                  <span className="rounded-full bg-[#eef2ff] px-1.5 py-0.5 text-[10px] font-semibold text-brand">
+                  <span className="rounded-full bg-progress-bg px-1.5 py-0.5 text-[10px] font-semibold text-brand">
                     {queueFilterCount}
                   </span>
                   <ChevronDown className="h-3.5 w-3.5 text-muted" />
@@ -1669,13 +1750,13 @@ export function HelpdeskWorkspace() {
           </div>
         </aside>
 
-        <section className="flex min-h-0 min-w-0 flex-1 basis-0 flex-col overflow-hidden bg-[#efeae2]">
+        <section className="flex min-h-0 min-w-0 flex-1 basis-0 flex-col overflow-hidden bg-chat">
           {current ? (
             <div
               key={current.id}
               className="flex min-h-0 flex-1 basis-0 flex-col overflow-hidden"
             >
-              <header className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-2 border-b border-[#e6e0d6] bg-white px-4 py-2.5">
+              <header className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-2 border-b border-chat-border bg-surface px-4 py-2.5">
                 <div className="flex min-w-0 flex-1 basis-44 flex-col gap-1 overflow-hidden">
                   <button
                     type="button"
@@ -1710,7 +1791,7 @@ export function HelpdeskWorkspace() {
                     <button
                       type="button"
                       onClick={() => assume.mutate(current.id)}
-                      className="inline-flex items-center gap-1 rounded-lg border border-line px-3 py-1.5 text-xs font-medium text-ink hover:bg-[#f7f7f7]"
+                      className="inline-flex items-center gap-1 rounded-lg border border-line px-3 py-1.5 text-xs font-medium text-ink hover:bg-wash"
                     >
                       <Hand className="h-3.5 w-3.5 shrink-0" />
                       Assumir
@@ -1720,7 +1801,7 @@ export function HelpdeskWorkspace() {
                     <button
                       type="button"
                       onClick={() => setTransferOpen(true)}
-                      className="inline-flex items-center gap-1 rounded-lg border border-line px-3 py-1.5 text-xs font-medium text-ink hover:bg-[#f7f7f7]"
+                      className="inline-flex items-center gap-1 rounded-lg border border-line px-3 py-1.5 text-xs font-medium text-ink hover:bg-wash"
                     >
                       <ArrowLeftRight className="h-3.5 w-3.5 shrink-0" />
                       Transferir
@@ -1730,7 +1811,7 @@ export function HelpdeskWorkspace() {
                     <button
                       type="button"
                       onClick={() => giveBack.mutate(current.id)}
-                      className="inline-flex items-center gap-1 rounded-lg border border-line px-3 py-1.5 text-xs font-medium text-ink hover:bg-[#f7f7f7]"
+                      className="inline-flex items-center gap-1 rounded-lg border border-line px-3 py-1.5 text-xs font-medium text-ink hover:bg-wash"
                     >
                       <Undo2 className="h-3.5 w-3.5 shrink-0" />
                       Devolver
@@ -1745,7 +1826,7 @@ export function HelpdeskWorkspace() {
                         );
                         setCreateOpen(true);
                       }}
-                      className="inline-flex items-center gap-1 rounded-lg border border-line px-3 py-1.5 text-xs font-medium text-ink hover:bg-[#f7f7f7]"
+                      className="inline-flex items-center gap-1 rounded-lg border border-line px-3 py-1.5 text-xs font-medium text-ink hover:bg-wash"
                     >
                       <Ticket className="h-3.5 w-3.5 shrink-0" />
                       Abrir chamado
@@ -1765,7 +1846,7 @@ export function HelpdeskWorkspace() {
                   <button
                     type="button"
                     onClick={() => setContactOpen(true)}
-                    className="rounded-lg p-1.5 text-muted hover:bg-[#f5f5f5]"
+                    className="rounded-lg p-1.5 text-muted hover:bg-wash"
                     title="Dados do contato"
                     aria-label="Dados do contato"
                   >
@@ -1775,10 +1856,10 @@ export function HelpdeskWorkspace() {
               </header>
 
               {current.status === "closed" && current.rating ? (
-                <div className="flex shrink-0 items-center justify-between gap-3 border-b border-[#e6e0d6] bg-[#fffdf5] px-4 py-2 text-xs">
+                <div className="flex shrink-0 items-center justify-between gap-3 border-b border-chat-border bg-open-bg/30 px-4 py-2 text-xs">
                   {current.rating.answered ? (
                     <div className="min-w-0">
-                      <span className="inline-flex items-center gap-1 font-semibold text-[#765a00]">
+                      <span className="inline-flex items-center gap-1 font-semibold text-open">
                         <Star className="h-4 w-4 fill-[#f6b91a] text-[#f6b91a]" />
                         Atendimento avaliado com {current.rating.score}/5
                       </span>
@@ -1825,7 +1906,7 @@ export function HelpdeskWorkspace() {
                   <div key={group.day}>
                     {group.day ? (
                       <p className="mb-3 text-center">
-                        <span className="rounded-full bg-white/80 px-3 py-1 text-[11px] text-muted shadow-sm">{group.day}</span>
+                        <span className="rounded-full bg-surface/80 px-3 py-1 text-[11px] text-muted shadow-sm">{group.day}</span>
                       </p>
                     ) : null}
                     {group.items.map((m, idx) => {
@@ -1837,10 +1918,10 @@ export function HelpdeskWorkspace() {
                             className={cn(
                               "max-w-[75%] rounded-lg px-3 py-1.5 text-sm shadow-sm",
                               system
-                                ? "bg-[#d1ecf1] text-center text-xs text-[#0c5460]"
+                                ? "bg-note text-center text-xs text-note-fg"
                                 : mine
-                                  ? "rounded-tr-none bg-[#d9fdd3] text-ink"
-                                  : "rounded-tl-none bg-white text-ink",
+                                  ? "rounded-tr-none bg-bubble-out text-ink"
+                                  : "rounded-tl-none bg-bubble-in text-ink",
                             )}
                           >
                             {system ? <p className="mb-1 text-[10px] font-semibold uppercase">Nota interna</p> : null}
@@ -1848,27 +1929,14 @@ export function HelpdeskWorkspace() {
                               <p className="mb-1 border-l-2 border-brand/50 pl-2 text-[11px] text-muted">{snippet(m.quotedMsg.body)}</p>
                             ) : null}
                             {m.mediaUrl ? (
-                              m.mediaType?.startsWith("image") ? (
-                                // eslint-disable-next-line @next/next/no-img-element
-                                <img
-                                  src={publicMediaUrl(m.mediaUrl) || m.mediaUrl}
-                                  alt=""
-                                  className="mb-1 block max-h-56 max-w-full rounded-md object-contain"
-                                  onLoad={() => {
-                                    const el = threadRef.current;
-                                    if (el) el.scrollTop = el.scrollHeight;
-                                  }}
-                                />
-                              ) : (
-                                <a
-                                  href={publicMediaUrl(m.mediaUrl) || m.mediaUrl}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  className="mb-1 block text-xs text-brand underline"
-                                >
-                                  Abrir anexo
-                                </a>
-                              )
+                              <ThreadMedia
+                                mediaUrl={m.mediaUrl}
+                                mediaType={m.mediaType}
+                                onReady={() => {
+                                  const el = threadRef.current;
+                                  if (el) el.scrollTop = el.scrollHeight;
+                                }}
+                              />
                             ) : null}
                             {m.body ? <p className="whitespace-pre-wrap break-words">{m.body}</p> : null}
                             <p className="mt-0.5 text-right text-[10px] text-muted">{formatClock(m.createdAt)}</p>
@@ -1882,7 +1950,7 @@ export function HelpdeskWorkspace() {
 
               {canReply ? (
                 <form
-                  className="relative shrink-0 border-t border-[#e6e0d6] bg-[#f0f2f5] px-3 py-2"
+                  className="relative shrink-0 border-t border-chat-border bg-chat-composer px-3 py-2"
                   onSubmit={(e) => {
                     e.preventDefault();
                     if (send.isPending || !activeId || !text.trim()) return;
@@ -1899,12 +1967,12 @@ export function HelpdeskWorkspace() {
                   }}
                 >
                   {quickMatches.length ? (
-                    <div className="absolute inset-x-3 bottom-full z-10 mb-1 max-h-48 overflow-y-auto rounded-lg border border-line bg-white py-1 shadow-lg">
+                    <div className="absolute inset-x-3 bottom-full z-10 mb-1 max-h-48 overflow-y-auto rounded-lg border border-line bg-surface py-1 shadow-lg">
                       {quickMatches.map((item) => (
                         <button
                           key={item.id}
                           type="button"
-                          className="block w-full px-3 py-2 text-left hover:bg-[#f7f7f7]"
+                          className="block w-full px-3 py-2 text-left hover:bg-wash"
                           onClick={() => insertQuick(item)}
                         >
                           <span className="text-xs font-semibold text-brand">/{item.shortcode}</span>
@@ -1993,7 +2061,7 @@ export function HelpdeskWorkspace() {
                         width={220}
                         onClose={() => setAiMenuAnchor(null)}
                       >
-                        <div className="border-b border-[#e5e7eb] px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted">
+                        <div className="border-b border-line px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted">
                           Copiloto
                         </div>
                         <AiMenuItem
@@ -2060,14 +2128,14 @@ export function HelpdeskWorkspace() {
                         setText(e.target.value);
                         if (!e.target.value.startsWith("/")) setQuickOpen(false);
                       }}
-                      className="flex-1 rounded-lg border-0 bg-white px-3 py-2 text-sm shadow-sm"
+                      className="flex-1 rounded-lg border-0 bg-surface px-3 py-2 text-sm shadow-sm"
                       placeholder={isInternal ? "Nota interna (não vai para o WhatsApp)" : "Digite uma mensagem ou /atalho"}
                       autoComplete="off"
                     />
                     <button
                       type="button"
                       onClick={() => setIsInternal((v) => !v)}
-                      className={cn("rounded-md p-1.5", isInternal ? "bg-[#d1ecf1] text-[#0c5460]" : "text-muted hover:text-ink")}
+                      className={cn("rounded-md p-1.5", isInternal ? "bg-note text-note-fg" : "text-muted hover:text-ink")}
                       title="Mensagem interna"
                     >
                       <Lock className="h-4 w-4" />
@@ -2075,7 +2143,7 @@ export function HelpdeskWorkspace() {
                     <button
                       type="button"
                       onClick={() => setSign((v) => !v)}
-                      className={cn("rounded-md p-1.5", sign ? "bg-[#eef5ff] text-brand" : "text-muted hover:text-ink")}
+                      className={cn("rounded-md p-1.5", sign ? "bg-progress-bg text-brand" : "text-muted hover:text-ink")}
                       title={sign ? "Assinatura ligada" : "Assinatura desligada"}
                     >
                       <PenLine className="h-4 w-4" />
@@ -2091,7 +2159,7 @@ export function HelpdeskWorkspace() {
                   </div>
                 </form>
               ) : (
-                <div className="flex shrink-0 items-center justify-center gap-3 border-t border-[#e6e0d6] bg-white px-4 py-3 text-xs text-muted">
+                <div className="flex shrink-0 items-center justify-center gap-3 border-t border-chat-border bg-surface px-4 py-3 text-xs text-muted">
                   {current.status === "closed" ? (
                     <>
                       <span>Conversa finalizada — somente leitura</span>
@@ -2099,7 +2167,7 @@ export function HelpdeskWorkspace() {
                         type="button"
                         onClick={() => reopen.mutate(current.id)}
                         disabled={reopen.isPending}
-                        className="inline-flex items-center gap-1 rounded-lg border border-line px-3 py-1.5 text-xs font-medium text-ink hover:bg-[#f7f7f7] disabled:opacity-40"
+                        className="inline-flex items-center gap-1 rounded-lg border border-line px-3 py-1.5 text-xs font-medium text-ink hover:bg-wash disabled:opacity-40"
                       >
                         <RotateCcw className="h-3.5 w-3.5" />
                         {reopen.isPending ? "Reabrindo…" : "Reabrir"}
@@ -2320,7 +2388,7 @@ function AiMenuItem({
       role="menuitem"
       onClick={onClick}
       disabled={disabled}
-      className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-ink hover:bg-[#f5f5f5] disabled:cursor-not-allowed disabled:opacity-40"
+      className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-ink hover:bg-wash disabled:cursor-not-allowed disabled:opacity-40"
     >
       {pending ? (
         <LoaderCircle className="h-3.5 w-3.5 shrink-0 animate-spin" />
@@ -2376,7 +2444,7 @@ function AiSources({ sources }: { sources: HelpdeskAiSource[] }) {
                 {label}
               </Link>
             ) : (
-              <span key={`${label}-${index}`} className="rounded-full bg-[#f3f4f6] px-2 py-1 text-[11px] text-muted">
+              <span key={`${label}-${index}`} className="rounded-full bg-wash px-2 py-1 text-[11px] text-muted">
                 {label}
               </span>
             );
@@ -2403,7 +2471,7 @@ function AiDraftPanel({
   onClose: () => void;
 }) {
   return (
-    <div className="mb-2 rounded-xl border border-[#cbd8ed] bg-white p-3 shadow-sm">
+    <div className="mb-2 rounded-xl border border-progress/30 bg-surface p-3 shadow-sm">
       <div className="flex items-center justify-between gap-2">
         <p className="flex items-center gap-1.5 text-xs font-semibold text-navy">
           <Bot className="h-4 w-4 text-brand" />
@@ -2435,7 +2503,7 @@ function AiDraftPanel({
         </>
       ) : (
         <>
-          <div className="mt-2 rounded-lg bg-[#f8fafc] p-3 text-xs text-ink">
+          <div className="mt-2 rounded-lg bg-wash p-3 text-xs text-ink">
             <p className="font-semibold">{result.ticket.title || "Chamado sem título"}</p>
             <p className="mt-1 whitespace-pre-wrap text-muted">{result.ticket.description || "Sem descrição"}</p>
             {result.ticket.solicitante ? <p className="mt-2 text-muted">Solicitante: {result.ticket.solicitante}</p> : null}
@@ -2561,7 +2629,7 @@ function NewConversationDialog({
           Escolha um contato existente ou cadastre um número novo para abrir o atendimento no WhatsApp.
         </p>
 
-        <div className="flex rounded-lg border border-line bg-[#f3f4f6] p-0.5">
+        <div className="flex rounded-lg border border-line bg-wash p-0.5">
           <button
             type="button"
             onClick={() => {
@@ -2570,7 +2638,7 @@ function NewConversationDialog({
             }}
             className={cn(
               "flex-1 rounded-md px-2 py-1.5 text-xs font-semibold uppercase tracking-wide",
-              mode === "pick" ? "bg-white text-navy shadow-sm" : "text-muted hover:text-ink",
+              mode === "pick" ? "bg-surface text-navy shadow-sm" : "text-muted hover:text-ink",
             )}
           >
             Contatos
@@ -2583,7 +2651,7 @@ function NewConversationDialog({
             }}
             className={cn(
               "flex-1 rounded-md px-2 py-1.5 text-xs font-semibold uppercase tracking-wide",
-              mode === "create" ? "bg-white text-navy shadow-sm" : "text-muted hover:text-ink",
+              mode === "create" ? "bg-surface text-navy shadow-sm" : "text-muted hover:text-ink",
             )}
           >
             Novo contato
@@ -2596,7 +2664,7 @@ function NewConversationDialog({
             <select
               value={whatsappId}
               onChange={(e) => setWhatsappId(e.target.value)}
-              className="mt-1 w-full border-0 border-b border-[#d7d7d7] bg-transparent py-2 text-[15px]"
+              className="mt-1 w-full border-0 border-b border-line bg-transparent py-2 text-[15px]"
             >
               <option value="">Padrão do agente</option>
               {connections.map((c) => (
@@ -2612,7 +2680,7 @@ function NewConversationDialog({
             <select
               value={queueId}
               onChange={(e) => setQueueId(e.target.value)}
-              className="mt-1 w-full border-0 border-b border-[#d7d7d7] bg-transparent py-2 text-[15px]"
+              className="mt-1 w-full border-0 border-b border-line bg-transparent py-2 text-[15px]"
             >
               <option value="">Sem fila</option>
               {queues.map((q) => (
@@ -2626,7 +2694,7 @@ function NewConversationDialog({
 
         {mode === "pick" ? (
           <div className="space-y-3">
-            <label className="flex items-center gap-2 rounded-lg border border-line bg-[#fafafa] px-2 py-1.5">
+            <label className="flex items-center gap-2 rounded-lg border border-line bg-wash px-2 py-1.5">
               <Search className="h-3.5 w-3.5 text-muted" />
               <input
                 value={contactSearch}
@@ -2661,7 +2729,7 @@ function NewConversationDialog({
                     type="button"
                     disabled={busyId != null}
                     onClick={() => startWithContact(contact)}
-                    className="flex w-full items-center gap-3 px-3 py-2.5 text-left hover:bg-[#f7f7f7] disabled:opacity-60"
+                    className="flex w-full items-center gap-3 px-3 py-2.5 text-left hover:bg-wash disabled:opacity-60"
                   >
                     <UserAvatar
                       name={contact.name || contact.number || "?"}
@@ -2697,7 +2765,7 @@ function NewConversationDialog({
               <input
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                className="mt-1 w-full border-0 border-b border-[#d7d7d7] bg-transparent py-2 text-[15px] outline-none"
+                className="mt-1 w-full border-0 border-b border-line bg-transparent py-2 text-[15px] outline-none"
                 placeholder="Nome do contato"
                 autoFocus
               />
@@ -2709,7 +2777,7 @@ function NewConversationDialog({
               <input
                 value={number}
                 onChange={(e) => setNumber(e.target.value)}
-                className="mt-1 w-full border-0 border-b border-[#d7d7d7] bg-transparent py-2 text-[15px] outline-none"
+                className="mt-1 w-full border-0 border-b border-line bg-transparent py-2 text-[15px] outline-none"
                 placeholder="5511999999999"
                 inputMode="tel"
               />
@@ -2760,7 +2828,7 @@ function TransferDialog({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4" onClick={onClose}>
-      <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+      <div className="w-full max-w-md rounded-2xl bg-surface p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
         <h2 className="text-lg font-semibold text-navy">Transferir</h2>
         <p className="mt-1 text-sm text-muted">Mova a conversa para outro agente e/ou outra fila.</p>
         <form
@@ -2779,7 +2847,7 @@ function TransferDialog({
             <select
               value={userId}
               onChange={(e) => setUserId(e.target.value)}
-              className="mt-1 w-full border-0 border-b border-[#d7d7d7] bg-transparent py-2 text-[15px]"
+              className="mt-1 w-full border-0 border-b border-line bg-transparent py-2 text-[15px]"
             >
               <option value="">Manter / não atribuir</option>
               {assignees.map((a) => (
@@ -2794,7 +2862,7 @@ function TransferDialog({
             <select
               value={queueId}
               onChange={(e) => setQueueId(e.target.value)}
-              className="mt-1 w-full border-0 border-b border-[#d7d7d7] bg-transparent py-2 text-[15px]"
+              className="mt-1 w-full border-0 border-b border-line bg-transparent py-2 text-[15px]"
             >
               <option value="">Manter fila atual</option>
               {queues.map((q) => (
@@ -2831,7 +2899,7 @@ function ConversationHistoryStrip({
   onOpen: (id: number) => void;
 }) {
   return (
-    <div className="shrink-0 border-b border-[#e6e0d6] bg-[#faf8f4] px-4 py-2">
+    <div className="shrink-0 border-b border-chat-border bg-wash px-4 py-2">
       <p className="mb-1.5 inline-flex items-center gap-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-muted">
         <History className="h-3 w-3" />
         Histórico
@@ -2842,7 +2910,7 @@ function ConversationHistoryStrip({
             key={item.id}
             type="button"
             onClick={() => onOpen(item.id)}
-            className="min-w-[11rem] max-w-[14rem] shrink-0 rounded-lg border border-[#e6e0d6] bg-white px-2.5 py-1.5 text-left hover:border-brand/40"
+            className="min-w-[11rem] max-w-[14rem] shrink-0 rounded-lg border border-chat-border bg-surface px-2.5 py-1.5 text-left hover:border-brand/40"
             title="Ver mensagens deste ciclo"
           >
             <span className="flex items-center justify-between gap-2 text-[11px] font-semibold text-ink">
@@ -2903,12 +2971,13 @@ function HistoryMessagesModal({
                 className={cn(
                   "max-w-[80%] rounded-lg px-3 py-1.5 text-sm",
                   system
-                    ? "bg-[#d1ecf1] text-center text-xs text-[#0c5460]"
+                    ? "bg-note text-center text-xs text-note-fg"
                     : mine
-                      ? "bg-[#d9fdd3] text-ink"
-                      : "bg-[#f5f5f5] text-ink",
+                      ? "bg-bubble-out text-ink"
+                      : "bg-wash text-ink",
                 )}
               >
+                {m.mediaUrl ? <ThreadMedia mediaUrl={m.mediaUrl} mediaType={m.mediaType} /> : null}
                 {m.body ? <p className="whitespace-pre-wrap break-words">{m.body}</p> : null}
                 <p className="mt-0.5 text-right text-[10px] text-muted">
                   {formatDay(m.createdAt)} {formatClock(m.createdAt)}
@@ -3027,8 +3096,8 @@ function ContactDrawer({
   }
 
   return (
-    <aside className="flex min-h-0 w-[320px] shrink-0 flex-col overflow-hidden border-l border-[#ececec] bg-white">
-      <div className="flex shrink-0 items-center justify-between border-b border-[#ececec] px-4 py-3">
+    <aside className="flex min-h-0 w-[320px] shrink-0 flex-col overflow-hidden border-l border-line bg-surface">
+      <div className="flex shrink-0 items-center justify-between border-b border-line px-4 py-3">
         <p className="flex items-center gap-2 text-sm font-semibold text-navy">
           <UserRound className="h-4 w-4" />
           Contato
@@ -3070,7 +3139,7 @@ function ContactDrawer({
           <input
             value={name}
             onChange={(e) => setName(e.target.value)}
-            className="mt-1 w-full border-0 border-b border-[#d7d7d7] py-2 text-sm"
+            className="mt-1 w-full border-0 border-b border-line py-2 text-sm"
           />
         </label>
         <label className="block">
@@ -3078,7 +3147,7 @@ function ContactDrawer({
           <input
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            className="mt-1 w-full border-0 border-b border-[#d7d7d7] py-2 text-sm"
+            className="mt-1 w-full border-0 border-b border-line py-2 text-sm"
           />
         </label>
         <label className="block">
@@ -3087,11 +3156,11 @@ function ContactDrawer({
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
             rows={5}
-            className="mt-1 w-full resize-y border-0 border-b border-[#d7d7d7] py-2 text-sm"
+            className="mt-1 w-full resize-y border-0 border-b border-line py-2 text-sm"
           />
         </label>
 
-        <div className="space-y-2 border-t border-[#ececec] pt-4">
+        <div className="space-y-2 border-t border-line pt-4">
           <span className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted">
             Cliente do Uniplus
           </span>
@@ -3119,7 +3188,7 @@ function ContactDrawer({
                   onChange={(e) => setClientQ(e.target.value)}
                   placeholder="Digite nome, documento ou telefone…"
                   autoComplete="off"
-                  className="mt-1 w-full rounded-lg border border-line bg-white px-3 py-2 text-sm outline-none focus:border-brand"
+                  className="mt-1 w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm outline-none focus:border-brand"
                 />
               </label>
               {!clientQ.trim() ? (
@@ -3132,14 +3201,14 @@ function ContactDrawer({
               ) : clients.error ? (
                 <p className="text-xs text-open">{(clients.error as Error).message}</p>
               ) : (clients.data?.items || []).length ? (
-                <div className="max-h-52 space-y-1 overflow-y-auto rounded-lg border border-line bg-white p-1">
+                <div className="max-h-52 space-y-1 overflow-y-auto rounded-lg border border-line bg-surface p-1">
                   {(clients.data?.items || []).map((client) => (
                     <button
                       key={client.id}
                       type="button"
                       disabled={linkBusy || !conversation.contact?.id}
                       onClick={() => void linkClient(client)}
-                      className="flex w-full items-center justify-between gap-3 rounded-md px-2.5 py-2 text-left hover:bg-[#f5f7fa] disabled:opacity-40"
+                      className="flex w-full items-center justify-between gap-3 rounded-md px-2.5 py-2 text-left hover:bg-wash disabled:opacity-40"
                     >
                       <span className="min-w-0">
                         <span className="block truncate text-sm font-medium text-ink">{client.name}</span>

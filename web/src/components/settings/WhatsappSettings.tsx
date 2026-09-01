@@ -93,7 +93,7 @@ function statusClass(status?: string) {
   const s = (status || "").toLowerCase();
   if (s === "connected") return "bg-done-bg text-done";
   if (s === "qrcode" || s === "opening") return "bg-progress-bg text-progress";
-  return "bg-[#f3f4f6] text-muted";
+  return "bg-wash text-muted";
 }
 
 function TextArea({
@@ -117,7 +117,7 @@ function TextArea({
         placeholder={placeholder}
         onChange={(e) => onChange(e.target.value)}
         rows={4}
-        className="mt-1 w-full resize-y border-0 border-b border-[#d7d7d7] bg-transparent py-2 text-[15px] text-ink placeholder:text-[#c5c5c5]"
+        className="mt-1 w-full resize-y border-0 border-b border-line bg-transparent py-2 text-[15px] text-ink placeholder:text-muted"
       />
       {hint ? <p className="mt-1 text-xs italic text-muted">{hint}</p> : null}
     </label>
@@ -147,7 +147,7 @@ function QueueChips({
             onClick={() => onToggle(q.id)}
             className={cn(
               "rounded-full border px-3 py-1 text-xs font-semibold uppercase",
-              on ? "border-transparent text-white" : "border-line bg-white text-muted",
+              on ? "border-transparent text-white" : "border-line bg-surface text-muted",
             )}
             style={on ? { background: q.color || "#3b82f6" } : undefined}
           >
@@ -429,10 +429,10 @@ function QuickMessagesPanel() {
   return (
     <div>
       <p className="mb-4 text-sm text-muted">
-        Atalhos pessoais para o composer. No chat, digite <code className="rounded bg-[#f3f4f6] px-1">/</code> ou use o botão de mensagens rápidas.
+        Atalhos pessoais para o composer. No chat, digite <code className="rounded bg-wash px-1">/</code> ou use o botão de mensagens rápidas.
       </p>
       <form
-        className="mb-6 space-y-4 rounded-xl border border-[#eee] p-4"
+        className="mb-6 space-y-4 rounded-xl border border-line p-4"
         onSubmit={(e) => {
           e.preventDefault();
           if (shortcode.trim() && message.trim()) save.mutate();
@@ -473,7 +473,7 @@ function QuickMessagesPanel() {
       ) : (
         <ul className="space-y-2">
           {(list.data || []).map((item) => (
-            <li key={item.id} className="flex items-start justify-between gap-3 rounded-xl border border-[#eee] px-4 py-3">
+            <li key={item.id} className="flex items-start justify-between gap-3 rounded-xl border border-line px-4 py-3">
               <div className="min-w-0">
                 <p className="text-sm font-semibold text-ink">/{item.shortcode}</p>
                 <p className="mt-1 whitespace-pre-wrap text-sm text-muted">{item.message}</p>
@@ -481,7 +481,7 @@ function QuickMessagesPanel() {
               <div className="flex shrink-0 gap-1">
                 <button
                   type="button"
-                  className="rounded-lg p-1.5 text-muted hover:bg-[#f5f5f5]"
+                  className="rounded-lg p-1.5 text-muted hover:bg-wash"
                   onClick={() => {
                     setEditing(item);
                     setShortcode(item.shortcode);
@@ -617,7 +617,7 @@ export function WhatsappSettings({ section, onSection }: { section: WhatsappSect
           ) : (
             <ul className="space-y-2">
               {queueList.map((q) => (
-                <li key={q.id} className="flex items-start justify-between gap-3 rounded-xl border border-[#eee] px-4 py-3">
+                <li key={q.id} className="flex items-start justify-between gap-3 rounded-xl border border-line px-4 py-3">
                   <div className="min-w-0">
                     <div className="flex items-center gap-2">
                       <span className="h-3 w-3 rounded-full" style={{ background: q.color || "#3b82f6" }} />
@@ -632,7 +632,7 @@ export function WhatsappSettings({ section, onSection }: { section: WhatsappSect
                     <p className="truncate text-xs text-muted">{scheduleSummary(q.schedules)}</p>
                   </div>
                   <div className="flex shrink-0 gap-1">
-                    <button type="button" className="rounded-lg p-1.5 text-muted hover:bg-[#f5f5f5]" onClick={() => setQueueEdit(q)}>
+                    <button type="button" className="rounded-lg p-1.5 text-muted hover:bg-wash" onClick={() => setQueueEdit(q)}>
                       <Pencil className="h-4 w-4" />
                     </button>
                     <button
@@ -666,7 +666,7 @@ export function WhatsappSettings({ section, onSection }: { section: WhatsappSect
                 const selected = draftQueues[agent.id] || [];
                 const dirty = JSON.stringify(selected) !== JSON.stringify((agent.queues || []).map((q) => q.id));
                 return (
-                  <li key={agent.id} className="rounded-xl border border-[#eee] px-4 py-3">
+                  <li key={agent.id} className="rounded-xl border border-line px-4 py-3">
                     <div className="mb-3 flex items-center justify-between gap-3">
                       <div>
                         <p className="text-sm font-semibold text-ink">{agent.name}</p>
@@ -679,7 +679,7 @@ export function WhatsappSettings({ section, onSection }: { section: WhatsappSect
                         type="button"
                         disabled={!dirty || saveAgent.isPending}
                         onClick={() => saveAgent.mutate({ id: agent.id, queueIds: selected })}
-                        className="rounded-lg bg-[#2c2c2c] px-3 py-1.5 text-xs font-medium text-white disabled:opacity-40"
+                        className="rounded-lg bg-inverse px-3 py-1.5 text-xs font-medium text-on-inverse disabled:opacity-40"
                       >
                         {saveAgent.isPending ? "Salvando…" : "Salvar filas"}
                       </button>
@@ -729,7 +729,7 @@ export function WhatsappSettings({ section, onSection }: { section: WhatsappSect
           ) : (
             <ul className="space-y-2">
               {(connections.data || []).map((c) => (
-                <li key={c.id} className="rounded-xl border border-[#eee] px-4 py-3">
+                <li key={c.id} className="rounded-xl border border-line px-4 py-3">
                   <div className="flex items-start justify-between gap-3">
                     <div>
                       <p className="text-sm font-semibold text-ink">{c.name}</p>
@@ -761,13 +761,13 @@ export function WhatsappSettings({ section, onSection }: { section: WhatsappSect
                       >
                         <QrCode className="h-4 w-4" />
                       </button>
-                      <button type="button" title="Editar" onClick={() => setConnEdit(c)} className="rounded-lg p-1.5 text-muted hover:bg-[#f5f5f5]">
+                      <button type="button" title="Editar" onClick={() => setConnEdit(c)} className="rounded-lg p-1.5 text-muted hover:bg-wash">
                         <Pencil className="h-4 w-4" />
                       </button>
-                      <button type="button" title="Reiniciar" onClick={() => restart.mutate(c.id)} className="rounded-lg p-1.5 text-muted hover:bg-[#f5f5f5]">
+                      <button type="button" title="Reiniciar" onClick={() => restart.mutate(c.id)} className="rounded-lg p-1.5 text-muted hover:bg-wash">
                         <RefreshCw className="h-4 w-4" />
                       </button>
-                      <button type="button" title="Desconectar" onClick={() => logout.mutate(c.id)} className="rounded-lg p-1.5 text-muted hover:bg-[#f5f5f5]">
+                      <button type="button" title="Desconectar" onClick={() => logout.mutate(c.id)} className="rounded-lg p-1.5 text-muted hover:bg-wash">
                         <PlugZap className="h-4 w-4" />
                       </button>
                       <button

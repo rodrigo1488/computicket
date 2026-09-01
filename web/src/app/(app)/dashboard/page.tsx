@@ -158,12 +158,26 @@ function ErrorState({ title, error, onRetry }: { title: string; error: unknown; 
 
 type MetricTone = "default" | "open" | "progress" | "done" | "brand";
 const METRIC_TONES: Record<MetricTone, { icon: string; accent: string; wash: string }> = {
-  default: { icon: "text-navy", accent: "bg-navy", wash: "bg-slate-100" },
+  default: { icon: "text-navy", accent: "bg-navy", wash: "bg-wash" },
   open: { icon: "text-open", accent: "bg-open", wash: "bg-open-bg" },
   progress: { icon: "text-progress", accent: "bg-progress", wash: "bg-progress-bg" },
   done: { icon: "text-done", accent: "bg-done", wash: "bg-done-bg" },
   brand: { icon: "text-brand", accent: "bg-brand", wash: "bg-progress-bg" },
 };
+
+function brasiliaIsoDate(d = new Date()) {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Sao_Paulo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(d);
+}
+
+function ticketsListHref(params: Record<string, string>) {
+  const query = new URLSearchParams(params);
+  return `/tickets?${query.toString()}`;
+}
 
 function MetricCard({
   label,
@@ -171,16 +185,23 @@ function MetricCard({
   hint,
   icon: Icon,
   tone = "default",
+  href,
 }: {
   label: string;
   value: string | number;
   hint: string;
   icon: LucideIcon;
   tone?: MetricTone;
+  href?: string;
 }) {
   const colors = METRIC_TONES[tone];
-  return (
-    <Card className="relative overflow-hidden transition-shadow hover:shadow-md">
+  const card = (
+    <Card
+      className={cn(
+        "relative h-full overflow-hidden transition-shadow hover:shadow-md",
+        href && "cursor-pointer hover:border-line",
+      )}
+    >
       <span className={cn("absolute inset-x-0 top-0 h-0.5", colors.accent)} />
       <CardContent className="p-4 sm:p-5">
         <div className="flex items-start justify-between gap-3">
@@ -194,7 +215,7 @@ function MetricCard({
         </div>
         <Tooltip>
           <TooltipTrigger asChild>
-            <p className="mt-3 flex cursor-help items-center gap-1 truncate text-xs text-muted">
+            <p className={cn("mt-3 flex items-center gap-1 truncate text-xs text-muted", !href && "cursor-help")}>
               <CircleHelp className="h-3.5 w-3.5 shrink-0" /> {hint}
             </p>
           </TooltipTrigger>
@@ -202,6 +223,16 @@ function MetricCard({
         </Tooltip>
       </CardContent>
     </Card>
+  );
+  if (!href) return card;
+  return (
+    <Link
+      href={href}
+      className="block h-full rounded-2xl outline-none focus-visible:ring-2 focus-visible:ring-brand/40"
+      aria-label={`Ver lista: ${label} — ${hint}`}
+    >
+      {card}
+    </Link>
   );
 }
 
@@ -375,18 +406,27 @@ function TicketsDash() {
   const fechado = status.fechado ?? 0;
   const ranking = (data.technician_ranking || []).slice(0, 5);
   const hours = (data.hours_by_user || []).slice(0, 5);
+  const today = brasiliaIsoDate();
+  const monthStart = `${today.slice(0, 7)}-01`;
+  const closedToday = ticketsListHref({ status: "fechado", date_from: today, date_to: today, date_by: "closed_at" });
+  const closedThisMonth = ticketsListHref({
+    status: "fechado",
+    date_from: monthStart,
+    date_to: today,
+    date_by: "closed_at",
+  });
 
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <MetricCard label="Tickets do mês" value={data.tickets_mes_count} hint="Finalizados no mês" icon={TicketCheck} tone="brand" />
-        <MetricCard label="Abertos" value={aberto} hint="Pendentes" icon={Inbox} tone="open" />
-        <MetricCard label="Em atendimento" value={andamento} hint="Em andamento agora" icon={Activity} tone="progress" />
-        <MetricCard label="Encerrados" value={fechado} hint="Concluídos" icon={CheckCircle2} tone="done" />
-        <MetricCard label="OS do mês" value={data.os_mes_count} hint="Ordens no mês" icon={Wrench} tone="brand" />
+        <MetricCard label="Tickets do mês" value={data.tickets_mes_count} hint="Finalizados no mês" icon={TicketCheck} tone="brand" href={closedThisMonth} />
+        <MetricCard label="Abertos" value={aberto} hint="Pendentes" icon={Inbox} tone="open" href={ticketsListHref({ status: "aberto" })} />
+        <MetricCard label="Em atendimento" value={andamento} hint="Em andamento agora" icon={Activity} tone="progress" href={ticketsListHref({ status: "em_andamento" })} />
+        <MetricCard label="Encerrados" value={fechado} hint="Concluídos" icon={CheckCircle2} tone="done" href={ticketsListHref({ status: "fechado" })} />
+        <MetricCard label="OS do mês" value={data.os_mes_count} hint="Ordens no mês" icon={Wrench} tone="brand" href="/ordens-servico" />
         <MetricCard label="Horas apontadas" value={formatHours(data.total_hours)} hint="Total acumulado" icon={Clock3} />
-        <MetricCard label="Faturamento do dia" value={formatBRL(data.faturamento_hoje)} hint="Tickets + OS de hoje" icon={DollarSign} tone="done" />
-        <MetricCard label="Tickets hoje" value={data.tickets_hoje_count} hint="Fechados hoje" icon={Tickets} />
+        <MetricCard label="Faturamento do dia" value={formatBRL(data.faturamento_hoje)} hint="Tickets + OS de hoje" icon={DollarSign} tone="done" href={closedToday} />
+        <MetricCard label="Tickets hoje" value={data.tickets_hoje_count} hint="Fechados hoje" icon={Tickets} href={closedToday} />
       </div>
 
       <div className="grid gap-6 xl:grid-cols-[minmax(0,1.65fr)_minmax(300px,0.85fr)]">
@@ -438,14 +478,14 @@ function TicketsDash() {
                       <CardTitle>{tech.name}</CardTitle>
                       <CardDescription className="mt-1">{tech.tickets_count} em andamento</CardDescription>
                     </div>
-                    <span className="rounded-lg bg-white px-2.5 py-1 text-sm font-semibold text-progress shadow-sm">
+                    <span className="rounded-lg bg-surface px-2.5 py-1 text-sm font-semibold text-progress shadow-sm">
                       {formatHours(tech.total_hours)}
                     </span>
                   </div>
                 </CardHeader>
                 <CardContent className="space-y-2 pt-4">
                   {tech.tickets.map((ticket) => (
-                    <div key={ticket.id} className="rounded-xl border border-line bg-[#fafbfc] px-3 py-2.5">
+                    <div key={ticket.id} className="rounded-xl border border-line bg-wash px-3 py-2.5">
                       <p className="line-clamp-1 text-sm font-medium text-ink">{ticket.title}</p>
                       <p className="mt-0.5 truncate text-xs text-muted">{ticket.client_name}</p>
                     </div>
@@ -631,7 +671,7 @@ function HelpdeskDash() {
                   </div>
                   <span className="text-sm font-semibold tabular-nums text-ink">{queue.count}</span>
                 </div>
-                <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-[#eef0f3]">
+                <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-wash">
                   <div className="h-full rounded-full" style={{ width: `${Math.max(6, (queue.count / queueMax) * 100)}%`, backgroundColor: queue.color }} />
                 </div>
                 <p className="mt-2 text-xs text-muted">
@@ -655,7 +695,7 @@ function HelpdeskDash() {
                   </div>
                   <span className="text-sm font-semibold tabular-nums text-ink">{user.count}</span>
                 </div>
-                <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-[#eef0f3]">
+                <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-wash">
                   <div className="h-full rounded-full bg-progress" style={{ width: `${Math.max(6, (user.count / userMax) * 100)}%` }} />
                 </div>
                 <p className="mt-2 text-xs text-muted">
@@ -676,7 +716,7 @@ function agentStatusBadge(agent: RemoteAgent) {
   if (label === "Online") return "bg-done-bg text-done";
   if (label === "Pendente") return "bg-progress-bg text-progress";
   if (label === "Revogado") return "bg-open-bg text-open";
-  return "bg-[#f3f4f6] text-muted";
+  return "bg-wash text-muted";
 }
 
 function agentCardTone(agent: RemoteAgent) {
@@ -684,12 +724,12 @@ function agentCardTone(agent: RemoteAgent) {
   if (alerts > 0) return "border-open/40 bg-open-bg/70";
   if (statusLabel(agent) === "Online") return "border-done/25 bg-done-bg/40";
   if (statusLabel(agent) === "Pendente") return "border-progress/20 bg-progress-bg/30";
-  return "border-line bg-white";
+  return "border-line bg-surface";
 }
 
 function MetricChip({ icon, label, value }: { icon: ReactNode; label: string; value: string }) {
   return (
-    <div className="rounded-xl bg-white/80 px-3 py-2.5">
+    <div className="rounded-xl bg-surface/80 px-3 py-2.5">
       <div className="flex items-center gap-1.5 text-[11px] text-muted"><span className="text-brand">{icon}</span>{label}</div>
       <p className="mt-1 text-sm font-semibold tabular-nums text-navy">{value}</p>
     </div>
@@ -935,7 +975,7 @@ function StatusBar({
   const L = labels || { aberto: "Abertos", andamento: "Em atendimento", fechado: "Encerrados" };
   return (
     <div className="mb-8">
-      <div className="flex h-2.5 overflow-hidden rounded-full bg-[#f1f1f1]">
+      <div className="flex h-2.5 overflow-hidden rounded-full bg-wash">
         <div className="bg-open" style={{ width: pct(aberto) }} />
         <div className="bg-progress" style={{ width: pct(andamento) }} />
         <div className="bg-done" style={{ width: pct(fechado) }} />
@@ -974,9 +1014,9 @@ function RankRow({
 }) {
   const width = max > 0 ? Math.max(6, (numeric / max) * 100) : 0;
   const medal =
-    place === 1 ? "bg-brand text-white" : place === 2 ? "bg-navy text-white" : place === 3 ? "bg-open text-white" : "bg-[#f3f4f6] text-navy";
+    place === 1 ? "bg-brand text-white" : place === 2 ? "bg-inverse text-on-inverse" : place === 3 ? "bg-open text-white" : "bg-wash text-navy";
   return (
-    <div className="rounded-2xl border border-[#eee] p-4">
+    <div className="rounded-2xl border border-line p-4">
       <div className="mb-2 flex items-center justify-between gap-3">
         <div className="flex min-w-0 items-center gap-3">
           <span className={cn("inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-sm font-semibold", medal)}>
@@ -986,7 +1026,7 @@ function RankRow({
         </div>
         <span className="shrink-0 text-sm font-semibold text-ink">{value}</span>
       </div>
-      <div className="h-1.5 overflow-hidden rounded-full bg-[#f1f1f1]">
+      <div className="h-1.5 overflow-hidden rounded-full bg-wash">
         <div
           className={cn("h-full rounded-full", barColor ? undefined : barClass)}
           style={{ width: `${width}%`, backgroundColor: barColor }}
@@ -1010,7 +1050,7 @@ function DailyAttendancesChart({ items }: { items: DailyCount[] }) {
   const labelEvery = Math.max(1, Math.ceil(items.length / 10));
 
   return (
-    <section className="mb-8 rounded-2xl border border-[#eee] bg-white p-5">
+    <section className="mb-8 rounded-2xl border border-line bg-surface p-5">
       <h2 className="mb-1 text-lg font-semibold text-navy">Atendimentos dia a dia</h2>
       <p className="mb-4 text-sm text-muted">Tickets finalizados neste mês</p>
       {!items.length || max <= 0 ? (
@@ -1023,7 +1063,7 @@ function DailyAttendancesChart({ items }: { items: DailyCount[] }) {
               <span>0</span>
             </div>
             <div className="flex min-w-0 flex-1 flex-col">
-              <div className="flex h-40 items-stretch gap-px border-b border-[#e5e5e5] sm:gap-1">
+              <div className="flex h-40 items-stretch gap-px border-b border-line sm:gap-1">
                 {items.map((item) => {
                   const v = Number(item.count || 0);
                   const h = v > 0 ? Math.max(4, (v / max) * chartH) : 0;
@@ -1075,7 +1115,7 @@ function ClosedVsTicketsChart({
     items.map((item, idx) => `${xAt(idx)},${yAt(Number(item[key] || 0))}`).join(" ");
 
   return (
-    <section className="mt-10 rounded-2xl border border-[#eee] bg-white p-5">
+    <section className="mt-10 rounded-2xl border border-line bg-surface p-5">
       <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
         <div>
           <h2 className="text-lg font-semibold text-navy">Conversas encerradas × tickets</h2>
@@ -1100,7 +1140,7 @@ function ClosedVsTicketsChart({
               <span>0</span>
             </div>
             <div className="flex min-w-0 flex-1 flex-col">
-              <div className="relative h-40 border-b border-[#e5e5e5]">
+              <div className="relative h-40 border-b border-line">
                 <svg viewBox={`0 0 ${vbW} ${vbH}`} className="absolute inset-0 h-full w-full" preserveAspectRatio="none" aria-hidden>
                   <polyline fill="none" stroke="#16a34a" strokeWidth="3" strokeLinejoin="round" strokeLinecap="round" points={linePoints("conversas")} vectorEffect="non-scaling-stroke" />
                   <polyline fill="none" stroke="#3b82f6" strokeWidth="3" strokeLinejoin="round" strokeLinecap="round" points={linePoints("tickets")} vectorEffect="non-scaling-stroke" />
@@ -1232,7 +1272,7 @@ function TicketsDash() {
                 </div>
                 <ul className="mt-4 space-y-2">
                   {tech.tickets.map((t) => (
-                    <li key={t.id} className="rounded-xl bg-white px-3 py-2">
+                    <li key={t.id} className="rounded-xl bg-surface px-3 py-2">
                       <p className="text-sm font-medium text-ink">{t.title}</p>
                       <p className="text-xs text-muted">{t.client_name}</p>
                     </li>
@@ -1263,7 +1303,7 @@ function HelpdeskDash() {
 
   if (!data?.ok) {
     return (
-      <div className="rounded-2xl border border-[#eee] p-6">
+      <div className="rounded-2xl border border-line p-6">
         <p className="font-medium text-navy">Engine WhatsApp indisponível</p>
         <p className="mt-1 text-sm text-muted">{data?.error || "Não foi possível obter as métricas do inbox."}</p>
       </div>
@@ -1313,7 +1353,7 @@ function HelpdeskDash() {
             <>
               <div className="space-y-3">
                 {queueSlice.map((q, i) => (
-                  <div key={`${q.id ?? "none"}-${q.name}`} className="rounded-2xl border border-[#eee] p-4">
+                  <div key={`${q.id ?? "none"}-${q.name}`} className="rounded-2xl border border-line p-4">
                     <div className="mb-2 flex items-center justify-between gap-3">
                       <div className="flex min-w-0 items-center gap-3">
                         <span
@@ -1326,7 +1366,7 @@ function HelpdeskDash() {
                       </div>
                       <span className="shrink-0 text-sm font-semibold text-ink">{q.count}</span>
                     </div>
-                    <div className="h-1.5 overflow-hidden rounded-full bg-[#f1f1f1]">
+                    <div className="h-1.5 overflow-hidden rounded-full bg-wash">
                       <div
                         className="h-full rounded-full"
                         style={{
@@ -1386,7 +1426,7 @@ function agentStatusTone(agent: RemoteAgent) {
   if (label === "Online") return { badge: "bg-done-bg text-done", card: "border-done/20" };
   if (label === "Pendente") return { badge: "bg-progress-bg text-progress", card: "border-progress/20" };
   if (label === "Revogado") return { badge: "bg-open-bg text-open", card: "border-open/20" };
-  return { badge: "bg-[#f3f4f6] text-muted", card: "border-[#eee]" };
+  return { badge: "bg-wash text-muted", card: "border-line" };
 }
 
 function MachineCard({ agent }: { agent: RemoteAgent }) {
@@ -1403,7 +1443,7 @@ function MachineCard({ agent }: { agent: RemoteAgent }) {
     <Link
       href={`/monitoramento-remoto/${agent.id}`}
       className={cn(
-        "group flex flex-col rounded-2xl border bg-white p-5 transition hover:border-brand/30 hover:shadow-sm",
+        "group flex flex-col rounded-2xl border bg-surface p-5 transition hover:border-brand/30 hover:shadow-sm",
         tone.card,
         alerts > 0 && "border-open/25",
       )}
@@ -1429,7 +1469,7 @@ function MachineCard({ agent }: { agent: RemoteAgent }) {
         <MetricChip icon={<Thermometer className="h-3.5 w-3.5" />} label="Temp." value={formatMetric(temp, "°C", 0)} />
       </div>
 
-      <div className="mt-4 flex items-center justify-between gap-2 border-t border-[#f0f0f0] pt-3 text-xs text-muted">
+      <div className="mt-4 flex items-center justify-between gap-2 border-t border-line pt-3 text-xs text-muted">
         <span>Último contato: {formatDate(agent.last_seen)}</span>
         {alerts > 0 ? (
           <span className="inline-flex items-center gap-1 font-medium text-open">
@@ -1446,7 +1486,7 @@ function MachineCard({ agent }: { agent: RemoteAgent }) {
 
 function MetricChip({ icon, label, value }: { icon: ReactNode; label: string; value: string }) {
   return (
-    <div className="rounded-xl bg-[#f7f7f8] px-3 py-2">
+    <div className="rounded-xl bg-wash px-3 py-2">
       <div className="flex items-center gap-1.5 text-[11px] text-muted">
         <span className="text-brand">{icon}</span>
         {label}
@@ -1529,7 +1569,7 @@ function MonitoramentoDash() {
       {agents.isLoading ? (
         <p className="text-sm text-muted">Carregando máquinas…</p>
       ) : items.length === 0 ? (
-        <div className="rounded-2xl border border-[#eee] p-8 text-center">
+        <div className="rounded-2xl border border-line p-8 text-center">
           <p className="font-medium text-navy">Nenhuma máquina cadastrada</p>
           <p className="mt-1 text-sm text-muted">Crie um agente em Monitoramento remoto para começar.</p>
           <Link

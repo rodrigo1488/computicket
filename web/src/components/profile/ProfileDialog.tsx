@@ -63,7 +63,7 @@ export function ProfileDialog({ open, onClose }: { open: boolean; onClose: () =>
             <button
               type="button"
               onClick={() => fileRef.current?.click()}
-              className="inline-flex items-center gap-2 rounded-lg bg-[#f3f4f6] px-3 py-2 text-sm text-ink"
+              className="inline-flex items-center gap-2 rounded-lg bg-wash px-3 py-2 text-sm text-ink"
             >
               <Upload className="h-4 w-4" />
               Nova imagem
@@ -90,12 +90,12 @@ export function ProfileDialog({ open, onClose }: { open: boolean; onClose: () =>
 
           <div>
             <span className="text-[11px] font-medium tracking-[0.08em] text-muted uppercase">Senha</span>
-            <div className="mt-1 flex items-center gap-3 border-b border-[#d7d7d7] py-2">
+            <div className="mt-1 flex items-center gap-3 border-b border-line py-2">
               <span className="flex-1 tracking-widest text-ink">••••••••</span>
               <button
                 type="button"
                 onClick={() => setPasswordOpen(true)}
-                className="rounded-lg bg-[#f3f4f6] px-3 py-1.5 text-sm"
+                className="rounded-lg bg-wash px-3 py-1.5 text-sm"
               >
                 Alterar
               </button>
@@ -110,7 +110,7 @@ export function ProfileDialog({ open, onClose }: { open: boolean; onClose: () =>
                 <span className="text-sm text-muted">Nenhum horário definido</span>
               ) : (
                 user.availability.map((h) => (
-                  <span key={h} className="rounded-full border border-[#d7d7d7] px-3 py-1.5 text-sm text-ink">
+                  <span key={h} className="rounded-full border border-line px-3 py-1.5 text-sm text-ink">
                     {h}
                   </span>
                 ))

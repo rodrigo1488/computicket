@@ -9,7 +9,7 @@ export function TableLoadingRows({
   rows?: number;
 }) {
   return Array.from({ length: rows }, (_, row) => (
-    <tr key={`loading-row-${row}`} className="border-t border-[#f1f1f1]" aria-hidden="true">
+    <tr key={`loading-row-${row}`} className="border-t border-line" aria-hidden="true">
       {Array.from({ length: columns }, (_, column) => (
         <td key={column} className="px-3 py-3">
           <Skeleton
@@ -30,11 +30,11 @@ export function TableLoadingRows({
 export function TableLoadingOverlay({ label = "Atualizando dados" }: { label?: string }) {
   return (
     <div
-      className="absolute inset-0 z-10 flex items-start justify-center bg-white/55 pt-14 backdrop-blur-[1px]"
+      className="absolute inset-0 z-10 flex items-start justify-center bg-surface/55 pt-14 backdrop-blur-[1px]"
       role="status"
       aria-live="polite"
     >
-      <span className="inline-flex items-center gap-2 rounded-full border border-[#e5e7eb] bg-white px-3 py-1.5 text-xs font-medium text-muted shadow-sm">
+      <span className="inline-flex items-center gap-2 rounded-full border border-line bg-surface px-3 py-1.5 text-xs font-medium text-muted shadow-sm">
         <LoaderCircle className="h-3.5 w-3.5 animate-spin motion-reduce:animate-none" />
         {label}
       </span>

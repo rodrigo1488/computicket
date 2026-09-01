@@ -35,7 +35,7 @@ export function RowActions({ children }: { children: ReactNode }) {
           e.stopPropagation();
           setAnchor((cur) => (cur ? null : e.currentTarget));
         }}
-        className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-[#6b7280] hover:bg-[#f3f4f6]"
+        className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-muted hover:bg-wash"
         aria-label="Ações"
         aria-expanded={!!anchor}
       >
@@ -57,10 +57,10 @@ export function RowActions({ children }: { children: ReactNode }) {
 }
 
 const iconBtn =
-  "flex h-8 w-8 items-center justify-center rounded-lg bg-[#f3f4f6] text-[#6b7280] hover:bg-[#e5e7eb] disabled:opacity-50";
+  "flex h-8 w-8 items-center justify-center rounded-lg bg-wash text-muted hover:bg-line disabled:opacity-50";
 
 const menuItem =
-  "flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-ink hover:bg-[#f5f5f5] disabled:opacity-50";
+  "flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-ink hover:bg-wash disabled:opacity-50";
 
 export function IconAction({
   label,
@@ -138,7 +138,7 @@ export function PrimaryRowAction({
   const inMenu = useContext(ActionsMenuContext);
   const cls = inMenu
     ? menuItem
-    : "inline-flex h-8 items-center gap-1.5 rounded-lg bg-ink px-3 text-[13px] font-medium text-white disabled:opacity-60";
+    : "inline-flex h-8 items-center gap-1.5 rounded-lg bg-inverse px-3 text-[13px] font-medium text-on-inverse disabled:opacity-60";
   if (href) {
     return (
       <Link href={href} className={cls}>

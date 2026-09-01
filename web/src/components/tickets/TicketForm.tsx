@@ -173,7 +173,7 @@ export function TicketForm({
           value={description}
           onChange={(e) => setDescription(e.target.value)}
           rows={embedded ? 3 : 4}
-          className="mt-1 w-full border-0 border-b border-[#d7d7d7] bg-transparent py-2 text-[15px]"
+          className="mt-1 w-full border-0 border-b border-line bg-transparent py-2 text-[15px]"
         />
       </label>
       <UnderlineField label="Solicitante" value={solicitante} onChange={setSolicitante} />
@@ -183,7 +183,7 @@ export function TicketForm({
         <select
           value={clientId}
           onChange={(e) => setClientId(e.target.value)}
-          className="mt-1 w-full border-0 border-b border-[#d7d7d7] bg-transparent py-2"
+          className="mt-1 w-full border-0 border-b border-line bg-transparent py-2"
         >
           <option value="">Selecione</option>
           {(clientOptions || []).map((c) => (
@@ -198,7 +198,7 @@ export function TicketForm({
         <select
           value={serviceId}
           onChange={(e) => setServiceId(e.target.value)}
-          className="mt-1 w-full border-0 border-b border-[#d7d7d7] bg-transparent py-2"
+          className="mt-1 w-full border-0 border-b border-line bg-transparent py-2"
         >
           <option value="">Selecione</option>
           {asItems(services.data).map((s) => (
@@ -209,14 +209,14 @@ export function TicketForm({
         </select>
       </label>
       {contractMsg ? (
-        <div className="rounded-xl bg-[#fff6e5] px-3 py-2 text-sm text-ink">{contractMsg}</div>
+        <div className="rounded-xl bg-warn-bg px-3 py-2 text-sm text-ink">{contractMsg}</div>
       ) : null}
       <label className="block">
         <span className="text-[11px] font-medium tracking-[0.08em] text-muted uppercase">Técnico</span>
         <select
           value={assigned}
           onChange={(e) => setAssigned(e.target.value)}
-          className="mt-1 w-full border-0 border-b border-[#d7d7d7] bg-transparent py-2"
+          className="mt-1 w-full border-0 border-b border-line bg-transparent py-2"
         >
           <option value="">Não atribuído</option>
           {asItems(users.data).map((u) => (
@@ -232,7 +232,7 @@ export function TicketForm({
           <button
             type="button"
             onClick={onCancel}
-            className="flex-1 rounded-xl border border-[#e5e7eb] py-3.5 text-[15px] font-medium text-ink"
+            className="flex-1 rounded-xl border border-line py-3.5 text-[15px] font-medium text-ink"
           >
             Cancelar
           </button>

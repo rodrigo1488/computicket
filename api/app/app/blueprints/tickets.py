@@ -140,11 +140,13 @@ def _build_tickets_query(
 	date_to: str,
 	ps_pending: bool = False,
 	default_open_only: bool = True,
+	date_by: str = "created_at",
 ):
 	"""Monta query de tickets com filtros compartilhados."""
 	from sqlalchemy import or_
 
 	query = Ticket.query
+	date_column = Ticket.closed_at if date_by == "closed_at" else Ticket.created_at
 
 	if ps_pending:
 		query = query.filter(
@@ -171,7 +173,7 @@ def _build_tickets_query(
 			date_from_dt = datetime.strptime(date_from, "%Y-%m-%d")
 			date_from_dt = get_brasilia_tz().localize(date_from_dt)
 			date_from_utc = brasilia_to_utc(date_from_dt)
-			query = query.filter(Ticket.created_at >= date_from_utc)
+			query = query.filter(date_column >= date_from_utc)
 		except ValueError:
 			pass
 
@@ -183,7 +185,7 @@ def _build_tickets_query(
 			date_to_dt = date_to_dt.replace(hour=23, minute=59, second=59)
 			date_to_dt = get_brasilia_tz().localize(date_to_dt)
 			date_to_utc = brasilia_to_utc(date_to_dt)
-			query = query.filter(Ticket.created_at <= date_to_utc)
+			query = query.filter(date_column <= date_to_utc)
 		except ValueError:
 			pass
 
@@ -2636,6 +2638,7 @@ def api_list_tickets():
 	q = (request.args.get("q") or "").strip()
 	date_from = (request.args.get("date_from") or "").strip()
 	date_to = (request.args.get("date_to") or "").strip()
+	date_by = "closed_at" if (request.args.get("date_by") or "").strip().lower() == "closed_at" else "created_at"
 	ps_pending = _parse_bool_param(request.args.get("ps_pending"))
 	# Como o HTML: sem filtro de status → abertos.
 	query = _build_tickets_query(
@@ -2646,6 +2649,7 @@ def api_list_tickets():
 		date_to=date_to,
 		ps_pending=ps_pending,
 		default_open_only=not all_statuses and not status and not ps_pending,
+		date_by=date_by,
 	)
 	from ..query_filters import filter_query
 	query = query.outerjoin(Service, Ticket.service_id == Service.id)

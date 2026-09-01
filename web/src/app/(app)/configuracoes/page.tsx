@@ -148,7 +148,7 @@ function ConfigPageInner() {
               const hint =
                 row.description && row.description !== label ? row.description : null;
               return (
-              <div key={row.key} className="flex items-center justify-between gap-3 rounded-xl border border-[#eee] px-4 py-3">
+              <div key={row.key} className="flex items-center justify-between gap-3 rounded-xl border border-line px-4 py-3">
                 <div>
                   <p className="text-sm font-medium text-ink">{label}</p>
                   {hint ? <p className="mt-0.5 text-xs text-muted">{hint}</p> : null}

@@ -99,7 +99,7 @@ export default function ConhecimentoPage() {
         <button
           type="button"
           onClick={() => openForm()}
-          className="inline-flex h-10 items-center gap-2 rounded-xl bg-ink px-4 text-sm font-medium text-white"
+          className="inline-flex h-10 items-center gap-2 rounded-xl bg-inverse px-4 text-sm font-medium text-on-inverse"
         >
           <Plus className="h-4 w-4" />
           Nova categoria
@@ -123,7 +123,7 @@ export default function ConhecimentoPage() {
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           placeholder="Buscar categorias…"
-          className="h-10 min-w-[220px] max-w-md flex-1 rounded-lg border border-[#e5e7eb] px-3 text-sm"
+          className="h-10 min-w-[220px] max-w-md flex-1 rounded-lg border border-line px-3 text-sm"
         />
         <button type="submit" className="h-10 rounded-lg bg-brand px-4 text-sm font-medium text-white">
           Buscar
@@ -134,7 +134,7 @@ export default function ConhecimentoPage() {
       {error ? <p className="mb-4 text-sm text-open">{(error as Error).message}</p> : null}
 
       {(data?.categories || []).length === 0 && !isLoading ? (
-        <div className="rounded-2xl border border-[#eee] px-6 py-12 text-center text-sm text-muted">
+        <div className="rounded-2xl border border-line px-6 py-12 text-center text-sm text-muted">
           Nenhuma categoria encontrada. Crie a primeira para organizar os artigos.
         </div>
       ) : (
@@ -145,7 +145,7 @@ export default function ConhecimentoPage() {
             return (
               <div
                 key={c.id}
-                className="group rounded-2xl border border-[#eee] p-5 transition hover:-translate-y-0.5 hover:shadow-md"
+                className="group rounded-2xl border border-line p-5 transition hover:-translate-y-0.5 hover:shadow-md"
               >
                 <div className="mb-4 flex items-start gap-3">
                   <div
@@ -163,14 +163,14 @@ export default function ConhecimentoPage() {
                 <div className="flex items-center gap-2">
                   <Link
                     href={`/conhecimento/${c.id}`}
-                    className="inline-flex h-9 flex-1 items-center justify-center rounded-lg bg-ink px-3 text-sm font-medium text-white"
+                    className="inline-flex h-9 flex-1 items-center justify-center rounded-lg bg-inverse px-3 text-sm font-medium text-on-inverse"
                   >
                     Ver artigos
                   </Link>
                   <button
                     type="button"
                     onClick={() => openForm(c)}
-                    className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-[#f3f4f6] text-[#6b7280]"
+                    className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-wash text-muted"
                     aria-label="Editar categoria"
                   >
                     <Pencil className="h-4 w-4" />
@@ -182,7 +182,7 @@ export default function ConhecimentoPage() {
                         remove.mutate(c.id);
                       }
                     }}
-                    className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-[#f3f4f6] text-open"
+                    className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-wash text-open"
                     aria-label="Excluir categoria"
                   >
                     <Trash2 className="h-4 w-4" />
@@ -227,7 +227,7 @@ export default function ConhecimentoPage() {
             <select
               value={form.icon}
               onChange={(e) => setForm((f) => ({ ...f, icon: e.target.value }))}
-              className="mt-1 w-full border-0 border-b border-[#d7d7d7] bg-transparent py-2 text-[15px] text-ink"
+              className="mt-1 w-full border-0 border-b border-line bg-transparent py-2 text-[15px] text-ink"
             >
               {KNOWLEDGE_ICON_OPTIONS.map((opt) => (
                 <option key={opt.value} value={opt.value}>
@@ -242,10 +242,10 @@ export default function ConhecimentoPage() {
               type="color"
               value={form.color}
               onChange={(e) => setForm((f) => ({ ...f, color: e.target.value }))}
-              className="mt-2 h-10 w-full cursor-pointer rounded-lg border border-[#e5e7eb]"
+              className="mt-2 h-10 w-full cursor-pointer rounded-lg border border-line"
             />
           </label>
-          <div className="flex items-center gap-3 rounded-xl border border-dashed border-[#eee] p-3">
+          <div className="flex items-center gap-3 rounded-xl border border-dashed border-line p-3">
             <div
               className="flex h-10 w-10 items-center justify-center rounded-lg"
               style={{ backgroundColor: `${form.color}22`, color: form.color }}

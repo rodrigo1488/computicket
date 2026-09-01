@@ -1,7 +1,7 @@
 from flask import Blueprint, render_template, request, jsonify, send_file
 from flask_login import login_required, current_user
 from .. import db
-from ..models import ServiceOrder
+from ..models import ServiceOrder, User
 from .utils import connect_postgres
 from .printer import (
 	generateDeliveryReceipt,
@@ -21,6 +21,113 @@ import os
 from pathlib import Path
 
 bp = Blueprint("service_orders", __name__)
+
+FINALIZED_UNICO_STATUSES = {3, 5}
+
+_OS_SEARCH_SELECT = """
+			os.codigo,
+			os.idcliente,
+			os.data,
+			os.descricaoitem,
+			os.problemadescrito,
+			os.servicoexecutado,
+			os.status,
+			os.valor,
+			os.observacao,
+			os.fimservico,
+			COALESCE(os.nomeresponsavelretirada, '') AS tecnico_unico,
+			COALESCE(ent.nome, '') AS nome_cliente
+"""
+
+
+def _fmt_os_dt(value) -> str:
+	if not value:
+		return ""
+	if isinstance(value, datetime):
+		return value.strftime("%d/%m/%Y %H:%M")
+	if isinstance(value, date):
+		return value.strftime("%d/%m/%Y")
+	return str(value)
+
+
+def _as_naive_dt(value):
+	if value is None:
+		return None
+	if isinstance(value, datetime):
+		return value.replace(tzinfo=None) if value.tzinfo else value
+	if isinstance(value, date):
+		return datetime.combine(value, datetime.min.time())
+	return None
+
+
+def _local_os_by_codigo(codigo) -> ServiceOrder | None:
+	if codigo is None or str(codigo).strip() == "":
+		return None
+	return ServiceOrder.query.filter_by(codigo=str(codigo).strip()).first()
+
+
+def _resolve_technician(name: str | None):
+	cleaned = (name or "").strip()
+	if cleaned:
+		match = User.query.filter(db.func.lower(User.name) == cleaned.lower()).first()
+		if match:
+			return match.id, match.name
+		return None, cleaned
+	uid = current_user.id if hasattr(current_user, "id") else None
+	uname = getattr(current_user, "name", None) or "Técnico"
+	return uid, uname
+
+
+def _lookup_ps_document(cursor, codigo) -> str | None:
+	doc = f"PS/OS-{codigo}"
+	try:
+		cursor.execute(
+			"SELECT documento FROM financeiro WHERE documento = %s LIMIT 1",
+			(doc,),
+		)
+		row = cursor.fetchone()
+		if row and row[0]:
+			return str(row[0])
+		cursor.execute(
+			"SELECT documento FROM financeiro WHERE documento ILIKE %s ORDER BY id DESC LIMIT 1",
+			(f"%OS-{codigo}%",),
+		)
+		row = cursor.fetchone()
+		if row and row[0]:
+			return str(row[0])
+	except Exception as e:
+		print(f"Erro ao buscar PS da OS {codigo}: {e}")
+	return None
+
+
+def _client_payload_from_row(client_row) -> dict:
+	if not client_row:
+		return {}
+	return {
+		"id": client_row[0],
+		"nome": client_row[1],
+		"cnpjcpf": client_row[2],
+		"celular": client_row[3],
+		"email": client_row[4],
+		"endereco": client_row[5],
+		"numeroendereco": client_row[6],
+		"extra9": client_row[7],
+		"extra10": client_row[8],
+	}
+
+
+def _fetch_client_row(cursor, client_id):
+	if not client_id:
+		return None
+	try:
+		cursor.execute(
+			"SELECT id, nome, cnpjcpf, celular, email, endereco, numeroendereco, extra9, extra10 FROM entidade WHERE id = %s",
+			(client_id,),
+		)
+		return cursor.fetchone()
+	except Exception as e:
+		print(f"Erro ao buscar cliente: {e}")
+		return None
 
 @bp.route("/")
 @login_required
@@ -106,7 +213,9 @@ def search_service_order(codigo):
 		term = (codigo or "").strip()
 		results = _search_service_orders(term, limit=1)
 		if not results:
-			return jsonify({"error": "Ordem de serviço não encontrada ou já finalizada"}), 404
+			if _local_os_by_codigo(term):
+				return jsonify({"error": "Esta OS já está no Computicket", "already_in_computicket": True}), 409
+			return jsonify({"error": "Ordem de serviço não encontrada"}), 404
 		return jsonify(results[0])
 	except Exception as e:
 		return jsonify({"error": f"Erro ao buscar ordem de serviço: {str(e)}"}), 500
@@ -115,8 +224,8 @@ def search_service_order(codigo):
 def _search_service_orders(term: str, limit: int = 30):
 	"""Busca ordens em aberto por código exato e nome do cliente (ILIKE).
 
-	Também inclui OS já finalizadas no Unico (status 5/3) que ainda não
-	existem no SQLite local — permite re-sincronizar após falha parcial.
+	OS já finalizadas no Unico (status 3/5) só entram se ainda não existirem
+	no Computicket — recuperação pontual, sem reenviar ao ERP.
 	"""
 	conn = connect_postgres()
 	if not conn:
@@ -127,18 +236,9 @@ def _search_service_orders(term: str, limit: int = 30):
 		query_term = (term or "").strip()
 		like_term = f"%{query_term}%"
 
-		cursor.execute("""
+		cursor.execute(f"""
 			SELECT
-				os.codigo,
-				os.idcliente,
-				os.data,
-				os.descricaoitem,
-				os.problemadescrito,
-				os.servicoexecutado,
-				os.status,
-				os.valor,
-				os.observacao,
-				COALESCE(ent.nome, '') AS nome_cliente
+				{_OS_SEARCH_SELECT}
 			FROM ordemservico os
 			LEFT JOIN entidade ent ON ent.id = os.idcliente
 			WHERE os.status != 5
@@ -151,36 +251,37 @@ def _search_service_orders(term: str, limit: int = 30):
 				os.data DESC
 			LIMIT %s
 		""", (query_term, like_term, query_term, limit))
-		rows = cursor.fetchall()
+		rows = list(cursor.fetchall() or [])
 
-		# Recuperação: código exato finalizado no Unico mas ausente no Computicket
-		if not rows and query_term:
-			local = ServiceOrder.query.filter_by(codigo=query_term).first()
-			if not local:
-				cursor.execute("""
-					SELECT
-						os.codigo,
-						os.idcliente,
-						os.data,
-						os.descricaoitem,
-						os.problemadescrito,
-						os.servicoexecutado,
-						os.status,
-						os.valor,
-						os.observacao,
-						COALESCE(ent.nome, '') AS nome_cliente
-					FROM ordemservico os
-					LEFT JOIN entidade ent ON ent.id = os.idcliente
-					WHERE CAST(os.codigo AS TEXT) = %s
-					LIMIT 1
-				""", (query_term,))
-				orphan = cursor.fetchone()
-				if orphan:
-					rows = [orphan]
+		# Código exato finalizado no Unico (status 5 fica fora do filtro acima)
+		if query_term and not any(str(r[0]) == query_term for r in rows):
+			cursor.execute(f"""
+				SELECT
+					{_OS_SEARCH_SELECT}
+				FROM ordemservico os
+				LEFT JOIN entidade ent ON ent.id = os.idcliente
+				WHERE CAST(os.codigo AS TEXT) = %s
+				LIMIT 1
+			""", (query_term,))
+			exact = cursor.fetchone()
+			if exact:
+				rows.append(exact)
+
+		codigos = [str(r[0]) for r in rows]
+		existing = set()
+		if codigos:
+			existing = {
+				str(c)
+				for (c,) in db.session.query(ServiceOrder.codigo)
+				.filter(ServiceOrder.codigo.in_(codigos))
+				.all()
+			}
 
 		results = []
 		for row in rows:
 			os_codigo = str(row[0])
+			if os_codigo in existing:
+				continue
 			client_id = row[1]
 			os_data = row[2]
 			equipamento = row[3]
@@ -189,44 +290,37 @@ def _search_service_orders(term: str, limit: int = 30):
 			status = row[6]
 			valor = row[7]
 			observacao = row[8]
+			fimservico = row[9]
+			tecnico_unico = (row[10] or "").strip()
+			try:
+				status_int = int(status) if status is not None else 0
+			except (TypeError, ValueError):
+				status_int = 0
+			orphan = status_int in FINALIZED_UNICO_STATUSES
 
-			client_data = {}
-			if client_id:
-				try:
-					cursor.execute(
-						"SELECT id, nome, cnpjcpf, celular, email, endereco, numeroendereco, extra9, extra10 FROM entidade WHERE id = %s",
-						(client_id,)
-					)
-					client_row = cursor.fetchone()
-					if client_row:
-						client_data = {
-							"id": client_row[0],
-							"nome": client_row[1],
-							"cnpjcpf": client_row[2],
-							"celular": client_row[3],
-							"email": client_row[4],
-							"endereco": client_row[5],
-							"numeroendereco": client_row[6],
-							"extra9": client_row[7],
-							"extra10": client_row[8]
-						}
-				except Exception as e:
-					print(f"Erro ao buscar cliente: {e}")
-
+			client_data = _client_payload_from_row(_fetch_client_row(cursor, client_id))
 			no_charge = bool(client_data.get("extra10")) if client_data.get("extra10") is not None else False
+			if orphan and status_int == 3:
+				no_charge = True
+			tech_name = tecnico_unico or getattr(current_user, "name", None) or ""
+			ps_number = _lookup_ps_document(cursor, os_codigo) if orphan else None
+
 			results.append({
 				"codigo": os_codigo,
 				"id_cliente": client_id,
-				"data_abertura": os_data.strftime('%d/%m/%Y %H:%M') if os_data else '',
+				"data_abertura": _fmt_os_dt(os_data),
+				"data_conclusao": _fmt_os_dt(fimservico) if orphan else "",
 				"equipamento": equipamento or "Equipamento não informado",
 				"problema_descrito": problema_descrito or "Problema não descrito",
 				"servico_executado": servico_executado or "",
-				"tecnico": current_user.name,
-				"status": status,
+				"tecnico": tech_name,
+				"status": status_int,
 				"valor": float(valor) if valor else 0.0,
 				"observacoes": observacao or "",
 				"cliente": client_data,
-				"no_charge": no_charge
+				"no_charge": no_charge,
+				"orphan": orphan,
+				"ps_number": ps_number,
 			})
 
 		return results
@@ -244,7 +338,8 @@ def search_service_orders():
 		if not term:
 			return jsonify({"results": []})
 		results = _search_service_orders(term, limit=30)
-		return jsonify({"results": results})
+		already = bool(term) and not results and _local_os_by_codigo(term) is not None
+		return jsonify({"results": results, "already_in_computicket": already})
 	except Exception as e:
 		return jsonify({"error": f"Erro ao buscar ordem de serviço: {str(e)}"}), 500
 
@@ -261,6 +356,99 @@ def search_products():
 		return jsonify({"error": str(e)}), 500
 	except Exception as e:
 		return jsonify({"error": f"Erro ao buscar produtos: {str(e)}"}), 500
+
+
+def _persist_orphan_os(
+	*,
+	cursor,
+	conn,
+	codigo: str,
+	client_id,
+	os_data,
+	equipamento,
+	problema_descrito,
+	servico_executado: str,
+	observacao,
+	status: int,
+	valor: float,
+	fimservico,
+	tecnico_unico: str | None,
+	client_data: dict,
+):
+	"""Grava no Computicket uma OS já finalizada no Unico, sem alterar o ERP."""
+	ps_number = _lookup_ps_document(cursor, codigo)
+	try:
+		cursor.close()
+	except Exception:
+		pass
+	try:
+		conn.close()
+	except Exception:
+		pass
+
+	existing = _local_os_by_codigo(codigo)
+	if existing:
+		return jsonify({
+			"error": "Esta OS já está no Computicket",
+			"already_in_computicket": True,
+		}), 409
+
+	no_charge = bool(client_data.get("extra10")) if client_data.get("extra10") is not None else False
+	if status == 3:
+		no_charge = True
+	has_contract = bool(client_data.get("extra9")) if client_data.get("extra9") else False
+	client_name = (client_data.get("nome") or "").strip() or "Cliente não informado"
+	tech_id, tech_name = _resolve_technician(tecnico_unico)
+	completion = _as_naive_dt(fimservico) or datetime.now()
+	executed = (servico_executado or "").strip() or "Serviço executado (Uniplus)"
+
+	try:
+		service_order = ServiceOrder(
+			codigo=codigo,
+			client_id=client_id,
+			client_name=client_name,
+			client_document=client_data.get("cnpjcpf"),
+			client_phone=client_data.get("celular"),
+			client_address=client_data.get("endereco"),
+			client_address_number=client_data.get("numeroendereco"),
+			equipment=equipamento or "Equipamento não informado",
+			problem_description=problema_descrito or "Problema não descrito",
+			service_executed=executed,
+			observations=observacao or "",
+			value=float(valor or 0),
+			ps_number=ps_number,
+			ps_generated=bool(ps_number),
+			delivery_receipt_generated=False,
+			status=status,
+			no_charge=no_charge,
+			has_contract=has_contract,
+			opening_date=_as_naive_dt(os_data),
+			completion_date=completion,
+			technician_id=tech_id,
+			technician_name=tech_name,
+		)
+		db.session.add(service_order)
+		db.session.commit()
+	except Exception as e:
+		db.session.rollback()
+		print(f"Erro ao gravar OS órfã {codigo}: {e}")
+		return jsonify({"error": f"Falha ao gravar OS no Computicket: {e}"}), 500
+
+	return jsonify({
+		"message": "OS gravada no Computicket (já estava finalizada no Uniplus)",
+		"orphan_synced": True,
+		"ps_generated": bool(ps_number),
+		"ps_file": None,
+		"ps_number": ps_number,
+		"delivery_generated": False,
+		"delivery_file": None,
+		"has_contract": has_contract,
+		"no_charge": no_charge,
+		"final_status": status,
+		"dav_id": None,
+		"dav_codigo": None,
+		"ps_warning": None,
+	})
 
 
 @bp.route("/processar-finalizacao", methods=["POST"])
@@ -287,7 +475,8 @@ def process_finalization():
 		# Buscar campos específicos baseado na estrutura do JSON
 		cursor.execute("""
 			SELECT codigo, idcliente, data, descricaoitem, problemadescrito, 
-				   servicoexecutado, status, valor, observacao
+				   servicoexecutado, status, valor, observacao,
+				   fimservico, nomeresponsavelretirada
 			FROM ordemservico 
 			WHERE CAST(codigo AS TEXT) = %s
 		""", (codigo,))
@@ -308,28 +497,47 @@ def process_finalization():
 		status = row[6]
 		valor_atual = row[7]
 		observacao = row[8]
+		fimservico = row[9] if len(row) > 9 else None
+		tecnico_unico = (row[10] or "").strip() if len(row) > 10 else ""
 		codigo = os_codigo
 		
 		# Buscar dados do cliente
-		client_data = {}
-		if client_id:
-			try:
-				cursor.execute("SELECT id, nome, cnpjcpf, celular, email, endereco, numeroendereco, extra9, extra10 FROM entidade WHERE id = %s", (client_id,))
-				client_row = cursor.fetchone()
-				if client_row:
-					client_data = {
-						"id": client_row[0],
-						"nome": client_row[1],
-						"cnpjcpf": client_row[2],
-						"celular": client_row[3],
-						"email": client_row[4],
-						"endereco": client_row[5],
-						"numeroendereco": client_row[6],
-						"extra9": client_row[7],
-						"extra10": client_row[8]
-					}
-			except Exception as e:
-				print(f"Erro ao buscar cliente: {e}")
+		client_data = _client_payload_from_row(_fetch_client_row(cursor, client_id))
+
+		try:
+			unico_status = int(status) if status is not None else 0
+		except (TypeError, ValueError):
+			unico_status = 0
+		existing_order = _local_os_by_codigo(codigo)
+		if unico_status in FINALIZED_UNICO_STATUSES:
+			if existing_order:
+				cursor.close()
+				conn.close()
+				return jsonify({
+					"error": "Esta OS já está no Computicket",
+					"already_in_computicket": True,
+				}), 409
+			executed = (servico_executado or servico_executado_atual or "").strip()
+			if not executed:
+				cursor.close()
+				conn.close()
+				return jsonify({"error": "Código e serviço executado são obrigatórios"}), 400
+			return _persist_orphan_os(
+				cursor=cursor,
+				conn=conn,
+				codigo=codigo,
+				client_id=client_id,
+				os_data=os_data,
+				equipamento=equipamento,
+				problema_descrito=problema_descrito,
+				servico_executado=executed,
+				observacao=observacao,
+				status=unico_status,
+				valor=float(valor_atual if valor_atual is not None else valor),
+				fimservico=fimservico,
+				tecnico_unico=tecnico_unico,
+				client_data=client_data,
+			)
 		
 		# Verificar se cliente tem flag "não cobra atendimento" para definir status
 		no_charge = bool(client_data.get("extra10")) if client_data.get("extra10") is not None else False

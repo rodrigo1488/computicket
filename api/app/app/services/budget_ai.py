@@ -9,7 +9,7 @@ from typing import Any
 from ..models import Service
 from ..rich_text_utils import sanitize_rich_html
 from .faturamento_products import search_products
-from .gemini_client import api_key, generation_model, get_client
+from .gemini_client import GeminiConfigError, api_key, generation_model, get_client
 
 MIN_PROMPT_LEN = 15
 MAX_PRODUCT_CANDIDATES = 40
@@ -420,6 +420,8 @@ def generate_budget_draft(prompt: str, client_name: str | None = None) -> dict[s
 				"temperature": 0.4,
 			},
 		)
+	except GeminiConfigError as exc:
+		raise BudgetAIConfigError(str(exc)) from exc
 	except BudgetAIConfigError:
 		raise
 	except Exception as exc:

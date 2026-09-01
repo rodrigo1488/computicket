@@ -37,8 +37,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           className={cn(
             "min-h-0 min-w-0 flex-1",
             isHelpdesk
-              ? "flex h-0 min-h-0 flex-col overflow-hidden rounded-[28px] bg-white shadow-sm"
-              : "overflow-y-auto rounded-[28px] bg-white p-8 shadow-sm",
+              ? "flex h-0 min-h-0 flex-col overflow-hidden rounded-[28px] bg-surface shadow-sm"
+              : "overflow-y-auto rounded-[28px] bg-surface p-8 shadow-sm",
           )}
         >
           {children}

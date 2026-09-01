@@ -30,12 +30,12 @@ function BudgetDetailLoading() {
   return (
     <div>
       <PageTitle>Orçamento</PageTitle>
-      <section className="rounded-2xl border border-[#eee] p-5">
+      <section className="rounded-2xl border border-line p-5">
         <h2 className="mb-4 text-lg font-semibold text-navy">Itens</h2>
         <div className="overflow-x-auto">
           <table className="w-full text-left text-sm" aria-busy="true">
             <thead>
-              <tr className="border-b border-[#eee] text-muted">
+              <tr className="border-b border-line text-muted">
                 {["Descrição", "Qtd", "Valor", "Total"].map((column) => (
                   <th key={column} className="py-2 pr-3 font-medium">{column}</th>
                 ))}
@@ -150,7 +150,7 @@ export default function VerOrcamentoPage() {
             type="button"
             onClick={() => void exportPdf()}
             disabled={!!busyFile}
-            className="inline-flex h-10 items-center gap-2 rounded-xl border border-[#e5e7eb] px-4 text-sm disabled:opacity-50"
+            className="inline-flex h-10 items-center gap-2 rounded-xl border border-line px-4 text-sm disabled:opacity-50"
           >
             <FileDown className="h-4 w-4" />
             {busyFile === "pdf" ? "Gerando PDF…" : "Exportar PDF"}
@@ -159,7 +159,7 @@ export default function VerOrcamentoPage() {
             type="button"
             onClick={() => void shareLink()}
             disabled={!!busyFile}
-            className="inline-flex h-10 items-center gap-2 rounded-xl border border-[#e5e7eb] px-4 text-sm disabled:opacity-50"
+            className="inline-flex h-10 items-center gap-2 rounded-xl border border-line px-4 text-sm disabled:opacity-50"
           >
             <Link2 className="h-4 w-4" />
             {busyFile === "share" ? "Gerando…" : token ? "Copiar link público" : "Gerar link público"}
@@ -169,7 +169,7 @@ export default function VerOrcamentoPage() {
               type="button"
               onClick={() => void revokeLink()}
               disabled={!!busyFile}
-              className="inline-flex h-10 items-center gap-2 rounded-xl border border-[#e5e7eb] px-4 text-sm text-open disabled:opacity-50"
+              className="inline-flex h-10 items-center gap-2 rounded-xl border border-line px-4 text-sm text-open disabled:opacity-50"
             >
               <Unlink className="h-4 w-4" />
               Revogar link
@@ -178,7 +178,7 @@ export default function VerOrcamentoPage() {
           <button
             type="button"
             onClick={() => router.push(`/orcamentos/${id}/editar`)}
-            className="inline-flex h-10 items-center gap-2 rounded-xl bg-ink px-4 text-sm font-medium text-white"
+            className="inline-flex h-10 items-center gap-2 rounded-xl bg-inverse px-4 text-sm font-medium text-on-inverse"
           >
             <Pencil className="h-4 w-4" />
             Editar
@@ -188,7 +188,7 @@ export default function VerOrcamentoPage() {
             onClick={() => {
               if (window.confirm(`Excluir o orçamento ${data.title}?`)) remove.mutate();
             }}
-            className="inline-flex h-10 items-center gap-2 rounded-xl border border-[#e5e7eb] px-4 text-sm text-open"
+            className="inline-flex h-10 items-center gap-2 rounded-xl border border-line px-4 text-sm text-open"
           >
             <Trash2 className="h-4 w-4" />
             Excluir
@@ -208,13 +208,13 @@ export default function VerOrcamentoPage() {
       ) : null}
 
       {data.description ? (
-        <section className="mb-6 rounded-2xl border border-[#eee] p-5">
+        <section className="mb-6 rounded-2xl border border-line p-5">
           <h2 className="mb-2 text-sm font-medium text-muted">Descrição</h2>
           <p className="whitespace-pre-wrap text-sm text-ink">{stripHtml(data.description) || data.description}</p>
         </section>
       ) : null}
 
-      <section className="mb-6 rounded-2xl border border-[#eee] p-5">
+      <section className="mb-6 rounded-2xl border border-line p-5">
         <h2 className="mb-4 text-lg font-semibold text-navy">Itens</h2>
         {items.length === 0 ? (
           <p className="text-sm text-muted">Nenhum item neste orçamento</p>
@@ -222,7 +222,7 @@ export default function VerOrcamentoPage() {
           <div className="overflow-x-auto">
             <table className="w-full text-left text-sm">
               <thead>
-                <tr className="border-b border-[#eee] text-muted">
+                <tr className="border-b border-line text-muted">
                   <th className="py-2 pr-3 font-medium">Descrição</th>
                   <th className="py-2 pr-3 font-medium">Qtd</th>
                   <th className="py-2 pr-3 font-medium">Valor</th>
@@ -234,7 +234,7 @@ export default function VerOrcamentoPage() {
                   const qty = Number(it.quantity || 0);
                   const price = Number(it.unit_price || 0);
                   return (
-                    <tr key={i} className="border-t border-[#f1f1f1]">
+                    <tr key={i} className="border-t border-line">
                       <td className="py-3 pr-3">
                         <p>{stripHtml(it.description) || it.description || "—"}</p>
                         {it.is_recurring ? (
@@ -262,7 +262,7 @@ export default function VerOrcamentoPage() {
               <span>- {formatBRL(discount)}</span>
             </div>
           ) : null}
-          <div className="flex justify-between border-t border-[#eee] pt-2 font-semibold text-navy">
+          <div className="flex justify-between border-t border-line pt-2 font-semibold text-navy">
             <span>Total</span>
             <span>{formatBRL(data.total)}</span>
           </div>
@@ -270,14 +270,14 @@ export default function VerOrcamentoPage() {
       </section>
 
       {data.payment_terms ? (
-        <section className="mb-6 rounded-2xl border border-[#eee] p-5">
+        <section className="mb-6 rounded-2xl border border-line p-5">
           <h2 className="mb-2 text-sm font-medium text-muted">Condições</h2>
           <p className="whitespace-pre-wrap text-sm text-ink">{stripHtml(data.payment_terms) || data.payment_terms}</p>
         </section>
       ) : null}
 
       {data.internal_notes ? (
-        <section className="rounded-2xl border border-[#eee] bg-[#fafafa] p-5">
+        <section className="rounded-2xl border border-line bg-wash p-5">
           <h2 className="mb-2 text-sm font-medium text-muted">Observações internas</h2>
           <p className="whitespace-pre-wrap text-sm text-ink">{stripHtml(data.internal_notes) || data.internal_notes}</p>
         </section>

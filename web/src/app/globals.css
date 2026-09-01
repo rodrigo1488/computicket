@@ -1,5 +1,7 @@
 @import "tailwindcss";
 
+@custom-variant dark (&:where(.dark, .dark *));
+
 @theme {
   --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
   --color-sidebar: #ffffff;
@@ -9,6 +11,10 @@
   --color-ink: #1a1a1a;
   --color-muted: #8b8f99;
   --color-line: #ececec;
+  --color-surface: #ffffff;
+  --color-wash: #f4f5f7;
+  --color-inverse: #2c2c2c;
+  --color-on-inverse: #ffffff;
   --color-brand: #3b82f6;
   --color-open: #e11d48;
   --color-open-bg: #fde8ee;
@@ -16,6 +22,49 @@
   --color-progress-bg: #e8f1fc;
   --color-done: #16a34a;
   --color-done-bg: #e7f6ec;
+  --color-chat: #efeae2;
+  --color-chat-border: #e6e0d6;
+  --color-chat-composer: #f0f2f5;
+  --color-bubble-in: #ffffff;
+  --color-bubble-out: #d9fdd3;
+  --color-note: #d1ecf1;
+  --color-note-fg: #0c5460;
+  --color-warn-bg: #fff6e5;
+  --color-warn-fg: #c2410c;
+}
+
+.dark {
+  --color-sidebar: #141824;
+  --color-sidebar-hover: #1e2433;
+  --color-canvas: #0e1118;
+  --color-navy: #eef1f6;
+  --color-ink: #e6e8ee;
+  --color-muted: #8b91a0;
+  --color-line: #2a3142;
+  --color-surface: #171c27;
+  --color-wash: #1e2433;
+  --color-inverse: #e6e8ee;
+  --color-on-inverse: #0e1118;
+  --color-open-bg: #3a1522;
+  --color-progress-bg: #152a45;
+  --color-done-bg: #12301c;
+  --color-chat: #0b141a;
+  --color-chat-border: #2a3942;
+  --color-chat-composer: #1a2330;
+  --color-bubble-in: #1f2c34;
+  --color-bubble-out: #005c4b;
+  --color-note: #1a3a42;
+  --color-note-fg: #7ec8d4;
+  --color-warn-bg: #3a2a12;
+  --color-warn-fg: #fdba74;
+}
+
+html {
+  color-scheme: light;
+}
+
+html.dark {
+  color-scheme: dark;
 }
 
 html,
