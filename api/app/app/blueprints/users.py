@@ -23,7 +23,7 @@ def create_user():
 		password = request.form.get("password")
 		role = request.form.get("role")
 		team = request.form.get("team")
-		u = User(name=name, email=email, password_hash=generate_password_hash(password), role=role, team=team)
+		u = User(name=name, email=email, password_hash=generate_password_hash(password), role=role, team=team, phone=(request.form.get("phone") or "").strip() or None)
 		db.session.add(u)
 		db.session.commit()
 		flash("Usuário criado.")
@@ -41,6 +41,7 @@ def edit_user(user_id):
 		user.email = request.form.get("email").strip().lower()
 		user.role = request.form.get("role")
 		user.team = request.form.get("team")
+		user.phone = (request.form.get("phone") or "").strip() or None
 
 		# Adicionar a lógica para atualizar o status aqui, se houver um campo no formulário
 		status_form = request.form.get("status")

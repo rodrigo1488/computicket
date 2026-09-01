@@ -201,7 +201,7 @@ export default function RemoteMonitoringPage() {
                 </div>
               </div>
 
-              <ul className="divide-y divide-[#f3f4f6]">
+              <ul className="divide-y divide-line">
                 {visible.map((agent) => {
                   const metrics = agent.snapshot?.metrics;
                   const alerts = agent.open_alerts?.length ?? 0;

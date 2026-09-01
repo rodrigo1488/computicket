@@ -3,7 +3,7 @@ from flask_login import login_required, current_user
 from datetime import datetime, timedelta
 from app import db
 from app.models import User, Client, Service, Ticket, Appointment, ShiftSwap
-from app.timezone_utils import get_brasilia_now, brasilia_to_utc, utc_to_brasilia
+from app.timezone_utils import get_brasilia_now, brasilia_to_utc, utc_to_brasilia, format_datetime_brasilia
 from app.external_pg import fetch_external_clients
 import json
 import smtplib
@@ -19,6 +19,80 @@ USER_COLORS = [
     '#06b6d4', '#84cc16', '#f97316', '#ec4899', '#6366f1',
     '#14b8a6', '#eab308', '#dc2626', '#7c3aed', '#059669'
 ]
+
+
+def _appointment_whatsapp_context(appointment, client_data=None):
+	data = dict(client_data or {})
+	if not data.get("name") or not data.get("phone"):
+		try:
+			clients = fetch_external_clients() or []
+			found = next((c for c in clients if c.get("id") == appointment.client_id), None) or {}
+			for key, value in found.items():
+				if value and not data.get(key):
+					data[key] = value
+		except Exception as e:
+			print(f"❌ Erro ao buscar cliente para WhatsApp: {e}")
+	when = format_datetime_brasilia(appointment.appointment_date)
+	tech = appointment.user
+	tech_name = tech.name if tech else "—"
+	client_name = data.get("name") or f"Cliente ID: {appointment.client_id}"
+	service = appointment.get_service_name() if appointment.service_id else None
+	title = appointment.title or "Agendamento"
+	desc = (appointment.description or "").strip()
+	return {
+		"when": when,
+		"tech_name": tech_name,
+		"tech_phone": getattr(tech, "phone", None) if tech else None,
+		"client_name": client_name,
+		"client_phone": data.get("phone"),
+		"service": service,
+		"title": title,
+		"desc": desc,
+	}
+
+
+def notify_appointment_whatsapp(appointment, client_data=None) -> dict:
+	"""Notifica cliente (Uniplus) e técnico (User.phone) pelo WhatsApp. Não levanta exceção."""
+	from app.whatsapp_notify import send_whatsapp_text
+
+	ctx = _appointment_whatsapp_context(appointment, client_data)
+	service_line = f"Serviço: {ctx['service']}\n" if ctx["service"] else ""
+	client_msg = (
+		f"Olá, {ctx['client_name']}!\n\n"
+		f"Seu agendamento foi confirmado.\n\n"
+		f"*{ctx['title']}*\n"
+		f"Data: {ctx['when']}\n"
+		f"Técnico: {ctx['tech_name']}\n"
+		f"{service_line}"
+		f"\nComputicket"
+	)
+	tech_msg = (
+		f"Novo agendamento atribuído a você.\n\n"
+		f"Cliente: {ctx['client_name']}\n"
+		f"*{ctx['title']}*\n"
+		f"Data: {ctx['when']}\n"
+		f"{service_line}"
+	)
+	if ctx["desc"]:
+		tech_msg += f"\n{ctx['desc']}"
+
+	result = {"client": None, "technician": None}
+	try:
+		if ctx["client_phone"]:
+			result["client"] = send_whatsapp_text(ctx["client_phone"], client_msg)
+		else:
+			result["client"] = "Cliente sem telefone no cadastro."
+	except Exception as e:
+		result["client"] = f"Erro ao notificar cliente: {e}"
+	try:
+		if ctx["tech_phone"]:
+			result["technician"] = send_whatsapp_text(ctx["tech_phone"], tech_msg)
+		else:
+			result["technician"] = "Técnico sem telefone cadastrado."
+	except Exception as e:
+		result["technician"] = f"Erro ao notificar técnico: {e}"
+	print(f"📱 WhatsApp agendamento: {result}")
+	return result
 
 
 def get_easter_date(year: int):
@@ -372,26 +446,32 @@ def novo_agendamento():
                     print(f"❌ Campo obrigatório ausente: {field}")
                     return jsonify({'error': f'Campo {field} é obrigatório'}), 400
             
+            try:
+                client_id = int(data['client_id'])
+            except (TypeError, ValueError):
+                return jsonify({'error': 'Cliente inválido'}), 400
+            if client_id <= 0:
+                return jsonify({'error': 'Cliente inválido'}), 400
+
             # Converter data
             appointment_date = datetime.fromisoformat(data['appointment_date'].replace('Z', '+00:00'))
             print(f"📅 Data convertida: {appointment_date}")
             
             # Buscar dados do cliente externo
             client_data = None
-            if data.get('client_id'):
-                try:
-                    external_clients = fetch_external_clients()
-                    client_data = next((c for c in external_clients if c.get('id') == int(data['client_id'])), None)
-                    print(f"👤 Dados do cliente encontrado: {client_data}")
-                except Exception as e:
-                    print(f"❌ Erro ao buscar cliente externo: {e}")
+            try:
+                external_clients = fetch_external_clients()
+                client_data = next((c for c in external_clients if c.get('id') == client_id), None)
+                print(f"👤 Dados do cliente encontrado: {client_data}")
+            except Exception as e:
+                print(f"❌ Erro ao buscar cliente externo: {e}")
             
-            # Criar agendamento
+            # Criar agendamento (client_id = ID no Uniplus)
             appointment = Appointment(
                 title=data['title'],
                 description=data.get('description', ''),
                 appointment_date=appointment_date,
-                client_id=data['client_id'],
+                client_id=client_id,
                 user_id=data['user_id'],
                 service_id=data.get('service_id'),
                 created_by=current_user.id
@@ -420,12 +500,20 @@ def novo_agendamento():
                 print(f"✅ Email de confirmação enviado para: {appointment.user.email}")
             else:
                 print(f"❌ Falha ao enviar email de confirmação para: {appointment.user.email}")
-            
+
+            whatsapp = {}
+            try:
+                whatsapp = notify_appointment_whatsapp(appointment, client_data)
+            except Exception as e:
+                print(f"❌ WhatsApp agendamento: {e}")
+                whatsapp = {"client": str(e), "technician": str(e)}
+
             return jsonify({
                 'success': True,
                 'message': 'Agendamento criado com sucesso!',
                 'appointment_id': appointment.id,
-                'email_enviado': email_enviado
+                'email_enviado': email_enviado,
+                'whatsapp': whatsapp,
             })
             
         except Exception as e:
@@ -457,7 +545,13 @@ def editar(appointment_id):
             appointment.title = data['title']
             appointment.description = data.get('description', '')
             appointment.appointment_date = datetime.fromisoformat(data['appointment_date'].replace('Z', '+00:00'))
-            appointment.client_id = data['client_id']
+            try:
+                client_id = int(data['client_id'])
+            except (TypeError, ValueError):
+                return jsonify({'error': 'Cliente inválido'}), 400
+            if client_id <= 0:
+                return jsonify({'error': 'Cliente inválido'}), 400
+            appointment.client_id = client_id
             appointment.user_id = data['user_id']
             appointment.service_id = data.get('service_id')
             

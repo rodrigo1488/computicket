@@ -128,4 +128,5 @@ export type AuthUser = {
   status?: string;
   avatar_url?: string | null;
   availability: string[];
+  phone?: string | null;
 };

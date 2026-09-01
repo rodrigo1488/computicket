@@ -65,6 +65,48 @@ html {
 
 html.dark {
   color-scheme: dark;
+  scrollbar-color: var(--color-line) var(--color-canvas);
+}
+
+select,
+textarea,
+input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="hidden"]):not([type="range"]):not([type="color"]):not([type="button"]):not([type="submit"]):not([type="reset"]) {
+  color: var(--color-ink);
+  color-scheme: inherit;
+}
+
+html.dark select:not(.bg-transparent),
+html.dark textarea:not(.bg-transparent),
+html.dark input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="hidden"]):not([type="range"]):not([type="color"]):not([type="button"]):not([type="submit"]):not([type="reset"]):not(.bg-transparent) {
+  background-color: var(--color-surface);
+}
+
+select option,
+select optgroup {
+  background-color: var(--color-surface);
+  color: var(--color-ink);
+}
+
+input[type="checkbox"],
+input[type="radio"] {
+  accent-color: var(--color-brand);
+  color-scheme: inherit;
+}
+
+html.dark input[type="date"]::-webkit-calendar-picker-indicator,
+html.dark input[type="time"]::-webkit-calendar-picker-indicator,
+html.dark input[type="datetime-local"]::-webkit-calendar-picker-indicator,
+html.dark input[type="month"]::-webkit-calendar-picker-indicator,
+html.dark input[type="week"]::-webkit-calendar-picker-indicator {
+  filter: invert(1);
+}
+
+html.dark input:-webkit-autofill,
+html.dark textarea:-webkit-autofill,
+html.dark select:-webkit-autofill {
+  -webkit-text-fill-color: var(--color-ink);
+  caret-color: var(--color-ink);
+  box-shadow: 0 0 0 1000px var(--color-surface) inset;
 }
 
 html,

@@ -120,6 +120,30 @@ def create_app() -> Flask:
 			try:
 				with db.engine.begin() as conn:
 					conn.execute(text(
+						"ALTER TABLE appointment DROP CONSTRAINT IF EXISTS appointment_client_id_fkey"
+					))
+					# Qualquer FK residual em client_id (nome diferente do padrão SQLAlchemy)
+					conn.execute(text("""
+						DO $$
+						DECLARE r RECORD;
+						BEGIN
+							FOR r IN
+								SELECT c.conname
+								FROM pg_constraint c
+								JOIN pg_class t ON t.oid = c.conrelid
+								WHERE t.relname = 'appointment'
+								  AND c.contype = 'f'
+								  AND pg_get_constraintdef(c.oid) ILIKE '%client_id%'
+							LOOP
+								EXECUTE format('ALTER TABLE appointment DROP CONSTRAINT IF EXISTS %I', r.conname);
+							END LOOP;
+						END $$;
+					"""))
+			except Exception as exc:
+				app.logger.warning("Não foi possível remover FK de appointment.client_id: %s", exc)
+			try:
+				with db.engine.begin() as conn:
+					conn.execute(text(
 						"CREATE UNIQUE INDEX IF NOT EXISTS uq_ticket_ps_number "
 						"ON ticket (ps_number) WHERE ps_number IS NOT NULL"
 					))
@@ -147,6 +171,8 @@ def create_app() -> Flask:
 						conn.exec_driver_sql("ALTER TABLE user ADD COLUMN team VARCHAR(50) DEFAULT 'Equipe 1'")
 					if "avatar_path" not in u_cols:
 						conn.exec_driver_sql("ALTER TABLE user ADD COLUMN avatar_path VARCHAR(500)")
+					if "phone" not in u_cols:
+						conn.exec_driver_sql("ALTER TABLE user ADD COLUMN phone VARCHAR(30)")
 					if "external_client_name" not in t_cols:
 						conn.exec_driver_sql("ALTER TABLE ticket ADD COLUMN external_client_name VARCHAR(200)")
 					if "total_cost" not in t_cols:
@@ -624,6 +650,7 @@ def create_app() -> Flask:
 			default = "FALSE" if dialect == "postgresql" else "0"
 			if ensure_column("plan", "support_included", f"BOOLEAN DEFAULT {default}"):
 				print("✅ Coluna 'support_included' adicionada à tabela plan")
+			ensure_column("user", "phone", "VARCHAR(30)")
 			from .models import PlanAdditional, CustomPlan, CustomPlanItem  # noqa: F401
 			ensure_tables_from_metadata(["plan_additional", "custom_plan", "custom_plan_item"])
 	except Exception as _e:

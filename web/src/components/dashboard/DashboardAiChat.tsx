@@ -187,7 +187,7 @@ export function DashboardAiChat() {
         type="button"
         onClick={() => setOpen(true)}
         className={cn(
-          "fixed bottom-6 right-6 z-40 flex items-center gap-2 rounded-full bg-inverse px-4 py-3 text-sm font-semibold text-on-inverse shadow-lg transition hover:bg-[#1c2f52]",
+          "fixed bottom-6 right-6 z-40 flex items-center gap-2 rounded-full bg-inverse px-4 py-3 text-sm font-semibold text-on-inverse shadow-lg transition hover:opacity-90",
           open && "pointer-events-none opacity-0",
         )}
         aria-label="Abrir assistente de IA"
@@ -236,7 +236,7 @@ export function DashboardAiChat() {
               </div>
             </header>
 
-            <div ref={listRef} className="flex-1 space-y-3 overflow-y-auto bg-[#f7f8fb] px-4 py-4">
+            <div ref={listRef} className="flex-1 space-y-3 overflow-y-auto bg-wash px-4 py-4">
               {!messages.length && !pending ? (
                 <div className="flex h-full flex-col items-center justify-center px-2 text-center">
                   <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-surface shadow-sm">
@@ -252,7 +252,7 @@ export function DashboardAiChat() {
                         key={item}
                         type="button"
                         onClick={() => void send(item)}
-                        className="rounded-xl border border-[#e2e8f0] bg-surface px-3 py-2 text-left text-xs text-ink shadow-sm hover:border-brand/40"
+                        className="rounded-xl border border-line bg-surface px-3 py-2 text-left text-xs text-ink shadow-sm hover:border-brand/40"
                       >
                         {item}
                       </button>

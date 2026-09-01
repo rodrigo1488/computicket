@@ -216,6 +216,7 @@ def _user_json(u: User):
 		"role": u.role,
 		"team": u.team,
 		"status": u.status,
+		"phone": u.phone or "",
 	}
 
 
@@ -268,7 +269,7 @@ def create_user_json():
 		return jsonify({"error": "Nome, e-mail e senha são obrigatórios."}), 400
 	if User.query.filter_by(email=email).first():
 		return jsonify({"error": "E-mail já cadastrado."}), 400
-	u = User(name=name, email=email, password_hash=generate_password_hash(password), role=role, team=team, status="1")
+	u = User(name=name, email=email, password_hash=generate_password_hash(password), role=role, team=team, status="1", phone=(data.get("phone") or "").strip() or None)
 	db.session.add(u)
 	db.session.commit()
 	return jsonify(_user_json(u)), 201
@@ -306,6 +307,8 @@ def user_item(user_id: int):
 		user.role = data.get("role") or user.role
 	if "team" in data:
 		user.team = data.get("team")
+	if "phone" in data:
+		user.phone = (data.get("phone") or "").strip() or None
 	if data.get("status") is not None:
 		if user.id == current_user.id:
 			return jsonify({"error": "Você não pode alterar o próprio status."}), 400

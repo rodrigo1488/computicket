@@ -76,6 +76,7 @@ class User(UserMixin, db.Model):
 	whatsapp_message_template = db.Column(db.Text, nullable=True)
 	team = db.Column(db.String(50), nullable=True, default="Equipe 1")
 	avatar_path = db.Column(db.String(500), nullable=True)
+	phone = db.Column(db.String(30), nullable=True)
 
 	@property
 	def is_active(self) -> bool:  # Override do UserMixin
@@ -1448,7 +1449,8 @@ class Appointment(db.Model):
 	title = db.Column(db.String(200), nullable=False)
 	description = db.Column(db.Text)
 	appointment_date = db.Column(db.DateTime, nullable=False)
-	client_id = db.Column(db.Integer, db.ForeignKey('client.id'), nullable=False)
+	# ID do cliente no Uniplus (entidade.id) — não é FK de client.id local
+	client_id = db.Column(db.Integer, nullable=False, index=True)
 	user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
 	service_id = db.Column(db.Integer, db.ForeignKey('service.id'))
 	created_by = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
@@ -1457,14 +1459,13 @@ class Appointment(db.Model):
 	reminder_sent = db.Column(db.Boolean, default=False)  # Flag para controlar envio de lembretes
 	
 	# Relacionamentos
-	client = db.relationship('Client', backref='appointments', lazy=True)
 	user = db.relationship('User', backref='appointments', lazy=True, foreign_keys=[user_id])
 	service = db.relationship('Service', backref='appointments', lazy=True)
 	creator = db.relationship('User', backref='created_appointments', lazy=True, foreign_keys=[created_by])
 	
 	def get_client_name(self) -> str:
-		"""Retorna o nome do cliente"""
-		return self.client.name if self.client else 'Cliente não definido'
+		"""Nome local (raro); a agenda resolve o nome via Uniplus."""
+		return f"Cliente ID: {self.client_id}" if self.client_id else "Cliente não definido"
 	
 	def get_user_name(self) -> str:
 		"""Retorna o nome do usuário"""

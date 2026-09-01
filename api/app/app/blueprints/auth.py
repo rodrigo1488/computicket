@@ -34,6 +34,7 @@ def _user_payload(user: User) -> dict:
 		"status": user.status,
 		"avatar_url": f"/flask/auth/api/me/avatar" if user.avatar_path else None,
 		"availability": [s.hour for s in slots],
+		"phone": user.phone or "",
 	}
 
 
@@ -118,6 +119,8 @@ def api_me():
 		if existing:
 			return jsonify({"error": "E-mail já em uso."}), 400
 		current_user.email = email
+	if "phone" in data:
+		current_user.phone = (data.get("phone") or "").strip() or None
 	db.session.commit()
 	return jsonify(_user_payload(current_user))
 

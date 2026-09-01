@@ -141,7 +141,11 @@ function snippet(text?: string | null) {
 function withAgentSignature(body: string, name?: string | null, enabled?: boolean, isInternal?: boolean) {
   const text = body.trim();
   const agent = name?.trim();
-  if (!enabled || !agent || isInternal || !text) return text;
+  if (!agent) return text;
+  if (isInternal) {
+    return text ? `*${agent.toUpperCase()}*\n${text}` : `*${agent.toUpperCase()}*`;
+  }
+  if (!enabled || !text) return text;
   return `*${agent.toUpperCase()}*\n${text}`;
 }
 

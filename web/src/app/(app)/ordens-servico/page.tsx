@@ -355,7 +355,7 @@ export default function OSPage() {
           >
             <div className="grid gap-3 rounded-2xl border border-line p-4 text-sm md:grid-cols-2">
               {selected.orphan ? (
-                <p className="md:col-span-2 rounded-xl bg-[#eef6ff] px-3 py-2 text-sm text-navy">
+                <p className="md:col-span-2 rounded-xl bg-progress-bg px-3 py-2 text-sm text-navy">
                   Já finalizada no Uniplus — gravar no Computicket. O ERP não será alterado.
                 </p>
               ) : null}

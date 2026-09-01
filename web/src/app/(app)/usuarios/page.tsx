@@ -13,9 +13,9 @@ import { flask, type PageRes } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import { useColFilters } from "@/lib/use-col-filters";
 
-type U = { id: number; name: string; email: string; role: string; team?: string; status: string };
+type U = { id: number; name: string; email: string; role: string; team?: string; status: string; phone?: string };
 
-const emptyForm = { name: "", email: "", role: "tecnico", team: "Equipe 1", password: "" };
+const emptyForm = { name: "", email: "", role: "tecnico", team: "Equipe 1", password: "", phone: "" };
 
 export default function UsuariosPage() {
   const qc = useQueryClient();
@@ -46,11 +46,12 @@ export default function UsuariosPage() {
         return flask.post("/api/web/users", form);
       }
       if (!edit) throw new Error("Nenhum usuário selecionado");
-      return flask.patch(`/api/web/users/${edit.id}`, {
+        return flask.patch(`/api/web/users/${edit.id}`, {
         name: form.name,
         email: form.email,
         role: form.role,
         team: form.team,
+        phone: form.phone,
       });
     },
     onSuccess: () => {
@@ -79,7 +80,7 @@ export default function UsuariosPage() {
   };
 
   const openEdit = (u: U) => {
-    setForm({ name: u.name, email: u.email, role: u.role, team: u.team || "Equipe 1", password: "" });
+    setForm({ name: u.name, email: u.email, role: u.role, team: u.team || "Equipe 1", password: "", phone: u.phone || "" });
     setFormError("");
     setCreating(false);
     setEdit(u);
@@ -109,10 +110,11 @@ export default function UsuariosPage() {
         onSearch={setQ}
         onFiltersChange={onFiltersChange}
         columnMeta={{ Status: { filter: "select" }, Ações: { sortable: false, filter: false } }}
-        columns={["Nome", "E-mail", "Perfil", "Equipe", "Status", "Ações"]}
+        columns={["Nome", "E-mail", "Telefone", "Perfil", "Equipe", "Status", "Ações"]}
         rows={(data?.items || []).map((u) => [
           u.name,
           u.email,
+          u.phone || "—",
           u.role,
           u.team || "—",
           u.status === "1" ? "Ativo" : "Inativo",
@@ -154,6 +156,12 @@ export default function UsuariosPage() {
         >
           <UnderlineField label="Nome" value={form.name} onChange={(v) => setForm((f) => ({ ...f, name: v }))} />
           <UnderlineField label="E-mail" value={form.email} onChange={(v) => setForm((f) => ({ ...f, email: v }))} />
+          <UnderlineField
+            label="Telefone (WhatsApp)"
+            value={form.phone}
+            onChange={(v) => setForm((f) => ({ ...f, phone: v }))}
+            placeholder="(00) 00000-0000"
+          />
           {creating ? (
             <UnderlineField
               label="Senha"

@@ -13,6 +13,7 @@ export function ProfileDialog({ open, onClose }: { open: boolean; onClose: () =>
   const { user, refresh } = useAuth();
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
+  const [phone, setPhone] = useState("");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const [passwordOpen, setPasswordOpen] = useState(false);
@@ -22,6 +23,7 @@ export function ProfileDialog({ open, onClose }: { open: boolean; onClose: () =>
     if (open && user) {
       setName(user.name);
       setEmail(user.email);
+      setPhone(user.phone || "");
       setError("");
     }
   }, [open, user]);
@@ -32,7 +34,7 @@ export function ProfileDialog({ open, onClose }: { open: boolean; onClose: () =>
     setSaving(true);
     setError("");
     try {
-      await flask.patch("/auth/api/me", { name, email });
+      await flask.patch("/auth/api/me", { name, email, phone });
       await refresh();
       onClose();
     } catch (e) {
@@ -87,6 +89,12 @@ export function ProfileDialog({ open, onClose }: { open: boolean; onClose: () =>
 
           <UnderlineField label="Nome" value={name} onChange={setName} />
           <UnderlineField label="E-mail" value={email} onChange={setEmail} />
+          <UnderlineField
+            label="Telefone (WhatsApp)"
+            value={phone}
+            onChange={setPhone}
+            placeholder="(00) 00000-0000"
+          />
 
           <div>
             <span className="text-[11px] font-medium tracking-[0.08em] text-muted uppercase">Senha</span>

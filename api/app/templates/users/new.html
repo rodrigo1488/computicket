@@ -94,6 +94,22 @@
 				</select>
 			</div>
 
+			<!-- Telefone / WhatsApp -->
+			<div class="form-group">
+				<label for="phone" class="form-label">
+					<i class="fas fa-phone mr-2"></i>
+					Telefone (WhatsApp)
+				</label>
+				<input 
+					type="tel" 
+					id="phone" 
+					name="phone" 
+					value="{% if user %}{{ user.phone or '' }}{% endif %}"
+					class="form-input"
+					placeholder="(00) 00000-0000"
+				>
+			</div>
+
 			<!-- Senha -->
 			<div class="form-group">
 				<label for="password" class="form-label">

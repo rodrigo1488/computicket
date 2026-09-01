@@ -1064,8 +1064,6 @@ def _send_ticket_whatsapp(ticket: Ticket, send_whatsapp: bool, whatsapp_number: 
 		return "Número de WhatsApp não fornecido."
 
 	import re
-	import json
-	import requests
 
 	clean_phone = re.sub(r"\D", "", str(whatsapp_number))
 	if len(clean_phone) < 10:
@@ -1076,21 +1074,8 @@ def _send_ticket_whatsapp(ticket: Ticket, send_whatsapp: bool, whatsapp_number: 
 		.replace("{ticket_id}", str(ticket.id))\
 		.replace("{valor}", f"{ticket.total_cost:.2f}")
 
-	try:
-		response = requests.post(
-			"https://api.compuchat.cloud/api/messages/send",
-			data=json.dumps({"number": clean_phone, "body": formatted_msg}),
-			headers={
-				"Content-Type": "application/json",
-				"Authorization": "Bearer c3lzdGVtY2FsbGdlbmVyYXRlYnVyc3RlbGVtZW50",
-			},
-			timeout=10,
-		)
-		if response.status_code in [200, 201]:
-			return "WhatsApp enviado com sucesso."
-		return f"Erro ao enviar WhatsApp: {response.text}"
-	except Exception as e:
-		return f"Erro na conexão com API WhatsApp: {str(e)}"
+	from ..whatsapp_notify import send_whatsapp_text
+	return send_whatsapp_text(clean_phone, formatted_msg)
 
 
 @bp.route("/produtos")

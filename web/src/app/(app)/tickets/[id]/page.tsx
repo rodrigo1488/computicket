@@ -268,7 +268,7 @@ export default function TicketDetailPage() {
                 </button>
               ) : null}
             </div>
-            <ul className="divide-y divide-[#f1f1f1]">
+            <ul className="divide-y divide-line">
               {entries.map((e) => (
                 <li key={e.id} className="py-3 text-sm">
                   <div className="flex items-start justify-between gap-3">
@@ -303,7 +303,7 @@ export default function TicketDetailPage() {
                 </button>
               ) : null}
             </div>
-            <ul className="divide-y divide-[#f1f1f1]">
+            <ul className="divide-y divide-line">
               {(data.addons || []).map((a) => (
                 <li key={a.id} className="flex items-center justify-between py-3">
                   <span>{a.description}</span>
