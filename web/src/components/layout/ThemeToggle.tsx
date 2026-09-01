@@ -1,19 +1,34 @@
 "use client";
 
 import { Monitor, Moon, Sun } from "lucide-react";
+import { useEffect, useState } from "react";
 import { cn } from "@/lib/cn";
 import { applyTheme, useTheme, type Theme } from "@/lib/theme-context";
 
+function useDarkClass() {
+  const [dark, setDark] = useState(false);
+  useEffect(() => {
+    const sync = () => setDark(document.documentElement.classList.contains("dark"));
+    sync();
+    const observer = new MutationObserver(sync);
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
+    return () => observer.disconnect();
+  }, []);
+  return dark;
+}
+
 export function ThemeQuickToggle({ className }: { className?: string }) {
-  const { resolved, setTheme } = useTheme();
-  const dark = resolved === "dark";
+  const { setTheme } = useTheme();
+  const dark = useDarkClass();
   return (
     <button
       type="button"
+      data-theme-toggle
       onClick={() => {
-        const next = dark ? "light" : "dark";
-        applyTheme(next);
-        setTheme(next);
+        queueMicrotask(() => {
+          const next = document.documentElement.classList.contains("dark") ? "dark" : "light";
+          setTheme(next);
+        });
       }}
       title={dark ? "Tema claro" : "Tema escuro"}
       aria-label={dark ? "Ativar tema claro" : "Ativar tema escuro"}
@@ -44,7 +59,10 @@ export function ThemeToggle() {
           <button
             key={value}
             type="button"
-            onClick={() => setTheme(value)}
+            onClick={() => {
+              applyTheme(value);
+              setTheme(value);
+            }}
             title={label}
             aria-pressed={theme === value}
             className={cn(

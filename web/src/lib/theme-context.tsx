@@ -23,7 +23,7 @@ function isTheme(value: string | null): value is Theme {
 }
 
 export function readStoredTheme(): Theme {
-  if (typeof window === "undefined") return "system";
+  if (typeof window === "undefined") return "light";
   const stored = window.localStorage.getItem(STORAGE_KEY);
   return isTheme(stored) ? stored : "light";
 }

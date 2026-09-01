@@ -1,7 +1,5 @@
 import type { Metadata } from "next";
-import { AuthProvider } from "@/lib/auth-context";
-import { QueryProvider } from "@/lib/query-provider";
-import { ThemeProvider } from "@/lib/theme-context";
+import { Providers } from "@/lib/providers";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -9,7 +7,7 @@ export const metadata: Metadata = {
   description: "Plataforma de chamados Computicket",
 };
 
-const THEME_BOOTSTRAP = `(function(){try{var t=localStorage.getItem("computicket.theme")||"light";var d=t==="dark"||(t==="system"&&window.matchMedia("(prefers-color-scheme: dark)").matches);document.documentElement.classList.toggle("dark",d);document.documentElement.style.colorScheme=d?"dark":"light";}catch(e){}})();`;
+const THEME_BOOTSTRAP = `(function(){try{var k="computicket.theme";function apply(t){var d=t==="dark"||(t==="system"&&window.matchMedia("(prefers-color-scheme: dark)").matches);document.documentElement.classList.toggle("dark",d);document.documentElement.style.colorScheme=d?"dark":"light";}apply(localStorage.getItem(k)||"light");document.addEventListener("click",function(e){var b=e.target&&e.target.closest&&e.target.closest("[data-theme-toggle]");if(!b)return;var next=document.documentElement.classList.contains("dark")?"light":"dark";localStorage.setItem(k,next);apply(next);});}catch(e){}})();`;
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -22,13 +20,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         />
       </head>
       <body className="h-full overflow-hidden">
-        <QueryProvider>
-          <AuthProvider>
-            <ThemeProvider>
-              <div className="flex h-full min-h-0 flex-col overflow-hidden">{children}</div>
-            </ThemeProvider>
-          </AuthProvider>
-        </QueryProvider>
+        <Providers>{children}</Providers>
       </body>
     </html>
   );
