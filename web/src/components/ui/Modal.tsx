@@ -1,7 +1,6 @@
 "use client";
 
 import { X } from "lucide-react";
-import { useEffect } from "react";
 import { cn } from "@/lib/cn";
 
 export function Modal({
@@ -19,25 +18,15 @@ export function Modal({
   wide?: boolean;
   children: React.ReactNode;
 }) {
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [open, onClose]);
-
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4">
       <div
         className={cn(
           "relative w-full rounded-2xl bg-surface p-6 shadow-2xl max-h-[90vh] overflow-y-auto",
           wide ? "max-w-2xl" : "max-w-[440px]",
         )}
-        onClick={(e) => e.stopPropagation()}
       >
         <div className="mb-6 flex items-center justify-between">
           {onBack ? (

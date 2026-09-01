@@ -2827,10 +2827,8 @@ function TransferDialog({
   const [queueId, setQueueId] = useState<string>(conversation.queueId ? String(conversation.queueId) : "");
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4" onClick={onClose}>
-      <div className="w-full max-w-md rounded-2xl bg-surface p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
-        <h2 className="text-lg font-semibold text-navy">Transferir</h2>
-        <p className="mt-1 text-sm text-muted">Mova a conversa para outro agente e/ou outra fila.</p>
+    <Modal open onClose={onClose} title="Transferir">
+        <p className="-mt-2 text-sm text-muted">Mova a conversa para outro agente e/ou outra fila.</p>
         <form
           className="mt-5 space-y-4"
           onSubmit={(e) => {
@@ -2886,8 +2884,7 @@ function TransferDialog({
             </button>
           </div>
         </form>
-      </div>
-    </div>
+    </Modal>
   );
 }
 

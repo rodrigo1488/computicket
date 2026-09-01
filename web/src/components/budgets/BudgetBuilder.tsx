@@ -5,6 +5,7 @@ import { FileDown, GripVertical, Link2, Plus, Sparkles, Trash2, Unlink, X } from
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { BudgetAiDialog, type BudgetAiDraft } from "@/components/budgets/BudgetAiDialog";
+import { Modal } from "@/components/ui/Modal";
 import { PrimaryButton, UnderlineField } from "@/components/ui/UnderlineField";
 import { flask } from "@/lib/api";
 import {
@@ -771,9 +772,7 @@ export function BudgetBuilder({ budget }: { budget?: BudgetDetail | null }) {
       </div>
 
       {serviceOpen ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4" onClick={() => setServiceOpen(false)}>
-          <div className="max-h-[80vh] w-full max-w-lg overflow-y-auto rounded-2xl bg-surface p-5" onClick={(e) => e.stopPropagation()}>
-            <h3 className="mb-3 text-lg font-semibold">Adicionar serviço</h3>
+        <Modal open onClose={() => setServiceOpen(false)} title="Adicionar serviço">
             <div className="mb-4 rounded-xl border border-line p-3">
               <p className="mb-2 text-sm font-medium text-navy">Serviço personalizado</p>
               <p className="mb-3 text-xs text-muted">Descreva um serviço que não está cadastrado.</p>
@@ -835,8 +834,7 @@ export function BudgetBuilder({ budget }: { budget?: BudgetDetail | null }) {
               </button>
             ))}
             {!filteredServices.length ? <p className="text-sm text-muted">Nenhum serviço cadastrado nesta busca</p> : null}
-          </div>
-        </div>
+        </Modal>
       ) : null}
 
       <BudgetAiDialog
