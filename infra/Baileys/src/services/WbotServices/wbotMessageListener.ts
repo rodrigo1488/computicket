@@ -744,10 +744,12 @@ const downloadMedia = async (msg: proto.IWebMessageInfo) => {
       throw new Error("Message key is missing");
     }
     buffer = await downloadMediaMessage(msg as WAMessage, "buffer", {});
+    if (!buffer || (Buffer.isBuffer(buffer) && buffer.length === 0)) {
+      throw new Error("Empty media buffer");
+    }
   } catch (err) {
     console.error("Erro ao baixar mídia:", err);
-
-    // Trate o erro de acordo com as suas necessidades
+    return null;
   }
 
   let filename = msg.message?.documentMessage?.fileName || "";

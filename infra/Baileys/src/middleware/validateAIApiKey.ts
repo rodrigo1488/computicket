@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from "express";
 import { AIProviderFactory } from "../services/AiServices/AIProviderFactory";
+import { isWhisperTranscriptionConfigured } from "../config/openai";
 
 /**
  * Garante que o backend tem LM Studio (OpenAI-compat) configurado via ambiente.
@@ -18,7 +19,7 @@ const validateAIApiKey = async (
     }
 
     const available = await AIProviderFactory.getAvailableProviders(req.user.companyId);
-    if (!available.openai && !available.gemini) {
+    if (!available.openai && !available.gemini && !isWhisperTranscriptionConfigured()) {
       return res.status(400).json({
         error: "AI_NOT_CONFIGURED",
         message:

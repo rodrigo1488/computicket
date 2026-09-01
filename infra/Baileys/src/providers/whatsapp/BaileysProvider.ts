@@ -8,7 +8,6 @@ import {
   SendMessageOptions,
   SendMediaOptions
 } from "./IWhatsAppProvider";
-import fs from "fs";
 import { getMessageOptions } from "../../services/WbotServices/SendWhatsAppMedia";
 import { toWhatsAppGroupJid, toWhatsAppPrivateJid } from "../../helpers/chatJid";
 
@@ -142,8 +141,8 @@ class BaileysProvider implements IWhatsAppProvider {
       });
     } catch (err) {
       Sentry.captureException(err);
-      console.log(err);
-      throw new AppError("ERR_SENDING_WAPP_MSG");
+      if (err instanceof AppError) throw err;
+      throw new AppError("Não foi possível enviar o arquivo pelo WhatsApp. Tente um vídeo menor ou em MP4.", 400);
     }
   }
 

@@ -55,6 +55,16 @@ services:
       timeout: 5s
       retries: 10
 
+  whisper:
+    image: hwdsl2/whisper-server:latest
+    restart: unless-stopped
+    environment:
+      WHISPER_MODEL: ${WHISPER_MODEL:-base}
+      WHISPER_DEVICE: cpu
+      WHISPER_LANGUAGE: ${WHISPER_LANGUAGE:-pt}
+    volumes:
+      - computicket_whisper_data:/var/lib/whisper
+
   whatsapp-engine:
     build:
       context: ./infra/Baileys
@@ -65,6 +75,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      whisper:
+        condition: service_started
     ports:
       - "${COMPUTICKET_WHATSAPP_PORT:-4000}:4000"
     volumes:
@@ -76,7 +88,9 @@ services:
       DEV_NETWORK: "true"
       ENABLE_WHATSAPP: "true"
       ENABLE_BULL_WORKERS: "true"
-      ENABLE_AUDIO_TRANSCRIPTION: "false"
+      ENABLE_AUDIO_TRANSCRIPTION: "true"
+      WHISPER_API_BASE_URL: ${WHISPER_API_BASE_URL:-http://whisper:9000/v1}
+      WHISPER_LANGUAGE: ${WHISPER_LANGUAGE:-pt}
       BACKEND_URL: ${WHATSAPP_BACKEND_URL:-http://whatsapp-engine:4000}
       FRONTEND_URL: ${COMPUTICKET_PUBLIC_URL:-http://localhost:3000}
       COMPUTICKET_API_URL: http://api:5000
@@ -172,5 +186,6 @@ volumes:
   computicket_whatsapp_pg:
   computicket_whatsapp_redis:
   computicket_whatsapp_media:
+  computicket_whisper_data:
   computicket_api_instance:
   computicket_api_uploads:

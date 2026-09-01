@@ -2,6 +2,7 @@ import { IAIProvider } from "./AIProviderInterface";
 import { AIProviderFactory } from "./AIProviderFactory";
 import AppError from "../../errors/AppError";
 import Setting from "../../models/Setting";
+import { isWhisperTranscriptionConfigured } from "../../config/openai";
 
 export type AIFunctionType =
   | "summaries"
@@ -38,9 +39,9 @@ const resolveConfiguredProvider = async (
   const override = normalizeProviderName(overrideProvider);
   if (override) {
     if (functionType === "transcription") {
-      if (available.openai) return "openai";
+      if (isWhisperTranscriptionConfigured() || available.openai) return "openai";
       throw new AppError(
-        "Transcrição indisponível: configure LM_STUDIO_BASE_URL/WHISPER_API_BASE_URL no backend.",
+        "Transcrição indisponível: configure WHISPER_API_BASE_URL no backend.",
         400
       );
     }
@@ -64,9 +65,9 @@ const resolveConfiguredProvider = async (
   const preferred = (persisted?.value || "openai").toLowerCase() as AIProviderName;
 
   if (functionType === "transcription") {
-    if (available.openai) return "openai";
+    if (isWhisperTranscriptionConfigured() || available.openai) return "openai";
     throw new AppError(
-      "Transcrição indisponível: configure LM_STUDIO_BASE_URL/WHISPER_API_BASE_URL no backend.",
+      "Transcrição indisponível: configure WHISPER_API_BASE_URL no backend.",
       400
     );
   }
@@ -125,7 +126,12 @@ export class AIProviderSelector {
     const available = await AIProviderFactory.getAvailableProviders(companyId);
     const configured = {} as Record<AIFunctionType, AIProviderName>;
     for (const ft of ALL_FUNCTIONS) {
-      configured[ft] = await resolveConfiguredProvider(companyId, ft, available);
+      try {
+        configured[ft] = await resolveConfiguredProvider(companyId, ft, available);
+      } catch (err) {
+        if (ft !== "transcription") throw err;
+        configured[ft] = "openai";
+      }
     }
     return {
       available,

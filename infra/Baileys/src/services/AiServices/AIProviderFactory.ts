@@ -1,5 +1,5 @@
 import { OpenAIProvider } from "./providers/OpenAIProvider";
-import { isAiBackendConfigured } from "../../config/openai";
+import { isAiBackendConfigured, isWhisperTranscriptionConfigured } from "../../config/openai";
 import { isGeminiConfiguredForCompany } from "./GeminiApiKeyService";
 import AppError from "../../errors/AppError";
 import { GeminiProvider } from "./providers/GeminiProvider";
@@ -12,9 +12,9 @@ export class AIProviderFactory {
    * Cria instância do provider (LM Studio). companyId é ignorado — mantido só por compatibilidade de chamadas.
    */
   static async createOpenAIProvider(_companyId?: number): Promise<OpenAIProvider> {
-    if (!isAiBackendConfigured()) {
+    if (!isAiBackendConfigured() && !isWhisperTranscriptionConfigured()) {
       throw new AppError(
-        "Servidor de IA não configurado. Defina LM_STUDIO_BASE_URL no ambiente do backend.",
+        "Servidor de IA não configurado. Defina LM_STUDIO_BASE_URL e/ou WHISPER_API_BASE_URL no ambiente do backend.",
         400
       );
     }

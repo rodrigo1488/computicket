@@ -11,6 +11,20 @@ import formatBody from "../../helpers/Mustache";
 import ResolveTicketWhatsApp from "../../helpers/ResolveTicketWhatsApp";
 import { getChatJid } from "../../helpers/chatJid";
 import { runWithFfmpegConcurrency } from "../../utils/ffmpegConcurrency";
+import { logger } from "../../utils/logger";
+
+/** WhatsApp rejeita vídeo “na conversa” acima disso; o arquivo ainda pode ir como documento. */
+const WHATSAPP_INLINE_VIDEO_MAX_BYTES = 16 * 1024 * 1024;
+/** Limite prático de documento no WhatsApp. */
+const WHATSAPP_MEDIA_MAX_BYTES = 100 * 1024 * 1024;
+
+const fileAsUpload = (filePath: string) => ({ stream: fs.createReadStream(filePath) });
+
+const isInlineWhatsAppVideo = (mimeType: string, sizeBytes: number): boolean => {
+  if (sizeBytes > WHATSAPP_INLINE_VIDEO_MAX_BYTES) return false;
+  const mime = (mimeType || "").toLowerCase().split(";")[0].trim();
+  return mime === "video/mp4" || mime === "video/3gpp" || mime === "video/3gpp2";
+};
 
 interface Request {
   media: Express.Multer.File;
@@ -65,24 +79,42 @@ export const getMessageOptions = async (
   const typeMessage = mimeType.split("/")[0];
 
   try {
+    const stats = fs.statSync(pathMedia);
+    if (stats.size > WHATSAPP_MEDIA_MAX_BYTES) {
+      throw new AppError(
+        `Arquivo muito grande (${(stats.size / (1024 * 1024)).toFixed(1)} MB). O WhatsApp aceita no máximo 100 MB.`,
+        413
+      );
+    }
+
     let options: AnyMessageContent;
 
     const safeName = fileName || path.basename(pathMedia) || "arquivo";
 
     const asDocument = (): AnyMessageContent => ({
-      document: fs.readFileSync(pathMedia),
-      caption: body ? body : null,
+      document: fileAsUpload(pathMedia),
+      caption: body ? body : undefined,
       fileName: safeName,
       mimetype: mimeType
     });
 
     if (typeMessage === "video") {
-      options = {
-        video: fs.readFileSync(pathMedia),
-        caption: body ? body : "",
-        fileName: fileName
-        // gifPlayback: true
-      };
+      if (isInlineWhatsAppVideo(mimeType, stats.size)) {
+        options = {
+          video: fileAsUpload(pathMedia),
+          caption: body ? body : "",
+          fileName: safeName,
+          mimetype: mimeType
+        };
+      } else {
+        logger.info({
+          msg: "SendWhatsAppMedia: vídeo enviado como documento (tamanho ou formato)",
+          fileName: safeName,
+          mimeType,
+          sizeBytes: stats.size
+        });
+        options = asDocument();
+      }
     } else if (typeMessage === "audio") {
       const typeAudio = true; //fileName.includes("audio-record-site");
       const convert = await processAudio(pathMedia);
@@ -103,8 +135,9 @@ export const getMessageOptions = async (
       }
     } else if (typeMessage === "image") {
       options = {
-        image: fs.readFileSync(pathMedia),
-        caption: body ? body : null
+        image: fileAsUpload(pathMedia),
+        caption: body ? body : undefined,
+        mimetype: mimeType
       };
     } else if (
       typeMessage === "document" ||
@@ -121,7 +154,8 @@ export const getMessageOptions = async (
     return options;
   } catch (e) {
     Sentry.captureException(e);
-    console.log(e);
+    logger.error({ msg: "SendWhatsAppMedia: getMessageOptions falhou", pathMedia, error: e });
+    if (e instanceof AppError) throw e;
     return null;
   }
 };
@@ -188,8 +222,9 @@ const SendWhatsAppMedia = async ({
     return sentMessage;
   } catch (err) {
     Sentry.captureException(err);
-    console.log(err);
-    throw new AppError("ERR_SENDING_WAPP_MSG");
+    logger.error({ msg: "SendWhatsAppMedia: falha ao enviar", error: err });
+    if (err instanceof AppError) throw err;
+    throw new AppError("Não foi possível enviar o arquivo pelo WhatsApp. Tente um vídeo menor ou em MP4.", 400);
   }
 };
 

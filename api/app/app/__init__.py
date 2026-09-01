@@ -51,6 +51,8 @@ def create_app() -> Flask:
 	app.config.setdefault("SESSION_COOKIE_SECURE", False)  # True em produção com HTTPS
 	app.config.setdefault("SESSION_COOKIE_SAMESITE", "Lax")
 	app.config.setdefault("PERMANENT_SESSION_LIFETIME", 3600)  # 1 hora
+	# Vídeos/anexos do Help Desk (WhatsApp aceita até ~100 MB como documento).
+	app.config["MAX_CONTENT_LENGTH"] = 100 * 1024 * 1024
 	
 	# Configurações de email
 	app.config.setdefault("MAIL_SERVER", "smtp.gmail.com")
@@ -729,6 +731,10 @@ def create_app() -> Flask:
 			app.register_blueprint(_inventory_bp_fallback, url_prefix="/inventario")
 	except Exception as _inv_err:
 		app.logger.warning("Blueprint inventory (fallback): %s", _inv_err)
+
+	@app.errorhandler(413)
+	def _json_api_413(_error):
+		return jsonify({"error": "Arquivo muito grande. O WhatsApp aceita no máximo 100 MB."}), 413
 
 	@app.errorhandler(500)
 	def _json_api_500(error):

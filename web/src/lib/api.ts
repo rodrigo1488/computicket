@@ -33,6 +33,7 @@ function _httpErrorMessage(status: number, data: unknown): string {
   if (status === 500) {
     return "A geração falhou no servidor. Tente novamente; se persistir, descreva menos itens de uma vez.";
   }
+  if (status === 413) return "Arquivo muito grande. O WhatsApp aceita no máximo 100 MB.";
   if (status === 502 || status === 503 || status === 504) {
     return "Serviço temporariamente indisponível. Tente novamente em instantes.";
   }

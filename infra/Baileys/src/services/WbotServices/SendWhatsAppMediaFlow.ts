@@ -110,12 +110,26 @@ const SendWhatsAppMediaFlow = async ({
 
     if( mimetype ){
       if (typeMessage === "video") {
-        options = {
-          video: fs.readFileSync(pathMedia),
-          caption: body,
-          fileName: mediaName
-          // gifPlayback: true
-        };
+        const sizeBytes = fs.existsSync(pathMedia) ? fs.statSync(pathMedia).size : 0;
+        const mime = String(mimetype);
+        const asInline =
+          sizeBytes <= 16 * 1024 * 1024 &&
+          (mime === "video/mp4" || mime === "video/3gpp" || mime === "video/3gpp2");
+        if (asInline) {
+          options = {
+            video: { stream: fs.createReadStream(pathMedia) },
+            caption: body,
+            fileName: mediaName,
+            mimetype: mime
+          };
+        } else {
+          options = {
+            document: { stream: fs.createReadStream(pathMedia) },
+            caption: body,
+            fileName: mediaName,
+            mimetype: mime
+          };
+        }
       } else if (typeMessage === "audio") {
         console.log('record', isRecord)
         if (isRecord) {

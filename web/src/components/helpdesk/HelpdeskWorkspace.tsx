@@ -46,6 +46,7 @@ import { useAuth } from "@/lib/auth-context";
 import type { TicketDetail } from "@/lib/format";
 import {
   helpdesk,
+  helpdeskMediaSizeError,
   publicMediaUrl,
   engineSocketOptions,
   isEngineSocketSameOrigin,
@@ -230,7 +231,7 @@ function ThreadMedia({
         preload="metadata"
         src={src}
         aria-label="Áudio"
-        className="mb-1 block h-10 w-[min(100%,260px)] max-w-full"
+        className="mb-1 block h-11 w-full"
         onLoadedMetadata={onReady}
       />
     );
@@ -252,6 +253,86 @@ function ThreadMedia({
     <a href={src} target="_blank" rel="noreferrer" className="mb-1 block text-xs text-brand underline">
       Abrir anexo
     </a>
+  );
+}
+
+type MessagesCache = { messages?: HelpdeskMessage[]; [key: string]: unknown };
+
+function isPlaceholderAudioBody(body?: string | null) {
+  const t = (body || "").trim().toLowerCase();
+  return !t || t === "-" || t === "áudio" || t === "audio";
+}
+
+function AudioTranscript({
+  message,
+  conversationId,
+}: {
+  message: HelpdeskMessage;
+  conversationId: number;
+}) {
+  const qc = useQueryClient();
+  const patchCaches = (patch: Partial<HelpdeskMessage>) => {
+    const apply = (prev: MessagesCache | undefined): MessagesCache => ({
+      ...prev,
+      messages: (prev?.messages || []).map((row) =>
+        String(row.id) === String(message.id) ? { ...row, ...patch } : row,
+      ),
+    });
+    qc.setQueryData<MessagesCache>(["hd-messages", conversationId], apply);
+    qc.setQueryData<MessagesCache>(["hd-messages", "history", conversationId], apply);
+  };
+  const transcribe = useMutation({
+    mutationFn: () => helpdesk.transcribeMessage(conversationId, String(message.id), true),
+    onMutate: () => {
+      patchCaches({ transcriptionStatus: "pending", transcriptionError: null });
+    },
+    onSuccess: (res) => {
+      patchCaches({
+        transcription: res.transcription || message.transcription,
+        transcriptionStatus: res.transcription ? "completed" : message.transcriptionStatus,
+      });
+    },
+    onError: (err: Error) => {
+      patchCaches({ transcriptionStatus: "failed", transcriptionError: err.message });
+    },
+  });
+
+  const text = (message.transcription || "").trim();
+  const status = transcribe.isPending ? "pending" : message.transcriptionStatus;
+
+  if (text) {
+    return (
+      <p className="mt-1 text-xs leading-relaxed text-ink/90">
+        <span className="font-medium text-muted">Transcrição: </span>
+        {text}
+      </p>
+    );
+  }
+  if (status === "pending") {
+    return <p className="mt-1 text-[11px] text-muted">Transcrevendo áudio…</p>;
+  }
+  if (status === "failed") {
+    return (
+      <div className="mt-1 flex flex-wrap items-center gap-2">
+        <p className="text-[11px] text-open">Não foi possível transcrever</p>
+        <button
+          type="button"
+          onClick={() => transcribe.mutate()}
+          className="text-[11px] font-semibold text-brand hover:underline"
+        >
+          Tentar de novo
+        </button>
+      </div>
+    );
+  }
+  return (
+    <button
+      type="button"
+      onClick={() => transcribe.mutate()}
+      className="mt-1 text-[11px] font-semibold text-brand hover:underline"
+    >
+      Transcrever
+    </button>
   );
 }
 
@@ -436,6 +517,11 @@ function mergeMessageIntoThread(prev: HelpdeskMessage[] | undefined, incoming: H
     isPrivate: incoming.isPrivate,
     quotedMsg: incoming.quotedMsg,
     isDeleted: incoming.isDeleted,
+    ...(incoming.transcription !== undefined ? { transcription: incoming.transcription } : {}),
+    ...(incoming.transcriptionStatus !== undefined
+      ? { transcriptionStatus: incoming.transcriptionStatus }
+      : {}),
+    ...(incoming.transcriptionError !== undefined ? { transcriptionError: incoming.transcriptionError } : {}),
   };
   const byId = current.findIndex((m) => String(m.id) === nextMsg.id);
   if (byId >= 0) return replaceMessageAt(current, byId, nextMsg);
@@ -489,10 +575,11 @@ function extractSentMessage(data: unknown): HelpdeskMessage | null {
     isInternal: !!(d.isInternal || d.isPrivate),
     isPrivate: !!(d.isPrivate || d.isInternal),
     quotedMsg: (d.quotedMsg as HelpdeskMessage | null | undefined) ?? null,
+    transcription: typeof d.transcription === "string" ? d.transcription : null,
+    transcriptionStatus: typeof d.transcriptionStatus === "string" ? d.transcriptionStatus : null,
+    transcriptionError: typeof d.transcriptionError === "string" ? d.transcriptionError : null,
   };
 }
-
-type MessagesCache = { messages?: HelpdeskMessage[]; [key: string]: unknown };
 
 function readStoredFilters() {
   if (typeof window === "undefined") {
@@ -1977,11 +2064,13 @@ export function HelpdeskWorkspace() {
                     {group.items.map((m, idx) => {
                       const system = m.isInternal || m.isPrivate;
                       const mine = !!m.fromMe && !system;
+                      const audio = !!(m.mediaUrl && mediaKind(m.mediaType, m.mediaUrl) === "audio");
                       return (
                         <div key={`${m.id}-${idx}`} className={cn("mb-2 flex", system ? "justify-center" : mine ? "justify-end" : "justify-start")}>
                           <div
                             className={cn(
                               "max-w-[75%] rounded-lg px-3 py-1.5 text-sm shadow-sm",
+                              audio && "w-[min(18rem,75%)]",
                               system
                                 ? "bg-note text-center text-xs text-note-fg"
                                 : mine
@@ -2003,7 +2092,12 @@ export function HelpdeskWorkspace() {
                                 }}
                               />
                             ) : null}
-                            {m.body ? <p className="whitespace-pre-wrap break-words">{m.body}</p> : null}
+                            {audio && current?.id ? (
+                              <AudioTranscript message={m} conversationId={current.id} />
+                            ) : null}
+                            {m.body && !(audio && isPlaceholderAudioBody(m.body)) ? (
+                              <p className="whitespace-pre-wrap break-words">{m.body}</p>
+                            ) : null}
                             <p className="mt-0.5 text-right text-[10px] text-muted">{formatClock(m.createdAt)}</p>
                           </div>
                         </div>
@@ -2177,12 +2271,17 @@ export function HelpdeskWorkspace() {
                       onChange={(e) => {
                         const file = e.target.files?.[0];
                         if (file && activeId) {
-                          sendFile.mutate({
-                            ticketId: activeId,
-                            file,
-                            body: withAgentSignature(text, user?.name, sign, isInternal),
-                            rawText: text,
-                          });
+                          const tooBig = helpdeskMediaSizeError(file);
+                          if (tooBig) {
+                            setError(tooBig);
+                          } else {
+                            sendFile.mutate({
+                              ticketId: activeId,
+                              file,
+                              body: withAgentSignature(text, user?.name, sign, isInternal),
+                              rawText: text,
+                            });
+                          }
                         }
                         e.target.value = "";
                       }}
@@ -3024,6 +3123,7 @@ function HistoryMessagesModal({
         {items.map((m, idx) => {
           const system = m.isInternal || m.isPrivate;
           const mine = !!m.fromMe && !system;
+          const audio = !!(m.mediaUrl && mediaKind(m.mediaType, m.mediaUrl) === "audio");
           return (
             <div
               key={`${m.id}-${idx}`}
@@ -3032,6 +3132,7 @@ function HistoryMessagesModal({
               <div
                 className={cn(
                   "max-w-[80%] rounded-lg px-3 py-1.5 text-sm",
+                  audio && "w-[min(18rem,80%)]",
                   system
                     ? "bg-note text-center text-xs text-note-fg"
                     : mine
@@ -3040,7 +3141,10 @@ function HistoryMessagesModal({
                 )}
               >
                 {m.mediaUrl ? <ThreadMedia mediaUrl={m.mediaUrl} mediaType={m.mediaType} /> : null}
-                {m.body ? <p className="whitespace-pre-wrap break-words">{m.body}</p> : null}
+                {audio ? <AudioTranscript message={m} conversationId={conversationId} /> : null}
+                {m.body && !(audio && isPlaceholderAudioBody(m.body)) ? (
+                  <p className="whitespace-pre-wrap break-words">{m.body}</p>
+                ) : null}
                 <p className="mt-0.5 text-right text-[10px] text-muted">
                   {formatDay(m.createdAt)} {formatClock(m.createdAt)}
                 </p>

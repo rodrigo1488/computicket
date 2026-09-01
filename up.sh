@@ -58,7 +58,7 @@ source "$ROOT/infra/postgres/ensure-migrate-venv.sh"
 APP_SERVICES=(whatsapp-engine api web)
 
 echo
-echo "=== Computicket: pull + rebuild api/web/engine ==="
+echo "=== Computicket: pull + rebuild api/web/engine + whisper ==="
 echo "Repo:    $ROOT"
 echo "Compose: $COMPOSE_FILE"
 echo "Destino: ${APP_DB} @ localhost:${PG_PORT}"
@@ -76,8 +76,9 @@ else
 fi
 
 # ---- 1) Infra (sem force-recreate, sem mexer em volumes) ----
-echo "[1/6] Garantindo postgres e redis..."
-docker compose -f "$COMPOSE_FILE" up -d postgres redis
+# Whisper precisa estar no ar antes do engine (--no-deps no passo 5 nao respeita depends_on).
+echo "[1/6] Garantindo postgres, redis e whisper..."
+docker compose -f "$COMPOSE_FILE" up -d postgres redis whisper
 echo "      Infra em subida."
 
 # ---- 2) Postgres e Redis healthy ----
@@ -109,6 +110,28 @@ until docker compose -f "$COMPOSE_FILE" exec -T redis \
   sleep 2
 done
 echo "      Redis OK."
+
+echo "      Aguardando Whisper (na primeira vez baixa a imagem e o modelo)..."
+whisper_ready=0
+tries=0
+until docker compose -f "$COMPOSE_FILE" exec -T whisper \
+  sh -c 'curl -sf http://127.0.0.1:9000/v1/models >/dev/null || wget -qO- http://127.0.0.1:9000/v1/models >/dev/null' \
+  >/dev/null 2>&1; do
+  tries=$((tries + 1))
+  if [[ $tries -ge 90 ]]; then
+    echo "      (aviso) Whisper ainda inicializando — transcrição de áudio pode falhar nos primeiros minutos."
+    docker compose -f "$COMPOSE_FILE" ps whisper || true
+    docker compose -f "$COMPOSE_FILE" logs whisper --tail 40 || true
+    break
+  fi
+  sleep 2
+done
+if [[ $tries -lt 90 ]]; then
+  whisper_ready=1
+fi
+if [[ "$whisper_ready" == "1" ]]; then
+  echo "      Whisper OK."
+fi
 
 # ---- 3) Database app ----
 echo "[3/6] Garantindo database \"${APP_DB}\"..."
@@ -205,5 +228,6 @@ echo "[OK] Stack no ar."
 echo "     Web:      http://localhost:${COMPUTICKET_WEB_PORT:-3000}"
 echo "     API:      http://localhost:${COMPUTICKET_API_PORT:-5000}"
 echo "     WhatsApp: http://localhost:${COMPUTICKET_WHATSAPP_PORT:-4000}"
+echo "     Whisper:  interno (whisper:9000) — transcrição de áudios do Help Desk"
 echo "     Postgres: localhost:${PG_PORT} (nao use 5432 — reservado ao Uniplus)"
 echo

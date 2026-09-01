@@ -2,6 +2,7 @@ import { Op } from "sequelize";
 import AppError from "../../errors/AppError";
 import Message from "../../models/Message";
 import { emitAppMessageUpdate } from "../../helpers/emitAppMessageUpdate";
+import { isAudioMediaType } from "../../helpers/isAudioMediaType";
 import { logger } from "../../utils/logger";
 import transcribeAudio from "./TranscribeAudioService";
 import { runWithTranscriptionConcurrency } from "./transcriptionConcurrency";
@@ -29,11 +30,11 @@ const transcribeAndPersistAudioMessage = async ({
   force = false
 }: TranscribeAndPersistParams): Promise<TranscribeAndPersistResult> => {
   const existing = await Message.findOne({
-    where: { id: messageId, companyId, mediaType: "audio", isDeleted: false },
-    attributes: ["id", "transcription", "transcriptionStatus"]
+    where: { id: messageId, companyId, isDeleted: false },
+    attributes: ["id", "mediaType", "transcription", "transcriptionStatus"]
   });
 
-  if (!existing) {
+  if (!existing || !isAudioMediaType(existing.mediaType)) {
     throw new AppError("Mensagem de áudio não encontrada ou não pertence a esta empresa.", 404);
   }
 
@@ -48,7 +49,7 @@ const transcribeAndPersistAudioMessage = async ({
   if (force) {
     await Message.update(
       { transcriptionStatus: "pending", transcriptionError: null },
-      { where: { id: messageId, companyId, mediaType: "audio", isDeleted: false } }
+      { where: { id: messageId, companyId, isDeleted: false } }
     );
   } else {
     const [claimed] = await Message.update(
@@ -57,7 +58,6 @@ const transcribeAndPersistAudioMessage = async ({
         where: {
           id: messageId,
           companyId,
-          mediaType: "audio",
           isDeleted: false,
           [Op.or]: [{ transcriptionStatus: null }, { transcriptionStatus: "failed" }]
         }

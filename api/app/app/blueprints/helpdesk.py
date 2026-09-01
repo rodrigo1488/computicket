@@ -963,6 +963,33 @@ def list_messages(ticket_id: int):
         return _fail(exc)
 
 
+@helpdesk_bp.route("/api/conversations/<int:ticket_id>/messages/<message_id>/transcribe", methods=["POST"])
+@login_required
+def transcribe_message(ticket_id: int, message_id: str):
+    payload = request.get_json(silent=True) or {}
+    force = bool(payload.get("force"))
+    try:
+        try:
+            data = agent_request(
+                "POST",
+                f"/chat-ai/transcribe/{message_id}",
+                json={"force": force},
+                timeout=180,
+            )
+        except EngineError as exc:
+            if exc.status_code not in {401, 403}:
+                raise
+            data = admin_request(
+                "POST",
+                f"/chat-ai/transcribe/{message_id}",
+                json={"force": force},
+                timeout=180,
+            )
+        return jsonify(data or {"ok": True})
+    except EngineError as exc:
+        return _fail(exc)
+
+
 def _format_ai_chat_history(raw) -> str:
     """Histórico curto da sessão (dashboard/chat); não persiste conteúdo bruto."""
     if isinstance(raw, str):
@@ -1059,11 +1086,31 @@ def send_message(ticket_id: int):
     try:
         if request.files:
             storages = request.files.getlist("medias") or list(request.files.values())
-            files = [("medias", (storage.filename, storage.read(), storage.mimetype)) for storage in storages]
+            files = []
+            for storage in storages:
+                stream = storage.stream
+                if hasattr(stream, "seek") and hasattr(stream, "tell"):
+                    stream.seek(0, os.SEEK_END)
+                    size = stream.tell()
+                    stream.seek(0)
+                    if size > 100 * 1024 * 1024:
+                        return jsonify(
+                            {"error": "Arquivo muito grande. O WhatsApp aceita no máximo 100 MB."}
+                        ), 413
+                files.append(
+                    (
+                        "medias",
+                        (
+                            storage.filename,
+                            stream,
+                            storage.mimetype or "application/octet-stream",
+                        ),
+                    )
+                )
             data = {k: v for k, v in request.form.items()}
             if "body" not in data:
                 data["body"] = request.form.get("message") or ""
-            result = agent_request("POST", f"/messages/{ticket_id}", files=files, data=data, timeout=60)
+            result = agent_request("POST", f"/messages/{ticket_id}", files=files, data=data, timeout=240)
             return jsonify(result or {"ok": True})
         payload = request.get_json(silent=True) or {}
         body = payload.get("body") or payload.get("message") or ""

@@ -4,6 +4,7 @@ import path from "path";
 import AppError from "../../errors/AppError";
 import Message from "../../models/Message";
 import { AIProviderSelector } from "./AIProviderSelector";
+import { isAudioMediaType } from "../../helpers/isAudioMediaType";
 import { logger } from "../../utils/logger";
 
 interface TranscribeAudioParams {
@@ -73,12 +74,11 @@ const transcribeAudio = async ({
       where: {
         id: messageId,
         companyId,
-        mediaType: "audio",
         isDeleted: false
       }
     });
 
-    if (!message) {
+    if (!message || !isAudioMediaType(message.mediaType)) {
       throw new AppError("Mensagem de áudio não encontrada ou não pertence a esta empresa.", 404);
     }
 
@@ -112,8 +112,10 @@ const transcribeAudio = async ({
       `Enviando áudio para transcrição usando ${providerName} (tamanho: ${(audioBuffer.length / 1024).toFixed(2)}KB)`
     );
 
+    const language = (process.env.WHISPER_LANGUAGE || "").trim();
     const transcription = await provider.transcribeAudio(audioBuffer, mimeType, {
-      prompt: undefined
+      prompt: undefined,
+      language: language && language.toLowerCase() !== "auto" ? language : undefined
     });
 
     if (!transcription || transcription.trim() === "") {

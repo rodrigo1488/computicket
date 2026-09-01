@@ -9,6 +9,7 @@ import * as Sentry from "@sentry/node";
 import TicketTraking from "../../models/TicketTraking";
 import transcribeAndPersistAudioMessage from "../AiServices/TranscribeAndPersistAudioService";
 import { notifyComputicketInboundMessage } from "../../helpers/notifyComputicketInboundMessage";
+import { isAudioMediaType } from "../../helpers/isAudioMediaType";
 
 export interface MessageData {
   id: string;
@@ -180,7 +181,10 @@ const CreateMessageService = async ({
           });
         }
 
-        if (payload.mediaType === "audio") {
+        if (
+          (process.env.ENABLE_AUDIO_TRANSCRIPTION || "true").trim().toLowerCase() !== "false" &&
+          isAudioMediaType(payload.mediaType)
+        ) {
           const audioMessageId = String(payload.id);
           const audioCompanyId = companyId;
           setTimeout(() => {

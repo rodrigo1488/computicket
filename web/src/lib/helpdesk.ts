@@ -139,6 +139,9 @@ export type HelpdeskMessage = {
   isPrivate?: boolean;
   isInternal?: boolean;
   quotedMsg?: HelpdeskMessage | null;
+  transcription?: string | null;
+  transcriptionStatus?: "pending" | "completed" | "failed" | string | null;
+  transcriptionError?: string | null;
 };
 
 export type EngineSession = {
@@ -378,6 +381,15 @@ export function publicMediaUrl(url?: string | null): string | null {
   return raw;
 }
 
+/** WhatsApp recusa documentos acima disso; vídeos “na conversa” só até ~16 MB. */
+export const HELPDESK_MAX_MEDIA_BYTES = 100 * 1024 * 1024;
+
+export function helpdeskMediaSizeError(file: File): string | null {
+  if (file.size <= HELPDESK_MAX_MEDIA_BYTES) return null;
+  const mb = (file.size / (1024 * 1024)).toFixed(1);
+  return `Arquivo muito grande (${mb} MB). O WhatsApp aceita no máximo 100 MB.`;
+}
+
 export const helpdesk = {
   health: () => flask.get<{ ok: boolean; error?: string; engine?: { ok?: boolean } }>("/helpdesk/api/health"),
   token: () => flask.get<EngineSession>("/helpdesk/api/engine-token"),
@@ -469,6 +481,11 @@ export const helpdesk = {
     flask.post<HelpdeskAiDraftRes>(`/helpdesk/api/conversations/${id}/ai/improve`, { text }),
   aiSuggestTicket: (id: number) =>
     flask.post<HelpdeskAiTicketRes>(`/helpdesk/api/conversations/${id}/ai/suggest-ticket`),
+  transcribeMessage: (conversationId: number, messageId: string, force = false) =>
+    flask.post<{ transcription?: string; messageId: string; cached?: boolean; skipped?: boolean }>(
+      `/helpdesk/api/conversations/${conversationId}/messages/${encodeURIComponent(messageId)}/transcribe`,
+      { force },
+    ),
   connections: () => flask.get<HelpdeskConnection[] | { whatsapps?: HelpdeskConnection[] }>("/helpdesk/api/connections"),
   connection: (id: number) => flask.get<HelpdeskConnection>(`/helpdesk/api/connections/${id}`),
   createConnection: (payload: ConnectionPayload) => flask.post<HelpdeskConnection>("/helpdesk/api/connections", payload),

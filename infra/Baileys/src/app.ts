@@ -13,6 +13,7 @@ import routes from "./routes";
 import { logger } from "./utils/logger";
 import { messageQueue, sendScheduledMessages } from "./queues";
 import bodyParser from "body-parser";
+import multer from "multer";
 
 Sentry.init({ dsn: process.env.SENTRY_DSN });
 
@@ -73,6 +74,15 @@ app.use(routes);
 app.use(Sentry.Handlers.errorHandler());
 
 app.use(async (err: Error, req: Request, res: Response, _: NextFunction) => {
+  if (err instanceof multer.MulterError) {
+    if (err.code === "LIMIT_FILE_SIZE") {
+      return res.status(413).json({
+        error: "Arquivo muito grande. O WhatsApp aceita no máximo 100 MB."
+      });
+    }
+    return res.status(400).json({ error: err.message });
+  }
+
   if (err instanceof AppError) {
     logger.warn(err);
     return res.status(err.statusCode).json({ error: err.message });
