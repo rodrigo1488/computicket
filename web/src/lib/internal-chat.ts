@@ -185,7 +185,7 @@ export const internalChat = {
   },
   edit: (id: number, messageId: number, message: string) =>
     flask.put<InternalChatMessage>(`/internal-chat/api/chats/${id}/messages/${messageId}`, { message }),
-  remove: (id: number, messageId: number) =>
+  removeMessage: (id: number, messageId: number) =>
     flask.delete<InternalChatMessage>(`/internal-chat/api/chats/${id}/messages/${messageId}`),
   read: (id: number) => flask.post<InternalChat>(`/internal-chat/api/chats/${id}/read`),
   createGroup: (title: string, userIds: number[]) =>

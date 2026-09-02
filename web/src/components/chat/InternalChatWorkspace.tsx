@@ -330,7 +330,7 @@ export function InternalChatWorkspace() {
   const deleteMessage = useMutation({
     mutationFn: (message: InternalChatMessage) => {
       if (!activeId) throw new Error("Selecione uma conversa.");
-      return internalChat.remove(activeId, message.id);
+      return internalChat.removeMessage(activeId, message.id);
     },
     onSuccess: (msg) => {
       qc.setQueryData(["ic-messages", activeId], (prev: { records?: InternalChatMessage[] } | undefined) => ({
