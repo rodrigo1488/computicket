@@ -199,3 +199,92 @@ def engine_inbound_message():
 		entity_id=external_id,
 	)
 	return jsonify({"ok": True, "created": len(items)}), 201
+
+
+@notifications_bp.route("/internal-chat", methods=["POST"])
+def engine_internal_chat_message():
+	"""Chamado pelo Baileys ao persistir mensagem do chat interno — push/toast aos participantes."""
+	import os
+
+	expected = (
+		os.environ.get("COMPUTICKET_INTERNAL_TOKEN")
+		or os.environ.get("SECRET_KEY")
+		or ""
+	).strip()
+	provided = (request.headers.get("X-Internal-Token") or "").strip()
+	if not expected or provided != expected:
+		return jsonify({"error": "unauthorized"}), 401
+
+	data = request.get_json(silent=True) or {}
+	message_id = str(data.get("id") or data.get("messageId") or "").strip()
+	chat_id = data.get("chatId")
+	if not message_id or not chat_id:
+		return jsonify({"error": "id e chatId são obrigatórios."}), 400
+
+	from app.models import HelpDeskAgentMap
+
+	try:
+		chat_id_int = int(chat_id)
+	except (TypeError, ValueError):
+		return jsonify({"error": "chatId inválido."}), 400
+
+	sender_engine_id = data.get("senderEngineUserId") or data.get("senderId")
+	try:
+		sender_engine_id = int(sender_engine_id) if sender_engine_id is not None else None
+	except (TypeError, ValueError):
+		sender_engine_id = None
+
+	raw_recipients = data.get("recipientEngineUserIds") or []
+	engine_ids: list[int] = []
+	if isinstance(raw_recipients, list):
+		for item in raw_recipients:
+			try:
+				uid = int(item)
+			except (TypeError, ValueError):
+				continue
+			if uid > 0 and uid != sender_engine_id and uid not in engine_ids:
+				engine_ids.append(uid)
+
+	if not engine_ids:
+		return jsonify({"ok": True, "created": 0, "skipped": "no-recipients"}), 200
+
+	maps = HelpDeskAgentMap.query.filter(HelpDeskAgentMap.engine_user_id.in_(engine_ids)).all()
+	recipients = [row.computicket_user_id for row in maps if row.computicket_user_id]
+	if not recipients:
+		return jsonify({"ok": True, "created": 0, "skipped": "unmapped"}), 200
+
+	sender_name = (data.get("senderName") or "").strip() or "Colega"
+	if sender_engine_id:
+		sender_map = HelpDeskAgentMap.query.filter_by(engine_user_id=sender_engine_id).first()
+		if sender_map and sender_map.user and (sender_map.user.name or "").strip():
+			sender_name = sender_map.user.name.strip()
+
+	is_group = bool(data.get("isGroup"))
+	chat_title = (data.get("chatTitle") or "").strip()
+	body = (data.get("body") or "").strip()
+	if not body and data.get("mediaName"):
+		body = f"📎 {data.get('mediaName')}"
+	if not body:
+		body = "Nova mensagem"
+
+	if is_group:
+		group_label = chat_title if chat_title and chat_title.casefold() != "colaborador" else "grupo"
+		title = f"{sender_name} em {group_label}"[:200]
+		message = f"{sender_name}: {body}"[:1000]
+	else:
+		title = f"Mensagem de {sender_name}"[:200]
+		message = body[:1000]
+
+	entity_id = f"ic:{chat_id_int}:{message_id}"
+	items = create_notifications(
+		recipients,
+		notification_type="internal_chat",
+		title=title,
+		message=message,
+		url=f"/chat?c={chat_id_int}",
+		entity_type="internal_chat",
+		entity_id=entity_id,
+		send_push=True,
+		force_push=True,
+	)
+	return jsonify({"ok": True, "created": len(items)}), 201

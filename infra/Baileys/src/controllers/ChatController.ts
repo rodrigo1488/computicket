@@ -15,6 +15,16 @@ import Chat from "../models/Chat";
 import CreateMessageService from "../services/ChatService/CreateMessageService";
 import User from "../models/User";
 import ChatUser from "../models/ChatUser";
+import { notifyComputicketInternalChat } from "../helpers/notifyComputicketInternalChat";
+
+const chatWithUsersInclude = [
+  { model: User, as: "owner", attributes: ["id", "name", "avatar"] },
+  {
+    model: ChatUser,
+    as: "users",
+    include: [{ model: User, as: "user", attributes: ["id", "name", "avatar"] }]
+  }
+];
 
 type IndexQuery = {
   pageNumber: string;
@@ -173,10 +183,7 @@ export const saveMessage = async (
   });
 
   const chat = await Chat.findByPk(chatId, {
-    include: [
-      { model: User, as: "owner" },
-      { model: ChatUser, as: "users" }
-    ]
+    include: chatWithUsersInclude
   });
 
   const io = getIO();
@@ -190,6 +197,26 @@ export const saveMessage = async (
     action: "new-message",
     newMessage,
     chat
+  });
+
+  (chat?.users || []).forEach(user => {
+    io.to(`user-${user.userId}`).emit(`company-${companyId}-chat-user-${user.userId}`, {
+      action: "new-message",
+      newMessage,
+      chat
+    });
+  });
+
+  void notifyComputicketInternalChat({
+    id: newMessage.id,
+    chatId,
+    senderEngineUserId: senderId,
+    senderName: newMessage.sender?.name,
+    body: messageText,
+    mediaName,
+    isGroup: !!chat?.isGroup,
+    chatTitle: chat?.title,
+    recipientEngineUserIds: (chat?.users || []).map(user => user.userId)
   });
 
   return res.json(newMessage);
@@ -207,10 +234,7 @@ export const checkAsRead = async (
   await chatUser.update({ unreads: 0 });
 
   const chat = await Chat.findByPk(id, {
-    include: [
-      { model: User, as: "owner" },
-      { model: ChatUser, as: "users" }
-    ]
+    include: chatWithUsersInclude
   });
 
   const io = getIO();

@@ -37,6 +37,7 @@ import { io, type Socket } from "socket.io-client";
 import { CloseTicketDialog } from "@/components/tickets/CloseTicketDialog";
 import { TicketCreateDialog } from "@/components/tickets/TicketCreateDialog";
 import { TimeEntryDialog } from "@/components/tickets/TimeEntryDialog";
+import { ComposerAttachZone } from "@/components/ui/ComposerAttachZone";
 import { FloatingMenu } from "@/components/ui/FloatingMenu";
 import { Modal } from "@/components/ui/Modal";
 import { UserAvatar } from "@/components/ui/UserAvatar";
@@ -1312,6 +1313,22 @@ export function HelpdeskWorkspace() {
       setError(e.message);
     },
   });
+
+  function attachComposerFile(file: File) {
+    if (!activeId || current?.status !== "open") return;
+    const tooBig = helpdeskMediaSizeError(file);
+    if (tooBig) {
+      setError(tooBig);
+      return;
+    }
+    sendFile.mutate({
+      ticketId: activeId,
+      file,
+      body: withAgentSignature(text, user?.name, sign, isInternal),
+      rawText: text,
+    });
+  }
+
   const saveContact = useMutation({
     mutationFn: (payload: { name: string; email: string; notes: string }) => {
       const extras = [...(contact.data?.extraInfo || [])];
@@ -1557,7 +1574,15 @@ export function HelpdeskWorkspace() {
   }
 
   return (
-    <div className="relative flex h-0 min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+    <div
+      className="relative flex h-0 min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
+      onDragOver={(e) => {
+        if (Array.from(e.dataTransfer?.types || []).includes("Files")) e.preventDefault();
+      }}
+      onDrop={(e) => {
+        if (Array.from(e.dataTransfer?.types || []).includes("Files")) e.preventDefault();
+      }}
+    >
       <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
         <aside
           ref={listPaneRef}
@@ -1810,6 +1835,14 @@ export function HelpdeskWorkspace() {
 
         <section className="flex min-h-0 min-w-0 flex-1 basis-0 flex-col overflow-hidden bg-chat">
           {current ? (
+            <ComposerAttachZone
+              enabled={canReply}
+              onFiles={(files) => {
+                const file = files[0];
+                if (file) attachComposerFile(file);
+              }}
+              className="flex min-h-0 flex-1 basis-0 flex-col overflow-hidden"
+            >
             <div
               key={current.id}
               className="flex min-h-0 flex-1 basis-0 flex-col overflow-hidden"
@@ -2176,19 +2209,7 @@ export function HelpdeskWorkspace() {
                       className="hidden"
                       onChange={(e) => {
                         const file = e.target.files?.[0];
-                        if (file && activeId) {
-                          const tooBig = helpdeskMediaSizeError(file);
-                          if (tooBig) {
-                            setError(tooBig);
-                          } else {
-                            sendFile.mutate({
-                              ticketId: activeId,
-                              file,
-                              body: withAgentSignature(text, user?.name, sign, isInternal),
-                              rawText: text,
-                            });
-                          }
-                        }
+                        if (file) attachComposerFile(file);
                         e.target.value = "";
                       }}
                     />
@@ -2201,6 +2222,7 @@ export function HelpdeskWorkspace() {
                       className="flex-1 rounded-lg border-0 bg-surface px-3 py-2 text-sm shadow-sm"
                       placeholder={isInternal ? "Nota interna (não vai para o WhatsApp)" : "Digite uma mensagem ou /atalho"}
                       autoComplete="off"
+                      title="Cole uma imagem (Ctrl+V) ou arraste um arquivo"
                     />
                     <button
                       type="button"
@@ -2249,6 +2271,7 @@ export function HelpdeskWorkspace() {
                 </div>
               )}
             </div>
+            </ComposerAttachZone>
           ) : (
             <div className="flex min-h-0 flex-1 flex-col items-center justify-center px-6 text-center text-muted">
               <p className="text-lg font-semibold text-navy">Selecione uma conversa</p>

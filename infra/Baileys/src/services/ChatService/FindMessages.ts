@@ -52,7 +52,7 @@ const FindMessages = async ({
   const hasMore = count > offset + records.length;
 
   // Se é a primeira página, reverter a ordem para mostrar mais antigas primeiro, mais recentes por último
-  const sortedRecords = isFirstPage ? records.reverse() : records;
+  const sortedRecords = isFirstPage ? [...records].reverse() : records;
 
   return {
     records: sortedRecords,

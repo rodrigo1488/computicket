@@ -74,10 +74,62 @@ export function internalChatMediaSizeError(file: File): string | null {
   return `Arquivo muito grande (${mb} MB). O chat interno aceita no máximo 10 MB.`;
 }
 
+export function isPlaceholderName(name?: string | null) {
+  const raw = (name || "").trim();
+  return !raw || raw.toLowerCase() === "colaborador" || raw.toLowerCase() === "conversa";
+}
+
 export function chatDisplayName(chat?: InternalChat | null): string {
   if (!chat) return "Conversa";
-  if (!chat.isGroup && chat.peer?.name) return chat.peer.name;
-  return chat.title || "Conversa";
+  if (!chat.isGroup) {
+    const peer = chat.peer?.name?.trim();
+    if (peer && !isPlaceholderName(peer)) return peer;
+  }
+  const title = chat.title?.trim();
+  if (title && !isPlaceholderName(title)) return title;
+  return "Conversa";
+}
+
+export function mergeParticipant(
+  prev?: InternalChatParticipant | null,
+  incoming?: InternalChatParticipant | null,
+): InternalChatParticipant | null | undefined {
+  if (!incoming) return prev;
+  if (!prev) return incoming;
+  return {
+    ...prev,
+    ...incoming,
+    name: isPlaceholderName(incoming.name) ? prev.name : incoming.name,
+    avatar: incoming.avatar || prev.avatar,
+  };
+}
+
+export function mergeInternalChat(prev: InternalChat, incoming: Partial<InternalChat>): InternalChat {
+  const peer = mergeParticipant(prev.peer, incoming.peer);
+  const incomingTitle = incoming.title;
+  const title =
+    incomingTitle && !isPlaceholderName(incomingTitle)
+      ? incomingTitle
+      : peer?.name && !isPlaceholderName(peer.name)
+        ? peer.name
+        : prev.title;
+  const incomingParticipants = incoming.participants;
+  const participants =
+    incomingParticipants && incomingParticipants.some((p) => p.name && !isPlaceholderName(p.name))
+      ? incomingParticipants.map((p) => {
+          const old = (prev.participants || []).find((row) => row.id != null && row.id === p.id);
+          return mergeParticipant(old, p) || p;
+        })
+      : incomingParticipants || prev.participants;
+  return {
+    ...prev,
+    ...incoming,
+    title,
+    peer,
+    participants,
+    owner: mergeParticipant(prev.owner, incoming.owner) || incoming.owner || prev.owner,
+    unreads: incoming.unreads ?? prev.unreads,
+  };
 }
 
 export function publicInternalMediaUrl(url?: string | null): string | null {

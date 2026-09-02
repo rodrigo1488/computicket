@@ -6,7 +6,7 @@ import os
 from urllib.parse import urlparse
 
 import requests
-from flask import Blueprint, Response, current_app, jsonify, request
+from flask import Blueprint, Response, current_app, has_app_context, jsonify, request
 from flask_login import current_user, login_required
 
 from ..engine_client import (
@@ -110,12 +110,29 @@ def _as_int(raw) -> int | None:
     return value if value > 0 else None
 
 
+def _is_placeholder_name(name: str | None) -> bool:
+    raw = (name or "").strip()
+    return not raw or raw.casefold() in {"colaborador", "conversa"}
+
+
+def _name_from_engine_user(engine_user_id: int | None, payload_name: str | None = None) -> str | None:
+    raw = (payload_name or "").strip()
+    if raw and not _is_placeholder_name(raw):
+        return raw
+    if not engine_user_id or not has_app_context():
+        return raw or None
+    mapping = HelpDeskAgentMap.query.filter_by(engine_user_id=engine_user_id).first()
+    user = getattr(mapping, "user", None) if mapping else None
+    looked_up = (getattr(user, "name", None) or "").strip()
+    return looked_up or raw or None
+
+
 def _participant(user: dict | None, fallback_id: int | None = None) -> dict:
     data = user if isinstance(user, dict) else {}
     uid = _as_int(data.get("id")) or fallback_id
     return {
         "id": uid,
-        "name": (data.get("name") or "").strip() or "Colaborador",
+        "name": _name_from_engine_user(uid, data.get("name")),
         "avatar": _rewrite_media_url(data.get("avatar")),
     }
 
@@ -139,7 +156,9 @@ def _normalize_chat(chat: dict, engine_user_id: int) -> dict:
             peer = participant
 
     title = (chat.get("title") or "").strip()
-    if not chat.get("isGroup") and peer:
+    if _is_placeholder_name(title):
+        title = ""
+    if not chat.get("isGroup") and peer and peer.get("name"):
         title = peer.get("name") or title
     if chat.get("isGroup") and not title:
         title = "Grupo"

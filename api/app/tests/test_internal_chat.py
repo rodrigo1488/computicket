@@ -76,3 +76,28 @@ class InternalChatNormalizeTest(unittest.TestCase):
 	def test_user_ids_from_payload(self):
 		users = _user_ids_from_payload({"users": [{"engine_user_id": 8}, {"id": 8}, 9, "x"]})
 		self.assertEqual(users, [{"id": 8}, {"id": 9}])
+
+	def test_mark_read_payload_without_nested_user_keeps_title(self):
+		chat = _normalize_chat(
+			{
+				"id": 9,
+				"title": "Alice",
+				"isGroup": False,
+				"ownerId": 1,
+				"users": [
+					{"userId": 1, "unreads": 0},
+					{"userId": 2, "unreads": 0},
+				],
+			},
+			engine_user_id=1,
+		)
+		self.assertEqual(chat["title"], "Alice")
+		self.assertNotEqual((chat.get("peer") or {}).get("name"), "Colaborador")
+
+	def test_message_without_sender_name_does_not_become_colaborador(self):
+		msg = _normalize_message(
+			{"id": 3, "chatId": 4, "senderId": 9, "message": "Oi"},
+			engine_user_id=1,
+		)
+		self.assertNotEqual((msg.get("sender") or {}).get("name"), "Colaborador")
+		self.assertEqual(msg["sender"]["id"], 9)

@@ -89,6 +89,7 @@ def create_notifications(
 	entity_type: str | None = None,
 	entity_id: str | int | None = None,
 	send_push: bool = True,
+	force_push: bool = False,
 ) -> list[AppNotification]:
 	"""Cria notificações com dedupe por (user_id, entity_type, entity_id)."""
 	entity_key = str(entity_id) if entity_id is not None else None
@@ -126,8 +127,8 @@ def create_notifications(
 		payload = notification.to_dict()
 		room = f"agent_{notification.user_id}"
 		socketio.emit("app_notification", payload, room=room)
-		# Evita toast in-app + push do SO ao mesmo tempo quando o usuário está online.
-		if send_push and not _user_has_active_socket(room):
+		# Chat interno: push mesmo com a aba aberta (o cliente silencia se a conversa estiver em foco).
+		if send_push and (force_push or not _user_has_active_socket(room)):
 			_send_web_push(notification.user_id, payload)
 	return created
 

@@ -11,7 +11,7 @@ import { flaskSocketOptions, getFlaskSocketConfig } from "@/lib/flask-socket";
 
 type AppNotification = {
   id: number;
-  type: "message" | "ticket" | "appointment" | string;
+  type: "message" | "ticket" | "appointment" | "internal_chat" | string;
   title: string;
   message: string;
   url?: string | null;
@@ -60,17 +60,33 @@ async function registerPush(publicKey: string) {
 }
 
 function iconFor(type: string) {
-  if (type === "message") return MessageCircle;
+  if (type === "message" || type === "internal_chat") return MessageCircle;
   if (type === "appointment") return CalendarDays;
   if (type === "ticket") return Ticket;
   return Bell;
 }
 
 function notificationTone(type: string) {
+  if (type === "internal_chat") return "bg-progress-bg text-brand";
   if (type === "message") return "bg-progress-bg text-progress";
   if (type === "appointment") return "bg-open-bg text-warn-fg";
   if (type === "ticket") return "bg-open-bg text-open";
   return "bg-line text-navy";
+}
+
+function conversationIdFromUrl(url?: string | null): number | null {
+  const match = String(url || "").match(/[?&]c=(\d+)/);
+  if (!match) return null;
+  const id = Number(match[1]);
+  return Number.isFinite(id) ? id : null;
+}
+
+function isInternalChatNotification(notification: AppNotification) {
+  return (
+    notification.type === "internal_chat" ||
+    notification.entity_type === "internal_chat" ||
+    String(notification.url || "").startsWith("/chat")
+  );
 }
 
 /** Conversa aberta e aba visível → não tocar toast/som. */
@@ -81,6 +97,15 @@ function isHelpdeskConversationFocused(ticketId?: number | null): boolean {
   if (ticketId == null) return false;
   const openId = Number(new URLSearchParams(window.location.search).get("c"));
   return Number.isFinite(openId) && openId === ticketId;
+}
+
+function isInternalChatFocused(chatId?: number | null): boolean {
+  if (typeof window === "undefined") return false;
+  if (!window.location.pathname.startsWith("/chat")) return false;
+  if (document.hidden) return false;
+  if (chatId == null) return false;
+  const openId = Number(new URLSearchParams(window.location.search).get("c"));
+  return Number.isFinite(openId) && openId === chatId;
 }
 
 function playMessageSound() {
@@ -103,6 +128,39 @@ function playMessageSound() {
     osc.onended = () => void ctx.close().catch(() => undefined);
   } catch {
     /* autoplay bloqueado ou AudioContext indisponível */
+  }
+}
+
+/** Tom mais grave e em dois pulsos — distinto do ping agudo do Help Desk. */
+function playInternalChatSound() {
+  try {
+    const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!AudioCtx) return;
+    const ctx = new AudioCtx();
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(0.0001, ctx.currentTime);
+    gain.connect(ctx.destination);
+
+    const beep = (start: number, freq: number) => {
+      const osc = ctx.createOscillator();
+      osc.type = "triangle";
+      osc.frequency.setValueAtTime(freq, start);
+      osc.connect(gain);
+      osc.start(start);
+      osc.stop(start + 0.14);
+    };
+
+    gain.gain.exponentialRampToValueAtTime(0.11, ctx.currentTime + 0.02);
+    beep(ctx.currentTime, 392);
+    gain.gain.setValueAtTime(0.11, ctx.currentTime + 0.16);
+    gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.16);
+    gain.gain.setValueAtTime(0.0001, ctx.currentTime + 0.18);
+    gain.gain.exponentialRampToValueAtTime(0.1, ctx.currentTime + 0.2);
+    beep(ctx.currentTime + 0.18, 494);
+    gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.38);
+    window.setTimeout(() => void ctx.close().catch(() => undefined), 500);
+  } catch {
+    /* autoplay bloqueado */
   }
 }
 
@@ -146,33 +204,41 @@ export function NotificationCenter() {
     }, 4000);
   }, [queryClient]);
 
+  const bumpInternalChatBadge = useCallback(() => {
+    queryClient.setQueriesData<{ count: number }>({ queryKey: ["internal-chat-nav-badge"] }, (prev) => ({
+      count: Math.max(0, (prev?.count ?? 0) + 1),
+    }));
+    window.setTimeout(() => {
+      void queryClient.invalidateQueries({ queryKey: ["internal-chat-nav-badge"] });
+    }, 400);
+  }, [queryClient]);
+
   const showMessageNotification = useCallback(
     (notification: AppNotification) => {
+      const internal = isInternalChatNotification(notification);
       const entityId = notification.entity_id ? String(notification.entity_id) : "";
       if (entityId) {
         if (seenMessageIds.has(entityId)) return false;
         markMessageSeen(entityId);
       }
-      // Também dedupe por id numérico da notificação persistida.
       if (notification.id > 0 && seenMessageIds.has(`nid:${notification.id}`)) return false;
       if (notification.id > 0) markMessageSeen(`nid:${notification.id}`);
 
-      const ticketId = (() => {
-        const match = String(notification.url || "").match(/[?&]c=(\d+)/);
-        return match ? Number(match[1]) : null;
-      })();
-      const burstKey = ticketId != null
-        ? `c:${ticketId}:${(notification.message || "").trim().slice(0, 80)}`
+      const targetId = conversationIdFromUrl(notification.url);
+      const burstKey = targetId != null
+        ? `${internal ? "ic" : "c"}:${targetId}:${(notification.message || "").trim().slice(0, 80)}`
         : `t:${notification.title}:${(notification.message || "").trim().slice(0, 80)}`;
       if (isTicketBurst(burstKey)) return false;
       markTicketBurst(burstKey);
-      bumpHelpdeskBadge();
-      if (isHelpdeskConversationFocused(ticketId)) return true;
+      if (internal) bumpInternalChatBadge();
+      else bumpHelpdeskBadge();
+      if (internal ? isInternalChatFocused(targetId) : isHelpdeskConversationFocused(targetId)) return true;
       show(notification);
-      playMessageSound();
+      if (internal) playInternalChatSound();
+      else playMessageSound();
       return true;
     },
-    [bumpHelpdeskBadge, show],
+    [bumpHelpdeskBadge, bumpInternalChatBadge, show],
   );
 
   useEffect(() => {
@@ -205,7 +271,7 @@ export function NotificationCenter() {
     const { url } = getFlaskSocketConfig();
     const socket = io(url, flaskSocketOptions());
     const onAppNotification = (notification: AppNotification) => {
-      if (notification.type === "message") {
+      if (notification.type === "message" || isInternalChatNotification(notification)) {
         showMessageRef.current(notification);
         return;
       }

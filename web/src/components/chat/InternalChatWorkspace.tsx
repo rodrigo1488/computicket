@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ComposerAttachZone } from "@/components/ui/ComposerAttachZone";
 import { Modal } from "@/components/ui/Modal";
 import { UserAvatar } from "@/components/ui/UserAvatar";
 import { cn } from "@/lib/cn";
@@ -31,7 +32,9 @@ import {
   chatDisplayName,
   internalChat,
   internalChatMediaSizeError,
+  mergeInternalChat,
   publicInternalMediaUrl,
+  isPlaceholderName,
   type InternalChat,
   type InternalChatColleague,
   type InternalChatMessage,
@@ -89,6 +92,14 @@ function snippet(text?: string | null) {
 
 function lastMessagePreview(chat: InternalChat) {
   return snippet(chat.lastMessage) || "Nenhuma mensagem ainda";
+}
+
+function senderLabel(message: InternalChatMessage, chat: InternalChat | null) {
+  const fromMsg = message.sender?.name?.trim();
+  if (fromMsg && !isPlaceholderName(fromMsg)) return fromMsg;
+  const fromChat = (chat?.participants || []).find((p) => p.id != null && p.id === message.senderId)?.name?.trim();
+  if (fromChat && !isPlaceholderName(fromChat)) return fromChat;
+  return fromMsg || fromChat || "";
 }
 
 function participantNames(chat: InternalChat) {
@@ -256,7 +267,9 @@ export function InternalChatWorkspace() {
         if (!prev?.records) return prev;
         return {
           ...prev,
-          records: prev.records.map((row) => (row.id === chat.id ? { ...row, ...chat, unreads: 0 } : row)),
+          records: prev.records.map((row) =>
+            row.id === chat.id ? mergeInternalChat(row, { ...chat, unreads: 0 }) : row,
+          ),
         };
       });
       void qc.invalidateQueries({ queryKey: ["internal-chat-nav-badge"] });
@@ -293,6 +306,16 @@ export function InternalChatWorkspace() {
     },
     onError: (e: Error) => setError(e.message),
   });
+
+  function attachComposerFile(next: File) {
+    const tooBig = internalChatMediaSizeError(next);
+    if (tooBig) {
+      setError(tooBig);
+      return;
+    }
+    setError(null);
+    setFile(next);
+  }
 
   const createGroup = useMutation({
     mutationFn: ({ title, userIds }: { title: string; userIds: number[] }) =>
@@ -361,9 +384,10 @@ export function InternalChatWorkspace() {
         return;
       }
       if (incoming && chat && incoming.id) {
-        if (openId && chat.id === openId) {
+        if (openId && Number(chat.id) === openId) {
           const normalized = {
             ...incoming,
+            sender: incoming.sender,
             mine: incoming.senderId === engine.engineUserId,
             mediaUrl: incoming.mediaUrl || publicInternalMediaUrl(incoming.mediaPath),
           };
@@ -375,6 +399,25 @@ export function InternalChatWorkspace() {
             void internalChat.read(openId).catch(() => undefined);
           }
         }
+        qc.setQueryData(["ic-list"], (prev: { records?: InternalChat[] } | undefined) => {
+          if (!prev?.records) return prev;
+          return {
+            ...prev,
+            records: prev.records.map((row) =>
+              Number(row.id) === Number(chat.id) ? mergeInternalChat(row, chat) : row,
+            ),
+          };
+        });
+      } else if (chat && payload?.action === "update") {
+        qc.setQueryData(["ic-list"], (prev: { records?: InternalChat[] } | undefined) => {
+          if (!prev?.records) return prev;
+          return {
+            ...prev,
+            records: prev.records.map((row) =>
+              Number(row.id) === Number(chat.id) ? mergeInternalChat(row, chat) : row,
+            ),
+          };
+        });
       }
       invalidateLists();
     };
@@ -424,7 +467,15 @@ export function InternalChatWorkspace() {
   const isOwner = !!current && current.ownerId === engineUserId;
 
   return (
-    <div className="relative flex h-0 min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+    <div
+      className="relative flex h-0 min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
+      onDragOver={(e) => {
+        if (Array.from(e.dataTransfer?.types || []).includes("Files")) e.preventDefault();
+      }}
+      onDrop={(e) => {
+        if (Array.from(e.dataTransfer?.types || []).includes("Files")) e.preventDefault();
+      }}
+    >
       <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
         <aside className="relative flex w-[320px] min-h-0 min-w-[260px] shrink-0 flex-col overflow-hidden border-r border-line">
           <div className="flex items-center justify-between gap-2 border-b border-line px-3 py-2">
@@ -568,7 +619,14 @@ export function InternalChatWorkspace() {
 
         <section className="flex min-h-0 min-w-0 flex-1 basis-0 flex-col overflow-hidden bg-chat">
           {current ? (
-            <div className="flex min-h-0 flex-1 basis-0 flex-col overflow-hidden">
+            <ComposerAttachZone
+              enabled
+              onFiles={(files) => {
+                const next = files[0];
+                if (next) attachComposerFile(next);
+              }}
+              className="flex min-h-0 flex-1 basis-0 flex-col overflow-hidden"
+            >
               <header className="flex shrink-0 items-center gap-3 border-b border-chat-border bg-surface px-4 py-2.5">
                 <UserAvatar
                   name={chatDisplayName(current)}
@@ -651,9 +709,9 @@ export function InternalChatWorkspace() {
                               mine ? "bg-brand text-white" : "bg-surface text-ink",
                             )}
                           >
-                            {current.isGroup && !mine ? (
+                            {current.isGroup && !mine && senderLabel(m, current) ? (
                               <p className={cn("mb-0.5 text-[11px] font-semibold", mine ? "text-white/80" : "text-brand")}>
-                                {m.sender?.name || "Colaborador"}
+                                {senderLabel(m, current)}
                               </p>
                             ) : null}
                             {src && kind === "image" ? (
@@ -731,17 +789,9 @@ export function InternalChatWorkspace() {
                     type="file"
                     className="hidden"
                     onChange={(e) => {
-                      const next = e.target.files?.[0] || null;
-                      if (next) {
-                        const tooBig = internalChatMediaSizeError(next);
-                        if (tooBig) {
-                          setError(tooBig);
-                          e.target.value = "";
-                          return;
-                        }
-                        setError(null);
-                      }
-                      setFile(next);
+                      const next = e.target.files?.[0];
+                      if (next) attachComposerFile(next);
+                      e.target.value = "";
                     }}
                   />
                   <textarea
@@ -757,6 +807,7 @@ export function InternalChatWorkspace() {
                     className="max-h-28 min-h-9 flex-1 resize-none rounded-lg border-0 bg-wash px-3 py-2 text-sm shadow-sm outline-none"
                     placeholder="Digite uma mensagem"
                     autoComplete="off"
+                    title="Cole uma imagem (Ctrl+V) ou arraste um arquivo"
                   />
                   <button
                     type="submit"
@@ -768,7 +819,7 @@ export function InternalChatWorkspace() {
                   </button>
                 </div>
               </form>
-            </div>
+            </ComposerAttachZone>
           ) : (
             <div className="flex min-h-0 flex-1 flex-col items-center justify-center px-6 text-center text-muted">
               <MessageCircle className="mb-3 h-10 w-10 text-line" />
