@@ -9,6 +9,7 @@ import DeleteService from "../services/ChatService/DeleteService";
 import FindMessages from "../services/ChatService/FindMessages";
 import UpdateService from "../services/ChatService/UpdateService";
 import CreateIndividualChatsForUserService from "../services/ChatService/CreateIndividualChatsForUserService";
+import UnreadCountService from "../services/ChatService/UnreadCountService";
 
 import Chat from "../models/Chat";
 import CreateMessageService from "../services/ChatService/CreateMessageService";
@@ -17,6 +18,7 @@ import ChatUser from "../models/ChatUser";
 
 type IndexQuery = {
   pageNumber: string;
+  pageSize?: string;
   companyId: string | number;
   ownerId?: number;
 };
@@ -33,7 +35,7 @@ type FindParams = {
 };
 
 export const index = async (req: Request, res: Response): Promise<Response> => {
-  const { pageNumber, isGroup } = req.query as unknown as IndexQuery & { isGroup?: string };
+  const { pageNumber, pageSize, isGroup } = req.query as unknown as IndexQuery & { isGroup?: string };
   const ownerId = +req.user.id;
   const { companyId } = req.user;
 
@@ -51,10 +53,17 @@ export const index = async (req: Request, res: Response): Promise<Response> => {
   const { records, count, hasMore } = await ListService({
     ownerId,
     pageNumber,
+    pageSize,
     isGroup: isGroupFilter
   });
 
   return res.json({ records, count, hasMore });
+};
+
+export const unreadCount = async (req: Request, res: Response): Promise<Response> => {
+  const ownerId = +req.user.id;
+  const count = await UnreadCountService(ownerId);
+  return res.json({ count });
 };
 
 export const store = async (req: Request, res: Response): Promise<Response> => {

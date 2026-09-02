@@ -83,8 +83,23 @@ export function AppSidebar() {
     refetchOnWindowFocus: true,
     retry: 0,
   });
+  const chatBadge = useQuery({
+    queryKey: ["internal-chat-nav-badge", user?.id],
+    queryFn: async () => {
+      try {
+        return await flask.get<{ count: number }>("/internal-chat/api/nav-badge");
+      } catch {
+        return { count: 0 };
+      }
+    },
+    enabled: Boolean(user?.id),
+    refetchInterval: HELPDESK_POLL_MS,
+    refetchOnWindowFocus: true,
+    retry: 0,
+  });
   const staleCount = stale.data?.count ?? 0;
   const helpdeskCount = helpdeskBadge.data?.count ?? 0;
+  const chatCount = chatBadge.data?.count ?? 0;
 
   function toggleCollapsed() {
     setCollapsed((current) => {
@@ -129,13 +144,21 @@ export function AppSidebar() {
           const active = pathname === item.href || pathname.startsWith(item.href + "/");
           const Icon = item.icon;
           const badge =
-            item.href === "/tickets" ? staleCount : item.href === "/helpdesk" ? helpdeskCount : 0;
+            item.href === "/tickets"
+              ? staleCount
+              : item.href === "/helpdesk"
+                ? helpdeskCount
+                : item.href === "/chat"
+                  ? chatCount
+                  : 0;
           const badgeLabel =
             item.href === "/tickets"
               ? `${badge} tickets abertos há mais de 7 dias`
               : item.href === "/helpdesk"
                 ? `${badge} mensagens novas no Help Desk`
-                : "";
+                : item.href === "/chat"
+                  ? `${badge} mensagens novas no chat interno`
+                  : "";
           const title = badge > 0 ? `${item.label} (${badgeLabel})` : item.label;
           return (
             <Link

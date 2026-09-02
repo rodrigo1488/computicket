@@ -10,6 +10,8 @@ const upload = multer(uploadChatMediaConfig);
 
 routes.get("/chats", isAuth, ChatController.index);
 
+routes.get("/chats/unread-count", isAuth, ChatController.unreadCount);
+
 routes.get("/chats/:id", isAuth, ChatController.show);
 
 routes.get("/chats/:id/messages", isAuth, ChatController.messages);

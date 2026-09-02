@@ -68,6 +68,12 @@ import {
   type QuickMessage,
   type TransferPayload,
 } from "@/lib/helpdesk";
+import {
+  mergeMessageIntoThread,
+  normalizeMessageCreatedAt,
+  retainOptimisticMessages,
+  sortMessagesChronologically,
+} from "@/lib/helpdeskMessages";
 
 const TAB_META: { key: HelpdeskTab; label: string }[] = [
   { key: "pending", label: "Aguardando" },
@@ -160,25 +166,6 @@ function statusChip(c: HelpdeskConversation) {
 function asTab(raw: string | null): HelpdeskTab {
   if (raw === "open" || raw === "pending" || raw === "closed") return raw;
   return "pending";
-}
-
-function isTempMessageId(id?: string | null) {
-  return !!id && String(id).startsWith("temp-");
-}
-
-function sameInternalFlags(a: HelpdeskMessage, b: HelpdeskMessage) {
-  return !!(a.isInternal || a.isPrivate) === !!(b.isInternal || b.isPrivate);
-}
-
-function normalizeMessageBody(value?: string | null) {
-  return (value || "").replace(/\r\n/g, "\n").replace(/[ \t]+/g, " ").trim();
-}
-
-function isMediaMessage(m: HelpdeskMessage) {
-  if (m.mediaUrl) return true;
-  const t = (m.mediaType || "").toLowerCase();
-  if (!t || t === "conversation" || t === "chat") return false;
-  return /^(image|audio|video|application|document|sticker|ptt)/.test(t);
 }
 
 const IMAGE_EXT = new Set(["jpg", "jpeg", "png", "gif", "webp", "bmp", "svg", "heic", "heif"]);
@@ -341,6 +328,7 @@ function AudioTranscript({
 }
 
 type AppMessagePayload = {
+  action?: string;
   ticket?: { id?: number | string } | null;
   message?: (HelpdeskMessage & { ticketId?: number | string; ticket?: { id?: number | string } | null }) | null;
 };
@@ -468,95 +456,6 @@ function patchConversationInLists(
   qc.setQueriesData<ConversationListRes>({ queryKey: ["hd-list-counts"] }, apply);
 }
 
-function messageLooksSettled(real: HelpdeskMessage, pending: HelpdeskMessage) {
-  if (isTempMessageId(real.id)) return false;
-  if (!!real.fromMe !== !!pending.fromMe) return false;
-  if (!sameInternalFlags(real, pending)) return false;
-  if (isMediaMessage(real) !== isMediaMessage(pending)) return false;
-  if (isMediaMessage(pending)) return true;
-  return normalizeMessageBody(real.body) === normalizeMessageBody(pending.body);
-}
-
-/** GET assíncrono ainda não traz o que o socket/otimista já mostrou — não descartar. */
-function retainOptimisticMessages(fetched: HelpdeskMessage[], previous?: HelpdeskMessage[]) {
-  if (!previous?.length) return fetched;
-  const fetchedIds = new Set(fetched.map((m) => String(m.id)));
-  const extras: HelpdeskMessage[] = [];
-  for (const pending of previous) {
-    const id = String(pending.id);
-    if (fetchedIds.has(id)) continue;
-    if (isTempMessageId(id)) {
-      if (!fetched.some((m) => messageLooksSettled(m, pending))) extras.push(pending);
-      continue;
-    }
-    extras.push(pending);
-  }
-  return extras.length ? [...fetched, ...extras] : fetched;
-}
-
-function replaceMessageAt(current: HelpdeskMessage[], idx: number, nextMsg: HelpdeskMessage) {
-  const copy = [...current];
-  const prevUrl = copy[idx].mediaUrl;
-  if (prevUrl?.startsWith("blob:") && prevUrl !== nextMsg.mediaUrl) URL.revokeObjectURL(prevUrl);
-  copy[idx] = { ...copy[idx], ...nextMsg };
-  return copy;
-}
-
-/** Insere/substitui mensagem no thread sem duplicar (id real ou placeholder temp-). */
-function mergeMessageIntoThread(prev: HelpdeskMessage[] | undefined, incoming: HelpdeskMessage): HelpdeskMessage[] {
-  const current = prev || [];
-  const incomingId = incoming.id != null ? String(incoming.id) : "";
-  if (!incomingId || incomingId === "undefined" || incomingId === "null") {
-    return current;
-  }
-  const nextMsg: HelpdeskMessage = {
-    id: incomingId,
-    body: incoming.body,
-    fromMe: incoming.fromMe,
-    createdAt: incoming.createdAt,
-    ack: incoming.ack,
-    mediaType: incoming.mediaType,
-    mediaUrl: publicMediaUrl(incoming.mediaUrl) || incoming.mediaUrl,
-    isInternal: incoming.isInternal,
-    isPrivate: incoming.isPrivate,
-    quotedMsg: incoming.quotedMsg,
-    isDeleted: incoming.isDeleted,
-    ...(incoming.transcription !== undefined ? { transcription: incoming.transcription } : {}),
-    ...(incoming.transcriptionStatus !== undefined
-      ? { transcriptionStatus: incoming.transcriptionStatus }
-      : {}),
-    ...(incoming.transcriptionError !== undefined ? { transcriptionError: incoming.transcriptionError } : {}),
-  };
-  const byId = current.findIndex((m) => String(m.id) === nextMsg.id);
-  if (byId >= 0) return replaceMessageAt(current, byId, nextMsg);
-
-  if (!isTempMessageId(nextMsg.id)) {
-    const textTempExact = current.findIndex(
-      (m) =>
-        isTempMessageId(m.id) &&
-        !!m.fromMe === !!nextMsg.fromMe &&
-        sameInternalFlags(m, nextMsg) &&
-        !isMediaMessage(m) &&
-        !isMediaMessage(nextMsg) &&
-        normalizeMessageBody(m.body) === normalizeMessageBody(nextMsg.body),
-    );
-    if (textTempExact >= 0) return replaceMessageAt(current, textTempExact, nextMsg);
-
-    if (isMediaMessage(nextMsg)) {
-      const mediaTemp = current.findIndex(
-        (m) =>
-          isTempMessageId(m.id) &&
-          !!m.fromMe === !!nextMsg.fromMe &&
-          sameInternalFlags(m, nextMsg) &&
-          isMediaMessage(m),
-      );
-      if (mediaTemp >= 0) return replaceMessageAt(current, mediaTemp, nextMsg);
-    }
-  }
-
-  return [...current, nextMsg];
-}
-
 function extractSentMessage(data: unknown): HelpdeskMessage | null {
   if (!data || typeof data !== "object") return null;
   const d = data as Record<string, unknown>;
@@ -574,7 +473,7 @@ function extractSentMessage(data: unknown): HelpdeskMessage | null {
     fromMe: d.fromMe !== false,
     mediaUrl: (d.mediaUrl as string | null | undefined) ?? null,
     mediaType: (d.mediaType as string | null | undefined) ?? null,
-    createdAt: typeof d.createdAt === "string" ? d.createdAt : undefined,
+    createdAt: normalizeMessageCreatedAt(d.createdAt),
     ack: typeof d.ack === "number" ? d.ack : undefined,
     isInternal: !!(d.isInternal || d.isPrivate),
     isPrivate: !!(d.isPrivate || d.isInternal),
@@ -1428,9 +1327,11 @@ export function HelpdeskWorkspace() {
     onError: (e: Error) => setError(e.message),
   });
 
-  const threadTailId = messages.data?.messages?.length
-    ? messages.data.messages[messages.data.messages.length - 1]?.id
-    : null;
+  const thread = useMemo(
+    () => sortMessagesChronologically(messages.data?.messages || []),
+    [messages.data?.messages],
+  );
+  const threadTailId = thread.length ? thread[thread.length - 1]?.id : null;
 
   useEffect(() => {
     const el = threadRef.current;
@@ -1494,7 +1395,9 @@ export function HelpdeskWorkspace() {
       if (ticketId && openId && ticketId === openId && incoming?.id) {
         qc.setQueryData<MessagesCache>(["hd-messages", openId], (prev) => ({
           ...prev,
-          messages: mergeMessageIntoThread(prev?.messages, incoming as HelpdeskMessage),
+          messages: mergeMessageIntoThread(prev?.messages, incoming as HelpdeskMessage, {
+            insertIfMissing: payload.action !== "update",
+          }),
         }));
         patchConversationInLists(qc, ticketId, (row) => ({
           ...row,
@@ -1528,7 +1431,6 @@ export function HelpdeskWorkspace() {
     (linkedFallback && linkedFallback.conversationId === current?.id ? linkedFallback.ticketId : null);
   const canReply = current?.status === "open";
   const assignedName = current?.user?.name;
-  const thread = messages.data?.messages || [];
   const quickItems = quicks.data || [];
   const slash = text.startsWith("/") ? text.slice(1).toLowerCase() : "";
   const quickMatches = slash
@@ -2058,8 +1960,8 @@ export function HelpdeskWorkspace() {
                 {messages.isSuccess && grouped.length === 0 ? (
                   <p className="py-10 text-center text-sm text-muted">Nenhuma mensagem nesta conversa</p>
                 ) : null}
-                {grouped.map((group) => (
-                  <div key={group.day}>
+                {grouped.map((group, gi) => (
+                  <div key={`${group.day}-${gi}`}>
                     {group.day ? (
                       <p className="mb-3 text-center">
                         <span className="rounded-full bg-surface/80 px-3 py-1 text-[11px] text-muted shadow-sm">{group.day}</span>
@@ -3112,7 +3014,7 @@ function HistoryMessagesModal({
     queryKey: ["hd-messages", "history", conversationId],
     queryFn: () => helpdesk.messages(conversationId),
   });
-  const items = unwrapMessages(query.data);
+  const items = sortMessagesChronologically(unwrapMessages(query.data));
 
   return (
     <Modal open onClose={onClose} title={`Histórico · conversa #${conversationId}`}>

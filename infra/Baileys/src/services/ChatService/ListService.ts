@@ -6,6 +6,7 @@ import User from "../../models/User";
 interface Request {
   ownerId: number;
   pageNumber?: string;
+  pageSize?: string;
   isGroup?: boolean;
 }
 
@@ -18,6 +19,7 @@ interface Response {
 const ListService = async ({
   ownerId,
   pageNumber = "1",
+  pageSize,
   isGroup
 }: Request): Promise<Response> => {
   const chatUsers = await ChatUser.findAll({
@@ -26,7 +28,10 @@ const ListService = async ({
 
   const chatIds = chatUsers.map(chat => chat.chatId);
 
-  const limit = 20;
+  const parsedSize = Number(pageSize);
+  const limit = Number.isFinite(parsedSize)
+    ? Math.min(100, Math.max(1, Math.floor(parsedSize)))
+    : 50;
   const offset = limit * (+pageNumber - 1);
 
   const whereCondition: any = {
@@ -47,7 +52,7 @@ const ListService = async ({
     ],
     limit,
     offset,
-    order: [["createdAt", "DESC"]]
+    order: [["updatedAt", "DESC"]]
   });
 
   const hasMore = count > offset + records.length;

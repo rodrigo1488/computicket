@@ -22,7 +22,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     );
   }
 
-  const isHelpdesk = pathname.startsWith("/helpdesk");
+  const isChatLayout = pathname.startsWith("/helpdesk") || pathname.startsWith("/chat");
 
   return (
     <div className="flex h-full max-h-full min-h-0 overflow-hidden bg-canvas">
@@ -30,13 +30,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <main
         className={cn(
           "flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden",
-          isHelpdesk ? "p-3" : "p-5",
+          isChatLayout ? "p-3" : "p-5",
         )}
       >
         <div
           className={cn(
             "min-h-0 min-w-0 flex-1",
-            isHelpdesk
+            isChatLayout
               ? "flex h-0 min-h-0 flex-col overflow-hidden rounded-[28px] bg-surface shadow-sm"
               : "overflow-y-auto rounded-[28px] bg-surface p-8 shadow-sm",
           )}

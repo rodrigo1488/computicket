@@ -119,7 +119,7 @@ const ListMessagesService = async ({
     messageIds: messages.map(m => m.id).slice(0, 5)
   });
 
-  const sortedMessages = messages.reverse();
+  const sortedMessages = [...messages].reverse();
 
   return {
     messages: sortedMessages,
