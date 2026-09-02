@@ -38,6 +38,7 @@ import { CloseTicketDialog } from "@/components/tickets/CloseTicketDialog";
 import { TicketCreateDialog } from "@/components/tickets/TicketCreateDialog";
 import { TimeEntryDialog } from "@/components/tickets/TimeEntryDialog";
 import { WhatsAppFormattedText } from "@/components/helpdesk/WhatsAppFormattedText";
+import { MediaViewer, type MediaViewerItem } from "@/components/media/MediaViewer";
 import { ComposerAttachZone } from "@/components/ui/ComposerAttachZone";
 import { FloatingMenu } from "@/components/ui/FloatingMenu";
 import { Modal } from "@/components/ui/Modal";
@@ -199,10 +200,12 @@ function ThreadMedia({
   mediaUrl,
   mediaType,
   onReady,
+  onOpen,
 }: {
   mediaUrl: string;
   mediaType?: string | null;
   onReady?: () => void;
+  onOpen?: (item: MediaViewerItem) => void;
 }) {
   const src = publicMediaUrl(mediaUrl) || mediaUrl;
   const kind = mediaKind(mediaType, src);
@@ -212,8 +215,9 @@ function ThreadMedia({
       <img
         src={src}
         alt=""
-        className="mb-1 block max-h-56 max-w-full rounded-md object-contain"
+        className="mb-1 block max-h-56 max-w-full cursor-zoom-in rounded-md object-contain"
         onLoad={onReady}
+        onClick={() => onOpen?.({ src, kind: "image" })}
       />
     );
   }
@@ -231,15 +235,24 @@ function ThreadMedia({
   }
   if (kind === "video") {
     return (
-      <video
-        controls
-        playsInline
-        preload="metadata"
-        src={src}
-        aria-label="Vídeo"
-        className="mb-1 block max-h-64 w-full max-w-[280px] rounded-md bg-black"
-        onLoadedMetadata={onReady}
-      />
+      <div className="relative mb-1 inline-block max-w-[280px]">
+        <video
+          controls
+          playsInline
+          preload="metadata"
+          src={src}
+          aria-label="Vídeo"
+          className="block max-h-64 w-full rounded-md bg-black"
+          onLoadedMetadata={onReady}
+        />
+        <button
+          type="button"
+          onClick={() => onOpen?.({ src, kind: "video" })}
+          className="absolute right-1 top-1 rounded bg-black/60 px-1.5 py-0.5 text-[10px] font-medium text-white hover:bg-black/80"
+        >
+          Ampliar
+        </button>
+      </div>
     );
   }
   return (
@@ -752,6 +765,7 @@ export function HelpdeskWorkspace() {
   const [aiError, setAiError] = useState<string | null>(null);
   const [ticketDefaults, setTicketDefaults] = useState<HelpdeskAiTicketDraft | null>(null);
   const [historyViewId, setHistoryViewId] = useState<number | null>(null);
+  const [mediaViewer, setMediaViewer] = useState<MediaViewerItem | null>(null);
   const [expandedPhoneKeys, setExpandedPhoneKeys] = useState<Set<string>>(() => new Set());
   const [sign, setSign] = useState(() => {
     if (typeof window === "undefined") return true;
@@ -2029,6 +2043,7 @@ export function HelpdeskWorkspace() {
                               <ThreadMedia
                                 mediaUrl={m.mediaUrl}
                                 mediaType={m.mediaType}
+                                onOpen={setMediaViewer}
                                 onReady={() => {
                                   const el = threadRef.current;
                                   if (el) el.scrollTop = el.scrollHeight;
@@ -2419,8 +2434,22 @@ export function HelpdeskWorkspace() {
       </Modal>
 
       {historyViewId ? (
-        <HistoryMessagesModal conversationId={historyViewId} onClose={() => setHistoryViewId(null)} />
+        <HistoryMessagesModal
+          conversationId={historyViewId}
+          onClose={() => setHistoryViewId(null)}
+          onOpenMedia={setMediaViewer}
+        />
       ) : null}
+
+      <MediaViewer
+        item={mediaViewer}
+        onClose={() => setMediaViewer(null)}
+        canResend={!!activeId && current?.status === "open"}
+        onResend={(file) => {
+          setMediaViewer(null);
+          attachComposerFile(file);
+        }}
+      />
 
       {linkedTicket && entryMode ? (
         <TimeEntryDialog
@@ -3047,9 +3076,11 @@ function ConversationHistoryStrip({
 function HistoryMessagesModal({
   conversationId,
   onClose,
+  onOpenMedia,
 }: {
   conversationId: number;
   onClose: () => void;
+  onOpenMedia?: (item: MediaViewerItem) => void;
 }) {
   const query = useQuery({
     queryKey: ["hd-messages", "history", conversationId],
@@ -3087,7 +3118,9 @@ function HistoryMessagesModal({
                       : "bg-wash text-ink",
                 )}
               >
-                {m.mediaUrl ? <ThreadMedia mediaUrl={m.mediaUrl} mediaType={m.mediaType} /> : null}
+                {m.mediaUrl ? (
+                  <ThreadMedia mediaUrl={m.mediaUrl} mediaType={m.mediaType} onOpen={onOpenMedia} />
+                ) : null}
                 {audio ? <AudioTranscript message={m} conversationId={conversationId} /> : null}
                 {m.body && !(audio && isPlaceholderAudioBody(m.body)) ? (
                   <p className="whitespace-pre-wrap break-words">

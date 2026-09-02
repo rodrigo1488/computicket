@@ -18,6 +18,7 @@ import {
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ComposerAttachZone } from "@/components/ui/ComposerAttachZone";
+import { MediaViewer, type MediaViewerItem } from "@/components/media/MediaViewer";
 import { Modal } from "@/components/ui/Modal";
 import { UserAvatar } from "@/components/ui/UserAvatar";
 import { cn } from "@/lib/cn";
@@ -138,6 +139,7 @@ export function InternalChatWorkspace() {
   const [olderPage, setOlderPage] = useState(1);
   const [olderMessages, setOlderMessages] = useState<InternalChatMessage[]>([]);
   const [loadingOlder, setLoadingOlder] = useState(false);
+  const [mediaViewer, setMediaViewer] = useState<MediaViewerItem | null>(null);
 
   const threadRef = useRef<HTMLDivElement | null>(null);
   const fileRef = useRef<HTMLInputElement | null>(null);
@@ -716,13 +718,30 @@ export function InternalChatWorkspace() {
                             ) : null}
                             {src && kind === "image" ? (
                               // eslint-disable-next-line @next/next/no-img-element
-                              <img src={src} alt={m.mediaName || ""} className="mb-1 block max-h-56 max-w-full rounded-md object-contain" />
+                              <img
+                                src={src}
+                                alt={m.mediaName || ""}
+                                className="mb-1 block max-h-56 max-w-full cursor-zoom-in rounded-md object-contain"
+                                onClick={() => setMediaViewer({ src, kind: "image", name: m.mediaName || undefined })}
+                              />
                             ) : null}
                             {src && kind === "audio" ? (
                               <audio controls preload="metadata" src={src} className="mb-1 block h-11 w-full max-w-[16rem]" />
                             ) : null}
                             {src && kind === "video" ? (
-                              <video controls src={src} className="mb-1 block max-h-56 max-w-full rounded-md" />
+                              <div className="relative mb-1 inline-block">
+                                <video controls src={src} className="block max-h-56 max-w-full rounded-md" />
+                                <button
+                                  type="button"
+                                  onClick={() => setMediaViewer({ src, kind: "video", name: m.mediaName || undefined })}
+                                  className={cn(
+                                    "absolute right-1 top-1 rounded px-1.5 py-0.5 text-[10px] font-medium",
+                                    mine ? "bg-black/40 text-white" : "bg-black/60 text-white",
+                                  )}
+                                >
+                                  Ampliar
+                                </button>
+                              </div>
                             ) : null}
                             {src && kind === "file" ? (
                               <a
@@ -866,6 +885,32 @@ export function InternalChatWorkspace() {
           </button>
         </div>
       </Modal>
+
+      <MediaViewer
+        item={mediaViewer}
+        onClose={() => setMediaViewer(null)}
+        canResend={!!activeId}
+        onResend={(file) => {
+          if (!activeId) return;
+          setMediaViewer(null);
+          const tooBig = internalChatMediaSizeError(file);
+          if (tooBig) {
+            setError(tooBig);
+            return;
+          }
+          void internalChat
+            .sendMedia(activeId, file, "")
+            .then((msg) => {
+              qc.setQueryData(["ic-messages", activeId], (prev: { records?: InternalChatMessage[] } | undefined) => ({
+                ...prev,
+                records: mergeMessage(prev?.records, msg),
+              }));
+              invalidateLists();
+              stickToBottomRef.current = true;
+            })
+            .catch((e: Error) => setError(e.message));
+        }}
+      />
     </div>
   );
 }
