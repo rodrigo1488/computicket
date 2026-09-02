@@ -31,7 +31,7 @@ interface Request {
   media: Express.Multer.File;
   ticket: Ticket;
   body?: string;
-  quotedMsg?: Message;
+  quotedMsg?: Message | { id: string };
 }
 
 const publicFolder = path.resolve(__dirname, "..", "..", "..", "public");
@@ -166,7 +166,7 @@ export const getMessageOptions = async (
   }
 };
 
-async function quotedSendOption(quotedMsg?: Message) {
+async function quotedSendOption(quotedMsg?: Message | { id: string }) {
   if (!quotedMsg?.id) return undefined;
   const stored = await Message.findByPk(quotedMsg.id);
   if (!stored?.dataJson) return undefined;
