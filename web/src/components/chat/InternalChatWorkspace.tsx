@@ -3,7 +3,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { io, type Socket } from "socket.io-client";
 import {
-  Image as ImageIcon,
   LoaderCircle,
   MessageCircle,
   Paperclip,
@@ -17,7 +16,8 @@ import {
 } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ComposerAttachZone } from "@/components/ui/ComposerAttachZone";
+import { ComposerContextBanner, MessageActions } from "@/components/chat/MessageActions";
+import { ComposerAttachZone, ComposerFilePreview } from "@/components/ui/ComposerAttachZone";
 import { MediaViewer, type MediaViewerItem } from "@/components/media/MediaViewer";
 import { Modal } from "@/components/ui/Modal";
 import { UserAvatar } from "@/components/ui/UserAvatar";
@@ -110,7 +110,13 @@ function participantNames(chat: InternalChat) {
 
 function mergeMessage(list: InternalChatMessage[] | undefined, incoming: InternalChatMessage) {
   const current = list || [];
-  if (incoming.id && current.some((item) => item.id === incoming.id)) return current;
+  if (!incoming?.id) return current;
+  const idx = current.findIndex((item) => item.id === incoming.id);
+  if (idx >= 0) {
+    const copy = [...current];
+    copy[idx] = { ...copy[idx], ...incoming };
+    return copy;
+  }
   return [...current, incoming];
 }
 
@@ -130,6 +136,8 @@ export function InternalChatWorkspace() {
   const [search, setSearch] = useState("");
   const [activeId, setActiveId] = useState<number | null>(deepLink);
   const [text, setText] = useState("");
+  const [replyTo, setReplyTo] = useState<InternalChatMessage | null>(null);
+  const [editingMessage, setEditingMessage] = useState<InternalChatMessage | null>(null);
   const [file, setFile] = useState<File | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [groupOpen, setGroupOpen] = useState(false);
@@ -200,6 +208,8 @@ export function InternalChatWorkspace() {
     setOlderMessages([]);
     setText("");
     setFile(null);
+    setReplyTo(null);
+    setEditingMessage(null);
     stickToBottomRef.current = true;
   }, [activeId]);
 
@@ -287,17 +297,25 @@ export function InternalChatWorkspace() {
   const send = useMutation({
     mutationFn: async () => {
       if (!activeId) throw new Error("Selecione uma conversa.");
+      if (editingMessage) {
+        const body = text.trim();
+        if (!body) throw new Error("Digite uma mensagem.");
+        return internalChat.edit(activeId, editingMessage.id, body);
+      }
+      const quotedId = replyTo && !replyTo.isDeleted ? replyTo.id : undefined;
       if (file) {
         const tooBig = internalChatMediaSizeError(file);
         if (tooBig) throw new Error(tooBig);
-        return internalChat.sendMedia(activeId, file, text.trim());
+        return internalChat.sendMedia(activeId, file, text.trim(), quotedId);
       }
       if (!text.trim()) throw new Error("Digite uma mensagem.");
-      return internalChat.send(activeId, text.trim());
+      return internalChat.send(activeId, text.trim(), quotedId);
     },
     onSuccess: (msg) => {
       setText("");
       setFile(null);
+      setReplyTo(null);
+      setEditingMessage(null);
       if (fileRef.current) fileRef.current.value = "";
       qc.setQueryData(["ic-messages", activeId], (prev: { records?: InternalChatMessage[] } | undefined) => ({
         ...prev,
@@ -305,6 +323,25 @@ export function InternalChatWorkspace() {
       }));
       invalidateLists();
       stickToBottomRef.current = true;
+    },
+    onError: (e: Error) => setError(e.message),
+  });
+
+  const deleteMessage = useMutation({
+    mutationFn: (message: InternalChatMessage) => {
+      if (!activeId) throw new Error("Selecione uma conversa.");
+      return internalChat.remove(activeId, message.id);
+    },
+    onSuccess: (msg) => {
+      qc.setQueryData(["ic-messages", activeId], (prev: { records?: InternalChatMessage[] } | undefined) => ({
+        ...prev,
+        records: mergeMessage(prev?.records, msg),
+      }));
+      if (replyTo?.id === msg.id) setReplyTo(null);
+      if (editingMessage?.id === msg.id) {
+        setEditingMessage(null);
+        setText("");
+      }
     },
     onError: (e: Error) => setError(e.message),
   });
@@ -385,8 +422,9 @@ export function InternalChatWorkspace() {
         invalidateLists();
         return;
       }
-      if (incoming && chat && incoming.id) {
-        if (openId && Number(chat.id) === openId) {
+      if (incoming && incoming.id) {
+        const incomingChatId = chat ? Number(chat.id) : Number(incoming.chatId);
+        if (openId && incomingChatId === openId) {
           const normalized = {
             ...incoming,
             sender: incoming.sender,
@@ -401,15 +439,17 @@ export function InternalChatWorkspace() {
             void internalChat.read(openId).catch(() => undefined);
           }
         }
-        qc.setQueryData(["ic-list"], (prev: { records?: InternalChat[] } | undefined) => {
-          if (!prev?.records) return prev;
-          return {
-            ...prev,
-            records: prev.records.map((row) =>
-              Number(row.id) === Number(chat.id) ? mergeInternalChat(row, chat) : row,
-            ),
-          };
-        });
+        if (chat) {
+          qc.setQueryData(["ic-list"], (prev: { records?: InternalChat[] } | undefined) => {
+            if (!prev?.records) return prev;
+            return {
+              ...prev,
+              records: prev.records.map((row) =>
+                Number(row.id) === Number(chat.id) ? mergeInternalChat(row, chat) : row,
+              ),
+            };
+          });
+        }
       } else if (chat && payload?.action === "update") {
         qc.setQueryData(["ic-list"], (prev: { records?: InternalChat[] } | undefined) => {
           if (!prev?.records) return prev;
@@ -622,7 +662,7 @@ export function InternalChatWorkspace() {
         <section className="flex min-h-0 min-w-0 flex-1 basis-0 flex-col overflow-hidden bg-chat">
           {current ? (
             <ComposerAttachZone
-              enabled
+              enabled={!editingMessage}
               onFiles={(files) => {
                 const next = files[0];
                 if (next) attachComposerFile(next);
@@ -703,63 +743,105 @@ export function InternalChatWorkspace() {
                       const mine = !!m.mine;
                       const src = publicInternalMediaUrl(m.mediaUrl || m.mediaPath);
                       const kind = mediaKind(src, m.mediaName);
+                      const canAct = !m.isDeleted;
                       return (
                         <div key={m.id} className={cn("mb-2 flex", mine ? "justify-end" : "justify-start")}>
                           <div
                             className={cn(
-                              "max-w-[75%] rounded-lg px-3 py-1.5 text-sm shadow-sm",
+                              "group/msg relative max-w-[75%] rounded-lg px-3 py-1.5 text-sm shadow-sm",
                               mine ? "bg-brand text-white" : "bg-surface text-ink",
                             )}
                           >
+                            {canAct ? (
+                              <MessageActions
+                                align={mine ? "start" : "end"}
+                                tone={mine ? "onBrand" : "default"}
+                                canReply
+                                canEdit={mine && !src}
+                                canDelete={mine}
+                                onReply={() => {
+                                  setReplyTo(m);
+                                  setEditingMessage(null);
+                                }}
+                                onEdit={() => {
+                                  setEditingMessage(m);
+                                  setReplyTo(null);
+                                  setFile(null);
+                                  setText(m.message || "");
+                                }}
+                                onDelete={() => {
+                                  if (window.confirm("Excluir esta mensagem?")) {
+                                    deleteMessage.mutate(m);
+                                  }
+                                }}
+                              />
+                            ) : null}
                             {current.isGroup && !mine && senderLabel(m, current) ? (
                               <p className={cn("mb-0.5 text-[11px] font-semibold", mine ? "text-white/80" : "text-brand")}>
                                 {senderLabel(m, current)}
                               </p>
                             ) : null}
-                            {src && kind === "image" ? (
-                              // eslint-disable-next-line @next/next/no-img-element
-                              <img
-                                src={src}
-                                alt={m.mediaName || ""}
-                                className="mb-1 block max-h-56 max-w-full cursor-zoom-in rounded-md object-contain"
-                                onClick={() => setMediaViewer({ src, kind: "image", name: m.mediaName || undefined })}
-                              />
-                            ) : null}
-                            {src && kind === "audio" ? (
-                              <audio controls preload="metadata" src={src} className="mb-1 block h-11 w-full max-w-[16rem]" />
-                            ) : null}
-                            {src && kind === "video" ? (
-                              <div className="relative mb-1 inline-block">
-                                <video controls src={src} className="block max-h-56 max-w-full rounded-md" />
-                                <button
-                                  type="button"
-                                  onClick={() => setMediaViewer({ src, kind: "video", name: m.mediaName || undefined })}
-                                  className={cn(
-                                    "absolute right-1 top-1 rounded px-1.5 py-0.5 text-[10px] font-medium",
-                                    mine ? "bg-black/40 text-white" : "bg-black/60 text-white",
-                                  )}
-                                >
-                                  Ampliar
-                                </button>
-                              </div>
-                            ) : null}
-                            {src && kind === "file" ? (
-                              <a
-                                href={src}
-                                target="_blank"
-                                rel="noreferrer"
-                                className={cn(
-                                  "mb-1 inline-flex items-center gap-1 text-xs underline",
-                                  mine ? "text-white" : "text-brand",
-                                )}
-                              >
-                                <Paperclip className="h-3.5 w-3.5" />
-                                {m.mediaName || "Arquivo"}
-                              </a>
-                            ) : null}
-                            {m.message ? <p className="whitespace-pre-wrap break-words">{m.message}</p> : null}
+                            {m.isDeleted ? (
+                              <p className={cn("italic", mine ? "text-white/80" : "text-muted")}>Esta mensagem foi apagada</p>
+                            ) : (
+                              <>
+                                {m.quotedMsg ? (
+                                  <p className={cn(
+                                    "mb-1 border-l-2 pl-2 text-[11px]",
+                                    mine ? "border-white/50 text-white/80" : "border-brand/50 text-muted",
+                                  )}>
+                                    {m.quotedMsg.isDeleted
+                                      ? "Mensagem apagada"
+                                      : (m.quotedMsg.message || m.quotedMsg.mediaName || "Mensagem").slice(0, 90)}
+                                  </p>
+                                ) : null}
+                                {src && kind === "image" ? (
+                                  // eslint-disable-next-line @next/next/no-img-element
+                                  <img
+                                    src={src}
+                                    alt={m.mediaName || ""}
+                                    className="mb-1 block max-h-56 max-w-full cursor-zoom-in rounded-md object-contain"
+                                    onClick={() => setMediaViewer({ src, kind: "image", name: m.mediaName || undefined })}
+                                  />
+                                ) : null}
+                                {src && kind === "audio" ? (
+                                  <audio controls preload="metadata" src={src} className="mb-1 block h-11 w-full max-w-[16rem]" />
+                                ) : null}
+                                {src && kind === "video" ? (
+                                  <div className="relative mb-1 inline-block">
+                                    <video controls src={src} className="block max-h-56 max-w-full rounded-md" />
+                                    <button
+                                      type="button"
+                                      onClick={() => setMediaViewer({ src, kind: "video", name: m.mediaName || undefined })}
+                                      className={cn(
+                                        "absolute right-1 top-1 rounded px-1.5 py-0.5 text-[10px] font-medium",
+                                        mine ? "bg-black/40 text-white" : "bg-black/60 text-white",
+                                      )}
+                                    >
+                                      Ampliar
+                                    </button>
+                                  </div>
+                                ) : null}
+                                {src && kind === "file" ? (
+                                  <a
+                                    href={src}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className={cn(
+                                      "mb-1 inline-flex items-center gap-1 text-xs underline",
+                                      mine ? "text-white" : "text-brand",
+                                    )}
+                                  >
+                                    <Paperclip className="h-3.5 w-3.5" />
+                                    {m.mediaName || "Arquivo"}
+                                  </a>
+                                ) : null}
+                                {m.message ? <p className="whitespace-pre-wrap break-words">{m.message}</p> : null}
+                              </>
+                            )}
                             <p className={cn("mt-1 text-right text-[10px]", mine ? "text-white/70" : "text-muted")}>
                               {formatMessageTime(m.createdAt)}
+                              {m.isEdited && !m.isDeleted ? " · editada" : ""}
                             </p>
                           </div>
                         </div>
@@ -773,33 +855,47 @@ export function InternalChatWorkspace() {
                 className="shrink-0 border-t border-chat-border bg-surface px-4 py-3"
                 onSubmit={(e) => {
                   e.preventDefault();
+                  if (editingMessage) {
+                    if (!text.trim()) return;
+                    send.mutate();
+                    return;
+                  }
                   if (!text.trim() && !file) return;
                   send.mutate();
                 }}
               >
+                {editingMessage ? (
+                  <ComposerContextBanner
+                    title="Editando mensagem"
+                    preview={(editingMessage.message || "").slice(0, 90)}
+                    onClear={() => {
+                      setEditingMessage(null);
+                      setText("");
+                    }}
+                  />
+                ) : replyTo ? (
+                  <ComposerContextBanner
+                    title="Respondendo"
+                    preview={(replyTo.message || replyTo.mediaName || "Mensagem").slice(0, 90)}
+                    onClear={() => setReplyTo(null)}
+                  />
+                ) : null}
                 {file ? (
-                  <div className="mb-2 flex items-center gap-2 rounded-lg bg-wash px-2 py-1.5 text-xs text-ink">
-                    <ImageIcon className="h-3.5 w-3.5 text-muted" />
-                    <span className="min-w-0 flex-1 truncate">{file.name}</span>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setFile(null);
-                        if (fileRef.current) fileRef.current.value = "";
-                      }}
-                      className="text-muted hover:text-ink"
-                      aria-label="Remover anexo"
-                    >
-                      <X className="h-3.5 w-3.5" />
-                    </button>
-                  </div>
+                  <ComposerFilePreview
+                    file={file}
+                    onClear={() => {
+                      setFile(null);
+                      if (fileRef.current) fileRef.current.value = "";
+                    }}
+                  />
                 ) : null}
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
                     onClick={() => fileRef.current?.click()}
-                    className="text-muted hover:text-ink"
+                    className="text-muted hover:text-ink disabled:opacity-40"
                     aria-label="Anexar"
+                    disabled={!!editingMessage}
                   >
                     <Paperclip className="h-5 w-5" />
                   </button>

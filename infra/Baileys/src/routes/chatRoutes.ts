@@ -18,6 +18,10 @@ routes.get("/chats/:id/messages", isAuth, ChatController.messages);
 
 routes.post("/chats/:id/messages", isAuth, upload.single("media"), ChatController.saveMessage);
 
+routes.put("/chats/:id/messages/:messageId", isAuth, ChatController.updateMessage);
+
+routes.delete("/chats/:id/messages/:messageId", isAuth, ChatController.deleteMessage);
+
 routes.post("/chats/:id/read", isAuth, ChatController.checkAsRead);
 
 routes.post("/chats", isAuth, ChatController.store);

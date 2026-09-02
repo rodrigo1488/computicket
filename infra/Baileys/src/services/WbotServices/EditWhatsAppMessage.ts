@@ -29,6 +29,27 @@ const EditWhatsAppMessage = async ({
     throw new AppError("ERR_NO_MESSAGE_FOUND");
   }
 
+  if (!message.fromMe) {
+    throw new AppError("ERR_CANNOT_EDIT_OTHER_MESSAGE");
+  }
+
+  if (message.isDeleted) {
+    throw new AppError("Não é possível editar uma mensagem apagada");
+  }
+
+  if (message.mediaType === "reactionMessage" || message.mediaType === "image" || message.mediaType === "video" || message.mediaType === "audio" || message.mediaType === "document" || message.mediaType === "sticker") {
+    throw new AppError("ERR_CANNOT_EDIT_MEDIA");
+  }
+
+  if (!body || typeof body !== "string" || body.trim().length === 0) {
+    throw new AppError("ERR_MESSAGE_BODY_REQUIRED");
+  }
+
+  if (message.isInternal) {
+    await message.update({ body, isEdited: true });
+    return message;
+  }
+
   const { ticket } = message as Message & { ticket: Ticket };
 
   const messageToEdit = await GetWbotMessage(ticket, messageId);
@@ -38,18 +59,6 @@ const EditWhatsAppMessage = async ({
 
   if (!wbot) {
     throw new AppError("ERR_WAPP_NOT_INITIALIZED");
-  }
-
-  if (!message.fromMe) {
-    throw new AppError("ERR_CANNOT_EDIT_OTHER_MESSAGE");
-  }
-
-  if (message.mediaType === "reactionMessage" || message.mediaType === "image" || message.mediaType === "video" || message.mediaType === "audio" || message.mediaType === "document" || message.mediaType === "sticker") {
-    throw new AppError("ERR_CANNOT_EDIT_MEDIA");
-  }
-
-  if (!body || typeof body !== "string" || body.trim().length === 0) {
-    throw new AppError("ERR_MESSAGE_BODY_REQUIRED");
   }
 
   const key = {

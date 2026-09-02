@@ -1,4 +1,4 @@
-import { proto, WASocket } from "baileys";
+import { WASocket } from "baileys";
 import AppError from "../../errors/AppError";
 import GetTicketWbot from "../../helpers/GetTicketWbot";
 import GetWbotMessage from "../../helpers/GetWbotMessage";
@@ -20,27 +20,35 @@ const DeleteWhatsAppMessage = async (messageId: string): Promise<Message> => {
     throw new AppError("No message found with this ID.");
   }
 
-  const { ticket } = message;
+  if (!message.fromMe) {
+    throw new AppError("ERR_CANNOT_DELETE_OTHER_MESSAGE", 403);
+  }
 
-  const messageToDelete = await GetWbotMessage(ticket, messageId);
+  if (message.isDeleted) {
+    return message;
+  }
 
-  try {
-    const wbot = await GetTicketWbot(ticket);
-    const messageDelete = messageToDelete as proto.WebMessageInfo;
+  if (!message.isInternal) {
+    const { ticket } = message;
 
-    const menssageDelete = messageToDelete as Message;
+    const messageToDelete = await GetWbotMessage(ticket, messageId);
 
-    await (wbot as WASocket).sendMessage(menssageDelete.remoteJid, {
-      delete: {
-        id: menssageDelete.id,
-        remoteJid: menssageDelete.remoteJid,
-        participant: menssageDelete.participant,
-        fromMe: menssageDelete.fromMe
-      }
-    });
+    try {
+      const wbot = await GetTicketWbot(ticket);
+      const menssageDelete = messageToDelete as Message;
 
-  } catch (err) {
-    throw new AppError("ERR_DELETE_WAPP_MSG");
+      await (wbot as WASocket).sendMessage(menssageDelete.remoteJid, {
+        delete: {
+          id: menssageDelete.id,
+          remoteJid: menssageDelete.remoteJid,
+          participant: menssageDelete.participant,
+          fromMe: menssageDelete.fromMe
+        }
+      });
+
+    } catch (err) {
+      throw new AppError("ERR_DELETE_WAPP_MSG");
+    }
   }
   await message.update({ isDeleted: true });
 

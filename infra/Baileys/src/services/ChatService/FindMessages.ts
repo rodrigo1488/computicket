@@ -41,7 +41,15 @@ const FindMessages = async ({
     where: {
       chatId
     },
-    include: [{ model: User, as: "sender", attributes: ["id", "name", "avatar"] }],
+    include: [
+      { model: User, as: "sender", attributes: ["id", "name", "avatar"] },
+      {
+        model: ChatMessage,
+        as: "quotedMsg",
+        required: false,
+        include: [{ model: User, as: "sender", attributes: ["id", "name", "avatar"] }]
+      }
+    ],
     limit,
     offset,
     order: isFirstPage 

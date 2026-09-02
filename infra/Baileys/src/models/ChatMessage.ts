@@ -36,6 +36,19 @@ class ChatMessage extends Model<ChatMessage> {
   @Column
   mediaName: string;
 
+  @Column({ defaultValue: false })
+  isDeleted: boolean;
+
+  @Column({ defaultValue: false })
+  isEdited: boolean;
+
+  @ForeignKey(() => ChatMessage)
+  @Column
+  quotedMsgId: number;
+
+  @BelongsTo(() => ChatMessage, { foreignKey: "quotedMsgId", as: "quotedMsg" })
+  quotedMsg: ChatMessage;
+
   @CreatedAt
   createdAt: Date;
 

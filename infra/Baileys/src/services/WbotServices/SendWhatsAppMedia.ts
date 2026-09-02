@@ -5,6 +5,7 @@ import { exec } from "child_process";
 import path from "path";
 import ffmpegPath from "@ffmpeg-installer/ffmpeg";
 import AppError from "../../errors/AppError";
+import Message from "../../models/Message";
 import Ticket from "../../models/Ticket";
 import { lookup } from "mime-types";
 import formatBody from "../../helpers/Mustache";
@@ -30,6 +31,7 @@ interface Request {
   media: Express.Multer.File;
   ticket: Ticket;
   body?: string;
+  quotedMsg?: Message;
 }
 
 const publicFolder = path.resolve(__dirname, "..", "..", "..", "public");
@@ -164,10 +166,27 @@ export const getMessageOptions = async (
   }
 };
 
+async function quotedSendOption(quotedMsg?: Message) {
+  if (!quotedMsg?.id) return undefined;
+  const stored = await Message.findByPk(quotedMsg.id);
+  if (!stored?.dataJson) return undefined;
+  try {
+    const msgFound = JSON.parse(stored.dataJson);
+    if (!msgFound?.key) return undefined;
+    return {
+      key: msgFound.key,
+      message: msgFound.message
+    };
+  } catch {
+    return undefined;
+  }
+}
+
 const SendWhatsAppMedia = async ({
   media,
   ticket,
-  body
+  body,
+  quotedMsg
 }: Request): Promise<WAMessage | any> => {
   try {
     // Obter whatsapp do ticket com fallback seguro para conexão ativa.
@@ -217,7 +236,8 @@ const SendWhatsAppMedia = async ({
       {
         fileName: media.originalname,
         caption: bodyMessage,
-        mimetype: media.mimetype || undefined
+        mimetype: media.mimetype || undefined,
+        quoted: await quotedSendOption(quotedMsg)
       }
     );
 

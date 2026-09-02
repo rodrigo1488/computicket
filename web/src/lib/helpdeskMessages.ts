@@ -122,6 +122,7 @@ export function mergeMessageIntoThread(
     isPrivate: incoming.isPrivate,
     quotedMsg: incoming.quotedMsg,
     isDeleted: incoming.isDeleted,
+    isEdited: incoming.isEdited,
     ...(incoming.transcription !== undefined ? { transcription: incoming.transcription } : {}),
     ...(incoming.transcriptionStatus !== undefined
       ? { transcriptionStatus: incoming.transcriptionStatus }

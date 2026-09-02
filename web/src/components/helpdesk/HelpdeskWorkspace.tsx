@@ -16,6 +16,7 @@ import {
   MoreVertical,
   Paperclip,
   PenLine,
+  Plus,
   RotateCcw,
   Search,
   Send,
@@ -37,9 +38,10 @@ import { io, type Socket } from "socket.io-client";
 import { CloseTicketDialog } from "@/components/tickets/CloseTicketDialog";
 import { TicketCreateDialog } from "@/components/tickets/TicketCreateDialog";
 import { TimeEntryDialog } from "@/components/tickets/TimeEntryDialog";
+import { ComposerContextBanner, MessageActions } from "@/components/chat/MessageActions";
 import { WhatsAppFormattedText } from "@/components/helpdesk/WhatsAppFormattedText";
 import { MediaViewer, type MediaViewerItem } from "@/components/media/MediaViewer";
-import { ComposerAttachZone } from "@/components/ui/ComposerAttachZone";
+import { ComposerAttachZone, ComposerFilePreview } from "@/components/ui/ComposerAttachZone";
 import { FloatingMenu } from "@/components/ui/FloatingMenu";
 import { Modal } from "@/components/ui/Modal";
 import { UserAvatar } from "@/components/ui/UserAvatar";
@@ -72,6 +74,8 @@ import {
   type TransferPayload,
 } from "@/lib/helpdesk";
 import {
+  isMediaMessage,
+  isTempMessageId,
   mergeMessageIntoThread,
   normalizeMessageCreatedAt,
   retainOptimisticMessages,
@@ -746,6 +750,9 @@ export function HelpdeskWorkspace() {
   const [filtersReady, setFiltersReady] = useState(false);
   const [debouncedSearch, setDebouncedSearch] = useState(search);
   const [text, setText] = useState("");
+  const [pendingFile, setPendingFile] = useState<File | null>(null);
+  const [replyTo, setReplyTo] = useState<HelpdeskMessage | null>(null);
+  const [editingMessage, setEditingMessage] = useState<HelpdeskMessage | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [newConversationOpen, setNewConversationOpen] = useState(false);
@@ -1040,6 +1047,12 @@ export function HelpdeskWorkspace() {
     });
   }, [tab, activeId, closedGroups]);
 
+  useEffect(() => {
+    setReplyTo(null);
+    setEditingMessage(null);
+    setPendingFile(null);
+  }, [activeId]);
+
   const selectConversation = (c: HelpdeskConversation) => {
     setActiveId(c.id);
     setError(null);
@@ -1233,12 +1246,23 @@ export function HelpdeskWorkspace() {
     onError: (e: Error) => setError(e.message),
   });
   const send = useMutation({
-    mutationFn: (vars: { ticketId: number; body: string; isInternal: boolean; rawText: string }) =>
-      helpdesk.send(vars.ticketId, vars.body, { isInternal: vars.isInternal }),
+    mutationFn: (vars: {
+      ticketId: number;
+      body: string;
+      isInternal: boolean;
+      rawText: string;
+      quotedMsg?: HelpdeskMessage | null;
+    }) =>
+      helpdesk.send(vars.ticketId, vars.body, {
+        isInternal: vars.isInternal,
+        quotedMsg:
+          vars.quotedMsg && !isTempMessageId(vars.quotedMsg.id) ? { id: vars.quotedMsg.id } : undefined,
+      }),
     onMutate: async (vars) => {
       // Limpa o draft antes do await para bloquear reenvio (Enter duplo) no mesmo ciclo.
       setText("");
       setIsInternal(false);
+      setReplyTo(null);
       setError(null);
       const previous = qc.getQueryData<MessagesCache>(["hd-messages", vars.ticketId]);
       const tempId = `temp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -1248,6 +1272,7 @@ export function HelpdeskWorkspace() {
         fromMe: true,
         createdAt: new Date().toISOString(),
         ack: 0,
+        quotedMsg: vars.quotedMsg || undefined,
         ...(vars.isInternal ? { isInternal: true, isPrivate: true } : {}),
       };
       qc.setQueryData<MessagesCache>(["hd-messages", vars.ticketId], (prev) => ({
@@ -1272,20 +1297,33 @@ export function HelpdeskWorkspace() {
       qc.invalidateQueries({ queryKey: ["hd-list-counts"] });
       qc.invalidateQueries({ queryKey: ["hd-overview"] });
     },
-    onError: (e: Error, _vars, ctx) => {
+    onError: (e: Error, vars, ctx) => {
       if (ctx?.previous && ctx.ticketId) {
         qc.setQueryData(["hd-messages", ctx.ticketId], ctx.previous);
       }
       if (ctx?.rawText != null) setText(ctx.rawText);
       if (ctx?.wasInternal) setIsInternal(true);
+      if (vars.quotedMsg) setReplyTo(vars.quotedMsg);
       setError(e.message);
     },
   });
   const sendFile = useMutation({
-    mutationFn: (vars: { ticketId: number; file: File; body: string; rawText: string }) =>
-      helpdesk.sendMedia(vars.ticketId, vars.file, vars.body),
+    mutationFn: (vars: {
+      ticketId: number;
+      file: File;
+      body: string;
+      rawText: string;
+      quotedMsg?: HelpdeskMessage | null;
+    }) =>
+      helpdesk.sendMedia(
+        vars.ticketId,
+        vars.file,
+        vars.body,
+        vars.quotedMsg && !isTempMessageId(vars.quotedMsg.id) ? vars.quotedMsg.id : undefined,
+      ),
     onMutate: async (vars) => {
       setText("");
+      setReplyTo(null);
       setError(null);
       const previous = qc.getQueryData<MessagesCache>(["hd-messages", vars.ticketId]);
       const tempId = `temp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -1301,6 +1339,7 @@ export function HelpdeskWorkspace() {
         ack: 0,
         mediaType,
         mediaUrl: objectUrl,
+        quotedMsg: vars.quotedMsg || undefined,
       };
       qc.setQueryData<MessagesCache>(["hd-messages", vars.ticketId], (prev) => ({
         ...prev,
@@ -1309,6 +1348,8 @@ export function HelpdeskWorkspace() {
       return { previous, ticketId: vars.ticketId, tempId, objectUrl, rawText: vars.rawText };
     },
     onSuccess: (data, vars) => {
+      setPendingFile(null);
+      if (fileRef.current) fileRef.current.value = "";
       const sent = extractSentMessage(data);
       if (sent) {
         qc.setQueryData<MessagesCache>(["hd-messages", vars.ticketId], (prev) => ({
@@ -1319,12 +1360,13 @@ export function HelpdeskWorkspace() {
       // Media sync costuma persistir antes do 200; ainda assim evita refetch que apague o otimista.
       qc.invalidateQueries({ queryKey: ["hd-list"] });
     },
-    onError: (e: Error, _vars, ctx) => {
+    onError: (e: Error, vars, ctx) => {
       if (ctx?.objectUrl) URL.revokeObjectURL(ctx.objectUrl);
       if (ctx?.previous && ctx.ticketId) {
         qc.setQueryData(["hd-messages", ctx.ticketId], ctx.previous);
       }
       if (ctx?.rawText != null) setText(ctx.rawText);
+      if (vars.quotedMsg) setReplyTo(vars.quotedMsg);
       setError(e.message);
     },
   });
@@ -1336,13 +1378,103 @@ export function HelpdeskWorkspace() {
       setError(tooBig);
       return;
     }
-    sendFile.mutate({
-      ticketId: activeId,
-      file,
-      body: withAgentSignature(text, user?.name, sign, isInternal),
-      rawText: text,
-    });
+    if (editingMessage) {
+      setEditingMessage(null);
+    }
+    setError(null);
+    setPendingFile(file);
   }
+
+  function startReply(m: HelpdeskMessage) {
+    setReplyTo(m);
+    setEditingMessage(null);
+    if (m.isInternal || m.isPrivate) setIsInternal(true);
+  }
+
+  function startEdit(m: HelpdeskMessage) {
+    setEditingMessage(m);
+    setReplyTo(null);
+    setText(m.body || "");
+    setIsInternal(!!(m.isInternal || m.isPrivate));
+  }
+
+  function confirmDeleteMessage(m: HelpdeskMessage) {
+    if (!activeId || isTempMessageId(m.id)) return;
+    const viaWhatsApp = !!m.fromMe && !(m.isInternal || m.isPrivate);
+    const ok = window.confirm(
+      viaWhatsApp
+        ? "Excluir esta mensagem? Ela também será apagada no WhatsApp."
+        : "Excluir esta mensagem?",
+    );
+    if (!ok) return;
+    deleteMessage.mutate({ ticketId: activeId, message: m });
+  }
+
+  const editMessage = useMutation({
+    mutationFn: (vars: { ticketId: number; messageId: string; body: string; rawText: string }) =>
+      helpdesk.edit(vars.ticketId, vars.messageId, vars.body),
+    onMutate: async (vars) => {
+      setText("");
+      setEditingMessage(null);
+      setError(null);
+      const previous = qc.getQueryData<MessagesCache>(["hd-messages", vars.ticketId]);
+      qc.setQueryData<MessagesCache>(["hd-messages", vars.ticketId], (prev) => ({
+        ...prev,
+        messages: (prev?.messages || []).map((row) =>
+          row.id === vars.messageId ? { ...row, body: vars.body, isEdited: true } : row,
+        ),
+      }));
+      return { previous, ticketId: vars.ticketId, rawText: vars.rawText };
+    },
+    onSuccess: (data, vars) => {
+      if (data && typeof data === "object" && "id" in (data as object)) {
+        qc.setQueryData<MessagesCache>(["hd-messages", vars.ticketId], (prev) => ({
+          ...prev,
+          messages: mergeMessageIntoThread(prev?.messages, data as HelpdeskMessage),
+        }));
+      }
+    },
+    onError: (e: Error, vars, ctx) => {
+      if (ctx?.previous && ctx.ticketId) {
+        qc.setQueryData(["hd-messages", ctx.ticketId], ctx.previous);
+      }
+      if (ctx?.rawText != null) {
+        setText(ctx.rawText);
+        setEditingMessage({ id: vars.messageId, body: ctx.rawText, fromMe: true });
+      }
+      setError(e.message);
+    },
+  });
+
+  const deleteMessage = useMutation({
+    mutationFn: (vars: { ticketId: number; message: HelpdeskMessage }) =>
+      helpdesk.remove(vars.ticketId, vars.message.id),
+    onMutate: async (vars) => {
+      setError(null);
+      const previous = qc.getQueryData<MessagesCache>(["hd-messages", vars.ticketId]);
+      qc.setQueryData<MessagesCache>(["hd-messages", vars.ticketId], (prev) => ({
+        ...prev,
+        messages: (prev?.messages || []).map((row) =>
+          row.id === vars.message.id ? { ...row, isDeleted: true } : row,
+        ),
+      }));
+      return { previous, ticketId: vars.ticketId };
+    },
+    onSuccess: (data, vars) => {
+      if (data && typeof data === "object" && "id" in (data as object)) {
+        qc.setQueryData<MessagesCache>(["hd-messages", vars.ticketId], (prev) => ({
+          ...prev,
+          messages: mergeMessageIntoThread(prev?.messages, data as HelpdeskMessage),
+        }));
+      }
+    },
+    onError: (e: Error, _vars, ctx) => {
+      if (ctx?.previous && ctx.ticketId) {
+        qc.setQueryData(["hd-messages", ctx.ticketId], ctx.previous);
+      }
+      setError(e.message);
+    },
+  });
 
   const saveContact = useMutation({
     mutationFn: (payload: { name: string; email: string; notes: string }) => {
@@ -1607,22 +1739,33 @@ export function HelpdeskWorkspace() {
           <div className="flex items-center justify-between gap-2 border-b border-line px-3 py-2">
             <span
               className={cn(
-                "inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase",
-                connected ? "bg-done-bg text-done" : "bg-open-bg text-open",
+                "inline-flex h-2.5 w-2.5 rounded-full",
+                connected ? "bg-done" : "bg-open",
               )}
-            >
-              <span className={cn("h-1.5 w-1.5 rounded-full", connected ? "bg-done" : "bg-open")} />
-              {connectionLabel}
-            </span>
-            {isAdmin ? (
-              <Link
-                href="/configuracoes?tab=whatsapp&section=conexoes"
-                className="rounded-md p-1 text-brand hover:bg-progress-bg"
-                title="Configurar WhatsApp"
+              title={connectionLabel}
+              aria-label={connectionLabel}
+            />
+            <div className="flex items-center gap-0.5">
+              <button
+                type="button"
+                onClick={() => setNewConversationOpen(true)}
+                disabled={engineDown}
+                className="rounded-md p-1 text-brand hover:bg-progress-bg disabled:cursor-not-allowed disabled:opacity-40"
+                title="Nova conversa"
+                aria-label="Nova conversa"
               >
-                <Settings className="h-4 w-4" />
-              </Link>
-            ) : null}
+                <Plus className="h-4 w-4" />
+              </button>
+              {isAdmin ? (
+                <Link
+                  href="/configuracoes?tab=whatsapp&section=conexoes"
+                  className="rounded-md p-1 text-brand hover:bg-progress-bg"
+                  title="Configurar WhatsApp"
+                >
+                  <Settings className="h-4 w-4" />
+                </Link>
+              ) : null}
+            </div>
           </div>
           <div className="flex border-b border-line">
             {TAB_META.map((t) => {
@@ -1654,18 +1797,6 @@ export function HelpdeskWorkspace() {
             })}
           </div>
 
-          <div className="border-b border-line px-3 py-2">
-            <button
-              type="button"
-              onClick={() => setNewConversationOpen(true)}
-              disabled={engineDown}
-              className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-brand px-3 py-2 text-sm font-semibold text-white hover:bg-brand/90 disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              <MessageSquarePlus className="h-4 w-4 shrink-0" />
-              Nova conversa
-            </button>
-          </div>
-
           <div className="px-3 py-2">
             <label className="flex items-center gap-2 rounded-lg border border-line bg-wash px-2 py-1.5">
               <Search className="h-3.5 w-3.5 shrink-0 text-muted" />
@@ -1678,78 +1809,76 @@ export function HelpdeskWorkspace() {
             </label>
           </div>
 
-          <div className="space-y-2 border-b border-line px-3 pb-3">
+          <div className="flex items-stretch gap-1.5 border-b border-line px-3 pb-3">
             {tab !== "pending" ? (
-              <div>
-                <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted">Atribuição</p>
-                <div className="grid grid-cols-2 gap-1 rounded-lg border border-line bg-wash p-0.5">
-                  <button
-                    type="button"
-                    onClick={() => setMineOnly(true)}
-                    className={cn(
-                      "rounded-md px-2 py-1.5 text-[11px] font-semibold transition-colors",
-                      mineOnly ? "bg-inverse text-on-inverse shadow-sm" : "text-muted hover:text-ink",
-                    )}
-                    title="Conversas atribuídas a você nesta aba"
-                  >
-                    Meus
-                    <span className="ml-1 tabular-nums opacity-80">{scopeMineCount}</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setMineOnly(false)}
-                    className={cn(
-                      "rounded-md px-2 py-1.5 text-[11px] font-semibold transition-colors",
-                      !mineOnly ? "bg-brand text-white shadow-sm" : "text-muted hover:text-ink",
-                    )}
-                    title="Todas as conversas visíveis nesta aba"
-                  >
-                    Todos
-                    <span className="ml-1 tabular-nums opacity-80">{scopeAllCount}</span>
-                  </button>
-                </div>
+              <div
+                className="grid shrink-0 grid-cols-2 gap-0.5 rounded-lg border border-line bg-wash p-0.5"
+                role="group"
+                aria-label="Atribuição"
+              >
+                <button
+                  type="button"
+                  onClick={() => setMineOnly(true)}
+                  className={cn(
+                    "rounded-md px-1.5 py-1.5 text-[11px] font-semibold transition-colors",
+                    mineOnly ? "bg-inverse text-on-inverse shadow-sm" : "text-muted hover:text-ink",
+                  )}
+                  title="Conversas atribuídas a você nesta aba"
+                >
+                  Meus
+                  <span className="ml-0.5 tabular-nums opacity-80">{scopeMineCount}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMineOnly(false)}
+                  className={cn(
+                    "rounded-md px-1.5 py-1.5 text-[11px] font-semibold transition-colors",
+                    !mineOnly ? "bg-brand text-white shadow-sm" : "text-muted hover:text-ink",
+                  )}
+                  title="Todas as conversas visíveis nesta aba"
+                >
+                  Todos
+                  <span className="ml-0.5 tabular-nums opacity-80">{scopeAllCount}</span>
+                </button>
               </div>
             ) : null}
 
-            <div>
-              <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted">Fila</p>
-              <label className="relative block">
-                <span className="sr-only">Filtrar por fila</span>
-                {selectedQueueMeta?.color || queueFilterValue === "none" ? (
-                  <span
-                    className="pointer-events-none absolute left-2.5 top-1/2 h-2 w-2 -translate-y-1/2 rounded-full"
-                    style={{
-                      background:
-                        queueFilterValue === "none" ? "#6b7280" : selectedQueueMeta?.color || "#3b82f6",
-                    }}
-                  />
-                ) : null}
-                <select
-                  value={queueFilterValue}
-                  onChange={(e) => setQueueFilter(e.target.value)}
-                  className={cn(
-                    "w-full appearance-none rounded-lg border border-line bg-wash py-2 pr-14 text-xs font-medium text-ink outline-none focus:border-brand",
-                    selectedQueueMeta?.color || queueFilterValue === "none" ? "pl-6" : "pl-2.5",
-                  )}
-                >
-                  <option value="all">
-                    Todas as filas ({scopeAllCount})
+            <label className="relative min-w-0 flex-1">
+              <span className="sr-only">Filtrar por fila</span>
+              {selectedQueueMeta?.color || queueFilterValue === "none" ? (
+                <span
+                  className="pointer-events-none absolute left-2 top-1/2 h-2 w-2 -translate-y-1/2 rounded-full"
+                  style={{
+                    background:
+                      queueFilterValue === "none" ? "#6b7280" : selectedQueueMeta?.color || "#3b82f6",
+                  }}
+                />
+              ) : null}
+              <select
+                value={queueFilterValue}
+                onChange={(e) => setQueueFilter(e.target.value)}
+                className={cn(
+                  "h-full w-full appearance-none rounded-lg border border-line bg-wash py-1.5 pr-12 text-xs font-medium text-ink outline-none focus:border-brand",
+                  selectedQueueMeta?.color || queueFilterValue === "none" ? "pl-5" : "pl-2",
+                )}
+              >
+                <option value="all">
+                  Todas as filas ({scopeAllCount})
+                </option>
+                <option value="none">Sem fila ({queueCounts.get("none") ?? 0})</option>
+                {(queues.data || []).map((q) => (
+                  <option key={q.id} value={q.id}>
+                    {q.name} ({queueCounts.get(q.id) ?? 0})
                   </option>
-                  <option value="none">Sem fila ({queueCounts.get("none") ?? 0})</option>
-                  {(queues.data || []).map((q) => (
-                    <option key={q.id} value={q.id}>
-                      {q.name} ({queueCounts.get(q.id) ?? 0})
-                    </option>
-                  ))}
-                </select>
-                <span className="pointer-events-none absolute right-2 top-1/2 flex -translate-y-1/2 items-center gap-1">
-                  <span className="rounded-full bg-progress-bg px-1.5 py-0.5 text-[10px] font-semibold text-brand">
-                    {queueFilterCount}
-                  </span>
-                  <ChevronDown className="h-3.5 w-3.5 text-muted" />
+                ))}
+              </select>
+              <span className="pointer-events-none absolute right-1.5 top-1/2 flex -translate-y-1/2 items-center gap-0.5">
+                <span className="rounded-full bg-progress-bg px-1.5 py-0.5 text-[10px] font-semibold text-brand">
+                  {queueFilterCount}
                 </span>
-              </label>
-            </div>
+                <ChevronDown className="h-3.5 w-3.5 text-muted" />
+              </span>
+            </label>
           </div>
           <p className="px-3 pb-2 text-[11px] text-muted">
             {mineOnly && tab !== "pending" ? "Filtro Meus · " : ""}
@@ -1851,7 +1980,7 @@ export function HelpdeskWorkspace() {
         <section className="flex min-h-0 min-w-0 flex-1 basis-0 flex-col overflow-hidden bg-chat">
           {current ? (
             <ComposerAttachZone
-              enabled={canReply}
+              enabled={canReply && !editingMessage}
               onFiles={(files) => {
                 const file = files[0];
                 if (file) attachComposerFile(file);
@@ -2020,11 +2149,13 @@ export function HelpdeskWorkspace() {
                       const system = m.isInternal || m.isPrivate;
                       const mine = !!m.fromMe && !system;
                       const audio = !!(m.mediaUrl && mediaKind(m.mediaType, m.mediaUrl) === "audio");
+                      const persisted = !isTempMessageId(m.id);
+                      const canAct = canReply && persisted && !m.isDeleted;
                       return (
                         <div key={`${m.id}-${idx}`} className={cn("mb-2 flex", system ? "justify-center" : mine ? "justify-end" : "justify-start")}>
                           <div
                             className={cn(
-                              "max-w-[75%] rounded-lg px-3 py-1.5 text-sm shadow-sm",
+                              "group/msg relative max-w-[75%] rounded-lg px-3 py-1.5 text-sm shadow-sm",
                               audio && "w-[min(18rem,75%)]",
                               system
                                 ? "bg-note text-center text-xs text-note-fg"
@@ -2033,32 +2164,56 @@ export function HelpdeskWorkspace() {
                                   : "rounded-tl-none bg-bubble-in text-ink",
                             )}
                           >
-                            {system ? <p className="mb-1 text-[10px] font-semibold uppercase">Nota interna</p> : null}
-                            {m.quotedMsg?.body ? (
-                              <p className="mb-1 border-l-2 border-brand/50 pl-2 text-[11px] text-muted">
-                                <WhatsAppFormattedText text={snippet(m.quotedMsg.body)} />
-                              </p>
-                            ) : null}
-                            {m.mediaUrl ? (
-                              <ThreadMedia
-                                mediaUrl={m.mediaUrl}
-                                mediaType={m.mediaType}
-                                onOpen={setMediaViewer}
-                                onReady={() => {
-                                  const el = threadRef.current;
-                                  if (el) el.scrollTop = el.scrollHeight;
-                                }}
+                            {canAct ? (
+                              <MessageActions
+                                align={mine || system ? "start" : "end"}
+                                canReply
+                                canEdit={!!m.fromMe && !isMediaMessage(m)}
+                                canDelete={!!m.fromMe}
+                                onReply={() => startReply(m)}
+                                onEdit={() => startEdit(m)}
+                                onDelete={() => confirmDeleteMessage(m)}
                               />
                             ) : null}
-                            {audio && current?.id ? (
-                              <AudioTranscript message={m} conversationId={current.id} />
-                            ) : null}
-                            {m.body && !(audio && isPlaceholderAudioBody(m.body)) ? (
-                              <p className="whitespace-pre-wrap break-words">
-                                <WhatsAppFormattedText text={m.body} />
-                              </p>
-                            ) : null}
-                            <p className="mt-0.5 text-right text-[10px] text-muted">{formatClock(m.createdAt)}</p>
+                            {system ? <p className="mb-1 text-[10px] font-semibold uppercase">Nota interna</p> : null}
+                            {m.isDeleted ? (
+                              <p className="italic text-muted">Esta mensagem foi apagada</p>
+                            ) : (
+                              <>
+                                {m.quotedMsg?.body || m.quotedMsg?.isDeleted ? (
+                                  <p className="mb-1 border-l-2 border-brand/50 pl-2 text-[11px] text-muted">
+                                    {m.quotedMsg.isDeleted ? (
+                                      "Mensagem apagada"
+                                    ) : (
+                                      <WhatsAppFormattedText text={snippet(m.quotedMsg.body)} />
+                                    )}
+                                  </p>
+                                ) : null}
+                                {m.mediaUrl ? (
+                                  <ThreadMedia
+                                    mediaUrl={m.mediaUrl}
+                                    mediaType={m.mediaType}
+                                    onOpen={setMediaViewer}
+                                    onReady={() => {
+                                      const el = threadRef.current;
+                                      if (el) el.scrollTop = el.scrollHeight;
+                                    }}
+                                  />
+                                ) : null}
+                                {audio && current?.id ? (
+                                  <AudioTranscript message={m} conversationId={current.id} />
+                                ) : null}
+                                {m.body && !(audio && isPlaceholderAudioBody(m.body)) ? (
+                                  <p className="whitespace-pre-wrap break-words">
+                                    <WhatsAppFormattedText text={m.body} />
+                                  </p>
+                                ) : null}
+                              </>
+                            )}
+                            <p className="mt-0.5 text-right text-[10px] text-muted">
+                              {formatClock(m.createdAt)}
+                              {m.isEdited && !m.isDeleted ? " · editada" : ""}
+                            </p>
                           </div>
                         </div>
                       );
@@ -2072,9 +2227,31 @@ export function HelpdeskWorkspace() {
                   className="relative shrink-0 border-t border-chat-border bg-chat-composer px-3 py-2"
                   onSubmit={(e) => {
                     e.preventDefault();
-                    if (send.isPending || !activeId || !text.trim()) return;
+                    if (send.isPending || sendFile.isPending || editMessage.isPending || !activeId) return;
                     const rawText = text;
-                    const sendingInternal = isInternal;
+                    if (editingMessage && !isTempMessageId(editingMessage.id)) {
+                      const body = rawText.trim();
+                      if (!body) return;
+                      editMessage.mutate({
+                        ticketId: activeId,
+                        messageId: editingMessage.id,
+                        body,
+                        rawText,
+                      });
+                      return;
+                    }
+                    const quotingInternal = !!(replyTo?.isInternal || replyTo?.isPrivate);
+                    const sendingInternal = isInternal || quotingInternal;
+                    if (pendingFile) {
+                      sendFile.mutate({
+                        ticketId: activeId,
+                        file: pendingFile,
+                        body: withAgentSignature(rawText, user?.name, sign, sendingInternal),
+                        rawText,
+                        quotedMsg: replyTo,
+                      });
+                      return;
+                    }
                     const body = withAgentSignature(rawText, user?.name, sign, sendingInternal);
                     if (!body.trim()) return;
                     send.mutate({
@@ -2082,9 +2259,35 @@ export function HelpdeskWorkspace() {
                       body,
                       isInternal: sendingInternal,
                       rawText,
+                      quotedMsg: replyTo,
                     });
                   }}
                 >
+                  {pendingFile ? (
+                    <ComposerFilePreview
+                      file={pendingFile}
+                      onClear={() => {
+                        setPendingFile(null);
+                        if (fileRef.current) fileRef.current.value = "";
+                      }}
+                    />
+                  ) : null}
+                  {editingMessage ? (
+                    <ComposerContextBanner
+                      title="Editando mensagem"
+                      preview={snippet(editingMessage.body)}
+                      onClear={() => {
+                        setEditingMessage(null);
+                        setText("");
+                      }}
+                    />
+                  ) : replyTo ? (
+                    <ComposerContextBanner
+                      title="Respondendo"
+                      preview={snippet(replyTo.body) || (replyTo.mediaUrl ? "Mídia" : "")}
+                      onClear={() => setReplyTo(null)}
+                    />
+                  ) : null}
                   {quickMatches.length ? (
                     <div className="absolute inset-x-3 bottom-full z-10 mb-1 max-h-48 overflow-y-auto rounded-lg border border-line bg-surface py-1 shadow-lg">
                       {quickMatches.map((item) => (
@@ -2151,8 +2354,9 @@ export function HelpdeskWorkspace() {
                     <button
                       type="button"
                       onClick={() => fileRef.current?.click()}
-                      className="text-muted hover:text-ink"
+                      className="text-muted hover:text-ink disabled:opacity-40"
                       aria-label="Anexar"
+                      disabled={!!editingMessage}
                     >
                       <Paperclip className="h-5 w-5" />
                     </button>
@@ -2263,7 +2467,12 @@ export function HelpdeskWorkspace() {
                     </button>
                     <button
                       type="submit"
-                      disabled={send.isPending || !text.trim()}
+                      disabled={
+                        send.isPending ||
+                        sendFile.isPending ||
+                        editMessage.isPending ||
+                        (!text.trim() && !pendingFile)
+                      }
                       className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-brand text-white disabled:opacity-40"
                       aria-label="Enviar"
                     >

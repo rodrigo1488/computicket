@@ -1,6 +1,7 @@
 import * as Yup from "yup";
 import { Request, Response } from "express";
 import { getIO } from "../libs/socket";
+import AppError from "../errors/AppError";
 
 import CreateService from "../services/ChatService/CreateService";
 import ListService from "../services/ChatService/ListService";
@@ -12,6 +13,7 @@ import CreateIndividualChatsForUserService from "../services/ChatService/CreateI
 import UnreadCountService from "../services/ChatService/UnreadCountService";
 
 import Chat from "../models/Chat";
+import ChatMessage from "../models/ChatMessage";
 import CreateMessageService from "../services/ChatService/CreateMessageService";
 import User from "../models/User";
 import ChatUser from "../models/ChatUser";
@@ -43,6 +45,74 @@ type FindParams = {
   companyId: number;
   ownerId?: number;
 };
+
+const chatMessageIncludes = [
+  { model: User, as: "sender", attributes: ["id", "name", "avatar"] },
+  {
+    model: ChatMessage,
+    as: "quotedMsg",
+    required: false,
+    include: [{ model: User, as: "sender", attributes: ["id", "name", "avatar"] }]
+  }
+];
+
+function parseQuotedMsgId(raw: unknown): number | undefined {
+  if (raw == null || raw === "") return undefined;
+  if (typeof raw === "object" && raw && "id" in raw) {
+    const id = Number((raw as { id?: unknown }).id);
+    return Number.isFinite(id) && id > 0 ? id : undefined;
+  }
+  const id = Number(raw);
+  return Number.isFinite(id) && id > 0 ? id : undefined;
+}
+
+function emitChatMessage(
+  companyId: number,
+  chat: Chat | null,
+  newMessage: ChatMessage,
+  action: "new-message" | "update-message" | "delete-message"
+) {
+  const chatId = chat?.id || newMessage.chatId;
+  const io = getIO();
+  const payload = { action, newMessage, chat };
+  io.to(`company-${companyId}-mainchannel`).emit(`company-${companyId}-chat-${chatId}`, payload);
+  io.to(`company-${companyId}-mainchannel`).emit(`company-${companyId}-chat`, payload);
+  (chat?.users || []).forEach(user => {
+    io.to(`user-${user.userId}`).emit(`company-${companyId}-chat-user-${user.userId}`, payload);
+  });
+}
+
+async function assertUserInChat(chatId: number, userId: number) {
+  const userInChat = await ChatUser.count({ where: { chatId, userId } });
+  if (userInChat === 0) {
+    throw new AppError("UNAUTHORIZED", 403);
+  }
+}
+
+async function loadChatMessage(chatId: number, messageId: number) {
+  const message = await ChatMessage.findOne({
+    where: { id: messageId, chatId },
+    include: chatMessageIncludes
+  });
+  if (!message) {
+    throw new AppError("Mensagem não encontrada", 404);
+  }
+  return message;
+}
+
+async function refreshChatLastMessage(chat: Chat, message: ChatMessage, senderName: string) {
+  const latest = await ChatMessage.findOne({
+    where: { chatId: chat.id },
+    order: [["id", "DESC"]]
+  });
+  if (!latest || latest.id !== message.id) return;
+  const text = message.isDeleted
+    ? `${senderName}: Mensagem apagada`
+    : message.mediaName
+      ? `${senderName}: 📎 ${message.mediaName}`
+      : `${senderName}: ${message.message}`;
+  await chat.update({ lastMessage: text });
+}
 
 export const index = async (req: Request, res: Response): Promise<Response> => {
   const { pageNumber, pageSize, isGroup } = req.query as unknown as IndexQuery & { isGroup?: string };
@@ -161,6 +231,16 @@ export const saveMessage = async (
   const senderId = +req.user.id;
   const chatId = +id;
   const file = req.file as Express.Multer.File;
+  const quotedMsgId = parseQuotedMsgId(req.body.quotedMsgId || req.body.quotedMsg);
+
+  await assertUserInChat(chatId, senderId);
+
+  if (quotedMsgId) {
+    const quoted = await ChatMessage.findOne({ where: { id: quotedMsgId, chatId } });
+    if (!quoted || quoted.isDeleted) {
+      throw new AppError("Mensagem citada não encontrada", 400);
+    }
+  }
 
   let mediaPath = null;
   let mediaName = null;
@@ -179,33 +259,15 @@ export const saveMessage = async (
     senderId,
     message: messageText,
     mediaPath,
-    mediaName
+    mediaName,
+    quotedMsgId
   });
 
   const chat = await Chat.findByPk(chatId, {
     include: chatWithUsersInclude
   });
 
-  const io = getIO();
-  io.to(`company-${companyId}-mainchannel`).emit(`company-${companyId}-chat-${chatId}`, {
-    action: "new-message",
-    newMessage,
-    chat
-  });
-
-  io.to(`company-${companyId}-mainchannel`).emit(`company-${companyId}-chat`, {
-    action: "new-message",
-    newMessage,
-    chat
-  });
-
-  (chat?.users || []).forEach(user => {
-    io.to(`user-${user.userId}`).emit(`company-${companyId}-chat-user-${user.userId}`, {
-      action: "new-message",
-      newMessage,
-      chat
-    });
-  });
+  emitChatMessage(companyId, chat, newMessage, "new-message");
 
   void notifyComputicketInternalChat({
     id: newMessage.id,
@@ -220,6 +282,77 @@ export const saveMessage = async (
   });
 
   return res.json(newMessage);
+};
+
+export const updateMessage = async (
+  req: Request,
+  res: Response
+): Promise<Response> => {
+  const { companyId } = req.user;
+  const senderId = +req.user.id;
+  const chatId = +req.params.id;
+  const messageId = +req.params.messageId;
+  const body = String((req.body as { message?: string; body?: string }).message
+    ?? (req.body as { message?: string; body?: string }).body
+    ?? "").trim();
+
+  await assertUserInChat(chatId, senderId);
+  const message = await loadChatMessage(chatId, messageId);
+
+  if (message.senderId !== senderId) {
+    throw new AppError("ERR_CANNOT_EDIT_OTHER_MESSAGE", 403);
+  }
+  if (message.isDeleted) {
+    throw new AppError("Não é possível editar uma mensagem apagada", 400);
+  }
+  if (message.mediaPath) {
+    throw new AppError("ERR_CANNOT_EDIT_MEDIA", 400);
+  }
+  if (!body) {
+    throw new AppError("ERR_MESSAGE_BODY_REQUIRED", 400);
+  }
+
+  await message.update({ message: body, isEdited: true });
+  await message.reload({ include: chatMessageIncludes });
+
+  const chat = await Chat.findByPk(chatId, { include: chatWithUsersInclude });
+  if (chat) {
+    await refreshChatLastMessage(chat, message, message.sender?.name || "Colaborador");
+    await chat.reload({ include: chatWithUsersInclude });
+  }
+
+  emitChatMessage(companyId, chat, message, "update-message");
+  return res.json(message);
+};
+
+export const deleteMessage = async (
+  req: Request,
+  res: Response
+): Promise<Response> => {
+  const { companyId } = req.user;
+  const senderId = +req.user.id;
+  const chatId = +req.params.id;
+  const messageId = +req.params.messageId;
+
+  await assertUserInChat(chatId, senderId);
+  const message = await loadChatMessage(chatId, messageId);
+
+  if (message.senderId !== senderId) {
+    throw new AppError("ERR_CANNOT_DELETE_OTHER_MESSAGE", 403);
+  }
+  if (!message.isDeleted) {
+    await message.update({ isDeleted: true });
+    await message.reload({ include: chatMessageIncludes });
+  }
+
+  const chat = await Chat.findByPk(chatId, { include: chatWithUsersInclude });
+  if (chat) {
+    await refreshChatLastMessage(chat, message, message.sender?.name || "Colaborador");
+    await chat.reload({ include: chatWithUsersInclude });
+  }
+
+  emitChatMessage(companyId, chat, message, "delete-message");
+  return res.json(message);
 };
 
 export const checkAsRead = async (

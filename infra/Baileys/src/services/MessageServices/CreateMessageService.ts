@@ -24,6 +24,7 @@ export interface MessageData {
   queueId?: number;
   isInternal?: boolean;
   isForwarded?: boolean;
+  quotedMsgId?: string;
   transcription?: string | null;
   transcriptionStatus?: string | null;
   transcriptionError?: string | null;

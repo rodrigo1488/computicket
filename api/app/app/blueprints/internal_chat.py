@@ -180,6 +180,22 @@ def _normalize_chat(chat: dict, engine_user_id: int) -> dict:
     }
 
 
+def _normalize_quoted(quoted: dict | None, engine_user_id: int) -> dict | None:
+    if not isinstance(quoted, dict):
+        return None
+    sender = quoted.get("sender") if isinstance(quoted.get("sender"), dict) else {}
+    sender_id = _as_int(quoted.get("senderId")) or _as_int(sender.get("id"))
+    return {
+        "id": quoted.get("id"),
+        "senderId": sender_id,
+        "sender": _participant(sender, sender_id) if sender or sender_id else None,
+        "message": quoted.get("message") or "",
+        "mediaName": quoted.get("mediaName") or None,
+        "isDeleted": bool(quoted.get("isDeleted")),
+        "mine": sender_id == engine_user_id if sender_id else False,
+    }
+
+
 def _normalize_message(message: dict, engine_user_id: int) -> dict:
     sender = message.get("sender") if isinstance(message.get("sender"), dict) else {}
     sender_id = _as_int(message.get("senderId")) or _as_int(sender.get("id"))
@@ -195,9 +211,26 @@ def _normalize_message(message: dict, engine_user_id: int) -> dict:
         "mediaName": message.get("mediaName") or None,
         "mediaUrl": media_url,
         "mine": sender_id == engine_user_id,
+        "isDeleted": bool(message.get("isDeleted")),
+        "isEdited": bool(message.get("isEdited")),
+        "quotedMsgId": message.get("quotedMsgId"),
+        "quotedMsg": _normalize_quoted(message.get("quotedMsg"), engine_user_id),
         "createdAt": message.get("createdAt"),
         "updatedAt": message.get("updatedAt"),
     }
+
+
+def _quoted_msg_id(payload: dict | None, form=None) -> int | None:
+    raw = None
+    if form is not None:
+        raw = form.get("quotedMsgId") or form.get("quotedMsg")
+    if raw is None and isinstance(payload, dict):
+        quoted = payload.get("quotedMsgId") or payload.get("quotedMsg")
+        if isinstance(quoted, dict):
+            raw = quoted.get("id")
+        else:
+            raw = quoted
+    return _as_int(raw)
 
 
 def _user_ids_from_payload(payload: dict) -> list[dict]:
@@ -464,6 +497,9 @@ def send_message(chat_id: int):
                 )
             ]
             data = {"message": request.form.get("message") or ""}
+            quoted_id = _quoted_msg_id(None, request.form)
+            if quoted_id:
+                data["quotedMsgId"] = str(quoted_id)
             result = agent_request(
                 "POST",
                 f"/chats/{chat_id}/messages",
@@ -476,10 +512,14 @@ def send_message(chat_id: int):
             message = str(payload.get("message") or payload.get("body") or "").strip()
             if not message:
                 return jsonify({"error": "Digite uma mensagem."}), 400
+            data = {"message": message}
+            quoted_id = _quoted_msg_id(payload)
+            if quoted_id:
+                data["quotedMsgId"] = quoted_id
             result = agent_request(
                 "POST",
                 f"/chats/{chat_id}/messages",
-                json={"message": message},
+                json=data,
             )
         if not isinstance(result, dict):
             return jsonify({"ok": True})
@@ -491,6 +531,46 @@ def send_message(chat_id: int):
         if request.files:
             return jsonify({"error": "Não foi possível enviar o arquivo. Tente novamente."}), 500
         return jsonify({"error": "Não foi possível enviar a mensagem. Tente novamente."}), 500
+
+
+@bp.route("/api/chats/<int:chat_id>/messages/<int:message_id>", methods=["PUT"])
+@login_required
+def edit_message(chat_id: int, message_id: int):
+    try:
+        session = ensure_agent_session()
+        payload = request.get_json(silent=True) or {}
+        message = str(payload.get("message") or payload.get("body") or "").strip()
+        if not message:
+            return jsonify({"error": "Digite o novo texto da mensagem."}), 400
+        result = agent_request(
+            "PUT",
+            f"/chats/{chat_id}/messages/{message_id}",
+            json={"message": message},
+        )
+        if not isinstance(result, dict):
+            return jsonify({"ok": True})
+        return jsonify(_normalize_message(result, session.engine_user_id))
+    except EngineError as exc:
+        return _fail(exc)
+    except Exception:
+        current_app.logger.exception("Falha ao editar mensagem no chat interno")
+        return jsonify({"error": "Não foi possível editar a mensagem. Tente novamente."}), 500
+
+
+@bp.route("/api/chats/<int:chat_id>/messages/<int:message_id>", methods=["DELETE"])
+@login_required
+def delete_message(chat_id: int, message_id: int):
+    try:
+        session = ensure_agent_session()
+        result = agent_request("DELETE", f"/chats/{chat_id}/messages/{message_id}")
+        if not isinstance(result, dict):
+            return jsonify({"ok": True})
+        return jsonify(_normalize_message(result, session.engine_user_id))
+    except EngineError as exc:
+        return _fail(exc)
+    except Exception:
+        current_app.logger.exception("Falha ao excluir mensagem no chat interno")
+        return jsonify({"error": "Não foi possível excluir a mensagem. Tente novamente."}), 500
 
 
 @bp.route("/api/chats/<int:chat_id>/read", methods=["POST"])

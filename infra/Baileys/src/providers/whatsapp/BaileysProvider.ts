@@ -142,8 +142,13 @@ class BaileysProvider implements IWhatsAppProvider {
           );
         }
 
+        const sendOptions: MiscMessageGenerationOptions = {};
+        if (options?.quoted) {
+          sendOptions.quoted = options.quoted;
+        }
+
         try {
-          return await wbot.sendMessage(chatId, messageOptions);
+          return await wbot.sendMessage(chatId, messageOptions, sendOptions);
         } catch (sendErr) {
           if (!messageOptions.video || messageOptions.document) {
             throw sendErr;
@@ -157,7 +162,7 @@ class BaileysProvider implements IWhatsAppProvider {
             caption: options?.caption || undefined,
             fileName: options?.fileName || path.basename(mediaPath),
             mimetype: messageOptions.mimetype || options?.mimetype || "video/mp4"
-          });
+          }, sendOptions);
         }
       });
     } catch (err) {

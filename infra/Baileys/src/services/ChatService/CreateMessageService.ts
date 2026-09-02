@@ -4,12 +4,28 @@ import ChatMessage from "../../models/ChatMessage";
 import ChatUser from "../../models/ChatUser";
 import User from "../../models/User";
 
+const messageIncludes = [
+  { model: User, as: "sender", attributes: ["id", "name", "avatar"] },
+  {
+    model: ChatMessage,
+    as: "quotedMsg",
+    required: false,
+    include: [{ model: User, as: "sender", attributes: ["id", "name", "avatar"] }]
+  },
+  {
+    model: Chat,
+    as: "chat",
+    include: [{ model: ChatUser, as: "users" }]
+  }
+];
+
 export interface ChatMessageData {
   senderId: number;
   chatId: number;
   message: string;
   mediaPath?: string;
   mediaName?: string;
+  quotedMsgId?: number | null;
 }
 
 export default async function CreateMessageService({
@@ -17,25 +33,20 @@ export default async function CreateMessageService({
   chatId,
   message,
   mediaPath,
-  mediaName
+  mediaName,
+  quotedMsgId
 }: ChatMessageData) {
   const newMessage = await ChatMessage.create({
     senderId,
     chatId,
     message,
     mediaPath: mediaPath || null,
-    mediaName: mediaName || null
+    mediaName: mediaName || null,
+    quotedMsgId: quotedMsgId || null
   });
 
   await newMessage.reload({
-    include: [
-      { model: User, as: "sender", attributes: ["id", "name", "avatar"] },
-      {
-        model: Chat,
-        as: "chat",
-        include: [{ model: ChatUser, as: "users" }]
-      }
-    ]
+    include: messageIncludes
   });
 
   const sender = await User.findByPk(senderId);

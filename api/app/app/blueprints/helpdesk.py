@@ -1162,6 +1162,9 @@ def send_message(ticket_id: int):
             data = {k: v for k, v in request.form.items()}
             if "body" not in data:
                 data["body"] = request.form.get("message") or ""
+            quoted = request.form.get("quotedMsg") or request.form.get("quotedMsgId")
+            if quoted and "quotedMsg" not in data:
+                data["quotedMsg"] = quoted
             result = agent_request(
                 "POST",
                 f"/messages/{ticket_id}",
@@ -1177,6 +1180,11 @@ def send_message(ticket_id: int):
         data = {"body": body}
         if payload.get("isInternal") or payload.get("isPrivate"):
             data["isInternal"] = True
+        quoted = payload.get("quotedMsg") or payload.get("quotedMsgId")
+        if isinstance(quoted, dict) and quoted.get("id"):
+            data["quotedMsg"] = {"id": quoted["id"]}
+        elif quoted:
+            data["quotedMsg"] = {"id": quoted}
         result = agent_request("POST", f"/messages/{ticket_id}", json=data)
         if not isinstance(result, (dict, list)):
             return jsonify({"ok": True})
@@ -1192,6 +1200,40 @@ def send_message(ticket_id: int):
                 }
             ), 500
         return jsonify({"error": "Não foi possível enviar a mensagem. Tente novamente."}), 500
+
+
+@helpdesk_bp.route("/api/conversations/<int:ticket_id>/messages/<message_id>", methods=["PUT"])
+@login_required
+def edit_message(ticket_id: int, message_id: str):
+    try:
+        payload = request.get_json(silent=True) or {}
+        body = str(payload.get("body") or payload.get("message") or "").strip()
+        if not body:
+            return jsonify({"error": "Digite o novo texto da mensagem."}), 400
+        result = agent_request("PUT", f"/messages/{message_id}", json={"body": body})
+        if isinstance(result, dict):
+            return jsonify(_rewrite_message_media(result))
+        return jsonify({"ok": True})
+    except EngineError as exc:
+        return _fail(exc)
+    except Exception:
+        current_app.logger.exception("Falha ao editar mensagem no Help Desk")
+        return jsonify({"error": "Não foi possível editar a mensagem. Tente novamente."}), 500
+
+
+@helpdesk_bp.route("/api/conversations/<int:ticket_id>/messages/<message_id>", methods=["DELETE"])
+@login_required
+def delete_message(ticket_id: int, message_id: str):
+    try:
+        result = agent_request("DELETE", f"/messages/{message_id}")
+        if isinstance(result, dict):
+            return jsonify(_rewrite_message_media(result))
+        return jsonify({"ok": True})
+    except EngineError as exc:
+        return _fail(exc)
+    except Exception:
+        current_app.logger.exception("Falha ao excluir mensagem no Help Desk")
+        return jsonify({"error": "Não foi possível excluir a mensagem. Tente novamente."}), 500
 
 
 @helpdesk_bp.route("/api/conversations/<int:ticket_id>/assume", methods=["PUT", "POST"])

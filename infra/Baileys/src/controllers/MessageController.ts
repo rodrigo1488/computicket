@@ -97,11 +97,31 @@ export const search = async (req: Request, res: Response): Promise<Response> => 
   return res.json({ messages });
 };
 
+function parseQuotedMsg(raw: unknown): Message | { id: string } | undefined {
+  if (!raw) return undefined;
+  if (typeof raw === "string") {
+    const trimmed = raw.trim();
+    if (!trimmed) return undefined;
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (parsed && typeof parsed === "object" && parsed.id) return parsed;
+    } catch {
+      return { id: trimmed };
+    }
+    return { id: trimmed };
+  }
+  if (typeof raw === "object" && raw && "id" in raw) {
+    return raw as { id: string };
+  }
+  return undefined;
+}
+
 export const store = async (req: Request, res: Response): Promise<Response> => {
   const { ticketId } = req.params;
-  const { body, quotedMsg, mentions, isInternal }: MessageData & {
+  const { body, quotedMsg: quotedRaw, mentions, isInternal }: MessageData & {
     isInternal?: boolean | string;
   } = req.body;
+  const quotedMsg = parseQuotedMsg(quotedRaw);
   const medias = req.files as Express.Multer.File[];
   const { companyId, profile } = req.user;
 
@@ -141,7 +161,8 @@ export const store = async (req: Request, res: Response): Promise<Response> => {
       fromMe: true,
       read: true,
       isInternal: true,
-      mediaType: "conversation"
+      mediaType: "conversation",
+      quotedMsgId: quotedMsg && "id" in quotedMsg ? String(quotedMsg.id) : undefined
     };
 
     await CreateMessageService({ messageData, companyId });
@@ -153,7 +174,12 @@ export const store = async (req: Request, res: Response): Promise<Response> => {
     try {
       await Promise.all(
         medias.map(async (media: Express.Multer.File, index) => {
-          await SendWhatsAppMedia({ media, ticket, body: Array.isArray(body) ? body[index] : body });
+          await SendWhatsAppMedia({
+            media,
+            ticket,
+            body: Array.isArray(body) ? body[index] : body,
+            quotedMsg: quotedMsg as Message | undefined
+          });
         })
       );
     } catch (error: any) {

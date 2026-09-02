@@ -1,9 +1,42 @@
 "use client";
 
-import { useRef, useState, type DragEvent, type ReactNode } from "react";
-import { Paperclip } from "lucide-react";
+import { useEffect, useMemo, useRef, useState, type DragEvent, type ReactNode } from "react";
+import { FileText, Paperclip, X } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { dataTransferHasFiles, filesFromClipboard, filesFromDataTransfer } from "@/lib/composer-files";
+
+export function ComposerFilePreview({
+  file,
+  onClear,
+}: {
+  file: File;
+  onClear: () => void;
+}) {
+  const url = useMemo(() => URL.createObjectURL(file), [file]);
+  useEffect(() => () => URL.revokeObjectURL(url), [url]);
+  const mime = (file.type || "").toLowerCase();
+  const image = mime.startsWith("image/");
+  const video = mime.startsWith("video/");
+  const audio = mime.startsWith("audio/");
+
+  return (
+    <div className="mb-2 rounded-lg border border-line bg-wash p-2">
+      {image ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={url} alt={file.name} className="mb-1.5 max-h-44 w-auto max-w-full rounded-md object-contain" />
+      ) : null}
+      {video ? <video src={url} controls className="mb-1.5 max-h-44 w-full rounded-md" /> : null}
+      {audio ? <audio src={url} controls className="mb-1.5 block w-full" /> : null}
+      <div className="flex items-center gap-2 text-xs text-ink">
+        {!image && !video && !audio ? <FileText className="h-3.5 w-3.5 shrink-0 text-muted" /> : null}
+        <span className="min-w-0 flex-1 truncate">{file.name}</span>
+        <button type="button" onClick={onClear} className="text-muted hover:text-ink" aria-label="Remover anexo">
+          <X className="h-3.5 w-3.5" />
+        </button>
+      </div>
+    </div>
+  );
+}
 
 export function ComposerAttachZone({
   enabled,

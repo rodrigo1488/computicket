@@ -136,6 +136,7 @@ export type HelpdeskMessage = {
   createdAt?: string;
   ack?: number;
   isDeleted?: boolean;
+  isEdited?: boolean;
   isPrivate?: boolean;
   isInternal?: boolean;
   quotedMsg?: HelpdeskMessage | null;
@@ -407,17 +408,23 @@ export const helpdesk = {
     flask.get<{ history: HelpdeskConversationHistoryItem[] }>(`/helpdesk/api/conversations/${id}/history`),
   messages: (id: number, page = "1") =>
     flask.get<MessageListRes>(`/helpdesk/api/conversations/${id}/messages?pageNumber=${page}`),
-  send: (id: number, body: string, opts?: { isInternal?: boolean }) =>
+  send: (id: number, body: string, opts?: { isInternal?: boolean; quotedMsg?: { id: string } }) =>
     flask.post(`/helpdesk/api/conversations/${id}/messages`, {
       body,
       isInternal: !!opts?.isInternal,
+      ...(opts?.quotedMsg ? { quotedMsg: opts.quotedMsg } : {}),
     }),
-  sendMedia: (id: number, file: File, body = "") => {
+  sendMedia: (id: number, file: File, body = "", quotedMsgId?: string) => {
     const form = new FormData();
     form.append("medias", file);
     form.append("body", body);
+    if (quotedMsgId) form.append("quotedMsg", JSON.stringify({ id: quotedMsgId }));
     return flask.post(`/helpdesk/api/conversations/${id}/messages`, form);
   },
+  edit: (id: number, messageId: string, body: string) =>
+    flask.put(`/helpdesk/api/conversations/${id}/messages/${encodeURIComponent(messageId)}`, { body }),
+  remove: (id: number, messageId: string) =>
+    flask.delete(`/helpdesk/api/conversations/${id}/messages/${encodeURIComponent(messageId)}`),
   assume: (id: number) => flask.put<HelpdeskConversation>(`/helpdesk/api/conversations/${id}/assume`),
   pending: (id: number) => flask.put<HelpdeskConversation>(`/helpdesk/api/conversations/${id}/pending`),
   resolve: (id: number) => flask.put<HelpdeskConversation>(`/helpdesk/api/conversations/${id}/resolve`),

@@ -33,6 +33,10 @@ export type InternalChatMessage = {
   mediaName?: string | null;
   mediaUrl?: string | null;
   mine?: boolean;
+  isDeleted?: boolean;
+  isEdited?: boolean;
+  quotedMsgId?: number | null;
+  quotedMsg?: InternalChatMessage | null;
   createdAt?: string | null;
   updatedAt?: string | null;
 };
@@ -167,14 +171,22 @@ export const internalChat = {
   },
   messages: (id: number, page = "1") =>
     flask.get<InternalChatMessageListRes>(`/internal-chat/api/chats/${id}/messages?pageNumber=${page}`),
-  send: (id: number, message: string) =>
-    flask.post<InternalChatMessage>(`/internal-chat/api/chats/${id}/messages`, { message }),
-  sendMedia: (id: number, file: File, message = "") => {
+  send: (id: number, message: string, quotedMsgId?: number) =>
+    flask.post<InternalChatMessage>(`/internal-chat/api/chats/${id}/messages`, {
+      message,
+      ...(quotedMsgId ? { quotedMsgId } : {}),
+    }),
+  sendMedia: (id: number, file: File, message = "", quotedMsgId?: number) => {
     const form = new FormData();
     form.append("media", file);
     form.append("message", message);
+    if (quotedMsgId) form.append("quotedMsgId", String(quotedMsgId));
     return flask.post<InternalChatMessage>(`/internal-chat/api/chats/${id}/messages`, form);
   },
+  edit: (id: number, messageId: number, message: string) =>
+    flask.put<InternalChatMessage>(`/internal-chat/api/chats/${id}/messages/${messageId}`, { message }),
+  remove: (id: number, messageId: number) =>
+    flask.delete<InternalChatMessage>(`/internal-chat/api/chats/${id}/messages/${messageId}`),
   read: (id: number) => flask.post<InternalChat>(`/internal-chat/api/chats/${id}/read`),
   createGroup: (title: string, userIds: number[]) =>
     flask.post<InternalChat>("/internal-chat/api/chats", { title, users: userIds.map((id) => ({ id })) }),
