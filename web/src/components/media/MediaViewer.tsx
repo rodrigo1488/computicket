@@ -32,8 +32,10 @@ type Point = { x: number; y: number };
 
 type Annotation =
   | { type: "brush"; points: Point[]; color: string; width: number }
-  | { type: "arrow" | "line"; a: Point; b: Point; color: string; width: number }
-  | { type: "rect" | "ellipse"; a: Point; b: Point; color: string; width: number }
+  | { type: "arrow"; a: Point; b: Point; color: string; width: number }
+  | { type: "line"; a: Point; b: Point; color: string; width: number }
+  | { type: "rect"; a: Point; b: Point; color: string; width: number }
+  | { type: "ellipse"; a: Point; b: Point; color: string; width: number }
   | { type: "text"; at: Point; text: string; color: string; size: number };
 
 const COLORS = ["#e11d48", "#f59e0b", "#16a34a", "#3b82f6", "#111827", "#ffffff"];
@@ -108,7 +110,7 @@ function paintAnnotation(ctx: CanvasRenderingContext2D, item: Annotation) {
     ctx.beginPath();
     ctx.ellipse(cx, cy, Math.abs(item.b.x - item.a.x) / 2, Math.abs(item.b.y - item.a.y) / 2, 0, 0, Math.PI * 2);
     ctx.stroke();
-  } else {
+  } else if (item.type === "text") {
     ctx.fillStyle = item.color;
     ctx.font = `600 ${item.size}px Inter, ui-sans-serif, system-ui, sans-serif`;
     ctx.textBaseline = "top";
