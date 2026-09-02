@@ -4,22 +4,33 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Ban, Plus } from "lucide-react";
 import { useEffect, useState } from "react";
 import { PageTitle } from "@/components/layout/AppShell";
+import { AvatarPicker } from "@/components/profile/AvatarPicker";
 import { DataTable } from "@/components/ui/DataTable";
 import { Modal } from "@/components/ui/Modal";
 import { Pagination } from "@/components/ui/Pagination";
 import { DeleteAction, EditAction, PrimaryRowAction, RowActions } from "@/components/ui/RowActions";
 import { PrimaryButton, UnderlineField } from "@/components/ui/UnderlineField";
+import { UserAvatar } from "@/components/ui/UserAvatar";
 import { flask, type PageRes } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import { useColFilters } from "@/lib/use-col-filters";
 
-type U = { id: number; name: string; email: string; role: string; team?: string; status: string; phone?: string };
+type U = {
+  id: number;
+  name: string;
+  email: string;
+  role: string;
+  team?: string;
+  status: string;
+  phone?: string;
+  avatar_url?: string | null;
+};
 
 const emptyForm = { name: "", email: "", role: "tecnico", team: "Equipe 1", password: "", phone: "" };
 
 export default function UsuariosPage() {
   const qc = useQueryClient();
-  const { user } = useAuth();
+  const { user, refresh } = useAuth();
   const isAdmin = ["admin", "administrador", "administrator"].includes((user?.role || "").toLowerCase());
   const [q, setQ] = useState("");
   const [page, setPage] = useState(1);
@@ -27,6 +38,8 @@ export default function UsuariosPage() {
   const [creating, setCreating] = useState(false);
   const [form, setForm] = useState(emptyForm);
   const [formError, setFormError] = useState("");
+  const [pendingAvatar, setPendingAvatar] = useState<File | null>(null);
+  const [avatarBusy, setAvatarBusy] = useState(false);
   const { colQuery, colFilters, onFiltersChange } = useColFilters();
 
   useEffect(() => setPage(1), [q, colFilters]);
@@ -37,16 +50,28 @@ export default function UsuariosPage() {
     placeholderData: (previousData) => previousData,
   });
 
+  const uploadAvatar = async (userId: number, file: File) => {
+    const fd = new FormData();
+    fd.append("file", file);
+    const updated = await flask.post<U>(`/api/web/users/${userId}/avatar`, fd);
+    if (userId === user?.id) await refresh();
+    return updated;
+  };
+
   const save = useMutation({
-    mutationFn: () => {
+    mutationFn: async () => {
       if (creating) {
         if (!form.name.trim() || !form.email.trim() || !form.password) {
           throw new Error("Nome, e-mail e senha são obrigatórios.");
         }
-        return flask.post("/api/web/users", form);
+        const created = await flask.post<U>("/api/web/users", form);
+        if (pendingAvatar) {
+          await uploadAvatar(created.id, pendingAvatar);
+        }
+        return created;
       }
       if (!edit) throw new Error("Nenhum usuário selecionado");
-        return flask.patch(`/api/web/users/${edit.id}`, {
+      return flask.patch<U>(`/api/web/users/${edit.id}`, {
         name: form.name,
         email: form.email,
         role: form.role,
@@ -58,6 +83,7 @@ export default function UsuariosPage() {
       qc.invalidateQueries({ queryKey: ["users"] });
       setEdit(null);
       setCreating(false);
+      setPendingAvatar(null);
     },
     onError: (e) => setFormError(e instanceof Error ? e.message : "Erro ao salvar"),
   });
@@ -75,6 +101,7 @@ export default function UsuariosPage() {
   const openCreate = () => {
     setForm(emptyForm);
     setFormError("");
+    setPendingAvatar(null);
     setCreating(true);
     setEdit(null);
   };
@@ -82,8 +109,44 @@ export default function UsuariosPage() {
   const openEdit = (u: U) => {
     setForm({ name: u.name, email: u.email, role: u.role, team: u.team || "Equipe 1", password: "", phone: u.phone || "" });
     setFormError("");
+    setPendingAvatar(null);
     setCreating(false);
     setEdit(u);
+  };
+
+  const onPickAvatar = async (file: File) => {
+    if (creating) {
+      setPendingAvatar(file);
+      return;
+    }
+    if (!edit) return;
+    setAvatarBusy(true);
+    try {
+      const updated = await uploadAvatar(edit.id, file);
+      setEdit(updated);
+      qc.invalidateQueries({ queryKey: ["users"] });
+    } finally {
+      setAvatarBusy(false);
+    }
+  };
+
+  const onRemoveAvatar = async () => {
+    if (creating) {
+      setPendingAvatar(null);
+      return;
+    }
+    if (!edit) return;
+    setAvatarBusy(true);
+    try {
+      const updated = await flask.delete<U>(`/api/web/users/${edit.id}/avatar`);
+      setEdit(updated);
+      if (edit.id === user?.id) await refresh();
+      qc.invalidateQueries({ queryKey: ["users"] });
+    } catch (e) {
+      setFormError(e instanceof Error ? e.message : "Erro ao remover a foto");
+    } finally {
+      setAvatarBusy(false);
+    }
   };
 
   return (
@@ -112,7 +175,10 @@ export default function UsuariosPage() {
         columnMeta={{ Status: { filter: "select" }, Ações: { sortable: false, filter: false } }}
         columns={["Nome", "E-mail", "Telefone", "Perfil", "Equipe", "Status", "Ações"]}
         rows={(data?.items || []).map((u) => [
-          u.name,
+          <span key={`name-${u.id}`} className="inline-flex items-center gap-2">
+            <UserAvatar name={u.name} src={u.avatar_url} size="sm" />
+            {u.name}
+          </span>,
           u.email,
           u.phone || "—",
           u.role,
@@ -143,6 +209,7 @@ export default function UsuariosPage() {
         onClose={() => {
           setEdit(null);
           setCreating(false);
+          setPendingAvatar(null);
         }}
         title={creating ? "Novo usuário" : "Editar usuário"}
         wide
@@ -154,6 +221,13 @@ export default function UsuariosPage() {
             save.mutate();
           }}
         >
+          <AvatarPicker
+            name={form.name || "Usuário"}
+            src={creating ? null : edit?.avatar_url}
+            busy={avatarBusy}
+            onFile={onPickAvatar}
+            onRemove={creating || edit?.avatar_url || pendingAvatar ? onRemoveAvatar : undefined}
+          />
           <UnderlineField label="Nome" value={form.name} onChange={(v) => setForm((f) => ({ ...f, name: v }))} />
           <UnderlineField label="E-mail" value={form.email} onChange={(v) => setForm((f) => ({ ...f, email: v }))} />
           <UnderlineField

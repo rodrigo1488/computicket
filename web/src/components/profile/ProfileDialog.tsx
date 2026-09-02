@@ -1,12 +1,11 @@
 "use client";
 
-import { Trash2, Upload } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { Modal } from "@/components/ui/Modal";
 import { PrimaryButton, UnderlineField } from "@/components/ui/UnderlineField";
-import { UserAvatar } from "@/components/ui/UserAvatar";
 import { flask } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
+import { AvatarPicker } from "@/components/profile/AvatarPicker";
 import { ChangePasswordDialog } from "@/components/profile/ChangePasswordDialog";
 
 export function ProfileDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
@@ -16,8 +15,8 @@ export function ProfileDialog({ open, onClose }: { open: boolean; onClose: () =>
   const [phone, setPhone] = useState("");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
+  const [avatarBusy, setAvatarBusy] = useState(false);
   const [passwordOpen, setPasswordOpen] = useState(false);
-  const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (open && user) {
@@ -45,47 +44,40 @@ export function ProfileDialog({ open, onClose }: { open: boolean; onClose: () =>
   };
 
   const upload = async (file: File) => {
-    const fd = new FormData();
-    fd.append("file", file);
-    await flask.post("/auth/api/me/avatar", fd);
-    await refresh();
+    setAvatarBusy(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      await flask.post("/auth/api/me/avatar", fd);
+      await refresh();
+    } finally {
+      setAvatarBusy(false);
+    }
   };
 
   const removeAvatar = async () => {
-    await flask.delete("/auth/api/me/avatar");
-    await refresh();
+    setAvatarBusy(true);
+    try {
+      await flask.delete("/auth/api/me/avatar");
+      await refresh();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Erro ao remover a foto");
+    } finally {
+      setAvatarBusy(false);
+    }
   };
 
   return (
     <>
       <Modal open={open && !passwordOpen} onClose={onClose} title="Perfil">
         <div className="space-y-5">
-          <div className="flex items-center gap-3">
-            <UserAvatar name={user.name} src={user.avatar_url || undefined} size="lg" />
-            <button
-              type="button"
-              onClick={() => fileRef.current?.click()}
-              className="inline-flex items-center gap-2 rounded-lg bg-wash px-3 py-2 text-sm text-ink"
-            >
-              <Upload className="h-4 w-4" />
-              Nova imagem
-            </button>
-            {user.avatar_url ? (
-              <button type="button" onClick={removeAvatar} className="text-open" aria-label="Remover">
-                <Trash2 className="h-4 w-4" />
-              </button>
-            ) : null}
-            <input
-              ref={fileRef}
-              type="file"
-              accept="image/*"
-              className="hidden"
-              onChange={(e) => {
-                const f = e.target.files?.[0];
-                if (f) upload(f);
-              }}
-            />
-          </div>
+          <AvatarPicker
+            name={name || user.name}
+            src={user.avatar_url}
+            busy={avatarBusy}
+            onFile={upload}
+            onRemove={user.avatar_url ? removeAvatar : undefined}
+          />
 
           <UnderlineField label="Nome" value={name} onChange={setName} />
           <UnderlineField label="E-mail" value={email} onChange={setEmail} />

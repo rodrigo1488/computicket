@@ -1,16 +1,11 @@
-from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify, send_file, current_app
+from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify
 from flask_login import login_user, logout_user, login_required, current_user
 from werkzeug.security import check_password_hash, generate_password_hash
-from werkzeug.utils import secure_filename
-from pathlib import Path
-import os
-import uuid
 from .. import db
+from ..avatar import avatar_public_url, delete_user_avatar, save_user_avatar, send_user_avatar
 from ..models import User, UserAvailability
 
 bp = Blueprint("auth", __name__, url_prefix="/auth")
-
-ALLOWED_AVATAR = {"png", "jpg", "jpeg", "gif", "webp"}
 
 
 def _json_payload():
@@ -32,7 +27,7 @@ def _user_payload(user: User) -> dict:
 		"role": user.role,
 		"team": user.team,
 		"status": user.status,
-		"avatar_url": f"/flask/auth/api/me/avatar" if user.avatar_path else None,
+		"avatar_url": avatar_public_url(user, me=True),
 		"availability": [s.hour for s in slots],
 		"phone": user.phone or "",
 	}
@@ -142,47 +137,19 @@ def api_change_password():
 	return jsonify({"ok": True})
 
 
-def _avatar_dir() -> Path:
-	folder = Path(current_app.root_path) / "uploads" / "avatars"
-	folder.mkdir(parents=True, exist_ok=True)
-	return folder
-
-
 @bp.route("/api/me/avatar", methods=["GET", "POST", "DELETE", "OPTIONS"])
 @login_required
 def api_me_avatar():
 	if request.method == "OPTIONS":
 		return "", 204
 	if request.method == "GET":
-		if not current_user.avatar_path:
-			return jsonify({"error": "Sem avatar"}), 404
-		path = Path(current_app.root_path) / current_user.avatar_path
-		if not path.is_file():
-			return jsonify({"error": "Arquivo não encontrado"}), 404
-		return send_file(path)
+		return send_user_avatar(current_user)
 
 	if request.method == "DELETE":
-		if current_user.avatar_path:
-			old = Path(current_app.root_path) / current_user.avatar_path
-			if old.is_file():
-				old.unlink(missing_ok=True)
-			current_user.avatar_path = None
-			db.session.commit()
+		delete_user_avatar(current_user)
 		return jsonify(_user_payload(current_user))
 
-	file = request.files.get("file") or request.files.get("avatar")
-	if not file or not file.filename:
-		return jsonify({"error": "Envie uma imagem."}), 400
-	ext = file.filename.rsplit(".", 1)[-1].lower() if "." in file.filename else ""
-	if ext not in ALLOWED_AVATAR:
-		return jsonify({"error": "Tipo de arquivo não permitido."}), 400
-	filename = f"{current_user.id}_{uuid.uuid4().hex}.{ext}"
-	dest = _avatar_dir() / secure_filename(filename)
-	file.save(dest)
-	if current_user.avatar_path:
-		old = Path(current_app.root_path) / current_user.avatar_path
-		if old.is_file() and old != dest:
-			old.unlink(missing_ok=True)
-	current_user.avatar_path = os.path.join("uploads", "avatars", dest.name).replace("\\", "/")
-	db.session.commit()
+	err = save_user_avatar(current_user, request.files.get("file") or request.files.get("avatar"))
+	if err:
+		return err
 	return jsonify(_user_payload(current_user))

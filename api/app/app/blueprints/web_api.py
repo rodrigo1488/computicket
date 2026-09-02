@@ -7,6 +7,7 @@ from sqlalchemy import case, cast, func, String
 from werkzeug.security import generate_password_hash
 
 from .. import db
+from ..avatar import avatar_public_url, delete_user_avatar, save_user_avatar, send_user_avatar
 from ..models import (
 	Appointment,
 	Budget,
@@ -217,6 +218,7 @@ def _user_json(u: User):
 		"team": u.team,
 		"status": u.status,
 		"phone": u.phone or "",
+		"avatar_url": avatar_public_url(u),
 	}
 
 
@@ -288,6 +290,7 @@ def user_item(user_id: int):
 		if user.id == current_user.id:
 			return jsonify({"error": "Você não pode excluir o próprio usuário."}), 400
 		try:
+			delete_user_avatar(user, commit=False)
 			db.session.delete(user)
 			db.session.commit()
 		except Exception:
@@ -315,6 +318,25 @@ def user_item(user_id: int):
 		user.status = str(data.get("status"))
 	# Senha não é alterada por este endpoint (evita reset acidental).
 	db.session.commit()
+	return jsonify(_user_json(user))
+
+
+@bp.route("/users/<int:user_id>/avatar", methods=["GET", "POST", "DELETE"])
+@login_required
+def user_avatar(user_id: int):
+	user = User.query.get_or_404(user_id)
+	if request.method == "GET":
+		return send_user_avatar(user)
+	if user.id != current_user.id:
+		denied = _require_admin()
+		if denied:
+			return denied
+	if request.method == "DELETE":
+		delete_user_avatar(user)
+		return jsonify(_user_json(user))
+	err = save_user_avatar(user, request.files.get("file") or request.files.get("avatar"))
+	if err:
+		return err
 	return jsonify(_user_json(user))
 
 

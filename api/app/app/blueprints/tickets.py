@@ -6,6 +6,7 @@ import base64
 import uuid
 from pathlib import Path
 from .. import db
+from ..avatar import avatar_public_url
 from ..models import Ticket, Client, Contract, Service, User, TimeEntry, TicketProduct, TicketAddon, HelpDeskTicketLink
 from ..external_pg import ExternalPgError, fetch_external_clients, get_external_client_by_id
 from ..timezone_utils import get_brasilia_now, brasilia_to_utc, utc_to_brasilia
@@ -2590,6 +2591,7 @@ def _serialize_ticket_detail(ticket: Ticket) -> dict:
 			"id": tech.id,
 			"name": tech.name,
 			"email": tech.email,
+			"avatar_url": avatar_public_url(tech),
 		} if tech else None,
 		"time_entries_count": len(entries),
 		"time_entries": [_serialize_time_entry(e) for e in entries],

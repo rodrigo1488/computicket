@@ -98,7 +98,7 @@ export type TicketDetail = TicketCard & {
   addons: TicketAddon[];
   addons_total: number;
   total: number;
-  technician: { id: number; name: string; email: string } | null;
+  technician: { id: number; name: string; email: string; avatar_url?: string | null } | null;
   time_entries?: TimeEntry[];
   no_charge?: boolean;
   charge_reason?: string;

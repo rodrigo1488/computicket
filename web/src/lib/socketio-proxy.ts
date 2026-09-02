@@ -14,7 +14,9 @@ const HOP_BY_HOP = new Set([
 ]);
 
 function backendSocketIoUrl(backendOrigin: string, search: string): string {
-  return `${backendOrigin.replace(/\/$/, "")}/socket.io${search}`;
+  // Engine.IO/Socket.IO v4 registra `/socket.io/` — sem a barra o Express
+  // responde `Cannot GET /socket.io` e o Flask-SocketIO devolve 404.
+  return `${backendOrigin.replace(/\/$/, "")}/socket.io/${search}`;
 }
 
 export async function proxySocketIo(request: NextRequest, backendOrigin: string): Promise<Response> {

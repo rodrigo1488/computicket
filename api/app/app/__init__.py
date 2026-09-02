@@ -653,6 +653,7 @@ def create_app() -> Flask:
 			if ensure_column("plan", "support_included", f"BOOLEAN DEFAULT {default}"):
 				print("✅ Coluna 'support_included' adicionada à tabela plan")
 			ensure_column("user", "phone", "VARCHAR(30)")
+			ensure_column("user", "avatar_path", "VARCHAR(500)")
 			from .models import PlanAdditional, CustomPlan, CustomPlanItem  # noqa: F401
 			ensure_tables_from_metadata(["plan_additional", "custom_plan", "custom_plan_item"])
 	except Exception as _e:

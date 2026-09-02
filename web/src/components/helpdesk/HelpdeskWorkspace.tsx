@@ -37,6 +37,7 @@ import { io, type Socket } from "socket.io-client";
 import { CloseTicketDialog } from "@/components/tickets/CloseTicketDialog";
 import { TicketCreateDialog } from "@/components/tickets/TicketCreateDialog";
 import { TimeEntryDialog } from "@/components/tickets/TimeEntryDialog";
+import { WhatsAppFormattedText } from "@/components/helpdesk/WhatsAppFormattedText";
 import { ComposerAttachZone } from "@/components/ui/ComposerAttachZone";
 import { FloatingMenu } from "@/components/ui/FloatingMenu";
 import { Modal } from "@/components/ui/Modal";
@@ -1976,6 +1977,7 @@ export function HelpdeskWorkspace() {
 
               {(current.history || []).length > 0 ? (
                 <ConversationHistoryStrip
+                  key={current.id}
                   items={current.history || []}
                   onOpen={(id) => setHistoryViewId(id)}
                 />
@@ -2019,7 +2021,9 @@ export function HelpdeskWorkspace() {
                           >
                             {system ? <p className="mb-1 text-[10px] font-semibold uppercase">Nota interna</p> : null}
                             {m.quotedMsg?.body ? (
-                              <p className="mb-1 border-l-2 border-brand/50 pl-2 text-[11px] text-muted">{snippet(m.quotedMsg.body)}</p>
+                              <p className="mb-1 border-l-2 border-brand/50 pl-2 text-[11px] text-muted">
+                                <WhatsAppFormattedText text={snippet(m.quotedMsg.body)} />
+                              </p>
                             ) : null}
                             {m.mediaUrl ? (
                               <ThreadMedia
@@ -2035,7 +2039,9 @@ export function HelpdeskWorkspace() {
                               <AudioTranscript message={m} conversationId={current.id} />
                             ) : null}
                             {m.body && !(audio && isPlaceholderAudioBody(m.body)) ? (
-                              <p className="whitespace-pre-wrap break-words">{m.body}</p>
+                              <p className="whitespace-pre-wrap break-words">
+                                <WhatsAppFormattedText text={m.body} />
+                              </p>
                             ) : null}
                             <p className="mt-0.5 text-right text-[10px] text-muted">{formatClock(m.createdAt)}</p>
                           </div>
@@ -2988,40 +2994,52 @@ function ConversationHistoryStrip({
   items: HelpdeskConversationHistoryItem[];
   onOpen: (id: number) => void;
 }) {
+  const [open, setOpen] = useState(false);
   return (
     <div className="shrink-0 border-b border-chat-border bg-wash px-4 py-2">
-      <p className="mb-1.5 inline-flex items-center gap-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-muted">
-        <History className="h-3 w-3" />
-        Histórico
-      </p>
-      <div className="flex gap-2 overflow-x-auto pb-0.5">
-        {items.map((item) => (
-          <button
-            key={item.id}
-            type="button"
-            onClick={() => onOpen(item.id)}
-            className="min-w-[11rem] max-w-[14rem] shrink-0 rounded-lg border border-chat-border bg-surface px-2.5 py-1.5 text-left hover:border-brand/40"
-            title="Ver mensagens deste ciclo"
-          >
-            <span className="flex items-center justify-between gap-2 text-[11px] font-semibold text-ink">
-              <span>#{item.id}</span>
-              <span className="font-normal text-muted">{formatDay(item.updatedAt)}</span>
-            </span>
-            <span className="mt-0.5 block truncate text-[11px] text-muted">
-              {snippet(item.lastMessage) || "Sem última mensagem"}
-            </span>
-            <span className="mt-0.5 flex items-center gap-2 text-[10px] text-muted">
-              {item.computicket_ticket_id ? <span>Chamado #{item.computicket_ticket_id}</span> : null}
-              {item.rating?.answered && item.rating.score != null ? (
-                <span className="inline-flex items-center gap-0.5">
-                  <Star className="h-3 w-3 fill-[#f6b91a] text-[#f6b91a]" />
-                  {item.rating.score}/5
-                </span>
-              ) : null}
-            </span>
-          </button>
-        ))}
-      </div>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className="flex w-full items-center justify-between gap-2 text-left"
+      >
+        <span className="inline-flex items-center gap-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-muted">
+          <History className="h-3 w-3" />
+          Histórico
+          <span className="font-normal normal-case tracking-normal">({items.length})</span>
+        </span>
+        <ChevronDown className={cn("h-3.5 w-3.5 text-muted transition-transform", open && "rotate-180")} />
+      </button>
+      {open ? (
+        <div className="mt-1.5 flex gap-2 overflow-x-auto pb-0.5">
+          {items.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              onClick={() => onOpen(item.id)}
+              className="min-w-[11rem] max-w-[14rem] shrink-0 rounded-lg border border-chat-border bg-surface px-2.5 py-1.5 text-left hover:border-brand/40"
+              title="Ver mensagens deste ciclo"
+            >
+              <span className="flex items-center justify-between gap-2 text-[11px] font-semibold text-ink">
+                <span>#{item.id}</span>
+                <span className="font-normal text-muted">{formatDay(item.updatedAt)}</span>
+              </span>
+              <span className="mt-0.5 block truncate text-[11px] text-muted">
+                {snippet(item.lastMessage) || "Sem última mensagem"}
+              </span>
+              <span className="mt-0.5 flex items-center gap-2 text-[10px] text-muted">
+                {item.computicket_ticket_id ? <span>Chamado #{item.computicket_ticket_id}</span> : null}
+                {item.rating?.answered && item.rating.score != null ? (
+                  <span className="inline-flex items-center gap-0.5">
+                    <Star className="h-3 w-3 fill-[#f6b91a] text-[#f6b91a]" />
+                    {item.rating.score}/5
+                  </span>
+                ) : null}
+              </span>
+            </button>
+          ))}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -3072,7 +3090,9 @@ function HistoryMessagesModal({
                 {m.mediaUrl ? <ThreadMedia mediaUrl={m.mediaUrl} mediaType={m.mediaType} /> : null}
                 {audio ? <AudioTranscript message={m} conversationId={conversationId} /> : null}
                 {m.body && !(audio && isPlaceholderAudioBody(m.body)) ? (
-                  <p className="whitespace-pre-wrap break-words">{m.body}</p>
+                  <p className="whitespace-pre-wrap break-words">
+                    <WhatsAppFormattedText text={m.body} />
+                  </p>
                 ) : null}
                 <p className="mt-0.5 text-right text-[10px] text-muted">
                   {formatDay(m.createdAt)} {formatClock(m.createdAt)}

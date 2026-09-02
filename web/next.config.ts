@@ -19,10 +19,10 @@ const nextConfig: NextConfig = {
         { source: "/orcamentos/logo", destination: `${flaskOrigin}/orcamentos/logo` },
         // Fallback: o cliente usa `/flask-sio` e `/engine-sio` (rotas App Router).
         // Paths com `.io` o Next trata como arquivo estático → 404; middleware reescreve.
-        { source: "/socket.io", destination: `${engineOrigin}/socket.io` },
+        { source: "/socket.io", destination: `${engineOrigin}/socket.io/` },
         { source: "/socket.io/", destination: `${engineOrigin}/socket.io/` },
         { source: "/socket.io/:path*", destination: `${engineOrigin}/socket.io/:path*` },
-        { source: "/flask/socket.io", destination: `${flaskOrigin}/socket.io` },
+        { source: "/flask/socket.io", destination: `${flaskOrigin}/socket.io/` },
         { source: "/flask/socket.io/", destination: `${flaskOrigin}/socket.io/` },
         { source: "/flask/socket.io/:path*", destination: `${flaskOrigin}/socket.io/:path*` },
       ],

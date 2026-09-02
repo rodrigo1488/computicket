@@ -226,9 +226,10 @@ export function engineSocketOptions(token: string, extra: Record<string, unknown
   const sameOrigin = extra.sameOrigin !== false;
   const rest = { ...extra };
   delete rest.sameOrigin;
+  const path = sameOrigin ? "/engine-sio" : "/socket.io";
   return {
     // Same-origin: path sem `.io` (Next 404 em `/socket.io` como arquivo estático).
-    path: sameOrigin ? "/engine-sio" : "/socket.io",
+    path,
     addTrailingSlash: false,
     // Rewrite do Next faz polling HTTP; o upgrade para websocket
     // costuma “conectar” sem entregar eventos (só a 1ª mensagem aparece).

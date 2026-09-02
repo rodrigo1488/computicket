@@ -331,7 +331,7 @@ export default function TicketDetailPage() {
           <p className="text-[13px] uppercase tracking-wide text-muted">Técnico responsável</p>
           {data.technician ? (
             <div className="mt-3 flex items-center gap-3">
-              <UserAvatar name={data.technician.name} />
+              <UserAvatar name={data.technician.name} src={data.technician.avatar_url} />
               <div>
                 <p className="font-medium">{data.technician.name}</p>
                 <p className="text-sm text-muted">{data.technician.email}</p>
