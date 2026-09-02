@@ -14,7 +14,7 @@ import { getChatJid } from "../../helpers/chatJid";
 interface Request {
   body: string;
   ticket: Ticket;
-  quotedMsg?: Message;
+  quotedMsg?: Message | { id: string };
   mentions?: string[];
 }
 
