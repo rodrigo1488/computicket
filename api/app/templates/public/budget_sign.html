@@ -183,9 +183,9 @@
 		<div class="meta">{{ budget.title }} • Total {{ format_brl(budget.total) }}</div>
 	</div>
 
-	{% with messages = get_flashed_messages(with_categories=true) %}
+	{% with messages = get_flashed_messages(with_categories=true, category_filter=public_flash_categories) %}
 		{% for category, message in messages %}
-		<div class="flash flash-{{ category }}">{{ message }}</div>
+		<div class="flash flash-{{ category|replace('public-', '') }}">{{ message }}</div>
 		{% endfor %}
 	{% endwith %}
 

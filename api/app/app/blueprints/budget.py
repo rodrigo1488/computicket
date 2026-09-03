@@ -14,6 +14,14 @@ from ..rich_text_utils import sanitize_rich_html, rich_text_has_content, rich_ht
 
 budget = Blueprint('budget', __name__)
 
+PUBLIC_FLASH_CATEGORIES = ("public-success", "public-error", "public-warning", "public-info")
+
+
+def public_flash(message, category="info"):
+	"""Flash visível só nas páginas públicas — não vaza apontamentos/sessão interna."""
+	kind = category if category in ("success", "error", "warning", "info") else "info"
+	flash(message, f"public-{kind}")
+
 
 @budget.app_template_filter('brl')
 def brl_filter(value):
@@ -27,7 +35,7 @@ def rich_html_filter(value):
 
 @budget.context_processor
 def budget_template_helpers():
-	return {'format_brl': format_brl}
+	return {'format_brl': format_brl, 'public_flash_categories': PUBLIC_FLASH_CATEGORIES}
 
 # Configurações de upload
 ALLOWED_EXTENSIONS = {'pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'txt', 'jpg', 'jpeg', 'png', 'gif', 'zip', 'rar', '7z'}
@@ -1151,11 +1159,11 @@ def public_approve(token):
 	budget_entry = _get_public_budget(token)
 
 	if budget_entry.status in ('approved', 'rejected'):
-		flash('Este orçamento já foi respondido.', 'warning')
+		public_flash('Este orçamento já foi respondido.', 'warning')
 		return redirect(url_for('budget.public_budget', token=token))
 
 	if budget_entry.is_expired:
-		flash('Este orçamento está vencido e não pode mais ser aprovado.', 'error')
+		public_flash('Este orçamento está vencido e não pode mais ser aprovado.', 'error')
 		return redirect(url_for('budget.public_budget', token=token))
 
 	if request.method == 'GET':
@@ -1170,11 +1178,11 @@ def public_approve(token):
 	signature_data = (request.form.get('signature_data') or '').strip()
 
 	if not signer_name:
-		flash('Informe seu nome completo para assinar.', 'error')
+		public_flash('Informe seu nome completo para assinar.', 'error')
 		return redirect(url_for('budget.public_approve', token=token))
 
 	if not signature_data or not signature_data.startswith('data:image'):
-		flash('Desenhe sua assinatura no campo indicado.', 'error')
+		public_flash('Desenhe sua assinatura no campo indicado.', 'error')
 		return redirect(url_for('budget.public_approve', token=token))
 
 	try:
@@ -1187,10 +1195,10 @@ def public_approve(token):
 		budget_entry.signature_timestamp = get_brasilia_now()
 		budget_entry.responded_at = get_brasilia_now()
 		db.session.commit()
-		flash('Orçamento aprovado e assinado com sucesso! Obrigado.', 'success')
+		public_flash('Orçamento aprovado e assinado com sucesso! Obrigado.', 'success')
 	except Exception:
 		db.session.rollback()
-		flash('Erro ao registrar a aprovação. Tente novamente.', 'error')
+		public_flash('Erro ao registrar a aprovação. Tente novamente.', 'error')
 
 	return redirect(url_for('budget.public_budget', token=token))
 
@@ -1201,16 +1209,16 @@ def public_respond(token):
     budget_entry = _get_public_budget(token)
     
     if budget_entry.status in ('approved', 'rejected'):
-        flash('Este orçamento já foi respondido.', 'warning')
+        public_flash('Este orçamento já foi respondido.', 'warning')
         return redirect(url_for('budget.public_budget', token=token))
     
     if budget_entry.is_expired:
-        flash('Este orçamento está vencido e não pode mais ser respondido.', 'error')
+        public_flash('Este orçamento está vencido e não pode mais ser respondido.', 'error')
         return redirect(url_for('budget.public_budget', token=token))
     
     response = request.form.get('response')
     if response != 'reject':
-        flash('Resposta inválida.', 'error')
+        public_flash('Resposta inválida.', 'error')
         return redirect(url_for('budget.public_budget', token=token))
     
     try:
@@ -1218,10 +1226,10 @@ def public_respond(token):
         budget_entry.status = 'rejected'
         budget_entry.responded_at = get_brasilia_now()
         db.session.commit()
-        flash('Orçamento recusado. Agradecemos o retorno.', 'info')
+        public_flash('Orçamento recusado. Agradecemos o retorno.', 'info')
     except Exception:
         db.session.rollback()
-        flash('Erro ao registrar a resposta. Tente novamente.', 'error')
+        public_flash('Erro ao registrar a resposta. Tente novamente.', 'error')
     
     return redirect(url_for('budget.public_budget', token=token))
 
