@@ -1,3 +1,8 @@
+import {
+  deliverNotificationOnce,
+  wasNotificationDelivered,
+} from "@/lib/notification-delivery";
+
 export const NOTIFICATION_SOUNDS = {
   internal_chat: "/sounds/notificacao_chat.mp3",
   message: "/sounds/notificacao_mensagem.mp3",
@@ -9,7 +14,6 @@ export type NotificationSoundKind = keyof typeof NOTIFICATION_SOUNDS;
 const NEW_CONVERSATION_STORAGE = "computicket:hd-new-conversation-sounds";
 const players = new Map<string, HTMLAudioElement>();
 const lastPlayedAt = new Map<string, number>();
-const playedEventKeys = new Set<string>();
 let unlocked = false;
 let gesturesBound = false;
 
@@ -62,15 +66,6 @@ export function takeNewHelpdeskConversation(ticketId: number | string | null | u
   if (rememberedConversations.has(key)) return false;
   rememberedConversations.add(key);
   persistRememberedConversations();
-  return true;
-}
-
-function markEventPlayed(eventKey?: string | null): boolean {
-  const key = eventKey ? String(eventKey).trim() : "";
-  if (!key) return true;
-  if (playedEventKeys.has(key)) return false;
-  playedEventKeys.add(key);
-  window.setTimeout(() => playedEventKeys.delete(key), 60_000);
   return true;
 }
 
@@ -148,24 +143,27 @@ function playBeepFallback(kind: string) {
 export function playHelpdeskInboundSound(
   ticketId: number | string | null | undefined,
   isPending: boolean,
-  eventKey?: string | null,
+  deliveryKey: string | null | undefined,
 ) {
-  if (!markEventPlayed(eventKey ? `hd:${eventKey}` : null)) return;
+  if (!deliveryKey) return;
+
   if (isPending && takeNewHelpdeskConversation(ticketId)) {
-    playNotificationSound("helpdesk_pending");
+    playNotificationSound("helpdesk_pending", `hd:new:${ticketId}`);
     return;
   }
+
   rememberHelpdeskConversation(ticketId);
-  playNotificationSound("message");
+  playNotificationSound("message", deliveryKey);
 }
 
-export function playNotificationSound(kind: string, eventKey?: string | null) {
+export function playNotificationSound(kind: string, deliveryKey?: string | null) {
   const src = NOTIFICATION_SOUNDS[kind as NotificationSoundKind];
-  if (!src || typeof window === "undefined") return;
-  if (!markEventPlayed(eventKey)) return;
+  if (!src || typeof window === "undefined" || !deliveryKey) return;
+  if (wasNotificationDelivered(`sound:${deliveryKey}`)) return;
+
   bindUnlockGestures();
   const now = Date.now();
-  if ((lastPlayedAt.get(kind) || 0) > now - 1400) return;
+  if ((lastPlayedAt.get(kind) || 0) > now - 800) return;
   lastPlayedAt.set(kind, now);
 
   const audio = playerFor(src);
@@ -179,10 +177,17 @@ export function playNotificationSound(kind: string, eventKey?: string | null) {
   }
   const attempt = audio.play();
   if (attempt && typeof attempt.then === "function") {
-    void attempt.catch(() => {
-      unlocked = false;
-      playBeepFallback(kind);
-    });
+    void attempt
+      .then(() => {
+        deliverNotificationOnce(`sound:${deliveryKey}`, () => undefined);
+      })
+      .catch(() => {
+        unlocked = false;
+        playBeepFallback(kind);
+        deliverNotificationOnce(`sound:${deliveryKey}`, () => undefined);
+      });
+  } else {
+    deliverNotificationOnce(`sound:${deliveryKey}`, () => undefined);
   }
 }
 

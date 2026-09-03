@@ -83,7 +83,7 @@ import {
   retainOptimisticMessages,
   sortMessagesChronologically,
 } from "@/lib/helpdeskMessages";
-import { playHelpdeskInboundSound, rememberHelpdeskConversation } from "@/lib/notification-sounds";
+import { rememberHelpdeskConversation } from "@/lib/notification-sounds";
 
 const TAB_META: { key: HelpdeskTab; label: string }[] = [
   { key: "pending", label: "Aguardando" },
@@ -1601,10 +1601,6 @@ export function HelpdeskWorkspace() {
         return;
       }
       const fromClient = !!incoming && !incoming.fromMe && !(incoming.isInternal || incoming.isPrivate);
-      if (fromClient && incoming?.id && (!payload.action || payload.action === "create")) {
-        const waiting = ticketStatus === "pending";
-        playHelpdeskInboundSound(ticketId, waiting, incoming.id);
-      }
 
       if (ticketId && fromClient && ticketId !== openId) {
         const preview =

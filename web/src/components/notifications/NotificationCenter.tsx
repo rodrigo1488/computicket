@@ -18,6 +18,11 @@ import {
   resolveEngineSocketUrl,
 } from "@/lib/helpdesk";
 import {
+  deliverNotificationOnce,
+  helpdeskMessageDeliveryKey,
+  notificationRecordDeliveryKey,
+} from "@/lib/notification-delivery";
+import {
   isRememberedHelpdeskConversation,
   playHelpdeskInboundSound,
   playNotificationSound,
@@ -40,23 +45,16 @@ type AppNotification = {
 
 type PushConfig = { enabled: boolean; publicKey?: string | null };
 
-/** Dedupe global — sobrevive Strict Mode / remount e evita toast duplicado. */
-const seenMessageIds = new Set<string>();
-const seenTicketBurst = new Map<string, number>();
-
-function markMessageSeen(messageId: string) {
-  seenMessageIds.add(messageId);
-  window.setTimeout(() => seenMessageIds.delete(messageId), 60_000);
-}
-
-function markTicketBurst(ticketKey: string) {
-  seenTicketBurst.set(ticketKey, Date.now());
-  window.setTimeout(() => seenTicketBurst.delete(ticketKey), 12_000);
-}
-
-function isTicketBurst(ticketKey: string) {
-  const ts = seenTicketBurst.get(ticketKey);
-  return ts != null && Date.now() - ts < 8000;
+function deliveryKeyFor(notification: AppNotification): string | null {
+  const entity = String(notification.entity_id || "").trim();
+  if (entity.startsWith("ic:")) return entity;
+  if (isHelpdeskNotification(notification) || notification.type === "message") {
+    const hd = helpdeskMessageDeliveryKey(entity);
+    if (hd) return hd;
+  }
+  const fromId = notificationRecordDeliveryKey(notification.id, null);
+  if (fromId) return fromId;
+  return entity ? `entity:${entity}` : null;
 }
 
 function applicationServerKey(value: string): ArrayBuffer {
@@ -201,34 +199,29 @@ export function NotificationCenter() {
 
   const showMessageNotification = useCallback(
     (notification: AppNotification) => {
-      const internal = isInternalChatNotification(notification);
-      const entityId = notification.entity_id ? String(notification.entity_id) : "";
-      if (entityId) {
-        if (seenMessageIds.has(entityId)) return false;
-        markMessageSeen(entityId);
-      }
-      if (notification.id > 0 && seenMessageIds.has(`nid:${notification.id}`)) return false;
-      if (notification.id > 0) markMessageSeen(`nid:${notification.id}`);
+      const deliveryKey = deliveryKeyFor(notification);
+      if (!deliveryKey) return false;
 
-      const targetId = conversationIdFromUrl(notification.url);
-      const burstKey = targetId != null
-        ? `${internal ? "ic" : "c"}:${targetId}:${(notification.message || "").trim().slice(0, 80)}`
-        : `t:${notification.title}:${(notification.message || "").trim().slice(0, 80)}`;
-      if (isTicketBurst(burstKey)) return false;
-      markTicketBurst(burstKey);
-      if (internal) bumpInternalChatBadge();
-      else bumpHelpdeskBadge();
-      if (internal) {
-        const sound = soundKindForNotification(notification.type);
-        if (sound) playNotificationSound(sound, entityId || undefined);
-      } else {
-        playHelpdeskInboundSound(targetId, notification.type === "helpdesk_pending", entityId || undefined);
-      }
-      const focused = internal
-        ? isInternalChatFocused(targetId)
-        : isHelpdeskConversationFocused(targetId);
-      if (!focused) show(notification);
-      return true;
+      return deliverNotificationOnce(deliveryKey, () => {
+        const internal = isInternalChatNotification(notification);
+        const targetId = conversationIdFromUrl(notification.url);
+        if (internal) bumpInternalChatBadge();
+        else bumpHelpdeskBadge();
+        if (internal) {
+          const sound = soundKindForNotification(notification.type);
+          if (sound) playNotificationSound(sound, deliveryKey);
+        } else {
+          playHelpdeskInboundSound(
+            targetId,
+            notification.type === "helpdesk_pending",
+            deliveryKey,
+          );
+        }
+        const focused = internal
+          ? isInternalChatFocused(targetId)
+          : isHelpdeskConversationFocused(targetId);
+        if (!focused) show(notification);
+      });
     },
     [bumpHelpdeskBadge, bumpInternalChatBadge, show],
   );
