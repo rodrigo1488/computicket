@@ -127,7 +127,7 @@ export const isWhisperTranscriptionConfigured = (): boolean =>
 
 export const getWhisperApiKey = (): string => {
   const k = process.env.WHISPER_API_KEY?.trim();
-  return k && k.length > 0 ? k : "whisper-local";
+  return k && k.length > 0 ? k : "computicket-whisper";
 };
 
 /** Timeout HTTP (axios) só no cliente Whisper dedicado — áudios longos no GPU. */
@@ -235,6 +235,9 @@ export const interpretOpenAIError = (error: any): string => {
   const status = error?.response?.status;
 
   if (status === 401) {
+    if (isWhisperTranscriptionConfigured()) {
+      return "Acesso negado ao Whisper. WHISPER_API_KEY do engine precisa ser a mesma do container whisper.";
+    }
     return "Acesso negado ao servidor de IA. Verifique LM_STUDIO_API_KEY se necessário.";
   }
   if (status === 429) {

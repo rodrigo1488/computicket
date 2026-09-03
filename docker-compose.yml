@@ -57,13 +57,23 @@ services:
 
   whisper:
     image: hwdsl2/whisper-server:latest
+    pull_policy: missing
     restart: unless-stopped
     environment:
       WHISPER_MODEL: ${WHISPER_MODEL:-base}
       WHISPER_DEVICE: cpu
       WHISPER_LANGUAGE: ${WHISPER_LANGUAGE:-pt}
+      # Sem esta variável o servidor gera um Bearer no volume e rejeita o engine (401).
+      WHISPER_API_KEY: ${WHISPER_API_KEY:-computicket-whisper}
+      HF_HOME: /var/lib/whisper
     volumes:
       - computicket_whisper_data:/var/lib/whisper
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:9000/health"]
+      interval: 15s
+      timeout: 10s
+      retries: 20
+      start_period: 180s
 
   whatsapp-engine:
     build:
@@ -76,7 +86,7 @@ services:
       redis:
         condition: service_healthy
       whisper:
-        condition: service_started
+        condition: service_healthy
     ports:
       - "${COMPUTICKET_WHATSAPP_PORT:-4000}:4000"
     volumes:
@@ -90,6 +100,7 @@ services:
       ENABLE_BULL_WORKERS: "true"
       ENABLE_AUDIO_TRANSCRIPTION: "true"
       WHISPER_API_BASE_URL: ${WHISPER_API_BASE_URL:-http://whisper:9000/v1}
+      WHISPER_API_KEY: ${WHISPER_API_KEY:-computicket-whisper}
       WHISPER_LANGUAGE: ${WHISPER_LANGUAGE:-pt}
       BACKEND_URL: ${WHATSAPP_BACKEND_URL:-http://whatsapp-engine:4000}
       FRONTEND_URL: ${COMPUTICKET_PUBLIC_URL:-http://localhost:3000}

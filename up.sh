@@ -58,7 +58,7 @@ source "$ROOT/infra/postgres/ensure-migrate-venv.sh"
 APP_SERVICES=(whatsapp-engine api web)
 
 echo
-echo "=== Computicket: pull + rebuild api/web/engine + whisper ==="
+echo "=== Computicket: pull + rebuild api/web/engine ==="
 echo "Repo:    $ROOT"
 echo "Compose: $COMPOSE_FILE"
 echo "Destino: ${APP_DB} @ localhost:${PG_PORT}"
@@ -77,6 +77,7 @@ fi
 
 # ---- 1) Infra (sem force-recreate, sem mexer em volumes) ----
 # Whisper precisa estar no ar antes do engine (--no-deps no passo 5 nao respeita depends_on).
+# pull_policy=missing: nao puxa :latest de novo. Recria o container so se o compose mudou.
 echo "[1/6] Garantindo postgres, redis e whisper..."
 docker compose -f "$COMPOSE_FILE" up -d postgres redis whisper
 echo "      Infra em subida."
@@ -111,12 +112,11 @@ until docker compose -f "$COMPOSE_FILE" exec -T redis \
 done
 echo "      Redis OK."
 
-echo "      Aguardando Whisper (na primeira vez baixa a imagem e o modelo)..."
+echo "      Aguardando Whisper (modelo em volume; download so na 1a instalacao)..."
 whisper_ready=0
 tries=0
 until docker compose -f "$COMPOSE_FILE" exec -T whisper \
-  sh -c 'curl -sf http://127.0.0.1:9000/v1/models >/dev/null || wget -qO- http://127.0.0.1:9000/v1/models >/dev/null' \
-  >/dev/null 2>&1; do
+  curl -sf http://127.0.0.1:9000/health >/dev/null 2>&1; do
   tries=$((tries + 1))
   if [[ $tries -ge 90 ]]; then
     echo "      (aviso) Whisper ainda inicializando — transcrição de áudio pode falhar nos primeiros minutos."
@@ -176,7 +176,8 @@ else
   docker compose -f "$COMPOSE_FILE" build "${APP_SERVICES[@]}"
   docker compose -f "$COMPOSE_FILE" up -d --no-deps --force-recreate "${APP_SERVICES[@]}"
 fi
-docker compose -f "$COMPOSE_FILE" up -d
+# Nao recria postgres/redis/whisper (volume + modelo). So sobe o que estiver parado.
+docker compose -f "$COMPOSE_FILE" up -d --no-recreate
 echo "      Engine aplica sequelize db:migrate no start (e o drop UNIQUE no startup)."
 
 # ---- 6) SQLite -> Postgres ----

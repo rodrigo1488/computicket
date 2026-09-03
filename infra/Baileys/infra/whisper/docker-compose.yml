@@ -13,6 +13,8 @@ services:
       - WHISPER_MODEL=small
       - WHISPER_DEVICE=cpu
       - WHISPER_LANGUAGE=auto
+      - WHISPER_API_KEY=computicket-whisper
+      - HF_HOME=/var/lib/whisper
     restart: unless-stopped
 
 volumes:
