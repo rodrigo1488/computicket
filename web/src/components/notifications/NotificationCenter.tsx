@@ -8,10 +8,11 @@ import { io } from "socket.io-client";
 import { flask } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import { flaskSocketOptions, getFlaskSocketConfig } from "@/lib/flask-socket";
+import { playNotificationSound, soundKindForNotification, unlockNotificationSounds } from "@/lib/notification-sounds";
 
 type AppNotification = {
   id: number;
-  type: "message" | "ticket" | "appointment" | "internal_chat" | string;
+  type: "message" | "ticket" | "appointment" | "internal_chat" | "helpdesk_pending" | string;
   title: string;
   message: string;
   url?: string | null;
@@ -60,7 +61,7 @@ async function registerPush(publicKey: string) {
 }
 
 function iconFor(type: string) {
-  if (type === "message" || type === "internal_chat") return MessageCircle;
+  if (type === "message" || type === "internal_chat" || type === "helpdesk_pending") return MessageCircle;
   if (type === "appointment") return CalendarDays;
   if (type === "ticket") return Ticket;
   return Bell;
@@ -68,6 +69,7 @@ function iconFor(type: string) {
 
 function notificationTone(type: string) {
   if (type === "internal_chat") return "bg-progress-bg text-brand";
+  if (type === "helpdesk_pending") return "bg-open-bg text-warn-fg";
   if (type === "message") return "bg-progress-bg text-progress";
   if (type === "appointment") return "bg-open-bg text-warn-fg";
   if (type === "ticket") return "bg-open-bg text-open";
@@ -108,60 +110,8 @@ function isInternalChatFocused(chatId?: number | null): boolean {
   return Number.isFinite(openId) && openId === chatId;
 }
 
-function playMessageSound() {
-  try {
-    const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-    if (!AudioCtx) return;
-    const ctx = new AudioCtx();
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.type = "sine";
-    osc.frequency.setValueAtTime(880, ctx.currentTime);
-    osc.frequency.exponentialRampToValueAtTime(1175, ctx.currentTime + 0.08);
-    gain.gain.setValueAtTime(0.0001, ctx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.09, ctx.currentTime + 0.02);
-    gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.22);
-    osc.connect(gain);
-    gain.connect(ctx.destination);
-    osc.start();
-    osc.stop(ctx.currentTime + 0.24);
-    osc.onended = () => void ctx.close().catch(() => undefined);
-  } catch {
-    /* autoplay bloqueado ou AudioContext indisponível */
-  }
-}
-
-/** Tom mais grave e em dois pulsos — distinto do ping agudo do Help Desk. */
-function playInternalChatSound() {
-  try {
-    const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-    if (!AudioCtx) return;
-    const ctx = new AudioCtx();
-    const gain = ctx.createGain();
-    gain.gain.setValueAtTime(0.0001, ctx.currentTime);
-    gain.connect(ctx.destination);
-
-    const beep = (start: number, freq: number) => {
-      const osc = ctx.createOscillator();
-      osc.type = "triangle";
-      osc.frequency.setValueAtTime(freq, start);
-      osc.connect(gain);
-      osc.start(start);
-      osc.stop(start + 0.14);
-    };
-
-    gain.gain.exponentialRampToValueAtTime(0.11, ctx.currentTime + 0.02);
-    beep(ctx.currentTime, 392);
-    gain.gain.setValueAtTime(0.11, ctx.currentTime + 0.16);
-    gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.16);
-    gain.gain.setValueAtTime(0.0001, ctx.currentTime + 0.18);
-    gain.gain.exponentialRampToValueAtTime(0.1, ctx.currentTime + 0.2);
-    beep(ctx.currentTime + 0.18, 494);
-    gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.38);
-    window.setTimeout(() => void ctx.close().catch(() => undefined), 500);
-  } catch {
-    /* autoplay bloqueado */
-  }
+function isHelpdeskNotification(notification: AppNotification) {
+  return notification.type === "message" || notification.type === "helpdesk_pending";
 }
 
 export function NotificationCenter() {
@@ -234,8 +184,8 @@ export function NotificationCenter() {
       else bumpHelpdeskBadge();
       if (internal ? isInternalChatFocused(targetId) : isHelpdeskConversationFocused(targetId)) return true;
       show(notification);
-      if (internal) playInternalChatSound();
-      else playMessageSound();
+      const sound = soundKindForNotification(notification.type);
+      if (sound) playNotificationSound(sound);
       return true;
     },
     [bumpHelpdeskBadge, bumpInternalChatBadge, show],
@@ -247,6 +197,13 @@ export function NotificationCenter() {
     flask.get<PushConfig>("/api/notifications/push/config")
       .then(setPushConfig)
       .catch(() => setPushConfig({ enabled: false }));
+    const unlock = () => unlockNotificationSounds();
+    window.addEventListener("pointerdown", unlock, { once: true });
+    window.addEventListener("keydown", unlock, { once: true });
+    return () => {
+      window.removeEventListener("pointerdown", unlock);
+      window.removeEventListener("keydown", unlock);
+    };
   }, [user]);
 
   useEffect(() => {
@@ -271,7 +228,7 @@ export function NotificationCenter() {
     const { url } = getFlaskSocketConfig();
     const socket = io(url, flaskSocketOptions());
     const onAppNotification = (notification: AppNotification) => {
-      if (notification.type === "message" || isInternalChatNotification(notification)) {
+      if (isHelpdeskNotification(notification) || isInternalChatNotification(notification)) {
         showMessageRef.current(notification);
         return;
       }

@@ -108,10 +108,15 @@ def verificar_novas_mensagens_helpdesk():
                 contact = ticket.get("contact") if isinstance(ticket.get("contact"), dict) else {}
                 contact_name = contact.get("name") or contact.get("number") or "Novo contato"
                 body = incoming.get("body") or ticket.get("lastMessage") or "Nova mensagem"
+                waiting = str(ticket.get("status") or status or "").lower() == "pending"
                 create_notifications(
                     recipients,
-                    notification_type="message",
-                    title=f"Nova mensagem de {contact_name}",
+                    notification_type="helpdesk_pending" if waiting else "message",
+                    title=(
+                        f"Nova conversa de {contact_name}"
+                        if waiting
+                        else f"Nova mensagem de {contact_name}"
+                    ),
                     message=str(body)[:1000],
                     url=f"/helpdesk?c={ticket_id}",
                     entity_type="message",

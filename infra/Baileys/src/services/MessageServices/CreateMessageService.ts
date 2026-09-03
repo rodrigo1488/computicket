@@ -178,7 +178,8 @@ const CreateMessageService = async ({
             body: payload.body || message.body,
             fromMe: false,
             engineUserId: ticketPayload.userId ?? null,
-            contactName
+            contactName,
+            ticketStatus: ticketPayload.status || message.ticket?.status || null
           });
         }
 

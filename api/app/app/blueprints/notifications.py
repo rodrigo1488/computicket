@@ -155,7 +155,12 @@ def engine_inbound_message():
 	contact_name = (data.get("contactName") or "Novo contato")[:120]
 	body = (data.get("body") or data.get("message") or "Nova mensagem")[:1000]
 	url = f"/helpdesk?c={ticket_id}" if ticket_id else "/helpdesk"
-	title = f"Nova mensagem de {contact_name}"[:200]
+	ticket_status = str(data.get("ticketStatus") or data.get("status") or "").strip().lower()
+	waiting = ticket_status == "pending"
+	notification_type = "helpdesk_pending" if waiting else "message"
+	title = (
+		f"Nova conversa de {contact_name}" if waiting else f"Nova mensagem de {contact_name}"
+	)[:200]
 
 	recipients: list[int] = []
 	try:
@@ -191,7 +196,7 @@ def engine_inbound_message():
 
 	items = create_notifications(
 		recipients,
-		notification_type="message",
+		notification_type=notification_type,
 		title=title,
 		message=body,
 		url=url[:500],

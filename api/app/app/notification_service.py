@@ -104,7 +104,9 @@ def create_notifications(
 			).first()
 			if existing:
 				continue
-		if notification_type == "message" and _recent_message_duplicate(user_id, url, message):
+		if notification_type in ("message", "helpdesk_pending") and _recent_message_duplicate(
+			user_id, url, message
+		):
 			continue
 		notification = AppNotification(
 			user_id=user_id,
@@ -142,7 +144,7 @@ def _recent_message_duplicate(user_id: int, url: str | None, message: str) -> bo
 	body = (message or "").replace("\r\n", "\n").strip()[:1000]
 	q = AppNotification.query.filter(
 		AppNotification.user_id == user_id,
-		AppNotification.notification_type == "message",
+		AppNotification.notification_type.in_(("message", "helpdesk_pending")),
 		AppNotification.created_at >= cutoff,
 	)
 	if url:

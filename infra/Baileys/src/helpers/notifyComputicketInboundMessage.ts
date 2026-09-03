@@ -8,6 +8,7 @@ type InboundNotifyPayload = {
   fromMe?: boolean | null;
   engineUserId?: number | null;
   contactName?: string | null;
+  ticketStatus?: string | null;
 };
 
 const recentInbound = new Map<string, number>();
@@ -74,7 +75,8 @@ export async function notifyComputicketInboundMessage(
         fromMe: false,
         engineUserId: payload.engineUserId,
         userId: payload.engineUserId,
-        contactName: payload.contactName
+        contactName: payload.contactName,
+        ticketStatus: payload.ticketStatus
       },
       {
         headers: { "X-Internal-Token": token },

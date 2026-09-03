@@ -21,6 +21,7 @@ self.addEventListener("push", (event) => {
       }
 
       const internal = payload.type === "internal_chat" || payload.entity_type === "internal_chat";
+      const pending = payload.type === "helpdesk_pending";
       return self.registration.showNotification(payload.title || "Computicket", {
         body: payload.message || "Você recebeu uma nova notificação.",
         tag:
@@ -29,7 +30,7 @@ self.addEventListener("push", (event) => {
             : `notification-${payload.id || Date.now()}`,
         data: { url: targetUrl },
         badge: "/favicon.ico",
-        vibrate: internal ? [80, 60, 80, 60, 120] : [160, 80, 160],
+        vibrate: internal ? [80, 60, 80, 60, 120] : pending ? [220, 80, 120, 80, 220] : [160, 80, 160],
       });
     })(),
   );
