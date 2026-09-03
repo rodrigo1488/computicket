@@ -121,6 +121,8 @@ def verificar_novas_mensagens_helpdesk():
                     url=f"/helpdesk?c={ticket_id}",
                     entity_type="message",
                     entity_id=message_id,
+                    send_push=True,
+                    force_push=True,
                 )
 
             _helpdesk_message_versions.clear()

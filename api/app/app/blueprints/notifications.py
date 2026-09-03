@@ -202,6 +202,8 @@ def engine_inbound_message():
 		url=url[:500],
 		entity_type="message",
 		entity_id=external_id,
+		send_push=True,
+		force_push=True,
 	)
 	return jsonify({"ok": True, "created": len(items)}), 201
 

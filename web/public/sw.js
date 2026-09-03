@@ -22,6 +22,11 @@ self.addEventListener("push", (event) => {
 
       const internal = payload.type === "internal_chat" || payload.entity_type === "internal_chat";
       const pending = payload.type === "helpdesk_pending";
+      const sound = internal
+        ? "/sounds/notificacao_chat.mp3"
+        : pending
+          ? "/sounds/notificacao_novo_help_desk.mp3"
+          : "/sounds/notificacao_mensagem.mp3";
       return self.registration.showNotification(payload.title || "Computicket", {
         body: payload.message || "Você recebeu uma nova notificação.",
         tag:
@@ -30,6 +35,8 @@ self.addEventListener("push", (event) => {
             : `notification-${payload.id || Date.now()}`,
         data: { url: targetUrl },
         badge: "/favicon.ico",
+        silent: false,
+        sound,
         vibrate: internal ? [80, 60, 80, 60, 120] : pending ? [220, 80, 120, 80, 220] : [160, 80, 160],
       });
     })(),

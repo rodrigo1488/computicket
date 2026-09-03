@@ -81,6 +81,7 @@ import {
   retainOptimisticMessages,
   sortMessagesChronologically,
 } from "@/lib/helpdeskMessages";
+import { playNotificationSound } from "@/lib/notification-sounds";
 
 const TAB_META: { key: HelpdeskTab; label: string }[] = [
   { key: "pending", label: "Aguardando" },
@@ -348,7 +349,7 @@ function AudioTranscript({
 
 type AppMessagePayload = {
   action?: string;
-  ticket?: { id?: number | string } | null;
+  ticket?: { id?: number | string; status?: string } | null;
   message?: (HelpdeskMessage & { ticketId?: number | string; ticket?: { id?: number | string } | null }) | null;
 };
 
@@ -1541,6 +1542,10 @@ export function HelpdeskWorkspace() {
       const openId = activeIdRef.current;
       const incoming = payload.message;
       const fromClient = !!incoming && !incoming.fromMe && !(incoming.isInternal || incoming.isPrivate);
+      if (fromClient && incoming?.id && (!payload.action || payload.action === "create")) {
+        const waiting = String(payload.ticket?.status || "").toLowerCase() === "pending";
+        playNotificationSound(waiting ? "helpdesk_pending" : "message");
+      }
 
       if (ticketId && fromClient && ticketId !== openId) {
         const preview =

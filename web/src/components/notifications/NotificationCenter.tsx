@@ -1,6 +1,6 @@
 "use client";
 
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Bell, CalendarDays, MessageCircle, Ticket, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -8,6 +8,12 @@ import { io } from "socket.io-client";
 import { flask } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import { flaskSocketOptions, getFlaskSocketConfig } from "@/lib/flask-socket";
+import {
+  engineSocketOptions,
+  helpdesk,
+  isEngineSocketSameOrigin,
+  resolveEngineSocketUrl,
+} from "@/lib/helpdesk";
 import { playNotificationSound, soundKindForNotification, unlockNotificationSounds } from "@/lib/notification-sounds";
 
 type AppNotification = {
@@ -114,10 +120,30 @@ function isHelpdeskNotification(notification: AppNotification) {
   return notification.type === "message" || notification.type === "helpdesk_pending";
 }
 
+function hashNotificationId(value: string) {
+  let hash = 0;
+  for (let i = 0; i < value.length; i += 1) {
+    hash = (hash * 31 + value.charCodeAt(i)) | 0;
+  }
+  return hash || 1;
+}
+
 export function NotificationCenter() {
   const { user } = useAuth();
   const router = useRouter();
   const queryClient = useQueryClient();
+  const health = useQuery({
+    queryKey: ["hd-health"],
+    queryFn: helpdesk.health,
+    retry: 1,
+    enabled: !!user,
+  });
+  const session = useQuery({
+    queryKey: ["hd-engine-token"],
+    queryFn: helpdesk.token,
+    enabled: !!user && !!health.data?.ok,
+    refetchInterval: 8 * 60 * 1000,
+  });
   const [items, setItems] = useState<AppNotification[]>([]);
   const [pushConfig, setPushConfig] = useState<PushConfig | null>(null);
   const [permission, setPermission] = useState<NotificationPermission | "unsupported">("unsupported");
@@ -182,10 +208,12 @@ export function NotificationCenter() {
       markTicketBurst(burstKey);
       if (internal) bumpInternalChatBadge();
       else bumpHelpdeskBadge();
-      if (internal ? isInternalChatFocused(targetId) : isHelpdeskConversationFocused(targetId)) return true;
-      show(notification);
       const sound = soundKindForNotification(notification.type);
       if (sound) playNotificationSound(sound);
+      const focused = internal
+        ? isInternalChatFocused(targetId)
+        : isHelpdeskConversationFocused(targetId);
+      if (!focused) show(notification);
       return true;
     },
     [bumpHelpdeskBadge, bumpInternalChatBadge, show],
@@ -197,13 +225,7 @@ export function NotificationCenter() {
     flask.get<PushConfig>("/api/notifications/push/config")
       .then(setPushConfig)
       .catch(() => setPushConfig({ enabled: false }));
-    const unlock = () => unlockNotificationSounds();
-    window.addEventListener("pointerdown", unlock, { once: true });
-    window.addEventListener("keydown", unlock, { once: true });
-    return () => {
-      window.removeEventListener("pointerdown", unlock);
-      window.removeEventListener("keydown", unlock);
-    };
+    unlockNotificationSounds();
   }, [user]);
 
   useEffect(() => {
@@ -216,8 +238,7 @@ export function NotificationCenter() {
     }
   }, [permission, pushConfig?.publicKey]);
 
-  // Único canal de toast/som/badge para mensagens: Flask `app_notification`.
-  // Handler em ref para não reconectar o socket a cada render.
+  // Flask `app_notification` + socket do engine (mesmo canal do Help Desk/chat).
   const showRef = useRef(show);
   const showMessageRef = useRef(showMessageNotification);
   showRef.current = show;
@@ -241,6 +262,96 @@ export function NotificationCenter() {
     return () => {
       socket.off("app_notification", onAppNotification);
       socket.disconnect();
+    };
+  }, [user?.id]);
+
+  useEffect(() => {
+    const engine = session.data;
+    if (!user || !engine?.token || !engine.engineUrl) return;
+    const socketUrl = resolveEngineSocketUrl(engine.engineUrl);
+    const socket = io(
+      socketUrl,
+      engineSocketOptions(engine.token, { sameOrigin: isEngineSocketSameOrigin(socketUrl) }),
+    );
+    const joinRooms = () => {
+      socket.emit("joinTickets", "pending");
+      socket.emit("joinTickets", "open");
+      socket.emit("joinNotification");
+    };
+    const onAppMessage = (payload: {
+      action?: string;
+      ticket?: { id?: number | string; status?: string; contact?: { name?: string } } | null;
+      message?: { id?: string; body?: string; fromMe?: boolean; isInternal?: boolean; isPrivate?: boolean; mediaType?: string } | null;
+      contact?: { name?: string } | null;
+    }) => {
+      const incoming = payload.message;
+      if (!incoming?.id || incoming.fromMe || incoming.isInternal || incoming.isPrivate) return;
+      if (payload.action && payload.action !== "create") return;
+      const ticketId = Number(payload.ticket?.id);
+      const waiting = String(payload.ticket?.status || "").toLowerCase() === "pending";
+      const name = payload.ticket?.contact?.name || payload.contact?.name || "Contato";
+      showMessageRef.current({
+        id: -Math.abs(hashNotificationId(`hd:${incoming.id}`)),
+        type: waiting ? "helpdesk_pending" : "message",
+        title: waiting ? `Nova conversa de ${name}` : `Nova mensagem de ${name}`,
+        message: (incoming.body || incoming.mediaType || "Nova mensagem").slice(0, 1000),
+        url: Number.isFinite(ticketId) && ticketId > 0 ? `/helpdesk?c=${ticketId}` : "/helpdesk",
+        entity_type: "message",
+        entity_id: String(incoming.id),
+      });
+    };
+    const onInternalChat = (payload: {
+      action?: string;
+      newMessage?: { id?: string | number; chatId?: number; senderId?: number; body?: string; mediaName?: string };
+      chat?: { id?: number; title?: string; isGroup?: boolean };
+    }) => {
+      const incoming = payload.newMessage;
+      if (!incoming?.id || incoming.senderId === engine.engineUserId) return;
+      if (payload.action === "delete") return;
+      const chatId = Number(payload.chat?.id ?? incoming.chatId);
+      showMessageRef.current({
+        id: -Math.abs(hashNotificationId(`ic:${chatId}:${incoming.id}`)),
+        type: "internal_chat",
+        title: "Chat interno",
+        message: (incoming.body || incoming.mediaName || "Nova mensagem").slice(0, 1000),
+        url: Number.isFinite(chatId) && chatId > 0 ? `/chat?c=${chatId}` : "/chat",
+        entity_type: "internal_chat",
+        entity_id: `ic:${chatId}:${incoming.id}`,
+      });
+    };
+    socket.on("connect", joinRooms);
+    socket.on("ready", joinRooms);
+    socket.on(`company-${engine.companyId}-appMessage`, onAppMessage);
+    socket.on(`company-${engine.companyId}-chat`, onInternalChat);
+    socket.on(`company-${engine.companyId}-chat-user-${engine.engineUserId}`, onInternalChat);
+    return () => {
+      socket.disconnect();
+    };
+  }, [user?.id, session.data?.token, session.data?.engineUrl, session.data?.companyId, session.data?.engineUserId]);
+
+  useEffect(() => {
+    if (!user) return;
+    const since = Date.now() - 1500;
+    let stopped = false;
+    const poll = async () => {
+      try {
+        const data = await flask.get<{ notifications?: AppNotification[] }>("/api/notifications/list?limit=12");
+        if (stopped) return;
+        for (const item of data.notifications || []) {
+          const ts = item.created_at ? Date.parse(item.created_at) : 0;
+          if (!ts || ts < since) continue;
+          if (isHelpdeskNotification(item) || isInternalChatNotification(item)) {
+            showMessageRef.current(item);
+          }
+        }
+      } catch {
+        /* poll é só backup */
+      }
+    };
+    const timer = window.setInterval(() => void poll(), 8000);
+    return () => {
+      stopped = true;
+      window.clearInterval(timer);
     };
   }, [user?.id]);
 
