@@ -168,19 +168,24 @@ const CreateMessageService = async ({
           });
 
         if (!payload.fromMe) {
-          const contactName =
-            (message.ticket as any)?.contact?.name ||
-            (message as any)?.contact?.name ||
-            null;
-          void notifyComputicketInboundMessage({
-            id: String(payload.id),
-            ticketId: message.ticketId,
-            body: payload.body || message.body,
-            fromMe: false,
-            engineUserId: ticketPayload.userId ?? null,
-            contactName,
-            ticketStatus: ticketPayload.status || message.ticket?.status || null
-          });
+          const inboundStatus = String(
+            ticketPayload.status || message.ticket?.status || ""
+          ).toLowerCase();
+          if (inboundStatus !== "closed" && inboundStatus !== "rating") {
+            const contactName =
+              (message.ticket as any)?.contact?.name ||
+              (message as any)?.contact?.name ||
+              null;
+            void notifyComputicketInboundMessage({
+              id: String(payload.id),
+              ticketId: message.ticketId,
+              body: payload.body || message.body,
+              fromMe: false,
+              engineUserId: ticketPayload.userId ?? null,
+              contactName,
+              ticketStatus: inboundStatus || null
+            });
+          }
         }
 
         if (

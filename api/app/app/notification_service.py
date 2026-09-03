@@ -79,6 +79,61 @@ def ticket_recipient_ids(assigned_to_id: int | None) -> list[int]:
 	]
 
 
+def helpdesk_conversation_url(ticket_id: int | str | None) -> str | None:
+	try:
+		tid = int(ticket_id)  # type: ignore[arg-type]
+	except (TypeError, ValueError):
+		return None
+	if tid <= 0:
+		return None
+	return f"/helpdesk?c={tid}"
+
+
+def dismiss_helpdesk_notifications(
+	ticket_id: int | str | None,
+	*,
+	types: tuple[str, ...] = ("message", "helpdesk_pending"),
+) -> int:
+	"""Marca como lidas as notificações da conversa e avisa o cliente para sumir o toast."""
+	url = helpdesk_conversation_url(ticket_id)
+	if not url:
+		return 0
+	rows = (
+		AppNotification.query.filter(
+			AppNotification.url == url,
+			AppNotification.read_at.is_(None),
+			AppNotification.notification_type.in_(types),
+		).all()
+	)
+	if not rows:
+		return 0
+	now = get_brasilia_now()
+	user_ids: list[int] = []
+	for row in rows:
+		row.read_at = now
+		if row.user_id not in user_ids:
+			user_ids.append(row.user_id)
+	db.session.commit()
+	payload = {"ticketId": int(ticket_id)}  # type: ignore[arg-type]
+	for user_id in user_ids:
+		socketio.emit("helpdesk_notifications_dismissed", payload, room=f"agent_{user_id}")
+	return len(rows)
+
+
+def has_helpdesk_pending_notification(user_id: int, url: str | None) -> bool:
+	"""True se este usuário já foi avisado que a conversa entrou na fila."""
+	if not url:
+		return False
+	return (
+		AppNotification.query.filter_by(
+			user_id=user_id,
+			notification_type="helpdesk_pending",
+			url=url,
+		).first()
+		is not None
+	)
+
+
 def create_notifications(
 	user_ids: Iterable[int | None],
 	*,

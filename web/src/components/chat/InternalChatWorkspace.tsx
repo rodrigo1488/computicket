@@ -424,10 +424,10 @@ export function InternalChatWorkspace() {
         return;
       }
       if (incoming && incoming.id) {
-        if (incoming.senderId !== engine.engineUserId && payload?.action !== "delete") {
-          playNotificationSound("internal_chat");
-        }
         const incomingChatId = chat ? Number(chat.id) : Number(incoming.chatId);
+        if (incoming.senderId !== engine.engineUserId && payload?.action !== "delete") {
+          playNotificationSound("internal_chat", `ic:${incomingChatId}:${incoming.id}`);
+        }
         if (openId && incomingChatId === openId) {
           const normalized = {
             ...incoming,

@@ -9,12 +9,22 @@ import { flask } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import { flaskSocketOptions, getFlaskSocketConfig } from "@/lib/flask-socket";
 import {
+  dismissHelpdeskNotificationToasts,
   engineSocketOptions,
+  HELPDESK_DISMISS_EVENT,
   helpdesk,
+  isClosedHelpdeskStatus,
   isEngineSocketSameOrigin,
   resolveEngineSocketUrl,
 } from "@/lib/helpdesk";
-import { playNotificationSound, soundKindForNotification, unlockNotificationSounds } from "@/lib/notification-sounds";
+import {
+  isRememberedHelpdeskConversation,
+  playHelpdeskInboundSound,
+  playNotificationSound,
+  rememberHelpdeskConversation,
+  soundKindForNotification,
+  unlockNotificationSounds,
+} from "@/lib/notification-sounds";
 
 type AppNotification = {
   id: number;
@@ -208,8 +218,12 @@ export function NotificationCenter() {
       markTicketBurst(burstKey);
       if (internal) bumpInternalChatBadge();
       else bumpHelpdeskBadge();
-      const sound = soundKindForNotification(notification.type);
-      if (sound) playNotificationSound(sound);
+      if (internal) {
+        const sound = soundKindForNotification(notification.type);
+        if (sound) playNotificationSound(sound, entityId || undefined);
+      } else {
+        playHelpdeskInboundSound(targetId, notification.type === "helpdesk_pending", entityId || undefined);
+      }
       const focused = internal
         ? isInternalChatFocused(targetId)
         : isHelpdeskConversationFocused(targetId);
@@ -226,7 +240,14 @@ export function NotificationCenter() {
       .then(setPushConfig)
       .catch(() => setPushConfig({ enabled: false }));
     unlockNotificationSounds();
-  }, [user]);
+    if (health.data?.ok) {
+      helpdesk.conversations("pending", "1")
+        .then((res) => {
+          for (const row of res.tickets || []) rememberHelpdeskConversation(row.id);
+        })
+        .catch(() => undefined);
+    }
+  }, [user, health.data?.ok]);
 
   useEffect(() => {
     if (
@@ -259,11 +280,27 @@ export function NotificationCenter() {
       socket.emit("join_agent_notifications");
     });
     socket.on("app_notification", onAppNotification);
+    socket.on("helpdesk_notifications_dismissed", (payload: { ticketId?: number }) => {
+      dismissHelpdeskNotificationToasts(payload?.ticketId);
+    });
     return () => {
       socket.off("app_notification", onAppNotification);
+      socket.off("helpdesk_notifications_dismissed");
       socket.disconnect();
     };
   }, [user?.id]);
+
+  useEffect(() => {
+    const onDismiss = (event: Event) => {
+      const ticketId = Number((event as CustomEvent<{ ticketId?: number }>).detail?.ticketId);
+      if (!Number.isFinite(ticketId) || ticketId <= 0) return;
+      setItems((current) =>
+        current.filter((item) => conversationIdFromUrl(item.url) !== ticketId),
+      );
+    };
+    window.addEventListener(HELPDESK_DISMISS_EVENT, onDismiss);
+    return () => window.removeEventListener(HELPDESK_DISMISS_EVENT, onDismiss);
+  }, []);
 
   useEffect(() => {
     const engine = session.data;
@@ -288,12 +325,17 @@ export function NotificationCenter() {
       if (!incoming?.id || incoming.fromMe || incoming.isInternal || incoming.isPrivate) return;
       if (payload.action && payload.action !== "create") return;
       const ticketId = Number(payload.ticket?.id);
+      if (isClosedHelpdeskStatus(payload.ticket?.status)) {
+        dismissHelpdeskNotificationToasts(ticketId);
+        return;
+      }
       const waiting = String(payload.ticket?.status || "").toLowerCase() === "pending";
+      const isNewConversation = waiting && !isRememberedHelpdeskConversation(ticketId);
       const name = payload.ticket?.contact?.name || payload.contact?.name || "Contato";
       showMessageRef.current({
         id: -Math.abs(hashNotificationId(`hd:${incoming.id}`)),
-        type: waiting ? "helpdesk_pending" : "message",
-        title: waiting ? `Nova conversa de ${name}` : `Nova mensagem de ${name}`,
+        type: isNewConversation ? "helpdesk_pending" : "message",
+        title: isNewConversation ? `Nova conversa de ${name}` : `Nova mensagem de ${name}`,
         message: (incoming.body || incoming.mediaType || "Nova mensagem").slice(0, 1000),
         url: Number.isFinite(ticketId) && ticketId > 0 ? `/helpdesk?c=${ticketId}` : "/helpdesk",
         entity_type: "message",
@@ -321,6 +363,17 @@ export function NotificationCenter() {
     };
     socket.on("connect", joinRooms);
     socket.on("ready", joinRooms);
+    socket.on(`company-${engine.companyId}-ticket`, (payload: {
+      action?: string;
+      ticketId?: number | string;
+      ticket?: { id?: number | string; status?: string } | null;
+    }) => {
+      const ticketId = Number(payload.ticket?.id ?? payload.ticketId);
+      const status = String(payload.ticket?.status || "").toLowerCase();
+      if (payload.action === "delete" || isClosedHelpdeskStatus(status) || (status && status !== "pending")) {
+        dismissHelpdeskNotificationToasts(ticketId);
+      }
+    });
     socket.on(`company-${engine.companyId}-appMessage`, onAppMessage);
     socket.on(`company-${engine.companyId}-chat`, onInternalChat);
     socket.on(`company-${engine.companyId}-chat-user-${engine.engineUserId}`, onInternalChat);
@@ -338,6 +391,7 @@ export function NotificationCenter() {
         const data = await flask.get<{ notifications?: AppNotification[] }>("/api/notifications/list?limit=12");
         if (stopped) return;
         for (const item of data.notifications || []) {
+          if (item.read) continue;
           const ts = item.created_at ? Date.parse(item.created_at) : 0;
           if (!ts || ts < since) continue;
           if (isHelpdeskNotification(item) || isInternalChatNotification(item)) {

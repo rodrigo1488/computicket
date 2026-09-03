@@ -50,10 +50,12 @@ import { cn } from "@/lib/cn";
 import { useAuth } from "@/lib/auth-context";
 import type { TicketDetail } from "@/lib/format";
 import {
+  dismissHelpdeskNotificationToasts,
   helpdesk,
   helpdeskMediaSizeError,
   publicMediaUrl,
   engineSocketOptions,
+  isClosedHelpdeskStatus,
   isEngineSocketSameOrigin,
   resolveEngineSocketUrl,
   unwrapConnections,
@@ -81,7 +83,7 @@ import {
   retainOptimisticMessages,
   sortMessagesChronologically,
 } from "@/lib/helpdeskMessages";
-import { playNotificationSound } from "@/lib/notification-sounds";
+import { playHelpdeskInboundSound, rememberHelpdeskConversation } from "@/lib/notification-sounds";
 
 const TAB_META: { key: HelpdeskTab; label: string }[] = [
   { key: "pending", label: "Aguardando" },
@@ -476,6 +478,22 @@ function patchConversationInLists(
   qc.setQueriesData<ConversationListRes>({ queryKey: ["hd-list-counts"] }, apply);
 }
 
+function removeConversationFromLists(
+  qc: ReturnType<typeof useQueryClient>,
+  ticketId: number,
+) {
+  const apply = (prev: ConversationListRes | undefined) => {
+    if (!prev?.tickets?.some((row) => row.id === ticketId)) return prev;
+    return {
+      ...prev,
+      tickets: prev.tickets.filter((row) => row.id !== ticketId),
+      count: Math.max(0, (prev.count || prev.tickets.length) - 1),
+    };
+  };
+  qc.setQueriesData<ConversationListRes>({ queryKey: ["hd-list"] }, apply);
+  qc.setQueriesData<ConversationListRes>({ queryKey: ["hd-list-counts"] }, apply);
+}
+
 function extractSentMessage(data: unknown): HelpdeskMessage | null {
   if (!data || typeof data !== "object") return null;
   const d = data as Record<string, unknown>;
@@ -786,6 +804,7 @@ export function HelpdeskWorkspace() {
   const fileRef = useRef<HTMLInputElement>(null);
   const socketRef = useRef<Socket | null>(null);
   const activeIdRef = useRef<number | null>(null);
+  const tabRef = useRef<HelpdeskTab>(tab);
   const pendingResolveChatId = useRef<number | null>(null);
   const entryContinueRef = useRef(false);
   const justLinkedTicketId = useRef<number | null>(null);
@@ -793,6 +812,7 @@ export function HelpdeskWorkspace() {
     null,
   );
   activeIdRef.current = activeId;
+  tabRef.current = tab;
 
   useEffect(() => {
     const t = setTimeout(() => setDebouncedSearch(search), 300);
@@ -945,6 +965,13 @@ export function HelpdeskWorkspace() {
     enabled: !!health.data?.ok,
     refetchInterval: 12000,
   });
+
+  const seededExistingConversations = useRef(false);
+  useEffect(() => {
+    if (seededExistingConversations.current || !list.data?.tickets?.length) return;
+    seededExistingConversations.current = true;
+    for (const row of list.data.tickets) rememberHelpdeskConversation(row.id);
+  }, [list.data?.tickets]);
 
   const conversation = useQuery({
     queryKey: ["hd-conversation", activeId],
@@ -1521,6 +1548,7 @@ export function HelpdeskWorkspace() {
       qc.invalidateQueries({ queryKey: ["hd-list"] });
       qc.invalidateQueries({ queryKey: ["hd-list-counts"] });
       qc.invalidateQueries({ queryKey: ["hd-overview"] });
+      qc.invalidateQueries({ queryKey: ["hd-conversation"] });
       // Badge: reconciliar com delay para não zerar o bump otimista do NotificationCenter.
       window.setTimeout(() => {
         void qc.invalidateQueries({ queryKey: ["helpdesk-nav-badge"] });
@@ -1536,15 +1564,46 @@ export function HelpdeskWorkspace() {
     // `connect` dispara antes do servidor registrar join*; `ready` é o sinal certo.
     socket.on("connect", joinRooms);
     socket.on("ready", joinRooms);
-    socket.on(`company-${engine.companyId}-ticket`, refresh);
+    socket.on(`company-${engine.companyId}-ticket`, (payload: {
+      action?: string;
+      ticketId?: number | string;
+      ticket?: { id?: number | string; status?: string } | null;
+    }) => {
+      const ticketId = Number(payload.ticket?.id ?? payload.ticketId);
+      const status = String(payload.ticket?.status || "").toLowerCase();
+      const leftInbox =
+        payload.action === "delete" || isClosedHelpdeskStatus(status);
+      if (Number.isFinite(ticketId) && ticketId > 0 && leftInbox) {
+        removeConversationFromLists(qc, ticketId);
+        dismissHelpdeskNotificationToasts(ticketId);
+        if (activeIdRef.current === ticketId && isClosedHelpdeskStatus(status)) {
+          qc.setQueryData<HelpdeskConversation>(["hd-conversation", ticketId], (prev) =>
+            prev ? { ...prev, status: status || "closed" } : prev,
+          );
+        }
+      } else if (Number.isFinite(ticketId) && ticketId > 0 && status && status !== tabRef.current) {
+        removeConversationFromLists(qc, ticketId);
+        if (status !== "pending") dismissHelpdeskNotificationToasts(ticketId);
+      }
+      refresh();
+    });
     socket.on(`company-${engine.companyId}-appMessage`, (payload: AppMessagePayload) => {
       const ticketId = resolveAppMessageTicketId(payload);
       const openId = activeIdRef.current;
       const incoming = payload.message;
+      const ticketStatus = String(payload.ticket?.status || "").toLowerCase();
+      if (isClosedHelpdeskStatus(ticketStatus)) {
+        if (ticketId) {
+          removeConversationFromLists(qc, ticketId);
+          dismissHelpdeskNotificationToasts(ticketId);
+        }
+        refresh();
+        return;
+      }
       const fromClient = !!incoming && !incoming.fromMe && !(incoming.isInternal || incoming.isPrivate);
       if (fromClient && incoming?.id && (!payload.action || payload.action === "create")) {
-        const waiting = String(payload.ticket?.status || "").toLowerCase() === "pending";
-        playNotificationSound(waiting ? "helpdesk_pending" : "message");
+        const waiting = ticketStatus === "pending";
+        playHelpdeskInboundSound(ticketId, waiting, incoming.id);
       }
 
       if (ticketId && fromClient && ticketId !== openId) {

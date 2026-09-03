@@ -6,10 +6,73 @@ export const NOTIFICATION_SOUNDS = {
 
 export type NotificationSoundKind = keyof typeof NOTIFICATION_SOUNDS;
 
+const NEW_CONVERSATION_STORAGE = "computicket:hd-new-conversation-sounds";
 const players = new Map<string, HTMLAudioElement>();
 const lastPlayedAt = new Map<string, number>();
+const playedEventKeys = new Set<string>();
 let unlocked = false;
 let gesturesBound = false;
+
+function loadRememberedConversations(): Set<string> {
+  if (typeof window === "undefined") return new Set();
+  try {
+    const raw = sessionStorage.getItem(NEW_CONVERSATION_STORAGE);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return new Set(Array.isArray(parsed) ? parsed.map(String) : []);
+  } catch {
+    return new Set();
+  }
+}
+
+const rememberedConversations = loadRememberedConversations();
+
+function persistRememberedConversations() {
+  if (typeof window === "undefined") return;
+  try {
+    sessionStorage.setItem(
+      NEW_CONVERSATION_STORAGE,
+      JSON.stringify([...rememberedConversations].slice(-300)),
+    );
+  } catch {
+    /* quota / privado */
+  }
+}
+
+function conversationKey(ticketId: number | string | null | undefined): string | null {
+  const id = Number(ticketId);
+  if (!Number.isFinite(id) || id <= 0) return null;
+  return String(id);
+}
+
+export function rememberHelpdeskConversation(ticketId: number | string | null | undefined) {
+  const key = conversationKey(ticketId);
+  if (!key || rememberedConversations.has(key)) return;
+  rememberedConversations.add(key);
+  persistRememberedConversations();
+}
+
+export function isRememberedHelpdeskConversation(ticketId: number | string | null | undefined): boolean {
+  const key = conversationKey(ticketId);
+  return !!key && rememberedConversations.has(key);
+}
+
+export function takeNewHelpdeskConversation(ticketId: number | string | null | undefined): boolean {
+  const key = conversationKey(ticketId);
+  if (!key) return false;
+  if (rememberedConversations.has(key)) return false;
+  rememberedConversations.add(key);
+  persistRememberedConversations();
+  return true;
+}
+
+function markEventPlayed(eventKey?: string | null): boolean {
+  const key = eventKey ? String(eventKey).trim() : "";
+  if (!key) return true;
+  if (playedEventKeys.has(key)) return false;
+  playedEventKeys.add(key);
+  window.setTimeout(() => playedEventKeys.delete(key), 60_000);
+  return true;
+}
 
 function playerFor(src: string): HTMLAudioElement {
   let audio = players.get(src);
@@ -82,9 +145,24 @@ function playBeepFallback(kind: string) {
   }
 }
 
-export function playNotificationSound(kind: string) {
+export function playHelpdeskInboundSound(
+  ticketId: number | string | null | undefined,
+  isPending: boolean,
+  eventKey?: string | null,
+) {
+  if (!markEventPlayed(eventKey ? `hd:${eventKey}` : null)) return;
+  if (isPending && takeNewHelpdeskConversation(ticketId)) {
+    playNotificationSound("helpdesk_pending");
+    return;
+  }
+  rememberHelpdeskConversation(ticketId);
+  playNotificationSound("message");
+}
+
+export function playNotificationSound(kind: string, eventKey?: string | null) {
   const src = NOTIFICATION_SOUNDS[kind as NotificationSoundKind];
   if (!src || typeof window === "undefined") return;
+  if (!markEventPlayed(eventKey)) return;
   bindUnlockGestures();
   const now = Date.now();
   if ((lastPlayedAt.get(kind) || 0) > now - 1400) return;

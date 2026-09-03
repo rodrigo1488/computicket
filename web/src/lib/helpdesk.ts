@@ -2,6 +2,19 @@ import { flask } from "@/lib/api";
 
 export type HelpdeskTab = "open" | "pending" | "closed";
 
+export const HELPDESK_DISMISS_EVENT = "computicket:helpdesk-dismiss";
+
+export function isClosedHelpdeskStatus(status?: string | null) {
+  const value = String(status || "").toLowerCase();
+  return value === "closed" || value === "rating";
+}
+
+export function dismissHelpdeskNotificationToasts(ticketId: number | string | null | undefined) {
+  const id = Number(ticketId);
+  if (!Number.isFinite(id) || id <= 0 || typeof window === "undefined") return;
+  window.dispatchEvent(new CustomEvent(HELPDESK_DISMISS_EVENT, { detail: { ticketId: id } }));
+}
+
 export type HelpdeskContact = {
   id?: number;
   name?: string;

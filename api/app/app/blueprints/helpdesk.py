@@ -1246,6 +1246,9 @@ def assume_conversation(ticket_id: int):
             f"/tickets/{ticket_id}",
             json={"status": "open", "userId": session.engine_user_id},
         )
+        from app.notification_service import dismiss_helpdesk_notifications
+
+        dismiss_helpdesk_notifications(ticket_id, types=("helpdesk_pending",))
         return jsonify(_with_link(ticket.get("ticket") if isinstance(ticket, dict) and "ticket" in ticket else ticket))
     except EngineError as exc:
         return _fail(exc)
@@ -1414,6 +1417,9 @@ def resolve_conversation(ticket_id: int):
             f"/tickets/{ticket_id}",
             json={"status": "closed", "skipComplation": True},
         )
+        from app.notification_service import dismiss_helpdesk_notifications
+
+        dismiss_helpdesk_notifications(ticket_id)
         result = ticket.get("ticket") if isinstance(ticket, dict) and "ticket" in ticket else ticket
         result = _with_link(result)
         result = dict(result or {})

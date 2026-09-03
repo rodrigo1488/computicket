@@ -5,7 +5,11 @@ from flask_login import current_user, login_required
 
 from app import db
 from app.models import AppNotification, PushSubscription
-from app.notification_service import create_notifications, ensure_vapid_keys
+from app.notification_service import (
+	create_notifications,
+	ensure_vapid_keys,
+	has_helpdesk_pending_notification,
+)
 from app.timezone_utils import get_brasilia_now
 
 
@@ -156,11 +160,9 @@ def engine_inbound_message():
 	body = (data.get("body") or data.get("message") or "Nova mensagem")[:1000]
 	url = f"/helpdesk?c={ticket_id}" if ticket_id else "/helpdesk"
 	ticket_status = str(data.get("ticketStatus") or data.get("status") or "").strip().lower()
+	if ticket_status in ("closed", "rating"):
+		return jsonify({"ok": True, "skipped": "closed"}), 200
 	waiting = ticket_status == "pending"
-	notification_type = "helpdesk_pending" if waiting else "message"
-	title = (
-		f"Nova conversa de {contact_name}" if waiting else f"Nova mensagem de {contact_name}"
-	)[:200]
 
 	recipients: list[int] = []
 	try:
@@ -194,17 +196,41 @@ def engine_inbound_message():
 	if not recipients:
 		return jsonify({"ok": True, "created": 0}), 200
 
-	items = create_notifications(
-		recipients,
-		notification_type=notification_type,
-		title=title,
-		message=body,
-		url=url[:500],
-		entity_type="message",
-		entity_id=external_id,
-		send_push=True,
-		force_push=True,
-	)
+	pending_for = [
+		user_id
+		for user_id in recipients
+		if waiting and not has_helpdesk_pending_notification(user_id, url)
+	]
+	message_for = [user_id for user_id in recipients if user_id not in pending_for]
+	items = []
+	if pending_for:
+		items.extend(
+			create_notifications(
+				pending_for,
+				notification_type="helpdesk_pending",
+				title=f"Nova conversa de {contact_name}"[:200],
+				message=body,
+				url=url[:500],
+				entity_type="message",
+				entity_id=external_id,
+				send_push=True,
+				force_push=True,
+			)
+		)
+	if message_for:
+		items.extend(
+			create_notifications(
+				message_for,
+				notification_type="message",
+				title=f"Nova mensagem de {contact_name}"[:200],
+				message=body,
+				url=url[:500],
+				entity_type="message",
+				entity_id=external_id,
+				send_push=True,
+				force_push=True,
+			)
+		)
 	return jsonify({"ok": True, "created": len(items)}), 201
 
 

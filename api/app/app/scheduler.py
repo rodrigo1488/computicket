@@ -29,7 +29,7 @@ def verificar_novas_mensagens_helpdesk():
             from app.blueprints.helpdesk import _normalize_messages
             from app.engine_client import admin_request
             from app.models import AppNotification, HelpDeskAgentMap, User
-            from app.notification_service import create_notifications
+            from app.notification_service import create_notifications, has_helpdesk_pending_notification
 
             active = []
             for status in ("pending", "open"):
@@ -109,21 +109,37 @@ def verificar_novas_mensagens_helpdesk():
                 contact_name = contact.get("name") or contact.get("number") or "Novo contato"
                 body = incoming.get("body") or ticket.get("lastMessage") or "Nova mensagem"
                 waiting = str(ticket.get("status") or status or "").lower() == "pending"
-                create_notifications(
-                    recipients,
-                    notification_type="helpdesk_pending" if waiting else "message",
-                    title=(
-                        f"Nova conversa de {contact_name}"
-                        if waiting
-                        else f"Nova mensagem de {contact_name}"
-                    ),
-                    message=str(body)[:1000],
-                    url=f"/helpdesk?c={ticket_id}",
-                    entity_type="message",
-                    entity_id=message_id,
-                    send_push=True,
-                    force_push=True,
-                )
+                ticket_url = f"/helpdesk?c={ticket_id}"
+                pending_for = [
+                    user_id
+                    for user_id in recipients
+                    if waiting and not has_helpdesk_pending_notification(user_id, ticket_url)
+                ]
+                message_for = [user_id for user_id in recipients if user_id not in pending_for]
+                if pending_for:
+                    create_notifications(
+                        pending_for,
+                        notification_type="helpdesk_pending",
+                        title=f"Nova conversa de {contact_name}",
+                        message=str(body)[:1000],
+                        url=ticket_url,
+                        entity_type="message",
+                        entity_id=message_id,
+                        send_push=True,
+                        force_push=True,
+                    )
+                if message_for:
+                    create_notifications(
+                        message_for,
+                        notification_type="message",
+                        title=f"Nova mensagem de {contact_name}",
+                        message=str(body)[:1000],
+                        url=ticket_url,
+                        entity_type="message",
+                        entity_id=message_id,
+                        send_push=True,
+                        force_push=True,
+                    )
 
             _helpdesk_message_versions.clear()
             _helpdesk_message_versions.update(current_versions)
