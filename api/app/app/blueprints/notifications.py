@@ -174,8 +174,10 @@ def engine_inbound_message():
 	except (TypeError, ValueError):
 		mapped = None
 	if mapped:
+		# Conversa atribuída: só o responsável.
 		recipients = [mapped.computicket_user_id]
-	else:
+	elif waiting:
+		# Sem responsável (fila pending): todos os agentes veem a nova conversa.
 		recipients = [
 			user.id
 			for user in User.query.filter(
@@ -183,6 +185,9 @@ def engine_inbound_message():
 				User.role.in_(["admin", "administrador", "tecnico"]),
 			).all()
 		]
+	else:
+		# Mensagem em ticket aberto sem mapa/responsável — não espalhar para todos.
+		return jsonify({"ok": True, "created": 0, "skipped": "no_assignee"}), 200
 
 	recipients = [
 		user_id

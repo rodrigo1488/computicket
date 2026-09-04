@@ -78,6 +78,7 @@ def verificar_novas_mensagens_helpdesk():
                 engine_user_id = ticket.get("userId")
                 if engine_user_id is None and isinstance(ticket.get("user"), dict):
                     engine_user_id = ticket["user"].get("id")
+                waiting = str(ticket.get("status") or status or "").lower() == "pending"
                 mapping = (
                     HelpDeskAgentMap.query.filter_by(engine_user_id=int(engine_user_id)).first()
                     if engine_user_id
@@ -85,7 +86,7 @@ def verificar_novas_mensagens_helpdesk():
                 )
                 if mapping:
                     recipients = [mapping.computicket_user_id]
-                else:
+                elif waiting:
                     recipients = [
                         user.id
                         for user in User.query.filter(
@@ -93,6 +94,8 @@ def verificar_novas_mensagens_helpdesk():
                             User.role.in_(["admin", "administrador", "tecnico"]),
                         ).all()
                     ]
+                else:
+                    continue
                 recipients = [
                     user_id
                     for user_id in recipients
@@ -108,7 +111,6 @@ def verificar_novas_mensagens_helpdesk():
                 contact = ticket.get("contact") if isinstance(ticket.get("contact"), dict) else {}
                 contact_name = contact.get("name") or contact.get("number") or "Novo contato"
                 body = incoming.get("body") or ticket.get("lastMessage") or "Nova mensagem"
-                waiting = str(ticket.get("status") or status or "").lower() == "pending"
                 ticket_url = f"/helpdesk?c={ticket_id}"
                 pending_for = [
                     user_id

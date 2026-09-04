@@ -310,7 +310,13 @@ export function NotificationCenter() {
     };
     const onAppMessage = (payload: {
       action?: string;
-      ticket?: { id?: number | string; status?: string; contact?: { name?: string } } | null;
+      ticket?: {
+        id?: number | string;
+        status?: string;
+        userId?: number | string | null;
+        user?: { id?: number | string } | null;
+        contact?: { name?: string };
+      } | null;
       message?: { id?: string; body?: string; fromMe?: boolean; isInternal?: boolean; isPrivate?: boolean; mediaType?: string } | null;
       contact?: { name?: string } | null;
     }) => {
@@ -322,7 +328,15 @@ export function NotificationCenter() {
         dismissHelpdeskNotificationToasts(ticketId);
         return;
       }
-      const waiting = String(payload.ticket?.status || "").toLowerCase() === "pending";
+      const status = String(payload.ticket?.status || "").toLowerCase();
+      const waiting = status === "pending";
+      const assigneeId = Number(payload.ticket?.userId ?? payload.ticket?.user?.id);
+      const myEngineId = Number(engine.engineUserId);
+      // Mensagem em conversa atribuída: só o responsável. Pending (sem dono) segue para todos.
+      if (!waiting) {
+        if (!Number.isFinite(assigneeId) || assigneeId <= 0) return;
+        if (!Number.isFinite(myEngineId) || assigneeId !== myEngineId) return;
+      }
       const isNewConversation = waiting && !isRememberedHelpdeskConversation(ticketId);
       const name = payload.ticket?.contact?.name || payload.contact?.name || "Contato";
       showMessageRef.current({
