@@ -40,6 +40,7 @@ import { TicketCreateDialog } from "@/components/tickets/TicketCreateDialog";
 import { TimeEntryDialog } from "@/components/tickets/TimeEntryDialog";
 import { ComposerContextBanner, MessageActions } from "@/components/chat/MessageActions";
 import { WhatsAppFormattedText } from "@/components/helpdesk/WhatsAppFormattedText";
+import { ContactShareCard } from "@/components/helpdesk/ContactShareCard";
 import { MediaViewer, type MediaViewerItem } from "@/components/media/MediaViewer";
 import { ComposerAttachZone, ComposerFilePreview } from "@/components/ui/ComposerAttachZone";
 import { FloatingMenu } from "@/components/ui/FloatingMenu";
@@ -84,6 +85,12 @@ import {
   sortMessagesChronologically,
 } from "@/lib/helpdeskMessages";
 import { rememberHelpdeskConversation } from "@/lib/notification-sounds";
+import {
+  isContactShareMessage,
+  parseVCard,
+  vcardSnippet,
+  type ParsedVCard,
+} from "@/lib/vcard";
 
 const TAB_META: { key: HelpdeskTab; label: string }[] = [
   { key: "pending", label: "Aguardando" },
@@ -151,7 +158,50 @@ function ticketDefaultsFromConversation(
 
 function snippet(text?: string | null) {
   if (!text) return "";
+  const contact = vcardSnippet(text);
+  if (contact) return contact;
   return text.replace(/\s+/g, " ").trim().slice(0, 90);
+}
+
+function phoneDigitsMatch(a?: string | null, b?: string | null) {
+  const left = String(a || "").replace(/\D/g, "");
+  const right = String(b || "").replace(/\D/g, "");
+  if (!left || !right) return false;
+  return left === right || left.endsWith(right) || right.endsWith(left);
+}
+
+function MessageBodyContent({
+  message,
+  onChat,
+  onAdd,
+}: {
+  message: HelpdeskMessage;
+  onChat?: (contact: ParsedVCard) => Promise<void> | void;
+  onAdd?: (contact: ParsedVCard) => Promise<void> | void;
+}) {
+  if (isContactShareMessage(message.mediaType, message.body)) {
+    const multiOnly = /^varios contatos$/i.test((message.body || "").trim());
+    const parsed = parseVCard(message.body);
+    if (parsed) {
+      return (
+        <ContactShareCard
+          contact={parsed}
+          multi={multiOnly}
+          onChat={onChat}
+          onAdd={onAdd}
+        />
+      );
+    }
+    if (multiOnly) {
+      return <p className="text-xs text-muted">Vários contatos compartilhados</p>;
+    }
+  }
+  if (!message.body) return null;
+  return (
+    <p className="whitespace-pre-wrap break-words">
+      <WhatsAppFormattedText text={message.body} />
+    </p>
+  );
 }
 
 function withAgentSignature(body: string, name?: string | null, enabled?: boolean, isInternal?: boolean) {
@@ -1089,6 +1139,43 @@ export function HelpdeskWorkspace() {
       patchConversationInLists(qc, c.id, (row) => ({ ...row, unreadMessages: 0 }));
     }
   };
+
+  async function addSharedContact(contact: ParsedVCard) {
+    const phone = contact.phones[0];
+    if (!phone?.digits) throw new Error("Contato sem telefone");
+    await helpdesk.createContact({
+      name: contact.name || phone.number,
+      number: phone.digits,
+    });
+  }
+
+  async function openSharedContactChat(contact: ParsedVCard) {
+    const phone = contact.phones[0];
+    if (!phone?.digits) throw new Error("Contato sem telefone");
+    const listed = await helpdesk.contacts({ search: phone.digits });
+    let found =
+      (listed.contacts || []).find((row) => phoneDigitsMatch(row.number, phone.digits)) || null;
+    if (!found?.id) {
+      found = await helpdesk.createContact({
+        name: contact.name || phone.number,
+        number: phone.digits,
+      });
+    }
+    if (!found?.id) throw new Error("Não foi possível resolver o contato");
+    const started = await helpdesk.startConversation({
+      contactId: found.id,
+      ...(conversation.data?.queueId ? { queueId: conversation.data.queueId } : {}),
+    });
+    setTab("open");
+    setMineOnly(false);
+    setActiveId(started.id);
+    setError(null);
+    setContactOpen(false);
+    qc.invalidateQueries({ queryKey: ["hd-list"] });
+    qc.invalidateQueries({ queryKey: ["hd-overview"] });
+    qc.invalidateQueries({ queryKey: ["hd-list-counts"] });
+    qc.setQueryData(["hd-conversation", started.id], started);
+  }
 
   const togglePhoneGroup = (key: string) => {
     setExpandedPhoneKeys((prev) => {
@@ -2215,7 +2302,8 @@ export function HelpdeskWorkspace() {
                         <div key={`${m.id}-${idx}`} className={cn("mb-2 flex", system ? "justify-center" : mine ? "justify-end" : "justify-start")}>
                           <div
                             className={cn(
-                              "group/msg relative max-w-[75%] rounded-lg px-3 py-1.5 text-sm shadow-sm",
+                              "group/msg relative max-w-[75%] rounded-lg text-sm shadow-sm",
+                              isContactShareMessage(m.mediaType, m.body) ? "px-1.5 py-1.5" : "px-3 py-1.5",
                               audio && "w-[min(18rem,75%)]",
                               system
                                 ? "bg-note text-center text-xs text-note-fg"
@@ -2228,7 +2316,11 @@ export function HelpdeskWorkspace() {
                               <MessageActions
                                 align={mine || system ? "start" : "end"}
                                 canReply
-                                canEdit={!!m.fromMe && !isMediaMessage(m)}
+                                canEdit={
+                                  !!m.fromMe &&
+                                  !isMediaMessage(m) &&
+                                  !isContactShareMessage(m.mediaType, m.body)
+                                }
                                 canDelete={!!m.fromMe}
                                 onReply={() => startReply(m)}
                                 onEdit={() => startEdit(m)}
@@ -2244,6 +2336,8 @@ export function HelpdeskWorkspace() {
                                   <p className="mb-1 border-l-2 border-brand/50 pl-2 text-[11px] text-muted">
                                     {m.quotedMsg.isDeleted ? (
                                       "Mensagem apagada"
+                                    ) : isContactShareMessage(m.quotedMsg.mediaType, m.quotedMsg.body) ? (
+                                      snippet(m.quotedMsg.body) || "Contato compartilhado"
                                     ) : (
                                       <WhatsAppFormattedText text={snippet(m.quotedMsg.body)} />
                                     )}
@@ -2264,9 +2358,23 @@ export function HelpdeskWorkspace() {
                                   <AudioTranscript message={m} conversationId={current.id} />
                                 ) : null}
                                 {m.body && !(audio && isPlaceholderAudioBody(m.body)) ? (
-                                  <p className="whitespace-pre-wrap break-words">
-                                    <WhatsAppFormattedText text={m.body} />
-                                  </p>
+                                  isContactShareMessage(m.mediaType, m.body) ? (
+                                    <MessageBodyContent
+                                      message={m}
+                                      onChat={openSharedContactChat}
+                                      onAdd={addSharedContact}
+                                    />
+                                  ) : (
+                                    <p className="whitespace-pre-wrap break-words">
+                                      <WhatsAppFormattedText text={m.body} />
+                                    </p>
+                                  )
+                                ) : isContactShareMessage(m.mediaType, m.body) ? (
+                                  <MessageBodyContent
+                                    message={m}
+                                    onChat={openSharedContactChat}
+                                    onAdd={addSharedContact}
+                                  />
                                 ) : null}
                               </>
                             )}
@@ -3392,9 +3500,15 @@ function HistoryMessagesModal({
                 ) : null}
                 {audio ? <AudioTranscript message={m} conversationId={conversationId} /> : null}
                 {m.body && !(audio && isPlaceholderAudioBody(m.body)) ? (
-                  <p className="whitespace-pre-wrap break-words">
-                    <WhatsAppFormattedText text={m.body} />
-                  </p>
+                  isContactShareMessage(m.mediaType, m.body) ? (
+                    <MessageBodyContent message={m} />
+                  ) : (
+                    <p className="whitespace-pre-wrap break-words">
+                      <WhatsAppFormattedText text={m.body} />
+                    </p>
+                  )
+                ) : isContactShareMessage(m.mediaType, m.body) ? (
+                  <MessageBodyContent message={m} />
                 ) : null}
                 <p className="mt-0.5 text-right text-[10px] text-muted">
                   {formatDay(m.createdAt)} {formatClock(m.createdAt)}
