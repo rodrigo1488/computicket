@@ -1,13 +1,14 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Ban, Hand, Play, Plus, Square } from "lucide-react";
+import { Ban, Hand, Play, Plus, RotateCcw, Square } from "lucide-react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
 import { PageTitle } from "@/components/layout/AppShell";
 import { TicketCreateDialog } from "@/components/tickets/TicketCreateDialog";
 import { CancelTicketDialog } from "@/components/tickets/CancelTicketDialog";
+import { ReopenTicketDialog } from "@/components/tickets/ReopenTicketDialog";
 import { DataTable } from "@/components/ui/DataTable";
 import { Pagination } from "@/components/ui/Pagination";
 import { IconAction, RowActions, ViewAction } from "@/components/ui/RowActions";
@@ -60,6 +61,8 @@ function TicketsPageInner() {
   const [createOpen, setCreateOpen] = useState(false);
   const [cancelTarget, setCancelTarget] = useState<TicketRow | null>(null);
   const [cancelReason, setCancelReason] = useState("");
+  const [reopenTarget, setReopenTarget] = useState<TicketRow | null>(null);
+  const [reopenReason, setReopenReason] = useState("");
   const { colQuery, colFilters, onFiltersChange } = useColFilters();
 
   useEffect(() => setPage(1), [status, assigned, q, dateFrom, dateTo, dateBy, colFilters]);
@@ -120,7 +123,20 @@ function TicketsPageInner() {
     },
     onError: onErr,
   });
-  const busy = start.isPending || stop.isPending || assume.isPending || cancelTicket.isPending;
+  const reopenTicket = useMutation({
+    mutationFn: ({ id, reason }: { id: number; reason: string }) =>
+      flask.post<{ message?: string }>(`/tickets/api/${id}/reopen`, { reason }),
+    onSuccess: (result) => {
+      setReopenTarget(null);
+      setReopenReason("");
+      setErr("");
+      invalidate();
+      if (result.message) window.alert(result.message);
+    },
+    onError: onErr,
+  });
+  const busy =
+    start.isPending || stop.isPending || assume.isPending || cancelTicket.isPending || reopenTicket.isPending;
 
   return (
     <div>
@@ -283,6 +299,17 @@ function TicketsPageInner() {
                   onClick={() => assume.mutate(t.id)}
                 />
               ) : null}
+              {isAdmin && t.status === "fechado" ? (
+                <IconAction
+                  label="Reabrir"
+                  icon={RotateCcw}
+                  disabled={busy}
+                  onClick={() => {
+                    setReopenReason("");
+                    setReopenTarget(t);
+                  }}
+                />
+              ) : null}
               {(isAdmin && t.status === "fechado") ||
               (!closed && (isAdmin || mine || t.opened_by_id === uid)) ? (
                 <IconAction
@@ -322,6 +349,17 @@ function TicketsPageInner() {
         onConfirm={() => {
           if (!cancelTarget) return;
           cancelTicket.mutate({ id: cancelTarget.id, reason: cancelReason.trim() });
+        }}
+      />
+      <ReopenTicketDialog
+        ticket={reopenTarget}
+        reason={reopenReason}
+        pending={reopenTicket.isPending}
+        onReason={setReopenReason}
+        onClose={() => setReopenTarget(null)}
+        onConfirm={() => {
+          if (!reopenTarget) return;
+          reopenTicket.mutate({ id: reopenTarget.id, reason: reopenReason.trim() });
         }}
       />
     </div>

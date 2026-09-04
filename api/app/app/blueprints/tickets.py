@@ -1343,61 +1343,52 @@ def cancel_ticket(ticket_id: int):
 def reopen_ticket(ticket_id: int):
 	"""Reabre um ticket fechado (apenas se fechado há menos de 7 dias)"""
 	ticket = Ticket.query.get_or_404(ticket_id)
-	
-	# Verificar se o ticket está fechado
+	reopen_reason = (request.form.get("reopen_reason") or "").strip()
+	ok, message, _status = _reopen_closed_ticket(ticket, reopen_reason)
+	flash(message, "success" if ok else "error")
+	return redirect(url_for("tickets.view_ticket", ticket_id=ticket_id))
+
+
+def _reopen_closed_ticket(ticket: Ticket, reopen_reason: str = "") -> tuple[bool, str, int]:
+	"""Reabre ticket fechado há menos de 7 dias (somente admin)."""
 	if ticket.status != "fechado":
-		flash("Apenas tickets fechados podem ser reabertos.", "error")
-		return redirect(url_for("tickets.view_ticket", ticket_id=ticket_id))
-	
-	# Verificar permissão de admin
-	if not current_user.has_role('admin'):
-		flash("Apenas administradores podem reabrir tickets.", "error")
-		return redirect(url_for("tickets.view_ticket", ticket_id=ticket_id))
-	
-	# Verificar se o ticket foi fechado há menos de 7 dias
+		return False, "Apenas tickets fechados podem ser reabertos.", 400
+	if not current_user.has_role("admin"):
+		return False, "Apenas administradores podem reabrir tickets.", 403
 	if not ticket.closed_at:
-		flash("Não foi possível determinar quando o ticket foi fechado.", "error")
-		return redirect(url_for("tickets.view_ticket", ticket_id=ticket_id))
-	
-	# Calcular diferença de tempo
+		return False, "Não foi possível determinar quando o ticket foi fechado.", 400
+
 	now = get_brasilia_now()
 	closed_at_brasilia = utc_to_brasilia(ticket.closed_at)
 	time_diff = now - closed_at_brasilia
-	
-	# Verificar se passou de 7 dias
 	if time_diff.days >= 7:
-		flash(f"Ticket não pode ser reaberto. Foi fechado há {time_diff.days} dias. Máximo permitido: 7 dias.", "error")
-		return redirect(url_for("tickets.view_ticket", ticket_id=ticket_id))
-	
-	# Obter motivo da reabertura
-	reopen_reason = request.form.get("reopen_reason", "").strip()
-	
-	# Reabrir o ticket
+		return (
+			False,
+			f"Ticket não pode ser reaberto. Foi fechado há {time_diff.days} dias. Máximo permitido: 7 dias.",
+			400,
+		)
+
+	reason = (reopen_reason or "").strip()
 	ticket.status = "aberto"
-	ticket.closed_at = None  # Limpar data de fechamento
-	ticket.in_progress_started_at = None  # Limpar início de andamento
-	
-	# Adicionar comentário sobre a reabertura
+	ticket.closed_at = None
+	ticket.in_progress_started_at = None
+
 	original_description = ticket.description or ""
-	reopen_comment = f"TICKET REABERTO - Motivo: {reopen_reason}" if reopen_reason else "TICKET REABERTO"
-	
+	reopen_comment = f"TICKET REABERTO - Motivo: {reason}" if reason else "TICKET REABERTO"
 	if original_description:
 		ticket.description = f"{original_description}\n\n{reopen_comment}"
 	else:
 		ticket.description = reopen_comment
-	
+
 	db.session.commit()
-	
-	# Mensagem de sucesso
+
 	days_ago = time_diff.days
 	hours_ago = time_diff.seconds // 3600
 	if days_ago > 0:
 		time_str = f"{days_ago} dia{'s' if days_ago > 1 else ''}"
 	else:
 		time_str = f"{hours_ago} hora{'s' if hours_ago > 1 else ''}"
-	
-	flash(f"Ticket reaberto com sucesso! Foi fechado há {time_str}.", "success")
-	return redirect(url_for("tickets.view_ticket", ticket_id=ticket_id))
+	return True, f"Ticket reaberto com sucesso! Foi fechado há {time_str}.", 200
 
 
 @bp.route("/<int:ticket_id>/observations")
@@ -2947,6 +2938,20 @@ def api_close_ticket(ticket_id: int):
 	db.session.commit()
 	notify_helpdesk_ticket(ticket.id, f"Ticket #{ticket.id} encerrado", internal=True)
 	return jsonify(_serialize_ticket_detail(ticket))
+
+
+@bp.route("/api/<int:ticket_id>/reopen", methods=["POST"])
+@login_required
+def api_reopen_ticket(ticket_id: int):
+	ticket = Ticket.query.get_or_404(ticket_id)
+	data = request.get_json(silent=True) or {}
+	reason = (data.get("reason") or data.get("reopen_reason") or "").strip()
+	ok, message, status = _reopen_closed_ticket(ticket, reason)
+	if not ok:
+		return jsonify({"error": message}), status
+	payload = _serialize_ticket_detail(ticket)
+	payload["message"] = message
+	return jsonify(payload)
 
 
 def _delete_ticket_ps_from_unico(ps_number: str) -> None:
