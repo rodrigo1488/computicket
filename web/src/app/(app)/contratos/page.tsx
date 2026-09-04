@@ -22,7 +22,6 @@ type Contract = {
   clients_count?: number;
   status?: string;
 };
-type ContractClient = { id: number; name: string; document?: string; phone?: string };
 
 export default function ContratosPage() {
   const qc = useQueryClient();
@@ -30,7 +29,6 @@ export default function ContratosPage() {
   const isAdmin = ["admin", "administrador", "administrator"].includes((user?.role || "").toLowerCase());
   const [q, setQ] = useState("");
   const [page, setPage] = useState(1);
-  const [clientsOf, setClientsOf] = useState<string | null>(null);
   const [edit, setEdit] = useState<string | null>(null);
   const [newName, setNewName] = useState("");
   const [formError, setFormError] = useState("");
@@ -47,15 +45,6 @@ export default function ContratosPage() {
     placeholderData: (previousData) => previousData,
   });
   const items = data?.items || [];
-
-  const clientsQuery = useQuery({
-    queryKey: ["contract-clients", clientsOf],
-    queryFn: () =>
-      flask.get<{ clients?: ContractClient[]; error?: string }>(
-        `/contratos/${encodeURIComponent(clientsOf || "")}/clients`,
-      ),
-    enabled: !!clientsOf,
-  });
 
   const save = useMutation({
     mutationFn: () => {
@@ -97,6 +86,7 @@ export default function ContratosPage() {
             columns={["Contrato", "Clientes", "Serviços", "Status", "Ações"]}
             rows={items.map((c) => {
               const name = String(c.name || c.contract_name || c.tipo || "—");
+              const href = `/contratos/${encodeURIComponent(name)}`;
               const services = c.services || [];
               const servicesLabel =
                 c.services_count != null
@@ -110,7 +100,7 @@ export default function ContratosPage() {
                 servicesLabel,
                 c.status || "Ativo",
                 <RowActions key={name}>
-                  <ViewAction onClick={() => setClientsOf(name)} />
+                  <ViewAction href={href} />
                   {isAdmin ? (
                     <EditAction
                       onClick={() => {
@@ -128,21 +118,6 @@ export default function ContratosPage() {
           <Pagination page={data?.page || page} perPage={data?.per_page || 25} total={data?.total || 0} onPage={setPage} />
         </>
       )}
-
-      <Modal open={!!clientsOf} onClose={() => setClientsOf(null)} title={`Clientes · ${clientsOf || ""}`} wide>
-        {clientsQuery.isLoading ? <p className="text-sm text-muted">Carregando…</p> : null}
-        <ul className="space-y-2">
-          {(clientsQuery.data?.clients || []).map((cl) => (
-            <li key={cl.id} className="rounded-xl border border-line px-4 py-3 text-sm">
-              <p className="font-medium text-ink">{cl.name}</p>
-              <p className="text-xs text-muted">{[cl.document, cl.phone].filter(Boolean).join(" · ") || "—"}</p>
-            </li>
-          ))}
-        </ul>
-        {!clientsQuery.isLoading && !(clientsQuery.data?.clients || []).length ? (
-          <p className="text-sm text-muted">Nenhum cliente neste contrato</p>
-        ) : null}
-      </Modal>
 
       <Modal open={!!edit} onClose={() => setEdit(null)} title="Editar contrato">
         <form

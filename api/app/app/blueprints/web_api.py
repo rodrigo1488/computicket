@@ -30,10 +30,15 @@ from ..models import (
 	UserAvailability,
 )
 from ..external_pg import (
+	add_client_to_contract,
 	create_external_client,
 	fetch_contract_types,
 	fetch_external_clients,
+	get_clients_by_contract,
 	get_contracts_with_services,
+	get_services_for_contract,
+	remove_client_from_contract,
+	search_clients_not_in_contract,
 	update_contract_type,
 	update_external_client,
 )
@@ -88,6 +93,69 @@ def _require_admin():
 	if not current_user.has_role("admin"):
 		return jsonify({"error": "Apenas administradores podem realizar esta ação."}), 403
 	return None
+
+
+def _parse_contract_date(value):
+	value = (value or "").strip()
+	if not value:
+		return None
+	try:
+		return datetime.strptime(value, "%Y-%m-%d").date()
+	except ValueError:
+		return None
+
+
+def _get_or_create_client_contract(contract_name: str, client_id: int, client_name: str | None = None) -> ClientContract:
+	record = ClientContract.query.filter_by(
+		contract_name=contract_name, external_client_id=client_id
+	).first()
+	if not record:
+		record = ClientContract(
+			contract_name=contract_name,
+			external_client_id=client_id,
+			external_client_name=client_name,
+		)
+		db.session.add(record)
+	elif client_name and record.external_client_name != client_name:
+		record.external_client_name = client_name
+	return record
+
+
+def _contract_client_payload(client: dict, details: dict | None = None) -> dict:
+	payload = {
+		"id": client.get("id"),
+		"name": client.get("name") or "",
+		"document": client.get("document") or "",
+		"phone": client.get("phone") or "",
+		"email": client.get("email") or "",
+		"no_charge": bool(client.get("no_charge")),
+		"product": "",
+		"start_date": "",
+		"end_date": "",
+		"start_date_br": "",
+		"end_date_br": "",
+		"value": None,
+		"status": "ativo",
+		"display_status": "ativo",
+		"days_to_expire": None,
+		"notes": "",
+		"has_details": False,
+	}
+	if details:
+		payload.update({
+			"product": details.get("product") or "",
+			"start_date": details.get("start_date") or "",
+			"end_date": details.get("end_date") or "",
+			"start_date_br": details.get("start_date_br") or "",
+			"end_date_br": details.get("end_date_br") or "",
+			"value": details.get("value"),
+			"status": details.get("status") or "ativo",
+			"display_status": details.get("display_status") or "ativo",
+			"days_to_expire": details.get("days_to_expire"),
+			"notes": details.get("notes") or "",
+			"has_details": True,
+		})
+	return payload
 
 
 @bp.route("/dashboard")
@@ -477,6 +545,10 @@ def contracts():
 		name = c.get("name") or c.get("contract_name") or ""
 		services = c.get("services") or []
 		stats = stats_by_name.get(name) or {"total": 0, "vencidos": 0, "vencendo": 0, "cancelados": 0}
+		try:
+			clients_count = len(get_clients_by_contract(name))
+		except Exception:
+			clients_count = stats["total"]
 		if stats["vencidos"]:
 			status = f"{stats['vencidos']} vencido(s)"
 		elif stats["vencendo"]:
@@ -487,7 +559,7 @@ def contracts():
 			"name": name,
 			"services": services,
 			"services_count": len(services),
-			"clients_count": stats["total"],
+			"clients_count": clients_count,
 			"status": status,
 		})
 	return jsonify(_slice_page(mapped, default=25))
@@ -1440,9 +1512,55 @@ def client_item_patch(client_id: int):
 	})
 
 
-@bp.route("/contracts/<path:contract_name>", methods=["PATCH"])
+@bp.route("/contracts/<path:contract_name>", methods=["GET", "PATCH"])
 @login_required
-def contract_item_patch(contract_name: str):
+def contract_item(contract_name: str):
+	if request.method == "GET":
+		try:
+			clients_raw = get_clients_by_contract(contract_name)
+			services = get_services_for_contract(contract_name)
+		except Exception as e:
+			return jsonify({"error": str(e)}), 503
+		details_by_client = {
+			r.external_client_id: r.to_dict()
+			for r in ClientContract.query.filter_by(contract_name=contract_name).all()
+		}
+		clients = []
+		stats = {"total": 0, "vencidos": 0, "vencendo": 0, "cancelados": 0}
+		for client in clients_raw:
+			details = details_by_client.get(client.get("id"))
+			row = _contract_client_payload(client, details)
+			clients.append(row)
+			stats["total"] += 1
+			display = row.get("display_status")
+			if display == "vencido":
+				stats["vencidos"] += 1
+			elif display == "vencendo":
+				stats["vencendo"] += 1
+			elif display == "cancelado":
+				stats["cancelados"] += 1
+
+		def _sort_key(row):
+			priority = {"vencido": 0, "vencendo": 1, "cancelado": 2}.get(row.get("display_status"), 3)
+			return (priority, (row.get("name") or "").lower())
+
+		clients.sort(key=_sort_key)
+		if stats["vencidos"]:
+			status = f"{stats['vencidos']} vencido(s)"
+		elif stats["vencendo"]:
+			status = f"{stats['vencendo']} vencendo"
+		else:
+			status = "Ativo"
+		return jsonify({
+			"name": contract_name,
+			"status": status,
+			"stats": stats,
+			"services": services,
+			"services_count": len(services),
+			"clients": clients,
+			"clients_count": len(clients),
+		})
+
 	denied = _require_admin()
 	if denied:
 		return denied
@@ -1452,14 +1570,157 @@ def contract_item_patch(contract_name: str):
 	if not new_name:
 		return jsonify({"error": "Nome do contrato é obrigatório."}), 400
 	try:
+		from ..models import contract_service
 		affected = update_contract_type(contract_name, new_name, no_charge if no_charge is not None else None)
 		if new_name != contract_name:
 			ClientContract.query.filter_by(contract_name=contract_name).update({"contract_name": new_name})
+			db.session.execute(
+				contract_service.update().where(
+					contract_service.c.contract_name == contract_name
+				).values(contract_name=new_name)
+			)
 			db.session.commit()
 	except Exception as e:
 		db.session.rollback()
 		return jsonify({"error": str(e)}), 500
 	return jsonify({"ok": True, "name": new_name, "affected": affected})
+
+
+@bp.route("/contracts/<path:contract_name>/clients/search")
+@login_required
+def contract_clients_search(contract_name: str):
+	denied = _require_admin()
+	if denied:
+		return denied
+	q = (request.args.get("q") or "").strip()
+	try:
+		available = search_clients_not_in_contract(contract_name, q)
+	except Exception as e:
+		return jsonify({"error": str(e), "clients": []}), 503
+	return jsonify({
+		"clients": [
+			{
+				"id": c.get("id"),
+				"name": c.get("name") or "",
+				"document": c.get("document") or "",
+				"phone": c.get("phone") or "",
+				"email": c.get("email") or "",
+			}
+			for c in available
+		],
+		"total": len(available),
+	})
+
+
+@bp.route("/contracts/<path:contract_name>/clients", methods=["POST"])
+@login_required
+def contract_clients_add(contract_name: str):
+	denied = _require_admin()
+	if denied:
+		return denied
+	data = _json()
+	client_ids = data.get("client_ids") or []
+	if isinstance(client_ids, int):
+		client_ids = [client_ids]
+	client_ids = [int(cid) for cid in client_ids if str(cid).isdigit() or isinstance(cid, int)]
+	if not client_ids:
+		return jsonify({"error": "Selecione pelo menos um cliente."}), 400
+
+	start_date = _parse_contract_date(data.get("start_date"))
+	end_date = _parse_contract_date(data.get("end_date"))
+	if start_date and end_date and end_date < start_date:
+		return jsonify({"error": "A data de fim não pode ser anterior à data de início."}), 400
+
+	product = (data.get("product") or "").strip() or None
+	notes = (data.get("notes") or "").strip() or None
+	status = (data.get("status") or "ativo").strip().lower()
+	if status not in ("ativo", "cancelado"):
+		status = "ativo"
+	value = data.get("value")
+	try:
+		value = float(value) if value not in (None, "") else None
+	except (TypeError, ValueError):
+		return jsonify({"error": "Valor do contrato inválido."}), 400
+
+	added = 0
+	try:
+		name_by_id = {c.get("id"): c.get("name") for c in fetch_external_clients()}
+		for client_id in client_ids:
+			if add_client_to_contract(client_id, contract_name):
+				record = _get_or_create_client_contract(
+					contract_name, client_id, name_by_id.get(client_id)
+				)
+				if product is not None:
+					record.product = product
+				if start_date is not None:
+					record.start_date = start_date
+				if end_date is not None:
+					record.end_date = end_date
+				if value is not None:
+					record.value = value
+				record.status = status
+				if notes is not None:
+					record.notes = notes
+				added += 1
+		db.session.commit()
+	except Exception as e:
+		db.session.rollback()
+		return jsonify({"error": str(e)}), 500
+	if not added:
+		return jsonify({"error": "Nenhum cliente foi adicionado."}), 400
+	return jsonify({"ok": True, "added": added}), 201
+
+
+@bp.route("/contracts/<path:contract_name>/clients/<int:client_id>", methods=["PATCH", "DELETE"])
+@login_required
+def contract_client_item(contract_name: str, client_id: int):
+	denied = _require_admin()
+	if denied:
+		return denied
+
+	if request.method == "DELETE":
+		try:
+			success = remove_client_from_contract(client_id, contract_name)
+			if not success:
+				return jsonify({"error": "Erro ao remover cliente do contrato."}), 400
+			ClientContract.query.filter_by(
+				contract_name=contract_name, external_client_id=client_id
+			).delete()
+			db.session.commit()
+		except Exception as e:
+			db.session.rollback()
+			return jsonify({"error": str(e)}), 500
+		return jsonify({"ok": True})
+
+	data = _json()
+	client_name = (data.get("client_name") or data.get("name") or "").strip() or None
+	try:
+		record = _get_or_create_client_contract(contract_name, client_id, client_name)
+		if "product" in data:
+			record.product = (data.get("product") or "").strip() or None
+		if "start_date" in data:
+			record.start_date = _parse_contract_date(data.get("start_date"))
+		if "end_date" in data:
+			record.end_date = _parse_contract_date(data.get("end_date"))
+		if "value" in data:
+			value = data.get("value")
+			record.value = float(value) if value not in (None, "") else None
+		if "status" in data:
+			status = (data.get("status") or "ativo").strip().lower()
+			record.status = status if status in ("ativo", "cancelado") else "ativo"
+		if "notes" in data:
+			record.notes = (data.get("notes") or "").strip() or None
+		if record.start_date and record.end_date and record.end_date < record.start_date:
+			db.session.rollback()
+			return jsonify({"error": "A data de fim não pode ser anterior à data de início."}), 400
+		db.session.commit()
+	except (TypeError, ValueError):
+		db.session.rollback()
+		return jsonify({"error": "Valor do contrato inválido."}), 400
+	except Exception as e:
+		db.session.rollback()
+		return jsonify({"error": str(e)}), 500
+	return jsonify({"ok": True, "details": record.to_dict()})
 
 
 @bp.route("/vault/<int:item_id>/reveal")
