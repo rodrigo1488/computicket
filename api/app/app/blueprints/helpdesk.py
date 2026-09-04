@@ -1381,6 +1381,25 @@ def transfer_conversation(ticket_id: int):
         return _fail(exc)
 
 
+@helpdesk_bp.route("/api/conversations/<int:ticket_id>/reject", methods=["PUT", "POST"])
+@login_required
+def reject_conversation(ticket_id: int):
+	"""Encerra conversa pendente/aberta sem assumir atendimento e sem pesquisa."""
+	try:
+		ticket = agent_request(
+			"PUT",
+			f"/tickets/{ticket_id}",
+			json={"status": "closed", "userId": None, "skipComplation": True},
+		)
+		from app.notification_service import dismiss_helpdesk_notifications
+
+		dismiss_helpdesk_notifications(ticket_id)
+		result = ticket.get("ticket") if isinstance(ticket, dict) and "ticket" in ticket else ticket
+		return jsonify(_with_link(result))
+	except EngineError as exc:
+		return _fail(exc)
+
+
 @helpdesk_bp.route("/api/conversations/<int:ticket_id>/reopen", methods=["PUT", "POST"])
 @login_required
 def reopen_conversation(ticket_id: int):

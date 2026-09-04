@@ -440,6 +440,7 @@ export const helpdesk = {
     flask.delete(`/helpdesk/api/conversations/${id}/messages/${encodeURIComponent(messageId)}`),
   assume: (id: number) => flask.put<HelpdeskConversation>(`/helpdesk/api/conversations/${id}/assume`),
   pending: (id: number) => flask.put<HelpdeskConversation>(`/helpdesk/api/conversations/${id}/pending`),
+  reject: (id: number) => flask.put<HelpdeskConversation>(`/helpdesk/api/conversations/${id}/reject`),
   resolve: (id: number) => flask.put<HelpdeskConversation>(`/helpdesk/api/conversations/${id}/resolve`),
   reopen: (id: number) => flask.put<HelpdeskConversation>(`/helpdesk/api/conversations/${id}/reopen`),
   resendRating: (id: number) =>

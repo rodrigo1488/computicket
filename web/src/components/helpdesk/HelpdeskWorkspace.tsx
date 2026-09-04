@@ -3,6 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeftRight,
+  Ban,
   BookOpen,
   Bot,
   Check,
@@ -1345,6 +1346,17 @@ export function HelpdeskWorkspace() {
     },
     onError: (e: Error) => setError(e.message),
   });
+  const reject = useMutation({
+    mutationFn: (id: number) => helpdesk.reject(id),
+    onSuccess: (ticket) => {
+      dismissHelpdeskNotificationToasts(ticket?.id);
+      removeConversationFromLists(qc, ticket?.id || activeId || 0);
+      setActiveId(null);
+      setTab("closed");
+      invalidateInbox(ticket?.id);
+    },
+    onError: (e: Error) => setError(e.message),
+  });
   const transfer = useMutation({
     mutationFn: (payload: TransferPayload) => helpdesk.transfer(activeId as number, payload),
     onSuccess: (ticket) => {
@@ -2177,6 +2189,25 @@ export function HelpdeskWorkspace() {
                     >
                       <Hand className="h-3.5 w-3.5 shrink-0" />
                       Assumir
+                    </button>
+                  ) : null}
+                  {current.status === "pending" ? (
+                    <button
+                      type="button"
+                      disabled={reject.isPending}
+                      onClick={() => {
+                        if (
+                          confirm(
+                            "Rejeitar esta conversa? Ela será encerrada sem atendimento e sem pesquisa de satisfação.",
+                          )
+                        ) {
+                          reject.mutate(current.id);
+                        }
+                      }}
+                      className="inline-flex items-center gap-1 rounded-lg border border-open/40 px-3 py-1.5 text-xs font-medium text-open hover:bg-open-bg disabled:opacity-50"
+                    >
+                      <Ban className="h-3.5 w-3.5 shrink-0" />
+                      {reject.isPending ? "Rejeitando…" : "Rejeitar"}
                     </button>
                   ) : null}
                   {current.status !== "closed" ? (
