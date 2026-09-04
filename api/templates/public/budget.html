@@ -101,8 +101,12 @@
 		.item-type-service { background: #fef3c7; color: #b45309; }
 		.item-type-manual { background: #f1f5f9; color: #64748b; }
 		.item-total-header {
-			font-size: 16px; font-weight: 700; color: var(--primary);
+			font-size: 16px; font-weight: 700; color: var(--text);
 			white-space: nowrap; text-align: right;
+		}
+		.item-meta-value-total {
+			color: var(--text);
+			font-weight: 700;
 		}
 		.item-card-body { padding: 14px; }
 		.item-description {
@@ -159,9 +163,9 @@
 			padding: 6px 0; font-size: 14px; color: #475569;
 		}
 		.totals-row.total {
-			border-top: 2px solid var(--primary);
+			border-top: 2px solid var(--accent);
 			margin-top: 8px; padding-top: 12px;
-			font-size: 22px; font-weight: 800; color: var(--primary);
+			font-size: 22px; font-weight: 800; color: var(--text);
 		}
 
 		.terms {
@@ -313,7 +317,7 @@
 								</div>
 								<div class="item-meta-cell">
 									<div class="item-meta-label">Total</div>
-									<div class="item-meta-value" style="color:var(--primary)">{{ format_brl(item.total) }}</div>
+									<div class="item-meta-value item-meta-value-total">{{ format_brl(item.total) }}</div>
 								</div>
 							</div>
 							{% if item.observations %}
