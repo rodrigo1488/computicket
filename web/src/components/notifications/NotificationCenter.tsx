@@ -1,7 +1,7 @@
 "use client";
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bell, CalendarDays, MessageCircle, Ticket, X } from "lucide-react";
+import { Bell, CalendarDays, FileSignature, MessageCircle, Ticket, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { io } from "socket.io-client";
@@ -33,7 +33,7 @@ import {
 
 type AppNotification = {
   id: number;
-  type: "message" | "ticket" | "appointment" | "internal_chat" | "helpdesk_pending" | string;
+  type: "message" | "ticket" | "appointment" | "internal_chat" | "helpdesk_pending" | "contract_expiry" | string;
   title: string;
   message: string;
   url?: string | null;
@@ -77,6 +77,7 @@ async function registerPush(publicKey: string) {
 function iconFor(type: string) {
   if (type === "message" || type === "internal_chat" || type === "helpdesk_pending") return MessageCircle;
   if (type === "appointment") return CalendarDays;
+  if (type === "contract_expiry") return FileSignature;
   if (type === "ticket") return Ticket;
   return Bell;
 }
@@ -86,6 +87,7 @@ function notificationTone(type: string) {
   if (type === "helpdesk_pending") return "bg-open-bg text-warn-fg";
   if (type === "message") return "bg-progress-bg text-progress";
   if (type === "appointment") return "bg-open-bg text-warn-fg";
+  if (type === "contract_expiry") return "bg-open-bg text-warn-fg";
   if (type === "ticket") return "bg-open-bg text-open";
   return "bg-line text-navy";
 }
@@ -391,14 +393,37 @@ export function NotificationCenter() {
 
   useEffect(() => {
     if (!user) return;
-    const since = Date.now() - 1500;
     let stopped = false;
+    const deliverSystemToast = (item: AppNotification) => {
+      if (item.type !== "contract_expiry" && item.type !== "appointment" && item.type !== "ticket") return;
+      const key = notificationRecordDeliveryKey(item.id, item.entity_id) || `nid:${item.id}`;
+      deliverNotificationOnce(key, () => showRef.current(item));
+    };
+    const loadUnreadSystem = async () => {
+      try {
+        const data = await flask.get<{ notifications?: AppNotification[] }>("/api/notifications/list?limit=30");
+        if (stopped) return;
+        for (const item of data.notifications || []) {
+          if (item.read) continue;
+          deliverSystemToast(item);
+        }
+      } catch {
+        /* opcional */
+      }
+    };
+    void loadUnreadSystem();
+
+    const since = Date.now() - 1500;
     const poll = async () => {
       try {
         const data = await flask.get<{ notifications?: AppNotification[] }>("/api/notifications/list?limit=12");
         if (stopped) return;
         for (const item of data.notifications || []) {
           if (item.read) continue;
+          if (item.type === "contract_expiry") {
+            deliverSystemToast(item);
+            continue;
+          }
           const ts = item.created_at ? Date.parse(item.created_at) : 0;
           if (!ts || ts < since) continue;
           if (isHelpdeskNotification(item) || isInternalChatNotification(item)) {

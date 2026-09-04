@@ -18,6 +18,87 @@ import os
 
 _helpdesk_message_versions = {}
 _helpdesk_poll_initialized = False
+_CONTRACT_EXPIRY_DAYS = 30
+
+
+def verificar_contratos_vencendo():
+    """Cria notificações in-app (sem push) para contratos a vencer em até 30 dias."""
+    app = create_app()
+    with app.app_context():
+        try:
+            from app.models import ClientContract, User
+            from app.notification_service import create_notifications
+            from app.timezone_utils import get_brasilia_now
+
+            today = get_brasilia_now().date()
+            limit = today + timedelta(days=_CONTRACT_EXPIRY_DAYS)
+            records = (
+                ClientContract.query.filter(
+                    ClientContract.status == "ativo",
+                    ClientContract.end_date.isnot(None),
+                    ClientContract.end_date >= today,
+                    ClientContract.end_date <= limit,
+                )
+                .order_by(ClientContract.end_date.asc())
+                .all()
+            )
+            if not records:
+                return
+
+            recipients = [
+                user.id
+                for user in User.query.filter(
+                    User.status == "1",
+                    User.role.in_(["admin", "administrador", "tecnico"]),
+                ).all()
+            ]
+            if not recipients:
+                return
+
+            created_total = 0
+            for record in records:
+                days = (record.end_date - today).days
+                client = (record.external_client_name or f"Cliente #{record.external_client_id}").strip()
+                contract = (record.contract_name or "Contrato").strip()
+                end_br = record.end_date.strftime("%d/%m/%Y")
+                if days == 0:
+                    title = f"Contrato vence hoje · {client}"
+                    message = f"{contract} termina em {end_br}."
+                elif days == 1:
+                    title = f"Contrato vence amanhã · {client}"
+                    message = f"{contract} termina em {end_br}."
+                else:
+                    title = f"Contrato vence em {days} dias · {client}"
+                    message = f"{contract} termina em {end_br}."
+                if record.product:
+                    message = f"{message} Produto: {record.product}."
+
+                from urllib.parse import quote
+
+                items = create_notifications(
+                    recipients,
+                    notification_type="contract_expiry",
+                    title=title[:200],
+                    message=message[:1000],
+                    url=f"/contratos/{quote(str(record.contract_name or ''), safe='')}",
+                    entity_type="client_contract",
+                    entity_id=f"cc:{record.id}:{record.end_date.isoformat()}",
+                    send_push=False,
+                )
+                created_total += len(items)
+
+            if created_total:
+                app.logger.info(
+                    "Contratos próximos do vencimento: %s notificação(ões) criada(s) para %s contrato(s).",
+                    created_total,
+                    len(records),
+                )
+        except Exception as e:
+            app.logger.warning("Falha ao verificar contratos a vencer: %s", e)
+            try:
+                db.session.rollback()
+            except Exception:
+                pass
 
 
 def verificar_novas_mensagens_helpdesk():
@@ -522,9 +603,11 @@ def run_scheduler():
     # Agendar execução a cada minuto para verificar agendamentos
     schedule.every().minute.do(enviar_lembretes_automaticos)
     schedule.every(15).seconds.do(verificar_novas_mensagens_helpdesk)
+    schedule.every().hour.do(verificar_contratos_vencendo)
     verificar_novas_mensagens_helpdesk()
+    verificar_contratos_vencendo()
     
-    print("⏰ Scheduler configurado para executar a cada minuto (verifica agendamentos 30min antes)")
+    print("⏰ Scheduler: agendamentos (1min), helpdesk (15s), contratos a vencer (1h)")
     
     # Loop infinito para manter o scheduler rodando
     while True:
