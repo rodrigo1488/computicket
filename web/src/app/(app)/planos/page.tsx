@@ -9,7 +9,23 @@ import { Pagination } from "@/components/ui/Pagination";
 import { EditAction, RowActions, ViewAction } from "@/components/ui/RowActions";
 import { PrimaryButton, UnderlineField } from "@/components/ui/UnderlineField";
 import { flask } from "@/lib/api";
+import { formatBRL } from "@/lib/format";
 import { useColFilters } from "@/lib/use-col-filters";
+
+type PlanItem = {
+  id: number;
+  name: string;
+  description?: string;
+  monthly_hours?: number;
+  additional_hour_rate?: number;
+  monthly_value?: number;
+  setup_fee?: number;
+  priority_text?: string;
+  sla_text?: string;
+  support_types?: string[];
+  is_active: boolean;
+  is_featured?: boolean;
+};
 
 type Sys = {
   id: number;
@@ -19,7 +35,9 @@ type Sys = {
   company?: string;
   is_active: boolean;
   plans_count: number;
+  plans?: PlanItem[];
 };
+
 type Plans = {
   total_plans: number;
   active_client_plans: number;
@@ -35,7 +53,7 @@ export default function PlanosPage() {
   const [q, setQ] = useState("");
   const [page, setPage] = useState(1);
   const [edit, setEdit] = useState<Sys | null>(null);
-  const [view, setView] = useState<Sys | null>(null);
+  const [viewId, setViewId] = useState<number | null>(null);
   const [form, setForm] = useState({ name: "", description: "", version: "", company: "", is_active: true });
   const [formError, setFormError] = useState("");
   const { colQuery, colFilters, onFiltersChange } = useColFilters();
@@ -48,6 +66,13 @@ export default function PlanosPage() {
     placeholderData: (previousData) => previousData,
   });
   const systems = data?.items || data?.systems || [];
+
+  const viewQuery = useQuery({
+    queryKey: ["plans", "system", viewId],
+    queryFn: () => flask.get<Sys>(`/api/web/plans/systems/${viewId}`),
+    enabled: viewId != null,
+  });
+  const view = viewQuery.data;
 
   const save = useMutation({
     mutationFn: () => {
@@ -82,7 +107,7 @@ export default function PlanosPage() {
           s.description || "—",
           String(s.plans_count),
           <RowActions key={s.id}>
-            <ViewAction onClick={() => setView(s)} />
+            <ViewAction onClick={() => setViewId(s.id)} />
             <EditAction
               onClick={() => {
                 setForm({
@@ -101,13 +126,79 @@ export default function PlanosPage() {
       />
       <Pagination page={data?.page || page} perPage={data?.per_page || 25} total={data?.total || systems.length} onPage={setPage} />
 
-      <Modal open={!!view} onClose={() => setView(null)} title={view?.name || "Sistema"}>
-        {view ? (
-          <div className="space-y-2 text-sm">
-            <p>{view.description || "—"}</p>
-            <p className="text-muted">
-              {view.plans_count} plano(s) · {view.is_active ? "Ativo" : "Inativo"}
-            </p>
+      <Modal open={viewId != null} onClose={() => setViewId(null)} title={view?.name || "Sistema"} wide>
+        {viewQuery.isLoading ? (
+          <p className="text-sm text-muted">Carregando planos…</p>
+        ) : viewQuery.isError ? (
+          <p className="text-sm text-open">Não foi possível carregar os planos.</p>
+        ) : view ? (
+          <div className="space-y-4 text-sm">
+            <div className="space-y-1">
+              <p className="text-ink">{view.description || "—"}</p>
+              <p className="text-muted">
+                {(view.plans?.length ?? view.plans_count)} plano(s) · {view.is_active ? "Ativo" : "Inativo"}
+                {view.version ? ` · v${view.version}` : ""}
+                {view.company ? ` · ${view.company}` : ""}
+              </p>
+            </div>
+
+            {(view.plans || []).length === 0 ? (
+              <p className="rounded-xl border border-dashed border-line px-4 py-6 text-center text-muted">
+                Nenhum plano cadastrado neste sistema.
+              </p>
+            ) : (
+              <ul className="space-y-3">
+                {(view.plans || []).map((plan) => (
+                  <li key={plan.id} className="rounded-xl border border-line bg-canvas/60 p-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="font-semibold text-navy">{plan.name}</p>
+                        {plan.description ? (
+                          <p className="mt-1 text-xs leading-5 text-muted">{plan.description}</p>
+                        ) : null}
+                      </div>
+                      <div className="flex shrink-0 flex-col items-end gap-1">
+                        <span
+                          className={`rounded-md px-2 py-0.5 text-[11px] font-semibold ${
+                            plan.is_active ? "bg-progress-bg text-progress" : "bg-line text-muted"
+                          }`}
+                        >
+                          {plan.is_active ? "Ativo" : "Inativo"}
+                        </span>
+                        {plan.is_featured ? (
+                          <span className="text-[11px] font-medium text-muted">Destaque</span>
+                        ) : null}
+                      </div>
+                    </div>
+                    <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-muted sm:grid-cols-4">
+                      <div>
+                        <p className="uppercase tracking-wide">Mensal</p>
+                        <p className="mt-0.5 font-semibold text-ink">{formatBRL(plan.monthly_value)}</p>
+                      </div>
+                      <div>
+                        <p className="uppercase tracking-wide">Horas</p>
+                        <p className="mt-0.5 font-semibold text-ink">{plan.monthly_hours ?? 0}h</p>
+                      </div>
+                      <div>
+                        <p className="uppercase tracking-wide">Hora extra</p>
+                        <p className="mt-0.5 font-semibold text-ink">{formatBRL(plan.additional_hour_rate)}</p>
+                      </div>
+                      <div>
+                        <p className="uppercase tracking-wide">Prioridade</p>
+                        <p className="mt-0.5 font-semibold text-ink">{plan.priority_text || "—"}</p>
+                      </div>
+                    </div>
+                    {plan.sla_text || (plan.support_types && plan.support_types.length > 0) ? (
+                      <p className="mt-3 text-xs text-muted">
+                        {plan.sla_text || ""}
+                        {plan.sla_text && plan.support_types?.length ? " · " : ""}
+                        {plan.support_types?.join(", ") || ""}
+                      </p>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
         ) : null}
       </Modal>

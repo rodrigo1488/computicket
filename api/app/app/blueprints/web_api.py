@@ -1645,16 +1645,41 @@ def budget_item(budget_id: int):
 @login_required
 def plan_system_item(system_id: int):
 	s = System.query.get_or_404(system_id)
+
+	def _system_json(system: System, *, include_plans: bool = False):
+		payload = {
+			"id": system.id,
+			"name": system.name,
+			"description": system.description or "",
+			"version": system.version or "",
+			"company": system.company or "",
+			"is_active": bool(system.is_active),
+			"plans_count": len(system.plans or []),
+		}
+		if include_plans:
+			plans = sorted(system.plans or [], key=lambda p: ((not p.is_active), (p.name or "").lower()))
+			payload["plans"] = [
+				{
+					"id": plan.id,
+					"name": plan.name,
+					"description": plan.description or "",
+					"monthly_hours": plan.monthly_hours or 0,
+					"additional_hour_rate": float(plan.additional_hour_rate or 0),
+					"monthly_value": float(plan.monthly_value or 0),
+					"setup_fee": float(plan.setup_fee or 0),
+					"priority_level": plan.priority_level,
+					"priority_text": plan.get_priority_text(),
+					"sla_text": plan.get_sla_text() if hasattr(plan, "get_sla_text") else "",
+					"support_types": plan.get_support_types() if hasattr(plan, "get_support_types") else [],
+					"is_active": bool(plan.is_active),
+					"is_featured": bool(plan.is_featured),
+				}
+				for plan in plans
+			]
+		return payload
+
 	if request.method == "GET":
-		return jsonify({
-			"id": s.id,
-			"name": s.name,
-			"description": s.description or "",
-			"version": s.version or "",
-			"company": s.company or "",
-			"is_active": bool(s.is_active),
-			"plans_count": len(s.plans or []),
-		})
+		return jsonify(_system_json(s, include_plans=True))
 	data = _json()
 	if data.get("name") is not None:
 		name = (data.get("name") or "").strip()
@@ -1670,12 +1695,4 @@ def plan_system_item(system_id: int):
 	if "is_active" in data:
 		s.is_active = bool(data.get("is_active"))
 	db.session.commit()
-	return jsonify({
-		"id": s.id,
-		"name": s.name,
-		"description": s.description or "",
-		"version": s.version or "",
-		"company": s.company or "",
-		"is_active": bool(s.is_active),
-		"plans_count": len(s.plans or []),
-	})
+	return jsonify(_system_json(s))
