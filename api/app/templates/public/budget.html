@@ -222,19 +222,27 @@
 		}
 		.options-carousel-btn {
 			width: 42px; height: 42px; border-radius: 12px;
-			border: 1px solid #dbe3ef; background: #fff; color: var(--primary);
+			border: 1.5px solid #64748b; background: #f1f5f9; color: #0f172a;
 			display: inline-flex; align-items: center; justify-content: center;
-			cursor: pointer; transition: background .15s, border-color .15s, opacity .15s, transform .1s;
-			box-shadow: 0 1px 2px rgba(15, 23, 42, 0.05);
+			cursor: pointer; transition: background .15s, border-color .15s, color .15s, opacity .15s, transform .1s;
+			box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
 			padding: 0;
 		}
-		.options-carousel-btn svg { width: 18px; height: 18px; display: block; }
+		.options-carousel-btn svg { width: 20px; height: 20px; display: block; stroke-width: 2.8; }
 		.options-carousel-btn:hover:not(:disabled) {
-			background: color-mix(in srgb, var(--primary) 8%, #fff);
-			border-color: color-mix(in srgb, var(--primary) 35%, #dbe3ef);
+			background: var(--primary);
+			border-color: var(--primary);
+			color: #fff;
 		}
 		.options-carousel-btn:active:not(:disabled) { transform: scale(0.96); }
-		.options-carousel-btn:disabled { opacity: 0.35; cursor: default; box-shadow: none; }
+		.options-carousel-btn:disabled {
+			opacity: 1;
+			cursor: default;
+			box-shadow: none;
+			background: #f8fafc;
+			border-color: #cbd5e1;
+			color: #94a3b8;
+		}
 		.options-carousel-viewport {
 			overflow: hidden;
 			touch-action: pan-y;
@@ -436,10 +444,10 @@
 						</div>
 						<div class="options-carousel-nav">
 							<button type="button" class="options-carousel-btn" data-carousel-prev aria-label="Opção anterior">
-								<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="15 18 9 12 15 6"></polyline></svg>
+								<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="15 18 9 12 15 6"></polyline></svg>
 							</button>
 							<button type="button" class="options-carousel-btn" data-carousel-next aria-label="Próxima opção">
-								<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 18 15 12 9 6"></polyline></svg>
+								<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 18 15 12 9 6"></polyline></svg>
 							</button>
 						</div>
 					</div>
