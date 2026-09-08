@@ -26,6 +26,11 @@ _PLAN_HINT = re.compile(
 	r"\b(plano|planos|mensalidade|licen[cç]a|colaborador|assinatura| implanta[cç][aã]o)\b",
 	re.I,
 )
+_SEAT_HINT = re.compile(
+	r"(\d+)\s*(?:colaborador(?:es)?|usu[áa]rios?|licen[çc]as?|funcion[áa]rios?|"
+	r"vidas?|postos?|vagas?)",
+	re.I,
+)
 
 STOPWORDS = {
 	"a", "o", "os", "as", "um", "uma", "uns", "umas", "de", "da", "do", "das", "dos",
