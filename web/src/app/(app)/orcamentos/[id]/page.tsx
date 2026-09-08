@@ -268,26 +268,39 @@ export default function VerOrcamentoPage() {
                     </table>
                   </div>
                   <div className="mt-3 ml-auto max-w-xs space-y-1 text-sm">
-                    <div className="flex justify-between text-muted">
-                      <span>Subtotal (único)</span>
-                      <span>{formatBRL(opt.subtotal)}</span>
-                    </div>
+                    {opt.subtotal > 0 || Object.keys(opt.recurring || {}).length === 0 ? (
+                      <div className="flex justify-between text-muted">
+                        <span>Subtotal (único)</span>
+                        <span>{formatBRL(opt.subtotal)}</span>
+                      </div>
+                    ) : null}
                     {Object.entries(opt.recurring || {}).map(([period, value]) => (
-                      <div key={period} className="flex justify-between text-muted">
-                        <span>Recorrente ({periodLabel[period] || period})</span>
+                      <div
+                        key={period}
+                        className={
+                          opt.total <= 0
+                            ? "flex justify-between border-t border-line pt-2 font-semibold text-navy"
+                            : "flex justify-between text-muted"
+                        }
+                      >
+                        <span>
+                          {opt.total <= 0 ? "Total" : "Recorrente"} ({periodLabel[period] || period})
+                        </span>
                         <span>{formatBRL(value)}</span>
                       </div>
                     ))}
-                    {opt.discount > 0 ? (
+                    {opt.discount > 0 && opt.subtotal > 0 ? (
                       <div className="flex justify-between text-muted">
                         <span>Desconto</span>
                         <span>- {formatBRL(opt.discount)}</span>
                       </div>
                     ) : null}
-                    <div className="flex justify-between border-t border-line pt-2 font-semibold text-navy">
-                      <span>Total (único) · {opt.label}</span>
-                      <span>{formatBRL(opt.total)}</span>
-                    </div>
+                    {opt.total > 0 ? (
+                      <div className="flex justify-between border-t border-line pt-2 font-semibold text-navy">
+                        <span>Total (único) · {opt.label}</span>
+                        <span>{formatBRL(opt.total)}</span>
+                      </div>
+                    ) : null}
                   </div>
                 </div>
               );

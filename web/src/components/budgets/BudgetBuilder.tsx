@@ -710,26 +710,39 @@ export function BudgetBuilder({ budget }: { budget?: BudgetDetail | null }) {
                     </div>
                     {optTotal ? (
                       <div className="mt-3 ml-auto max-w-xs space-y-1 text-sm">
-                        <div className="flex justify-between text-muted">
-                          <span>Subtotal (único)</span>
-                          <span>{formatBRL(optTotal.subtotal)}</span>
-                        </div>
+                        {optTotal.subtotal > 0 || Object.keys(optTotal.recurring || {}).length === 0 ? (
+                          <div className="flex justify-between text-muted">
+                            <span>Subtotal (único)</span>
+                            <span>{formatBRL(optTotal.subtotal)}</span>
+                          </div>
+                        ) : null}
                         {Object.entries(optTotal.recurring || {}).map(([period, value]) => (
-                          <div key={period} className="flex justify-between text-muted">
-                            <span>Recorrente ({periodLabel[period] || period})</span>
+                          <div
+                            key={period}
+                            className={
+                              optTotal.total <= 0
+                                ? "flex justify-between border-t border-line pt-2 font-semibold text-navy"
+                                : "flex justify-between text-muted"
+                            }
+                          >
+                            <span>
+                              {optTotal.total <= 0 ? "Total" : "Recorrente"} ({periodLabel[period] || period})
+                            </span>
                             <span>{formatBRL(value)}</span>
                           </div>
                         ))}
-                        {totals.discount > 0 ? (
+                        {totals.discount > 0 && optTotal.subtotal > 0 ? (
                           <div className="flex justify-between text-muted">
                             <span>Desconto</span>
                             <span>- {formatBRL(optTotal.discount)}</span>
                           </div>
                         ) : null}
-                        <div className="flex justify-between border-t border-line pt-2 font-semibold text-navy">
-                          <span>Total (único) · {opt.label}</span>
-                          <span>{formatBRL(optTotal.total)}</span>
-                        </div>
+                        {optTotal.total > 0 ? (
+                          <div className="flex justify-between border-t border-line pt-2 font-semibold text-navy">
+                            <span>Total (único) · {opt.label}</span>
+                            <span>{formatBRL(optTotal.total)}</span>
+                          </div>
+                        ) : null}
                       </div>
                     ) : null}
                   </div>
@@ -765,13 +778,24 @@ export function BudgetBuilder({ budget }: { budget?: BudgetDetail | null }) {
                 ))}
               </div>
               <div className="mt-4 ml-auto max-w-xs space-y-1 text-sm">
-                <div className="flex justify-between">
-                  <span className="text-muted">Subtotal (único)</span>
-                  <span>{formatBRL(totals.subtotal)}</span>
-                </div>
+                {totals.subtotal > 0 || Object.keys(totals.recurring).length === 0 ? (
+                  <div className="flex justify-between">
+                    <span className="text-muted">Subtotal (único)</span>
+                    <span>{formatBRL(totals.subtotal)}</span>
+                  </div>
+                ) : null}
                 {Object.entries(totals.recurring).map(([period, value]) => (
-                  <div key={period} className="flex justify-between text-muted">
-                    <span>Recorrente ({periodLabel[period] || period})</span>
+                  <div
+                    key={period}
+                    className={
+                      totals.total <= 0
+                        ? "flex justify-between border-t border-line pt-2 font-semibold text-navy"
+                        : "flex justify-between text-muted"
+                    }
+                  >
+                    <span>
+                      {totals.total <= 0 ? "Total" : "Recorrente"} ({periodLabel[period] || period})
+                    </span>
                     <span>{formatBRL(value)}</span>
                   </div>
                 ))}
@@ -786,10 +810,12 @@ export function BudgetBuilder({ budget }: { budget?: BudgetDetail | null }) {
                     className="w-28 border-b border-line py-1 text-right"
                   />
                 </label>
-                <div className="flex justify-between border-t border-line pt-2 font-semibold text-navy">
-                  <span>TOTAL (único)</span>
-                  <span>{formatBRL(totals.total)}</span>
-                </div>
+                {totals.total > 0 ? (
+                  <div className="flex justify-between border-t border-line pt-2 font-semibold text-navy">
+                    <span>TOTAL (único)</span>
+                    <span>{formatBRL(totals.total)}</span>
+                  </div>
+                ) : null}
               </div>
             </>
           )}
