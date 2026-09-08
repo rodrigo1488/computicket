@@ -1415,6 +1415,129 @@ def reopen_conversation(ticket_id: int):
         return _fail(exc)
 
 
+def _ticket_contact_id(ticket: dict | None) -> int | None:
+    if not isinstance(ticket, dict):
+        return None
+    contact = ticket.get("contact") if isinstance(ticket.get("contact"), dict) else {}
+    raw = contact.get("id") or ticket.get("contactId")
+    try:
+        return int(raw) if raw is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _normalize_schedule_send_at(raw: str) -> str | None:
+    """Converte datetime-local / ISO para YYYY-MM-DD HH:mm:ss (monitor do engine)."""
+    text = (raw or "").strip()
+    if not text:
+        return None
+    text = text.replace("T", " ")
+    if len(text) == 16:
+        text = f"{text}:00"
+    elif len(text) > 19:
+        text = text[:19]
+    try:
+        from datetime import datetime
+
+        dt = datetime.strptime(text, "%Y-%m-%d %H:%M:%S")
+    except ValueError:
+        return None
+    return dt.strftime("%Y-%m-%d %H:%M:%S")
+
+
+@helpdesk_bp.route("/api/conversations/<int:ticket_id>/schedules", methods=["GET", "POST"])
+@login_required
+def conversation_schedules(ticket_id: int):
+    """Lista ou cria mensagens agendadas para o contato da conversa."""
+    try:
+        session = ensure_agent_session()
+        ticket = agent_request("GET", f"/tickets/{ticket_id}") or {}
+        contact_id = _ticket_contact_id(ticket)
+        if not contact_id:
+            return jsonify({"error": "Contato da conversa não encontrado"}), 400
+
+        if request.method == "GET":
+            data = (
+                agent_request(
+                    "GET",
+                    "/schedules",
+                    params={"contactId": contact_id, "pageNumber": "1"},
+                )
+                or {}
+            )
+            rows = data.get("schedules") if isinstance(data, dict) else []
+            if not isinstance(rows, list):
+                rows = []
+            pending_status = {"PENDENTE", "AGENDADA"}
+            out = []
+            for row in rows:
+                if not isinstance(row, dict):
+                    continue
+                status = str(row.get("status") or "").upper()
+                if status not in pending_status:
+                    continue
+                row_ticket = row.get("ticketId")
+                if row_ticket is not None:
+                    try:
+                        if int(row_ticket) != int(ticket_id):
+                            continue
+                    except (TypeError, ValueError):
+                        pass
+                out.append(row)
+            return jsonify({"schedules": out})
+
+        payload = request.get_json(silent=True) or {}
+        body = (payload.get("body") or "").strip()
+        send_raw = (payload.get("sendAt") or payload.get("send_at") or "").strip()
+        if not body:
+            return jsonify({"error": "Mensagem é obrigatória"}), 400
+        send_at = _normalize_schedule_send_at(send_raw)
+        if not send_at:
+            return jsonify({"error": "Data/hora inválida"}), 400
+        from datetime import datetime
+
+        if datetime.strptime(send_at, "%Y-%m-%d %H:%M:%S") <= datetime.now():
+            return jsonify({"error": "Escolha uma data/hora no futuro"}), 400
+
+        schedule = agent_request(
+            "POST",
+            "/schedules",
+            json={
+                "body": body,
+                "sendAt": send_at,
+                "contactId": contact_id,
+                "userId": session.engine_user_id,
+                "ticketId": ticket_id,
+            },
+        )
+        return jsonify(schedule)
+    except EngineError as exc:
+        return _fail(exc)
+
+
+@helpdesk_bp.route(
+    "/api/conversations/<int:ticket_id>/schedules/<int:schedule_id>",
+    methods=["DELETE"],
+)
+@login_required
+def cancel_conversation_schedule(ticket_id: int, schedule_id: int):
+    try:
+        ticket = agent_request("GET", f"/tickets/{ticket_id}") or {}
+        contact_id = _ticket_contact_id(ticket)
+        if not contact_id:
+            return jsonify({"error": "Contato da conversa não encontrado"}), 400
+        schedule = agent_request("GET", f"/schedules/{schedule_id}") or {}
+        if not isinstance(schedule, dict) or not schedule.get("id"):
+            return jsonify({"error": "Agendamento não encontrado"}), 404
+        sched_contact = schedule.get("contactId")
+        if sched_contact is not None and int(sched_contact) != int(contact_id):
+            return jsonify({"error": "Agendamento não pertence a esta conversa"}), 403
+        agent_request("DELETE", f"/schedules/{schedule_id}")
+        return jsonify({"ok": True, "message": "Agendamento cancelado"})
+    except EngineError as exc:
+        return _fail(exc)
+
+
 @helpdesk_bp.route("/api/conversations/<int:ticket_id>/resolve", methods=["PUT", "POST"])
 @login_required
 def resolve_conversation(ticket_id: int):

@@ -54,6 +54,16 @@ export type QuickMessage = {
   message: string;
 };
 
+export type HelpdeskScheduledMessage = {
+  id: number;
+  body: string;
+  sendAt: string;
+  status?: string;
+  contactId?: number;
+  ticketId?: number | null;
+  userId?: number | null;
+};
+
 export type HelpdeskContactDetail = HelpdeskContact & {
   extraInfo?: { id?: number; name?: string; value?: string }[];
 };
@@ -448,6 +458,14 @@ export const helpdesk = {
   ratingSummary: () => flask.get<HelpdeskRatingSummary>("/helpdesk/api/ratings/summary"),
   transfer: (id: number, payload: TransferPayload) =>
     flask.put<HelpdeskConversation>(`/helpdesk/api/conversations/${id}/transfer`, payload),
+  schedules: (id: number) =>
+    flask.get<{ schedules: HelpdeskScheduledMessage[] }>(`/helpdesk/api/conversations/${id}/schedules`),
+  createSchedule: (id: number, payload: { body: string; sendAt: string }) =>
+    flask.post<HelpdeskScheduledMessage>(`/helpdesk/api/conversations/${id}/schedules`, payload),
+  cancelSchedule: (id: number, scheduleId: number) =>
+    flask.delete<{ ok: boolean; message?: string }>(
+      `/helpdesk/api/conversations/${id}/schedules/${scheduleId}`,
+    ),
   assignees: () => flask.get<HelpdeskAssignee[]>("/helpdesk/api/assignees"),
   quickMessages: () => flask.get<QuickMessage[] | { records?: QuickMessage[] }>("/helpdesk/api/quick-messages"),
   createQuickMessage: (payload: { shortcode: string; message: string }) =>

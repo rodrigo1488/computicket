@@ -6,6 +6,7 @@ import {
   Ban,
   BookOpen,
   Bot,
+  CalendarClock,
   Check,
   ChevronDown,
   FilePlus2,
@@ -827,6 +828,7 @@ export function HelpdeskWorkspace() {
   const [createOpen, setCreateOpen] = useState(false);
   const [newConversationOpen, setNewConversationOpen] = useState(false);
   const [transferOpen, setTransferOpen] = useState(false);
+  const [scheduleOpen, setScheduleOpen] = useState(false);
   const [contactOpen, setContactOpen] = useState(false);
   const [quickOpen, setQuickOpen] = useState(false);
   const [isInternal, setIsInternal] = useState(false);
@@ -1069,6 +1071,17 @@ export function HelpdeskWorkspace() {
     refetchInterval: activeId ? 5_000 : false,
   });
 
+  const scheduledMessages = useQuery({
+    queryKey: ["hd-schedules", activeId],
+    queryFn: async () => {
+      const res = await helpdesk.schedules(activeId as number);
+      return res.schedules || [];
+    },
+    enabled: !!activeId,
+    staleTime: 10_000,
+    refetchInterval: activeId ? 30_000 : false,
+  });
+
   const contactId = conversation.data?.contact?.id;
   const contact = useQuery({
     queryKey: ["hd-contact", contactId],
@@ -1130,6 +1143,7 @@ export function HelpdeskWorkspace() {
     setReplyTo(null);
     setEditingMessage(null);
     setPendingFile(null);
+    setScheduleOpen(false);
   }, [activeId]);
 
   const selectConversation = (c: HelpdeskConversation) => {
@@ -1369,6 +1383,23 @@ export function HelpdeskWorkspace() {
         setActiveId(ticket.id);
       }
       invalidateInbox(ticket?.id);
+    },
+    onError: (e: Error) => setError(e.message),
+  });
+  const createSchedule = useMutation({
+    mutationFn: (payload: { body: string; sendAt: string }) =>
+      helpdesk.createSchedule(activeId as number, payload),
+    onSuccess: () => {
+      setScheduleOpen(false);
+      setError(null);
+      if (activeId) qc.invalidateQueries({ queryKey: ["hd-schedules", activeId] });
+    },
+    onError: (e: Error) => setError(e.message),
+  });
+  const cancelSchedule = useMutation({
+    mutationFn: (scheduleId: number) => helpdesk.cancelSchedule(activeId as number, scheduleId),
+    onSuccess: () => {
+      if (activeId) qc.invalidateQueries({ queryKey: ["hd-schedules", activeId] });
     },
     onError: (e: Error) => setError(e.message),
   });
@@ -2220,6 +2251,16 @@ export function HelpdeskWorkspace() {
                       Transferir
                     </button>
                   ) : null}
+                  {current.status !== "closed" ? (
+                    <button
+                      type="button"
+                      onClick={() => setScheduleOpen(true)}
+                      className="inline-flex items-center gap-1 rounded-lg border border-line px-3 py-1.5 text-xs font-medium text-ink hover:bg-wash"
+                    >
+                      <CalendarClock className="h-3.5 w-3.5 shrink-0" />
+                      Agendar
+                    </button>
+                  ) : null}
                   {current.status === "open" ? (
                     <button
                       type="button"
@@ -2267,6 +2308,39 @@ export function HelpdeskWorkspace() {
                   </button>
                 </div>
               </header>
+
+              {(scheduledMessages.data || []).length > 0 ? (
+                <div className="flex shrink-0 flex-col gap-1.5 border-b border-chat-border bg-wash/40 px-4 py-2">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.06em] text-muted">
+                    Mensagens agendadas ({scheduledMessages.data?.length})
+                  </p>
+                  <ul className="space-y-1.5">
+                    {(scheduledMessages.data || []).map((item) => (
+                      <li
+                        key={item.id}
+                        className="flex items-start justify-between gap-3 rounded-lg bg-surface px-3 py-2 text-xs"
+                      >
+                        <div className="min-w-0">
+                          <p className="font-medium text-ink">{formatScheduleWhen(item.sendAt)}</p>
+                          <p className="mt-0.5 line-clamp-2 text-muted">{item.body}</p>
+                        </div>
+                        <button
+                          type="button"
+                          disabled={cancelSchedule.isPending}
+                          onClick={() => {
+                            if (confirm("Cancelar este agendamento?")) {
+                              cancelSchedule.mutate(item.id);
+                            }
+                          }}
+                          className="shrink-0 font-semibold text-open hover:underline disabled:opacity-50"
+                        >
+                          Cancelar
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
 
               {current.status === "closed" && current.rating ? (
                 <div className="flex shrink-0 items-center justify-between gap-3 border-b border-chat-border bg-open-bg/30 px-4 py-2 text-xs">
@@ -2736,6 +2810,16 @@ export function HelpdeskWorkspace() {
           error={transfer.error ? (transfer.error as Error).message : null}
           onClose={() => setTransferOpen(false)}
           onSubmit={(payload) => transfer.mutate(payload)}
+        />
+      ) : null}
+
+      {scheduleOpen && current ? (
+        <ScheduleMessageDialog
+          pending={createSchedule.isPending}
+          error={createSchedule.error ? (createSchedule.error as Error).message : null}
+          initialBody={text.trim()}
+          onClose={() => setScheduleOpen(false)}
+          onSubmit={(payload) => createSchedule.mutate(payload)}
         />
       ) : null}
 
@@ -3338,6 +3422,103 @@ function NewConversationDialog({
 
         {localError ? <p className="text-sm text-open">{localError}</p> : null}
       </div>
+    </Modal>
+  );
+}
+
+function pad2(n: number) {
+  return String(n).padStart(2, "0");
+}
+
+/** Valor para input datetime-local: YYYY-MM-DDTHH:mm (fuso local) */
+function localDatetimeValue(d: Date) {
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}T${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+}
+
+function defaultScheduleAt() {
+  const d = new Date();
+  d.setMinutes(d.getMinutes() + 60);
+  d.setSeconds(0, 0);
+  return localDatetimeValue(d);
+}
+
+function formatScheduleWhen(raw: string) {
+  const text = (raw || "").trim();
+  if (!text) return "—";
+  const normalized = text.includes("T") ? text : text.replace(" ", "T");
+  const parsed = Date.parse(normalized.length === 16 ? `${normalized}:00` : normalized);
+  if (!Number.isFinite(parsed)) return text;
+  return new Intl.DateTimeFormat("pt-BR", {
+    dateStyle: "short",
+    timeStyle: "short",
+  }).format(new Date(parsed));
+}
+
+function ScheduleMessageDialog({
+  pending,
+  error,
+  initialBody,
+  onClose,
+  onSubmit,
+}: {
+  pending: boolean;
+  error: string | null;
+  initialBody?: string;
+  onClose: () => void;
+  onSubmit: (payload: { body: string; sendAt: string }) => void;
+}) {
+  const [body, setBody] = useState(initialBody || "");
+  const [sendAt, setSendAt] = useState(defaultScheduleAt);
+
+  return (
+    <Modal open onClose={onClose} title="Agendar mensagem">
+      <p className="-mt-2 text-sm text-muted">
+        A mensagem será enviada automaticamente na data e hora definidas.
+      </p>
+      <form
+        className="mt-5 space-y-4"
+        onSubmit={(e) => {
+          e.preventDefault();
+          const trimmed = body.trim();
+          if (!trimmed || !sendAt) return;
+          onSubmit({ body: trimmed, sendAt });
+        }}
+      >
+        <label className="block">
+          <span className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted">Mensagem</span>
+          <textarea
+            value={body}
+            onChange={(e) => setBody(e.target.value)}
+            rows={4}
+            required
+            className="mt-1 w-full resize-y rounded-lg border border-line bg-transparent px-3 py-2 text-[15px] text-ink outline-none focus:border-brand"
+            placeholder="Texto que será enviado ao cliente…"
+          />
+        </label>
+        <label className="block">
+          <span className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted">Data e hora</span>
+          <input
+            type="datetime-local"
+            value={sendAt}
+            onChange={(e) => setSendAt(e.target.value)}
+            required
+            className="mt-1 w-full border-0 border-b border-line bg-transparent py-2 text-[15px] outline-none focus:border-brand"
+          />
+        </label>
+        {error ? <p className="text-sm text-open">{error}</p> : null}
+        <div className="flex justify-end gap-2">
+          <button type="button" onClick={onClose} className="rounded-lg px-3 py-2 text-sm text-muted hover:text-ink">
+            Cancelar
+          </button>
+          <button
+            type="submit"
+            disabled={pending || !body.trim() || !sendAt}
+            className="rounded-lg bg-brand px-4 py-2 text-sm font-medium text-white disabled:opacity-40"
+          >
+            {pending ? "Agendando…" : "Agendar"}
+          </button>
+        </div>
+      </form>
     </Modal>
   );
 }

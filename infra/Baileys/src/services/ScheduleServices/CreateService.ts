@@ -9,6 +9,7 @@ interface Request {
   contactId: number | string;
   companyId: number | string;
   userId?: number | string;
+  ticketId?: number | string | null;
 }
 
 const CreateService = async ({
@@ -16,10 +17,11 @@ const CreateService = async ({
   sendAt,
   contactId,
   companyId,
-  userId
+  userId,
+  ticketId
 }: Request): Promise<Schedule> => {
   const schema = Yup.object().shape({
-    body: Yup.string().required().min(5),
+    body: Yup.string().required().min(1),
     sendAt: Yup.string().required()
   });
 
@@ -36,7 +38,8 @@ const CreateService = async ({
       contactId,
       companyId,
       userId,
-      status: 'PENDENTE'
+      ticketId: ticketId || null,
+      status: "PENDENTE"
     }
   );
 
