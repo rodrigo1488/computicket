@@ -353,18 +353,20 @@ export function NotificationCenter() {
     };
     const onInternalChat = (payload: {
       action?: string;
-      newMessage?: { id?: string | number; chatId?: number; senderId?: number; body?: string; mediaName?: string };
+      newMessage?: { id?: string | number; chatId?: number; senderId?: number; body?: string; message?: string; mediaName?: string };
       chat?: { id?: number; title?: string; isGroup?: boolean };
     }) => {
       const incoming = payload.newMessage;
-      if (!incoming?.id || incoming.senderId === engine.engineUserId) return;
+      if (!incoming?.id) return;
+      if (Number(incoming.senderId) === Number(engine.engineUserId)) return;
       if (payload.action === "delete") return;
       const chatId = Number(payload.chat?.id ?? incoming.chatId);
+      const preview = incoming.body || incoming.message || incoming.mediaName || "Nova mensagem";
       showMessageRef.current({
         id: -Math.abs(hashNotificationId(`ic:${chatId}:${incoming.id}`)),
         type: "internal_chat",
         title: "Chat interno",
-        message: (incoming.body || incoming.mediaName || "Nova mensagem").slice(0, 1000),
+        message: String(preview).slice(0, 1000),
         url: Number.isFinite(chatId) && chatId > 0 ? `/chat?c=${chatId}` : "/chat",
         entity_type: "internal_chat",
         entity_id: `ic:${chatId}:${incoming.id}`,
@@ -384,7 +386,7 @@ export function NotificationCenter() {
       }
     });
     socket.on(`company-${engine.companyId}-appMessage`, onAppMessage);
-    socket.on(`company-${engine.companyId}-chat`, onInternalChat);
+    // Só o canal do usuário: o evento company-*-chat é broadcast e tocava o som para todos.
     socket.on(`company-${engine.companyId}-chat-user-${engine.engineUserId}`, onInternalChat);
     return () => {
       socket.disconnect();

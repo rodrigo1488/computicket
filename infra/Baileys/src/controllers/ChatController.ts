@@ -75,8 +75,9 @@ function emitChatMessage(
   const chatId = chat?.id || newMessage.chatId;
   const io = getIO();
   const payload = { action, newMessage, chat };
+  // Sala da conversa (quem está com o chat aberto).
   io.to(`company-${companyId}-mainchannel`).emit(`company-${companyId}-chat-${chatId}`, payload);
-  io.to(`company-${companyId}-mainchannel`).emit(`company-${companyId}-chat`, payload);
+  // Participantes: canal por usuário (evita notificar a empresa inteira).
   (chat?.users || []).forEach(user => {
     io.to(`user-${user.userId}`).emit(`company-${companyId}-chat-user-${user.userId}`, payload);
   });
