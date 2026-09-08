@@ -169,32 +169,76 @@
 		}
 
 		/* Carrossel de opções alternativas */
-		.options-carousel { margin-top: 4px; }
+		.options-carousel {
+			margin-top: 4px;
+			border: 1px solid #e2e8f0;
+			border-radius: 16px;
+			background: #fff;
+			overflow: hidden;
+			display: flex;
+			flex-direction: column;
+		}
 		.options-carousel-toolbar {
-			display: flex; align-items: center; justify-content: space-between;
-			gap: 10px; margin-bottom: 12px;
+			display: flex; align-items: center; gap: 10px;
+			padding: 12px 14px;
+			background: linear-gradient(180deg, #f8fafc 0%, #fff 100%);
+			border-bottom: 1px solid #eef2f7;
 		}
 		.options-carousel-counter {
-			font-size: 13px; font-weight: 600; color: #64748b;
+			font-size: 12px; font-weight: 700; color: #64748b;
+			letter-spacing: 0.02em;
 			white-space: nowrap;
+			min-width: 3.5rem;
+		}
+		.options-carousel-title {
+			flex: 1 1 auto;
+			min-width: 0;
+			font-size: 15px;
+			font-weight: 700;
+			color: #0f172a;
+			line-height: 1.3;
+			overflow: hidden;
+			text-overflow: ellipsis;
+			display: -webkit-box;
+			-webkit-line-clamp: 2;
+			-webkit-box-orient: vertical;
+		}
+		.options-carousel-title .badge-selected {
+			display: inline-block;
+			margin-left: 6px;
+			vertical-align: middle;
+			font-size: 10px;
+			font-weight: 700;
+			letter-spacing: 0.04em;
+			text-transform: uppercase;
+			background: #16a34a;
+			color: #fff;
+			padding: 2px 7px;
+			border-radius: 999px;
 		}
 		.options-carousel-nav {
-			display: flex; align-items: center; gap: 8px;
+			display: flex; align-items: center; gap: 6px;
+			flex-shrink: 0;
 		}
 		.options-carousel-btn {
-			width: 40px; height: 40px; border-radius: 10px;
-			border: 1px solid #e2e8f0; background: #fff; color: var(--primary);
+			width: 42px; height: 42px; border-radius: 12px;
+			border: 1px solid #dbe3ef; background: #fff; color: var(--primary);
 			display: inline-flex; align-items: center; justify-content: center;
-			cursor: pointer; transition: background .15s, opacity .15s;
+			cursor: pointer; transition: background .15s, border-color .15s, opacity .15s, transform .1s;
+			box-shadow: 0 1px 2px rgba(15, 23, 42, 0.05);
+			padding: 0;
 		}
-		.options-carousel-btn:hover { background: #f8fafc; }
-		.options-carousel-btn:disabled { opacity: 0.35; cursor: default; }
+		.options-carousel-btn svg { width: 18px; height: 18px; display: block; }
+		.options-carousel-btn:hover:not(:disabled) {
+			background: color-mix(in srgb, var(--primary) 8%, #fff);
+			border-color: color-mix(in srgb, var(--primary) 35%, #dbe3ef);
+		}
+		.options-carousel-btn:active:not(:disabled) { transform: scale(0.96); }
+		.options-carousel-btn:disabled { opacity: 0.35; cursor: default; box-shadow: none; }
 		.options-carousel-viewport {
 			overflow: hidden;
-			border-radius: 14px;
-			border: 1px solid #e2e8f0;
-			background: #fff;
 			touch-action: pan-y;
+			background: #fff;
 		}
 		.options-carousel-track {
 			display: flex;
@@ -204,19 +248,50 @@
 		.options-carousel-slide {
 			flex: 0 0 100%;
 			min-width: 100%;
-			padding: 16px;
+			padding: 14px 14px 8px;
 			box-sizing: border-box;
+			max-height: min(58vh, 520px);
+			overflow-y: auto;
+			-webkit-overflow-scrolling: touch;
 		}
-		.options-carousel-slide .option-head {
-			display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
-			margin-bottom: 14px;
+		.options-carousel-footer {
+			border-top: 1px solid #e2e8f0;
+			background: #f8fafc;
+			padding: 10px 12px 4px;
+			flex-shrink: 0;
 		}
-		.options-carousel-slide .option-head h3 {
-			font-size: 17px; font-weight: 700; color: #0f172a; line-height: 1.3;
-			flex: 1 1 auto; min-width: 0;
+		.options-carousel-footer .totals-box {
+			margin-top: 0;
+			border: none;
+			background: transparent;
+			padding: 0;
+			border-radius: 0;
+		}
+		.options-carousel-footer .totals-row {
+			padding: 6px 4px;
+			font-size: 13px;
+		}
+		.options-carousel-footer .totals-row.total {
+			margin-top: 6px;
+			padding: 12px 14px;
+			font-size: 15px;
+			font-weight: 700;
+			color: #fff;
+			background: var(--primary);
+			border-radius: 12px;
+			border-top: none;
+		}
+		.options-carousel-footer .totals-row.total span:last-child {
+			color: #fff;
+			font-size: 18px;
+			background: rgba(255,255,255,0.18);
+			padding: 4px 10px;
+			border-radius: 8px;
 		}
 		.options-carousel-dots {
-			display: flex; justify-content: center; gap: 8px; margin-top: 14px;
+			display: flex; justify-content: center; gap: 8px;
+			padding: 0 14px 14px;
+			background: #f8fafc;
 		}
 		.options-carousel-dot {
 			width: 8px; height: 8px; border-radius: 999px;
@@ -225,6 +300,10 @@
 		}
 		.options-carousel-dot.is-active {
 			width: 22px; background: var(--primary);
+		}
+		.options-hint {
+			font-size: 13px; line-height: 1.5; color: #64748b;
+			margin: 0 0 12px;
 		}
 
 		.terms {
@@ -343,32 +422,31 @@
 				</div>
 
 				{% if option_groups %}
-				<p class="intro" style="margin-top:0">Deslize ou use as setas para comparar as alternativas. Os totais são por opção.</p>
+				<p class="options-hint">Compare as alternativas com as setas ou deslizando. O total fica fixo abaixo dos itens.</p>
 				<div class="options-carousel" id="options-carousel" data-start="{% if budget.selected_option_key %}{% for g in option_groups %}{% if g.key == budget.selected_option_key %}{{ loop.index0 }}{% endif %}{% endfor %}{% else %}0{% endif %}">
 					<div class="options-carousel-toolbar">
 						<span class="options-carousel-counter">
-							<span data-carousel-current>1</span> de {{ option_groups|length }}
+							<span data-carousel-current>1</span>/{{ option_groups|length }}
 						</span>
+						<div class="options-carousel-title" data-carousel-title>
+							{{ option_groups[0].label }}
+							{% if budget.selected_option_key and budget.selected_option_key == option_groups[0].key %}
+							<span class="badge-selected">Selecionada</span>
+							{% endif %}
+						</div>
 						<div class="options-carousel-nav">
 							<button type="button" class="options-carousel-btn" data-carousel-prev aria-label="Opção anterior">
-								<i class="fas fa-chevron-left"></i>
+								<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="15 18 9 12 15 6"></polyline></svg>
 							</button>
 							<button type="button" class="options-carousel-btn" data-carousel-next aria-label="Próxima opção">
-								<i class="fas fa-chevron-right"></i>
+								<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 18 15 12 9 6"></polyline></svg>
 							</button>
 						</div>
 					</div>
 					<div class="options-carousel-viewport" data-carousel-viewport>
 						<div class="options-carousel-track" data-carousel-track>
 							{% for group in option_groups %}
-							{% set opt = options[loop.index0] if options and options|length > loop.index0 else none %}
-							<div class="options-carousel-slide" data-carousel-slide data-option-key="{{ group.key }}">
-								<div class="option-head">
-									<h3>{{ group.label }}</h3>
-									{% if budget.selected_option_key and budget.selected_option_key == group.key %}
-									<span class="count" style="background:#16a34a;color:#fff">Selecionada</span>
-									{% endif %}
-								</div>
+							<div class="options-carousel-slide" data-carousel-slide data-option-key="{{ group.key }}" data-option-label="{{ group.label|e }}" data-option-selected="{{ '1' if budget.selected_option_key and budget.selected_option_key == group.key else '0' }}">
 								<div class="items-list">
 									{% for item in group['items'] %}
 									<article class="item-card">
@@ -420,52 +498,62 @@
 									</article>
 									{% endfor %}
 								</div>
-								{% if opt %}
-								<div class="totals-box">
-									{% set recurring = opt.recurring or {} %}
-									{% set has_unique = opt.total and opt.total > 0 %}
-									{% set has_recurring = recurring.get('monthly') or recurring.get('quarterly') or recurring.get('yearly') %}
-									{% if has_unique or not has_recurring %}
-									<div class="totals-row">
-										<span>Subtotal (único)</span>
-										<span>{{ format_brl(opt.subtotal) }}</span>
-									</div>
-									{% endif %}
-									{% if recurring.get('monthly') %}
-									<div class="totals-row{% if not has_unique %} total{% endif %}">
-										<span>{% if has_unique %}Recorrente (mensal){% else %}TOTAL (mensal) · {{ group.label }}{% endif %}</span>
-										<span>{{ format_brl(recurring.monthly) }}{% if has_unique %} /mês{% endif %}</span>
-									</div>
-									{% endif %}
-									{% if recurring.get('quarterly') %}
-									<div class="totals-row{% if not has_unique and not recurring.get('monthly') %} total{% endif %}">
-										<span>{% if has_unique %}Recorrente (trimestral){% else %}TOTAL (trimestral) · {{ group.label }}{% endif %}</span>
-										<span>{{ format_brl(recurring.quarterly) }}{% if has_unique %} /trim.{% endif %}</span>
-									</div>
-									{% endif %}
-									{% if recurring.get('yearly') %}
-									<div class="totals-row{% if not has_unique and not recurring.get('monthly') and not recurring.get('quarterly') %} total{% endif %}">
-										<span>{% if has_unique %}Recorrente (anual){% else %}TOTAL (anual) · {{ group.label }}{% endif %}</span>
-										<span>{{ format_brl(recurring.yearly) }}{% if has_unique %} /ano{% endif %}</span>
-									</div>
-									{% endif %}
-									{% if budget.discount and has_unique %}
-									<div class="totals-row">
-										<span>Desconto</span>
-										<span>- {{ format_brl(opt.discount) }}</span>
-									</div>
-									{% endif %}
-									{% if has_unique %}
-									<div class="totals-row total">
-										<span>TOTAL (único) · {{ group.label }}</span>
-										<span>{{ format_brl(opt.total) }}</span>
-									</div>
-									{% endif %}
-								</div>
-								{% endif %}
 							</div>
 							{% endfor %}
 						</div>
+					</div>
+					<div class="options-carousel-footer" data-carousel-footer>
+						{% for group in option_groups %}
+						{% set opt = options[loop.index0] if options and options|length > loop.index0 else none %}
+						<div class="totals-box" data-carousel-total="{{ loop.index0 }}" {% if not loop.first %}hidden{% endif %}>
+							{% if opt %}
+							{% set recurring = opt.recurring or {} %}
+							{% set has_unique = opt.total and opt.total > 0 %}
+							{% set has_recurring = recurring.get('monthly') or recurring.get('quarterly') or recurring.get('yearly') %}
+							{% if has_unique or not has_recurring %}
+							<div class="totals-row">
+								<span>Subtotal (único)</span>
+								<span>{{ format_brl(opt.subtotal) }}</span>
+							</div>
+							{% endif %}
+							{% if recurring.get('monthly') %}
+							<div class="totals-row{% if not has_unique %} total{% endif %}">
+								<span>{% if has_unique %}Recorrente (mensal){% else %}TOTAL (mensal){% endif %}</span>
+								<span>{{ format_brl(recurring.monthly) }} /mês</span>
+							</div>
+							{% endif %}
+							{% if recurring.get('quarterly') %}
+							<div class="totals-row{% if not has_unique and not recurring.get('monthly') %} total{% endif %}">
+								<span>{% if has_unique %}Recorrente (trimestral){% else %}TOTAL (trimestral){% endif %}</span>
+								<span>{{ format_brl(recurring.quarterly) }}{% if has_unique %} /trim.{% endif %}</span>
+							</div>
+							{% endif %}
+							{% if recurring.get('yearly') %}
+							<div class="totals-row{% if not has_unique and not recurring.get('monthly') and not recurring.get('quarterly') %} total{% endif %}">
+								<span>{% if has_unique %}Recorrente (anual){% else %}TOTAL (anual){% endif %}</span>
+								<span>{{ format_brl(recurring.yearly) }}{% if has_unique %} /ano{% endif %}</span>
+							</div>
+							{% endif %}
+							{% if budget.discount and has_unique %}
+							<div class="totals-row">
+								<span>Desconto</span>
+								<span>- {{ format_brl(opt.discount) }}</span>
+							</div>
+							{% endif %}
+							{% if has_unique %}
+							<div class="totals-row total">
+								<span>TOTAL (único)</span>
+								<span>{{ format_brl(opt.total) }}</span>
+							</div>
+							{% endif %}
+							{% else %}
+							<div class="totals-row total">
+								<span>Total</span>
+								<span>{{ format_brl(0) }}</span>
+							</div>
+							{% endif %}
+						</div>
+						{% endfor %}
 					</div>
 					<div class="options-carousel-dots" data-carousel-dots>
 						{% for group in option_groups %}
@@ -660,24 +748,47 @@
 		var track = root.querySelector('[data-carousel-track]');
 		var slides = Array.prototype.slice.call(root.querySelectorAll('[data-carousel-slide]'));
 		var dots = Array.prototype.slice.call(root.querySelectorAll('[data-carousel-dot]'));
+		var totals = Array.prototype.slice.call(root.querySelectorAll('[data-carousel-total]'));
 		var prevBtn = root.querySelector('[data-carousel-prev]');
 		var nextBtn = root.querySelector('[data-carousel-next]');
 		var currentEl = root.querySelector('[data-carousel-current]');
+		var titleEl = root.querySelector('[data-carousel-title]');
 		var viewport = root.querySelector('[data-carousel-viewport]');
 		var total = slides.length;
 		if (!total) return;
 		var index = parseInt(root.getAttribute('data-start') || '0', 10);
 		if (!Number.isFinite(index) || index < 0 || index >= total) index = 0;
 
+		function syncTitle(slide) {
+			if (!titleEl || !slide) return;
+			var label = slide.getAttribute('data-option-label') || '';
+			var selected = slide.getAttribute('data-option-selected') === '1';
+			titleEl.textContent = '';
+			titleEl.appendChild(document.createTextNode(label));
+			if (selected) {
+				var badge = document.createElement('span');
+				badge.className = 'badge-selected';
+				badge.textContent = 'Selecionada';
+				titleEl.appendChild(document.createTextNode(' '));
+				titleEl.appendChild(badge);
+			}
+		}
+
 		function go(to) {
 			index = Math.max(0, Math.min(total - 1, to));
 			track.style.transform = 'translateX(' + (-index * 100) + '%)';
 			if (currentEl) currentEl.textContent = String(index + 1);
+			syncTitle(slides[index]);
 			dots.forEach(function (dot, i) {
 				dot.classList.toggle('is-active', i === index);
 			});
+			totals.forEach(function (panel) {
+				var i = parseInt(panel.getAttribute('data-carousel-total') || '-1', 10);
+				panel.hidden = i !== index;
+			});
 			if (prevBtn) prevBtn.disabled = index === 0;
 			if (nextBtn) nextBtn.disabled = index === total - 1;
+			if (slides[index]) slides[index].scrollTop = 0;
 		}
 
 		if (prevBtn) prevBtn.addEventListener('click', function () { go(index - 1); });
