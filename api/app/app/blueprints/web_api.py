@@ -917,14 +917,17 @@ def vault():
 		if existing:
 			return jsonify({"error": f'Já existe uma entrada para a máquina "{machine_name}".'}), 400
 		from .password_vault import encrypt_password
+		from sqlalchemy.exc import IntegrityError
+
+		encrypted = encrypt_password(password)
 		if is_external:
 			row = PasswordVault(
-				client_id=-1,
+				client_id=None,
 				external_client_id=client_id,
 				external_client_name=client["name"],
 				machine_name=machine_name,
 				anydesk_code=(data.get("anydesk_code") or "").strip() or None,
-				password=encrypt_password(password),
+				password=encrypted,
 				description=(data.get("description") or "").strip() or None,
 				created_by_id=current_user.id,
 			)
@@ -933,12 +936,20 @@ def vault():
 				client_id=client_id,
 				machine_name=machine_name,
 				anydesk_code=(data.get("anydesk_code") or "").strip() or None,
-				password=encrypt_password(password),
+				password=encrypted,
 				description=(data.get("description") or "").strip() or None,
 				created_by_id=current_user.id,
 			)
-		db.session.add(row)
-		db.session.commit()
+		try:
+			db.session.add(row)
+			db.session.commit()
+		except IntegrityError:
+			db.session.rollback()
+			return jsonify({"error": "Não foi possível salvar a senha (conflito ou cliente inválido)."}), 400
+		except Exception:
+			db.session.rollback()
+			current_app.logger.exception("Falha ao criar entrada no cofre de senhas")
+			return jsonify({"error": "Erro ao salvar a senha. Tente novamente."}), 500
 		return jsonify(_vault_entry_json(row)), 201
 
 	q = (request.args.get("q") or "").strip().lower()

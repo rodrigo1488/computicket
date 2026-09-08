@@ -143,6 +143,43 @@ def create_app() -> Flask:
 				app.logger.warning("Não foi possível remover FK de appointment.client_id: %s", exc)
 			try:
 				with db.engine.begin() as conn:
+					# Cofre: clientes externos usam client_id NULL (legado usava -1 e quebrava a FK).
+					conn.execute(text("""
+						DO $$
+						DECLARE r RECORD;
+						BEGIN
+							IF EXISTS (
+								SELECT 1 FROM information_schema.tables
+								WHERE table_name = 'password_vault'
+							) THEN
+								FOR r IN
+									SELECT c.conname
+									FROM pg_constraint c
+									JOIN pg_class t ON t.oid = c.conrelid
+									WHERE t.relname = 'password_vault'
+									  AND c.contype = 'f'
+									  AND pg_get_constraintdef(c.oid) ILIKE '%client_id%'
+								LOOP
+									EXECUTE format('ALTER TABLE password_vault DROP CONSTRAINT IF EXISTS %I', r.conname);
+								END LOOP;
+								BEGIN
+									ALTER TABLE password_vault ALTER COLUMN client_id DROP NOT NULL;
+								EXCEPTION WHEN others THEN
+									NULL;
+								END;
+								UPDATE password_vault SET client_id = NULL WHERE client_id = -1;
+								BEGIN
+									ALTER TABLE password_vault ALTER COLUMN password TYPE TEXT;
+								EXCEPTION WHEN others THEN
+									NULL;
+								END;
+							END IF;
+						END $$;
+					"""))
+			except Exception as exc:
+				app.logger.warning("Não foi possível ajustar schema do password_vault: %s", exc)
+			try:
+				with db.engine.begin() as conn:
 					conn.execute(text(
 						"CREATE UNIQUE INDEX IF NOT EXISTS uq_ticket_ps_number "
 						"ON ticket (ps_number) WHERE ps_number IS NOT NULL"
@@ -455,23 +492,26 @@ def create_app() -> Flask:
 						""")
 					else:
 						# Verificar se as colunas de cliente externo existem, se não, adicionar
-						pv_cols = [r[1] for r in conn.exec_driver_sql("PRAGMA table_info(password_vault)").fetchall()]
+						pv_info = conn.exec_driver_sql("PRAGMA table_info(password_vault)").fetchall()
+						pv_cols = [r[1] for r in pv_info]
 						if "external_client_id" not in pv_cols:
 							conn.exec_driver_sql("ALTER TABLE password_vault ADD COLUMN external_client_id INTEGER")
 						if "external_client_name" not in pv_cols:
 							conn.exec_driver_sql("ALTER TABLE password_vault ADD COLUMN external_client_name VARCHAR(200)")
 						
 						# Verificar se client_id é nullable - se não for, recriar a tabela
-						client_id_info = [r for r in pv_cols if r[1] == 'client_id']
-						if client_id_info and client_id_info[0][3] == 1:  # 1 = NOT NULL, 0 = NULL
+						client_id_info = next((r for r in pv_info if r[1] == "client_id"), None)
+						if client_id_info and client_id_info[3] == 1:  # 1 = NOT NULL, 0 = NULL
 							print("DEBUG: Recriando tabela password_vault para tornar client_id nullable")
-							# Backup dos dados existentes
+							# Backup dos dados existentes (ordem de colunas pode divergir do INSERT)
+							pv_info = conn.exec_driver_sql("PRAGMA table_info(password_vault)").fetchall()
+							col_names = [r[1] for r in pv_info]
 							existing_data = conn.exec_driver_sql("SELECT * FROM password_vault").fetchall()
 							
 							# Dropar a tabela antiga
 							conn.exec_driver_sql("DROP TABLE password_vault")
 							
-							# Recriar com a estrutura correta
+							# Recriar com a estrutura correta (sem FK em client_id — externos usam NULL)
 							conn.exec_driver_sql("""
 								CREATE TABLE password_vault (
 									id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -480,24 +520,43 @@ def create_app() -> Flask:
 									external_client_name VARCHAR(200) NULL,
 									machine_name VARCHAR(200) NOT NULL,
 									anydesk_code VARCHAR(50) NULL,
-									password VARCHAR(500) NOT NULL,
+									password TEXT NOT NULL,
 									description TEXT NULL,
 									created_at DATETIME,
 									updated_at DATETIME,
 									created_by_id INTEGER NOT NULL,
-									FOREIGN KEY (client_id) REFERENCES client (id),
 									FOREIGN KEY (created_by_id) REFERENCES user (id)
 								)
 							""")
 							
-							# Restaurar os dados
+							# Restaurar os dados (-1 legado → NULL)
 							for row in existing_data:
+								data = dict(zip(col_names, row))
+								cid = data.get("client_id")
+								if cid == -1:
+									cid = None
 								conn.exec_driver_sql("""
-									INSERT INTO password_vault 
-									(id, client_id, external_client_id, external_client_name, machine_name, 
+									INSERT INTO password_vault
+									(id, client_id, external_client_id, external_client_name, machine_name,
 									 anydesk_code, password, description, created_at, updated_at, created_by_id)
 									VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-								""", row)
+								""", (
+									data.get("id"),
+									cid,
+									data.get("external_client_id"),
+									data.get("external_client_name"),
+									data.get("machine_name"),
+									data.get("anydesk_code"),
+									data.get("password"),
+									data.get("description"),
+									data.get("created_at"),
+									data.get("updated_at"),
+									data.get("created_by_id"),
+								))
+						else:
+							conn.exec_driver_sql(
+								"UPDATE password_vault SET client_id = NULL WHERE client_id = -1"
+							)
 					
 					# Verificar se tabelas do banco de conhecimentos existem, se não, criar
 					if "knowledge_category" not in tables:

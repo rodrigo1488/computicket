@@ -1000,7 +1000,7 @@ class PasswordVault(db.Model):
 	
 	machine_name = db.Column(db.String(200), nullable=False)
 	anydesk_code = db.Column(db.String(50))
-	password = db.Column(db.String(500), nullable=False)  # Senha criptografada
+	password = db.Column(db.Text, nullable=False)  # Senha criptografada (Fernet)
 	description = db.Column(db.Text)
 	created_at = db.Column(db.DateTime, default=get_brasilia_now)
 	updated_at = db.Column(db.DateTime, default=get_brasilia_now, onupdate=get_brasilia_now)

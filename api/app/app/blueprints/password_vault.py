@@ -682,9 +682,8 @@ def new_password(client_id):
         # Criar nova entrada
         if is_external:
             print(f"DEBUG: Criando entrada para cliente externo {client_id}")
-            # Para clientes externos, usar -1 como client_id para contornar o NOT NULL
             password_entry = PasswordVault(
-                client_id=-1,  # Valor especial para clientes externos
+                client_id=None,
                 external_client_id=client_id,
                 external_client_name=client_data['name'],
                 machine_name=machine_name,
