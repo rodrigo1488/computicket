@@ -215,58 +215,131 @@ export default function VerOrcamentoPage() {
       ) : null}
 
       <section className="mb-6 rounded-2xl border border-line p-5">
-        <h2 className="mb-4 text-lg font-semibold text-navy">Itens</h2>
+        <h2 className="mb-4 text-lg font-semibold text-navy">
+          {data.has_options ? "Alternativas" : "Itens"}
+        </h2>
         {items.length === 0 ? (
           <p className="text-sm text-muted">Nenhum item neste orçamento</p>
+        ) : data.has_options && data.options?.length ? (
+          <div className="space-y-6">
+            {data.options.map((opt) => {
+              const optItems = items.filter((it) => (it.option_key || "") === opt.key);
+              return (
+                <div key={opt.key} className="rounded-xl border border-line p-4">
+                  <div className="mb-3 flex flex-wrap items-center gap-2">
+                    <h3 className="text-base font-semibold text-navy">{opt.label}</h3>
+                    {opt.selected || data.selected_option_key === opt.key ? (
+                      <span className="rounded-full bg-done/15 px-2 py-0.5 text-xs font-medium text-done">
+                        Selecionada
+                      </span>
+                    ) : null}
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-sm">
+                      <thead>
+                        <tr className="border-b border-line text-muted">
+                          <th className="py-2 pr-3 font-medium">Descrição</th>
+                          <th className="py-2 pr-3 font-medium">Qtd</th>
+                          <th className="py-2 pr-3 font-medium">Valor</th>
+                          <th className="py-2 font-medium">Total</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {optItems.map((it, i) => {
+                          const qty = Number(it.quantity || 0);
+                          const price = Number(it.unit_price || 0);
+                          return (
+                            <tr key={i} className="border-t border-line">
+                              <td className="py-3 pr-3">
+                                <p>{stripHtml(it.description) || it.description || "—"}</p>
+                                {it.is_recurring ? (
+                                  <p className="text-xs text-muted">
+                                    Recorrente · {periodLabel[it.recurrence_period || "monthly"]}
+                                  </p>
+                                ) : null}
+                              </td>
+                              <td className="py-3 pr-3">{qty}</td>
+                              <td className="py-3 pr-3">{formatBRL(price)}</td>
+                              <td className="py-3">{formatBRL(qty * price)}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                  <div className="mt-3 ml-auto max-w-xs space-y-1 text-sm">
+                    <div className="flex justify-between text-muted">
+                      <span>Subtotal</span>
+                      <span>{formatBRL(opt.subtotal)}</span>
+                    </div>
+                    {opt.discount > 0 ? (
+                      <div className="flex justify-between text-muted">
+                        <span>Desconto</span>
+                        <span>- {formatBRL(opt.discount)}</span>
+                      </div>
+                    ) : null}
+                    <div className="flex justify-between border-t border-line pt-2 font-semibold text-navy">
+                      <span>Total · {opt.label}</span>
+                      <span>{formatBRL(opt.total)}</span>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm">
-              <thead>
-                <tr className="border-b border-line text-muted">
-                  <th className="py-2 pr-3 font-medium">Descrição</th>
-                  <th className="py-2 pr-3 font-medium">Qtd</th>
-                  <th className="py-2 pr-3 font-medium">Valor</th>
-                  <th className="py-2 font-medium">Total</th>
-                </tr>
-              </thead>
-              <tbody>
-                {items.map((it, i) => {
-                  const qty = Number(it.quantity || 0);
-                  const price = Number(it.unit_price || 0);
-                  return (
-                    <tr key={i} className="border-t border-line">
-                      <td className="py-3 pr-3">
-                        <p>{stripHtml(it.description) || it.description || "—"}</p>
-                        {it.is_recurring ? (
-                          <p className="text-xs text-muted">Recorrente · {periodLabel[it.recurrence_period || "monthly"]}</p>
-                        ) : null}
-                      </td>
-                      <td className="py-3 pr-3">{qty}</td>
-                      <td className="py-3 pr-3">{formatBRL(price)}</td>
-                      <td className="py-3">{formatBRL(qty * price)}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-        <div className="mt-4 ml-auto max-w-xs space-y-1 text-sm">
-          <div className="flex justify-between text-muted">
-            <span>Subtotal</span>
-            <span>{formatBRL(data.subtotal)}</span>
-          </div>
-          {discount > 0 ? (
-            <div className="flex justify-between text-muted">
-              <span>Desconto</span>
-              <span>- {formatBRL(discount)}</span>
+          <>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-sm">
+                <thead>
+                  <tr className="border-b border-line text-muted">
+                    <th className="py-2 pr-3 font-medium">Descrição</th>
+                    <th className="py-2 pr-3 font-medium">Qtd</th>
+                    <th className="py-2 pr-3 font-medium">Valor</th>
+                    <th className="py-2 font-medium">Total</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {items.map((it, i) => {
+                    const qty = Number(it.quantity || 0);
+                    const price = Number(it.unit_price || 0);
+                    return (
+                      <tr key={i} className="border-t border-line">
+                        <td className="py-3 pr-3">
+                          <p>{stripHtml(it.description) || it.description || "—"}</p>
+                          {it.is_recurring ? (
+                            <p className="text-xs text-muted">
+                              Recorrente · {periodLabel[it.recurrence_period || "monthly"]}
+                            </p>
+                          ) : null}
+                        </td>
+                        <td className="py-3 pr-3">{qty}</td>
+                        <td className="py-3 pr-3">{formatBRL(price)}</td>
+                        <td className="py-3">{formatBRL(qty * price)}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
             </div>
-          ) : null}
-          <div className="flex justify-between border-t border-line pt-2 font-semibold text-navy">
-            <span>Total</span>
-            <span>{formatBRL(data.total)}</span>
-          </div>
-        </div>
+            <div className="mt-4 ml-auto max-w-xs space-y-1 text-sm">
+              <div className="flex justify-between text-muted">
+                <span>Subtotal</span>
+                <span>{formatBRL(data.subtotal)}</span>
+              </div>
+              {discount > 0 ? (
+                <div className="flex justify-between text-muted">
+                  <span>Desconto</span>
+                  <span>- {formatBRL(discount)}</span>
+                </div>
+              ) : null}
+              <div className="flex justify-between border-t border-line pt-2 font-semibold text-navy">
+                <span>Total</span>
+                <span>{formatBRL(data.total)}</span>
+              </div>
+            </div>
+          </>
+        )}
       </section>
 
       {data.payment_terms ? (

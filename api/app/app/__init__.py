@@ -397,6 +397,13 @@ def create_app() -> Flask:
 							conn.exec_driver_sql("ALTER TABLE budget_item ADD COLUMN is_recurring BOOLEAN DEFAULT 0")
 						if "recurrence_period" not in item_cols:
 							conn.exec_driver_sql("ALTER TABLE budget_item ADD COLUMN recurrence_period VARCHAR(20)")
+						if "option_key" not in item_cols:
+							conn.exec_driver_sql("ALTER TABLE budget_item ADD COLUMN option_key VARCHAR(40)")
+						if "option_label" not in item_cols:
+							conn.exec_driver_sql("ALTER TABLE budget_item ADD COLUMN option_label VARCHAR(200)")
+					budget_cols = [r[1] for r in conn.exec_driver_sql("PRAGMA table_info(budget)").fetchall()]
+					if budget_cols and "selected_option_key" not in budget_cols:
+						conn.exec_driver_sql("ALTER TABLE budget ADD COLUMN selected_option_key VARCHAR(40)")
 					
 					# Verificar se tabela technician_location existe, se não, criar
 					technician_location_exists = conn.exec_driver_sql(
@@ -713,6 +720,9 @@ def create_app() -> Flask:
 				print("✅ Coluna 'support_included' adicionada à tabela plan")
 			ensure_column("user", "phone", "VARCHAR(30)")
 			ensure_column("user", "avatar_path", "VARCHAR(500)")
+			ensure_column("budget_item", "option_key", "VARCHAR(40)")
+			ensure_column("budget_item", "option_label", "VARCHAR(200)")
+			ensure_column("budget", "selected_option_key", "VARCHAR(40)")
 			from .models import PlanAdditional, CustomPlan, CustomPlanItem  # noqa: F401
 			ensure_tables_from_metadata(["plan_additional", "custom_plan", "custom_plan_item"])
 	except Exception as _e:

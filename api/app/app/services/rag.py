@@ -153,17 +153,33 @@ def _budget_payload(row: Budget) -> tuple[str, str]:
 		row.description or "",
 		f"Condições de pagamento: {row.payment_terms}" if row.payment_terms else "",
 	]
-	for item in getattr(row, "items", None) or []:
-		desc = (item.description or "").strip()
-		if not desc:
-			continue
-		qty = item.quantity or 0
-		price = item.unit_price or 0
-		parts.append(f"Item: {desc} — qtd {qty:g} × R$ {price:.2f}")
-	try:
-		parts.append(f"Total: R$ {float(row.total):.2f}")
-	except Exception:
-		pass
+	groups = getattr(row, "option_groups", lambda: [])()
+	if groups:
+		selected = (getattr(row, "selected_option_key", None) or "").strip()
+		for group in groups:
+			mark = " (selecionada)" if selected and selected == group["key"] else ""
+			parts.append(f"Opção {group['label']}{mark}:")
+			for item in group["items"]:
+				desc = (item.description or "").strip()
+				if not desc:
+					continue
+				qty = item.quantity or 0
+				price = item.unit_price or 0
+				parts.append(f"Item: {desc} — qtd {qty:g} × R$ {price:.2f}")
+			totals = row.totals_for_items(group["items"])
+			parts.append(f"Total da opção: R$ {totals['total']:.2f}")
+	else:
+		for item in getattr(row, "items", None) or []:
+			desc = (item.description or "").strip()
+			if not desc:
+				continue
+			qty = item.quantity or 0
+			price = item.unit_price or 0
+			parts.append(f"Item: {desc} — qtd {qty:g} × R$ {price:.2f}")
+		try:
+			parts.append(f"Total: R$ {float(row.total):.2f}")
+		except Exception:
+			pass
 	return title, " ".join(filter(None, parts))
 
 

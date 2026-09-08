@@ -244,7 +244,7 @@
 		<div class="card">
 			<div class="header">
 				{% if has_logo %}
-				<img src="{{ url_for('budget.serve_logo') }}" alt="Logo" class="logo">
+				<img src="/orcamentos/logo" alt="Logo" class="logo">
 				{% endif %}
 				<div class="kicker">ORÇAMENTO</div>
 				<h1>{{ budget.title }}</h1>
@@ -274,11 +274,96 @@
 				{% endif %}
 
 				<div class="section-title">
+					{% if option_groups %}
+					Alternativas
+					<span class="count">{{ option_groups|length }}</span>
+					{% else %}
 					Itens do orçamento
 					<span class="count">{{ budget.items|length }}</span>
+					{% endif %}
 				</div>
 
-				{% if budget.items %}
+				{% if option_groups %}
+				<p class="intro" style="margin-top:0">Escolha uma das opções abaixo. Os totais são por alternativa.</p>
+				{% for group in option_groups %}
+				{% set opt = options[loop.index0] if options and options|length > loop.index0 else none %}
+				<div class="section-title" style="margin-top:1.5rem">
+					{{ group.label }}
+					{% if budget.selected_option_key and budget.selected_option_key == group.key %}
+					<span class="count" style="background:#16a34a;color:#fff">Selecionada</span>
+					{% endif %}
+				</div>
+				<div class="items-list">
+					{% for item in group.items %}
+					<article class="item-card">
+						<div class="item-card-header">
+							<div class="item-card-header-left">
+								<span class="item-num">{{ loop.index }}</span>
+								<span class="item-type item-type-{{ item.item_type or 'manual' }}">{{ item.type_label }}</span>
+								{% if item.is_recurring %}
+								<span class="item-type" style="background:rgba(16,185,129,0.15);color:#059669">{{ item.recurrence_label }}</span>
+								{% endif %}
+							</div>
+							<div class="item-total-header">
+								{{ format_brl(item.total) }}
+								{% if item.is_recurring %}
+								<span style="display:block;font-size:11px;font-weight:500;opacity:0.75">
+									{% if item.recurrence_period == 'quarterly' %}/trimestre
+									{% elif item.recurrence_period == 'yearly' %}/ano
+									{% else %}/mês{% endif %}
+								</span>
+								{% endif %}
+							</div>
+						</div>
+						<div class="item-card-body">
+							<div class="item-description rich-text-content">{{ item.description|rich_html }}</div>
+							{% if item.codigo %}
+							<div class="item-codigo">Cód: {{ item.codigo }}</div>
+							{% endif %}
+							<div class="item-meta-grid">
+								<div class="item-meta-cell">
+									<div class="item-meta-label">Quantidade</div>
+									<div class="item-meta-value">{{ '%g'|format(item.quantity or 0) }}{% if item.unit_of_measure %} {{ item.unit_of_measure }}{% endif %}</div>
+								</div>
+								<div class="item-meta-cell">
+									<div class="item-meta-label">Valor unit.</div>
+									<div class="item-meta-value">{{ format_brl(item.unit_price or 0) }}</div>
+								</div>
+								<div class="item-meta-cell">
+									<div class="item-meta-label">Total</div>
+									<div class="item-meta-value item-meta-value-total">{{ format_brl(item.total) }}</div>
+								</div>
+							</div>
+							{% if item.observations %}
+							<div class="item-obs rich-text-content">
+								<div class="item-obs-label">Observações</div>
+								{{ item.observations|rich_html }}
+							</div>
+							{% endif %}
+						</div>
+					</article>
+					{% endfor %}
+				</div>
+				{% if opt %}
+				<div class="totals-box">
+					<div class="totals-row">
+						<span>Subtotal (único)</span>
+						<span>{{ format_brl(opt.subtotal) }}</span>
+					</div>
+					{% if budget.discount %}
+					<div class="totals-row">
+						<span>Desconto</span>
+						<span>- {{ format_brl(opt.discount) }}</span>
+					</div>
+					{% endif %}
+					<div class="totals-row total">
+						<span>TOTAL · {{ group.label }}</span>
+						<span>{{ format_brl(opt.total) }}</span>
+					</div>
+				</div>
+				{% endif %}
+				{% endfor %}
+				{% elif budget.items %}
 				<div class="items-list">
 					{% for item in budget.items %}
 					<article class="item-card">
@@ -330,12 +415,6 @@
 					</article>
 					{% endfor %}
 				</div>
-				{% else %}
-				<div class="items-empty">
-					<i class="fas fa-inbox" style="font-size:24px;margin-bottom:8px;opacity:0.4;display:block"></i>
-					Nenhum item informado
-				</div>
-				{% endif %}
 
 				<div class="totals-box">
 					<div class="totals-row">
@@ -372,6 +451,12 @@
 						<span>{{ format_brl(budget.total) }}</span>
 					</div>
 				</div>
+				{% else %}
+				<div class="items-empty">
+					<i class="fas fa-inbox" style="font-size:24px;margin-bottom:8px;opacity:0.4;display:block"></i>
+					Nenhum item informado
+				</div>
+				{% endif %}
 
 				{% if budget.payment_terms %}
 				<div class="terms">
@@ -385,6 +470,13 @@
 					<i class="fas fa-check-circle"></i>
 					<div>
 						Orçamento aprovado{% if budget.responded_at %} em {{ budget.responded_at.strftime('%d/%m/%Y às %H:%M') }}{% endif %}.
+						{% if budget.selected_option_key %}
+						{% for opt in options or [] %}
+						{% if opt.key == budget.selected_option_key %}
+						<br><span style="font-weight:600;font-size:13px">Opção escolhida: {{ opt.label }} ({{ format_brl(opt.total) }})</span>
+						{% endif %}
+						{% endfor %}
+						{% endif %}
 						{% if budget.signer_name %}<br><span style="font-weight:500;font-size:13px">Assinado por: {{ budget.signer_name }}</span>{% endif %}
 					</div>
 				</div>

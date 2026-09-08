@@ -1231,6 +1231,8 @@ class Budget(db.Model):
 	signature_data = db.Column(db.Text, nullable=True)
 	signature_file_path = db.Column(db.String(500), nullable=True)
 	signature_timestamp = db.Column(db.DateTime, nullable=True)
+	# Alternativa escolhida pelo cliente na aprovação (option_key dos itens)
+	selected_option_key = db.Column(db.String(40), nullable=True)
 	
 	# Relacionamentos
 	client = db.relationship('Client', backref='budgets')
@@ -1258,7 +1260,75 @@ class Budget(db.Model):
 	@property
 	def total(self) -> float:
 		return max(self.subtotal - (self.discount or 0.0), 0.0)
-	
+
+	@property
+	def has_options(self) -> bool:
+		return any((getattr(item, "option_key", None) or "").strip() for item in (self.items or []))
+
+	def option_groups(self) -> list[Dict[str, Any]]:
+		"""Agrupa itens por opção alternativa (ordem de aparição)."""
+		groups: list[Dict[str, Any]] = []
+		index: Dict[str, int] = {}
+		for item in self.items or []:
+			key = (getattr(item, "option_key", None) or "").strip()
+			if not key:
+				continue
+			label = (getattr(item, "option_label", None) or "").strip() or f"Opção {key}"
+			if key not in index:
+				index[key] = len(groups)
+				groups.append({"key": key, "label": label, "items": []})
+			elif label and not groups[index[key]]["label"]:
+				groups[index[key]]["label"] = label
+			groups[index[key]]["items"].append(item)
+		return groups
+
+	def totals_for_items(self, items: list) -> Dict[str, Any]:
+		subtotal = sum(
+			item.total for item in items if not getattr(item, "is_recurring", False)
+		)
+		recurring: Dict[str, float] = {}
+		for item in items:
+			if not getattr(item, "is_recurring", False):
+				continue
+			period = (
+				item.recurrence_period
+				if item.recurrence_period in BudgetItem.RECURRENCE_LABELS
+				else "monthly"
+			)
+			recurring[period] = recurring.get(period, 0.0) + item.total
+		discount = float(self.discount or 0.0)
+		return {
+			"subtotal": float(subtotal),
+			"discount": discount,
+			"total": max(float(subtotal) - discount, 0.0),
+			"recurring": recurring,
+		}
+
+	def totals_by_option(self) -> list[Dict[str, Any]]:
+		out: list[Dict[str, Any]] = []
+		for group in self.option_groups():
+			totals = self.totals_for_items(group["items"])
+			out.append({
+				"key": group["key"],
+				"label": group["label"],
+				"items_count": len(group["items"]),
+				**totals,
+				"selected": bool(
+					self.selected_option_key
+					and self.selected_option_key == group["key"]
+				),
+			})
+		return out
+
+	def selected_option(self) -> Dict[str, Any] | None:
+		key = (self.selected_option_key or "").strip()
+		if not key:
+			return None
+		for row in self.totals_by_option():
+			if row["key"] == key:
+				return row
+		return None
+
 	@property
 	def is_expired(self) -> bool:
 		return bool(self.valid_until and self.valid_until < get_brasilia_now().date())
@@ -1367,6 +1437,9 @@ class BudgetItem(db.Model):
 	is_recurring = db.Column(db.Boolean, default=False)
 	# monthly | quarterly | yearly (quando is_recurring)
 	recurrence_period = db.Column(db.String(20), nullable=True)
+	# Alternativas do orçamento (mesmo key = mesma opção)
+	option_key = db.Column(db.String(40), nullable=True, index=True)
+	option_label = db.Column(db.String(200), nullable=True)
 
 	service = db.relationship('Service', backref='budget_items', lazy=True)
 
@@ -1410,6 +1483,8 @@ class BudgetItem(db.Model):
 			"sort_order": self.sort_order,
 			"is_recurring": bool(self.is_recurring),
 			"recurrence_period": period,
+			"option_key": (self.option_key or "").strip() or None,
+			"option_label": (self.option_label or "").strip() or None,
 		}
 
 	def __repr__(self) -> str:

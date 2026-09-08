@@ -1323,6 +1323,9 @@ def _budget_detail_json(b: Budget):
 		"total": float(b.total or 0),
 		"has_file": bool(b.has_file()) if hasattr(b, "has_file") else False,
 		"original_filename": b.original_filename or "",
+		"has_options": bool(getattr(b, "has_options", False)),
+		"selected_option_key": (b.selected_option_key or None) if hasattr(b, "selected_option_key") else None,
+		"options": getattr(b, "totals_by_option", lambda: [])(),
 		"items": [item.to_dict() for item in (b.items or [])],
 	}
 

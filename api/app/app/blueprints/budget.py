@@ -59,10 +59,26 @@ def get_branding_folder():
     return folder
 
 def get_budget_logo_path():
-    """Caminho do logo configurado (ou None se não existir)"""
-    logo_path = SystemConfig.get('budget_logo_path')
-    if logo_path and os.path.exists(logo_path):
-        return logo_path
+    """Caminho do logo configurado (ou None se não existir).
+
+    Resolve path absoluto antigo (ex. outro root/deploy) via basename na pasta
+    de branding atual e, se preciso, busca logo.* nessa pasta.
+    """
+    folder = get_branding_folder()
+    stored = (SystemConfig.get('budget_logo_path') or '').strip()
+    candidates = []
+    if stored:
+        candidates.append(stored)
+        candidates.append(os.path.join(folder, os.path.basename(stored)))
+    for ext in ('png', 'jpg', 'jpeg', 'webp', 'gif'):
+        candidates.append(os.path.join(folder, f'logo.{ext}'))
+    seen = set()
+    for path in candidates:
+        if not path or path in seen:
+            continue
+        seen.add(path)
+        if os.path.isfile(path):
+            return path
     return None
 
 def _parse_date(value):
@@ -818,6 +834,17 @@ def save_builder(budget_id=None):
             else:
                 recurrence_period = None
 
+            option_key = (item.get('option_key') or '').strip() or None
+            option_label = (item.get('option_label') or '').strip() or None
+            if option_key:
+                option_key = option_key[:40]
+                if option_label:
+                    option_label = option_label[:200]
+                else:
+                    option_label = f"Opção {option_key}"
+            else:
+                option_label = None
+
             budget_entry.items.append(BudgetItem(
                 item_type=item_type,
                 product_id=product_id if item_type == 'product' else None,
@@ -831,6 +858,8 @@ def save_builder(budget_id=None):
                 sort_order=index,
                 is_recurring=is_recurring,
                 recurrence_period=recurrence_period,
+                option_key=option_key,
+                option_label=option_label,
             ))
         
         db.session.commit()
@@ -1150,7 +1179,9 @@ def public_budget(token):
     return render_template('public/budget.html',
                          budget=budget_entry,
                          colors=budget_entry.get_theme_colors(),
-                         has_logo=bool(get_budget_logo_path()) and budget_entry.show_logo)
+                         has_logo=bool(get_budget_logo_path()) and budget_entry.show_logo,
+                         options=budget_entry.totals_by_option(),
+                         option_groups=budget_entry.option_groups())
 
 
 @budget.route('/publico/<token>/aprovar', methods=['GET', 'POST'])
@@ -1172,10 +1203,20 @@ def public_approve(token):
 			budget=budget_entry,
 			colors=budget_entry.get_theme_colors(),
 			has_logo=bool(get_budget_logo_path()) and budget_entry.show_logo,
+			options=budget_entry.totals_by_option(),
 		)
 
 	signer_name = (request.form.get('signer_name') or '').strip()
 	signature_data = (request.form.get('signature_data') or '').strip()
+	selected_option_key = (request.form.get('selected_option_key') or '').strip() or None
+
+	option_keys = {g["key"] for g in budget_entry.option_groups()}
+	if option_keys:
+		if not selected_option_key or selected_option_key not in option_keys:
+			public_flash('Selecione uma das opções do orçamento para aprovar.', 'error')
+			return redirect(url_for('budget.public_approve', token=token))
+	else:
+		selected_option_key = None
 
 	if not signer_name:
 		public_flash('Informe seu nome completo para assinar.', 'error')
@@ -1194,6 +1235,7 @@ def public_approve(token):
 		budget_entry.signature_file_path = signature_path
 		budget_entry.signature_timestamp = get_brasilia_now()
 		budget_entry.responded_at = get_brasilia_now()
+		budget_entry.selected_option_key = selected_option_key
 		db.session.commit()
 		public_flash('Orçamento aprovado e assinado com sucesso! Obrigado.', 'success')
 	except Exception:

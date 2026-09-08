@@ -3,7 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { FileDown, GripVertical, Link2, Plus, Sparkles, Trash2, Unlink, X } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type Dispatch, type SetStateAction } from "react";
 import { BudgetAiDialog, type BudgetAiDraft } from "@/components/budgets/BudgetAiDialog";
 import { Modal } from "@/components/ui/Modal";
 import { PrimaryButton, UnderlineField } from "@/components/ui/UnderlineField";
@@ -30,6 +30,17 @@ export type BudgetItemForm = {
   observations: string;
   is_recurring: boolean;
   recurrence_period: "monthly" | "quarterly" | "yearly";
+  option_key?: string | null;
+  option_label?: string | null;
+};
+
+export type BudgetOptionTotal = {
+  key: string;
+  label: string;
+  subtotal: number;
+  discount: number;
+  total: number;
+  selected?: boolean;
 };
 
 export type BudgetDetail = {
@@ -50,6 +61,9 @@ export type BudgetDetail = {
   updated_at_iso?: string | null;
   subtotal?: number;
   total?: number;
+  has_options?: boolean;
+  selected_option_key?: string | null;
+  options?: BudgetOptionTotal[];
   items?: Array<{
     item_type?: string;
     product_id?: number | null;
@@ -62,8 +76,12 @@ export type BudgetDetail = {
     observations?: string;
     is_recurring?: boolean;
     recurrence_period?: string | null;
+    option_key?: string | null;
+    option_label?: string | null;
   }>;
 };
+
+type OptionBlock = { key: string; label: string };
 
 type Theme = {
   id: number;
@@ -79,7 +97,10 @@ function newKey() {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 }
 
-function emptyItem(type: BudgetItemForm["item_type"] = "manual"): BudgetItemForm {
+function emptyItem(
+  type: BudgetItemForm["item_type"] = "manual",
+  option?: OptionBlock | null,
+): BudgetItemForm {
   return {
     key: newKey(),
     item_type: type,
@@ -91,7 +112,19 @@ function emptyItem(type: BudgetItemForm["item_type"] = "manual"): BudgetItemForm
     observations: "",
     is_recurring: false,
     recurrence_period: "monthly",
+    option_key: option?.key || null,
+    option_label: option?.label || null,
   };
+}
+
+function optionsFromItems(items: BudgetItemForm[]): OptionBlock[] {
+  const seen = new Map<string, string>();
+  for (const it of items) {
+    const key = (it.option_key || "").trim();
+    if (!key || seen.has(key)) continue;
+    seen.set(key, (it.option_label || "").trim() || `Opção ${key}`);
+  }
+  return [...seen.entries()].map(([key, label]) => ({ key, label }));
 }
 
 function fromDetail(b?: BudgetDetail | null): BudgetItemForm[] {
@@ -110,6 +143,8 @@ function fromDetail(b?: BudgetDetail | null): BudgetItemForm[] {
     observations: stripHtml(it.observations) || it.observations || "",
     is_recurring: Boolean(it.is_recurring),
     recurrence_period: (it.recurrence_period as BudgetItemForm["recurrence_period"]) || "monthly",
+    option_key: it.option_key || null,
+    option_label: it.option_label || null,
   }));
 }
 
@@ -128,6 +163,11 @@ export function BudgetBuilder({ budget }: { budget?: BudgetDetail | null }) {
   const [themeId, setThemeId] = useState(budget?.theme_id ? String(budget.theme_id) : "");
   const [showLogo, setShowLogo] = useState(budget?.show_logo !== false);
   const [items, setItems] = useState<BudgetItemForm[]>(() => fromDetail(budget));
+  const [options, setOptions] = useState<OptionBlock[]>(() => optionsFromItems(fromDetail(budget)));
+  const [activeOptionKey, setActiveOptionKey] = useState<string | null>(() => {
+    const opts = optionsFromItems(fromDetail(budget));
+    return opts[0]?.key || null;
+  });
   const [clientSearch, setClientSearch] = useState("");
   const [client, setClient] = useState<ClientOpt | null>(
     budget?.client_name
@@ -194,6 +234,31 @@ export function BudgetBuilder({ budget }: { budget?: BudgetDetail | null }) {
   }, [clients.data, clientSearch]);
 
   const totals = useMemo(() => {
+    const disc = Math.max(Number(discount.replace(",", ".")) || 0, 0);
+    const byOption = options.map((opt) => {
+      let subtotal = 0;
+      const recurring: Record<string, number> = {};
+      for (const it of items) {
+        if (it.option_key !== opt.key) continue;
+        const qty = Number(it.quantity.replace(",", ".")) || 0;
+        const price = Number(it.unit_price.replace(",", ".")) || 0;
+        const line = qty * price;
+        if (it.is_recurring) {
+          const p = it.recurrence_period || "monthly";
+          recurring[p] = (recurring[p] || 0) + line;
+        } else {
+          subtotal += line;
+        }
+      }
+      return {
+        key: opt.key,
+        label: opt.label,
+        subtotal,
+        discount: disc,
+        total: Math.max(subtotal - disc, 0),
+        recurring,
+      };
+    });
     let subtotal = 0;
     const recurring: Record<string, number> = {};
     for (const it of items) {
@@ -207,9 +272,15 @@ export function BudgetBuilder({ budget }: { budget?: BudgetDetail | null }) {
         subtotal += line;
       }
     }
-    const disc = Math.max(Number(discount.replace(",", ".")) || 0, 0);
-    return { subtotal, discount: disc, total: Math.max(subtotal - disc, 0), recurring };
-  }, [items, discount]);
+    return {
+      subtotal,
+      discount: disc,
+      total: Math.max(subtotal - disc, 0),
+      recurring,
+      byOption,
+      hasOptions: options.length > 0,
+    };
+  }, [items, discount, options]);
 
   const save = useMutation({
     mutationFn: async () => {
@@ -242,6 +313,8 @@ export function BudgetBuilder({ budget }: { budget?: BudgetDetail | null }) {
             observations: it.observations,
             is_recurring: it.is_recurring,
             recurrence_period: it.is_recurring ? it.recurrence_period : null,
+            option_key: it.option_key || null,
+            option_label: it.option_label || null,
           })),
       };
       if (budget?.id) return flask.post<{ success: boolean; budget_id: number }>(`/api/web/budgets/${budget.id}`, payload);
@@ -257,6 +330,59 @@ export function BudgetBuilder({ budget }: { budget?: BudgetDetail | null }) {
 
   const periodLabel: Record<string, string> = { monthly: "Mensal", quarterly: "Trimestral", yearly: "Anual" };
 
+  function nextOptionKey(list: OptionBlock[]) {
+    const nums = list.map((o) => Number(o.key)).filter((n) => Number.isFinite(n) && n > 0);
+    return String((nums.length ? Math.max(...nums) : 0) + 1);
+  }
+
+  function addOption() {
+    const key = nextOptionKey(options);
+    const label = `Opção ${key}`;
+    const next = [...options, { key, label }];
+    setOptions(next);
+    setActiveOptionKey(key);
+    if (options.length === 0) {
+      // Migra itens flat para a primeira opção
+      setItems((prev) =>
+        prev.map((row) => ({
+          ...row,
+          option_key: key,
+          option_label: label,
+        })),
+      );
+    }
+  }
+
+  function updateOptionLabel(key: string, label: string) {
+    const clean = label.trim() || `Opção ${key}`;
+    setOptions((prev) => prev.map((o) => (o.key === key ? { ...o, label: clean } : o)));
+    setItems((prev) =>
+      prev.map((row) => (row.option_key === key ? { ...row, option_label: clean } : row)),
+    );
+  }
+
+  function removeOption(key: string) {
+    if (!window.confirm("Remover esta opção e todos os itens dela?")) return;
+    const remaining = options.filter((o) => o.key !== key);
+    setOptions(remaining);
+    setItems((prev) => {
+      const filtered = prev.filter((row) => row.option_key !== key);
+      if (!remaining.length) {
+        return filtered.map((row) => ({ ...row, option_key: null, option_label: null }));
+      }
+      return filtered;
+    });
+    setActiveOptionKey((cur) => (cur === key ? remaining[0]?.key || null : cur));
+  }
+
+  function addItemToOption(type: BudgetItemForm["item_type"], optionKey?: string | null) {
+    const opt =
+      options.find((o) => o.key === (optionKey || activeOptionKey)) ||
+      options[0] ||
+      null;
+    setItems((prev) => [...prev, emptyItem(type, opt)]);
+  }
+
   function moveItem(from: number, to: number) {
     if (from === to || from < 0 || to < 0) return;
     setItems((prev) => {
@@ -267,13 +393,18 @@ export function BudgetBuilder({ budget }: { budget?: BudgetDetail | null }) {
     });
   }
 
+  function resolveActiveOption(): OptionBlock | null {
+    return options.find((o) => o.key === activeOptionKey) || options[0] || null;
+  }
+
   function addCustomService() {
     const desc = customService.description.trim();
     if (!desc) return;
+    const opt = resolveActiveOption();
     setItems((prev) => [
       ...prev,
       {
-        ...emptyItem("service"),
+        ...emptyItem("service", opt),
         description: desc,
         unit_price: customService.unit_price || "0",
       },
@@ -342,6 +473,8 @@ export function BudgetBuilder({ budget }: { budget?: BudgetDetail | null }) {
       unit_of_measure: it.unit_of_measure || "",
       observations: stripHtml(it.observations) || it.observations || "",
     }));
+    setOptions([]);
+    setActiveOptionKey(null);
     setItems(nextItems.length ? nextItems : [emptyItem()]);
     return true;
   }
@@ -463,7 +596,9 @@ export function BudgetBuilder({ budget }: { budget?: BudgetDetail | null }) {
 
         <section className="rounded-2xl border border-line p-6">
           <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
-            <h2 className="text-lg font-semibold text-navy">Itens</h2>
+            <h2 className="text-lg font-semibold text-navy">
+              {options.length ? "Alternativas" : "Itens"}
+            </h2>
             <div className="flex flex-wrap gap-2">
               <button
                 type="button"
@@ -475,6 +610,13 @@ export function BudgetBuilder({ budget }: { budget?: BudgetDetail | null }) {
               </button>
               <button
                 type="button"
+                onClick={addOption}
+                className="rounded-lg border border-line px-3 py-1.5 text-sm"
+              >
+                {options.length ? "Nova opção" : "Usar opções alternativas"}
+              </button>
+              <button
+                type="button"
                 onClick={() => setServiceOpen(true)}
                 className="rounded-lg border border-line px-3 py-1.5 text-sm"
               >
@@ -482,14 +624,14 @@ export function BudgetBuilder({ budget }: { budget?: BudgetDetail | null }) {
               </button>
               <button
                 type="button"
-                onClick={() => setItems((prev) => [...prev, emptyItem("product")])}
+                onClick={() => addItemToOption("product")}
                 className="rounded-lg border border-line px-3 py-1.5 text-sm"
               >
                 Produto
               </button>
               <button
                 type="button"
-                onClick={() => setItems((prev) => [...prev, emptyItem("manual")])}
+                onClick={() => addItemToOption("manual")}
                 className="inline-flex items-center gap-1 rounded-lg bg-inverse px-3 py-1.5 text-sm text-on-inverse"
               >
                 <Plus className="h-3.5 w-3.5" />
@@ -498,174 +640,143 @@ export function BudgetBuilder({ budget }: { budget?: BudgetDetail | null }) {
             </div>
           </div>
           <p className="mb-3 text-xs text-muted">
-            Segure o ícone e arraste para reordenar. Ative Recorrente para cobrança mensal, trimestral ou anual. A descrição de cada serviço pode ser editada livremente.
+            {options.length
+              ? "Cada opção é uma alternativa. O cliente escolhe uma na aprovação. Arraste para reordenar itens."
+              : "Segure o ícone e arraste para reordenar. Ative Recorrente para cobrança mensal, trimestral ou anual. Use “Usar opções alternativas” para propostas mutuamente exclusivas."}
           </p>
-          <div className="space-y-4">
-            {items.map((it, idx) => (
-              <div
-                key={it.key}
-                onDragOver={(e) => {
-                  e.preventDefault();
-                  setOverIdx(idx);
-                }}
-                onDrop={(e) => {
-                  e.preventDefault();
-                  const from = Number(e.dataTransfer.getData("text/plain"));
-                  moveItem(from, idx);
-                  setDragFrom(null);
-                  setOverIdx(null);
-                }}
-                className={cn(
-                  "rounded-xl border p-4",
-                  overIdx === idx && dragFrom !== null && dragFrom !== idx ? "border-brand bg-brand/5" : "border-line",
-                )}
-              >
-                <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-                  <div className="flex items-center gap-2">
-                    <span
-                      draggable
-                      title="Arrastar para reordenar"
-                      onDragStart={(e) => {
-                        setDragFrom(idx);
-                        e.dataTransfer.effectAllowed = "move";
-                        e.dataTransfer.setData("text/plain", String(idx));
-                      }}
-                      onDragEnd={() => {
-                        setDragFrom(null);
-                        setOverIdx(null);
-                      }}
-                      className="inline-flex cursor-grab touch-none text-muted active:cursor-grabbing"
-                    >
-                      <GripVertical className="h-5 w-5" />
-                    </span>
-                    <span className="rounded-full bg-wash px-2 py-0.5 text-xs font-medium text-ink">
-                      {TYPE_LABEL[it.item_type] || "Item"}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setItems((prev) =>
-                          prev.map((row, i) => (i === idx ? { ...row, is_recurring: !row.is_recurring } : row)),
-                        )
-                      }
-                      className={cn(
-                        "rounded-full px-3 py-1 text-xs font-medium",
-                        it.is_recurring ? "bg-brand text-white" : "bg-wash text-muted hover:text-ink",
-                      )}
-                    >
-                      Recorrente
-                    </button>
-                    {it.is_recurring ? (
-                      <select
-                        value={it.recurrence_period}
-                        onChange={(e) =>
-                          setItems((prev) =>
-                            prev.map((row, i) =>
-                              i === idx
-                                ? { ...row, recurrence_period: e.target.value as BudgetItemForm["recurrence_period"] }
-                                : row,
-                            ),
-                          )
-                        }
+
+          {options.length ? (
+            <div className="space-y-6">
+              {options.map((opt) => {
+                const optItems = items
+                  .map((it, idx) => ({ it, idx }))
+                  .filter(({ it }) => it.option_key === opt.key);
+                const optTotal = totals.byOption.find((row) => row.key === opt.key);
+                return (
+                  <div key={opt.key} className="rounded-2xl border border-line p-4">
+                    <div className="mb-3 flex flex-wrap items-center gap-2">
+                      <input
+                        value={opt.label}
+                        onChange={(e) => updateOptionLabel(opt.key, e.target.value)}
+                        onFocus={() => setActiveOptionKey(opt.key)}
+                        className="min-w-[12rem] flex-1 border-0 border-b border-line bg-transparent py-1 text-base font-semibold text-navy"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setActiveOptionKey(opt.key);
+                          addItemToOption("manual", opt.key);
+                        }}
                         className="rounded-lg border border-line px-2 py-1 text-xs"
                       >
-                        <option value="monthly">Mensal</option>
-                        <option value="quarterly">Trimestral</option>
-                        <option value="yearly">Anual</option>
-                      </select>
+                        + Item
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => removeOption(opt.key)}
+                        className="text-open"
+                        aria-label="Remover opção"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </div>
+                    <div className="space-y-3">
+                      {optItems.map(({ it, idx }) => (
+                        <ItemEditor
+                          key={it.key}
+                          it={it}
+                          idx={idx}
+                          dragFrom={dragFrom}
+                          overIdx={overIdx}
+                          setDragFrom={setDragFrom}
+                          setOverIdx={setOverIdx}
+                          moveItem={moveItem}
+                          setItems={setItems}
+                        />
+                      ))}
+                      {!optItems.length ? (
+                        <p className="text-sm text-muted">Nenhum item nesta opção.</p>
+                      ) : null}
+                    </div>
+                    {optTotal ? (
+                      <div className="mt-3 ml-auto max-w-xs space-y-1 text-sm">
+                        <div className="flex justify-between text-muted">
+                          <span>Subtotal</span>
+                          <span>{formatBRL(optTotal.subtotal)}</span>
+                        </div>
+                        {totals.discount > 0 ? (
+                          <div className="flex justify-between text-muted">
+                            <span>Desconto</span>
+                            <span>- {formatBRL(optTotal.discount)}</span>
+                          </div>
+                        ) : null}
+                        <div className="flex justify-between border-t border-line pt-2 font-semibold text-navy">
+                          <span>Total · {opt.label}</span>
+                          <span>{formatBRL(optTotal.total)}</span>
+                        </div>
+                      </div>
                     ) : null}
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => setItems((prev) => prev.filter((_, i) => i !== idx))}
-                    className="text-open"
-                    aria-label="Remover item"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </button>
-                </div>
-                <textarea
-                  value={it.description}
-                  onChange={(e) =>
-                    setItems((prev) => prev.map((row, i) => (i === idx ? { ...row, description: e.target.value } : row)))
-                  }
-                  placeholder={
-                    it.item_type === "service"
-                      ? "Descreva o serviço (ex: Instalação de rede, manutenção…)"
-                      : "Descrição do item"
-                  }
-                  rows={2}
-                  className="mb-3 w-full rounded-lg border border-line px-3 py-2 text-sm"
-                />
-                <div className="grid gap-3 sm:grid-cols-3">
-                  <label className="text-xs text-muted">
-                    Qtd
-                    <input
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      value={it.quantity}
-                      onChange={(e) =>
-                        setItems((prev) => prev.map((row, i) => (i === idx ? { ...row, quantity: e.target.value } : row)))
-                      }
-                      className="mt-1 w-full border-b border-line py-1 text-sm text-ink"
-                    />
-                  </label>
-                  <label className="text-xs text-muted">
-                    Valor unit. (R$)
-                    <input
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      value={it.unit_price}
-                      onChange={(e) =>
-                        setItems((prev) => prev.map((row, i) => (i === idx ? { ...row, unit_price: e.target.value } : row)))
-                      }
-                      className="mt-1 w-full border-b border-line py-1 text-sm text-ink"
-                    />
-                  </label>
-                  <div className="flex items-end justify-between text-sm font-medium text-navy">
-                    {formatBRL((Number(it.quantity.replace(",", ".")) || 0) * (Number(it.unit_price.replace(",", ".")) || 0))}
-                  </div>
-                </div>
+                );
+              })}
+              <label className="ml-auto flex max-w-xs items-center justify-between gap-3 text-sm">
+                <span className="text-muted">Desconto (R$) por opção</span>
                 <input
-                  value={it.observations}
-                  onChange={(e) =>
-                    setItems((prev) => prev.map((row, i) => (i === idx ? { ...row, observations: e.target.value } : row)))
-                  }
-                  placeholder="Observações (visível ao cliente)"
-                  className="mt-3 w-full border-0 border-b border-line py-1 text-sm"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={discount}
+                  onChange={(e) => setDiscount(e.target.value)}
+                  className="w-28 border-b border-line py-1 text-right"
                 />
-              </div>
-            ))}
-          </div>
-          <div className="mt-4 ml-auto max-w-xs space-y-1 text-sm">
-            <div className="flex justify-between">
-              <span className="text-muted">Subtotal (único)</span>
-              <span>{formatBRL(totals.subtotal)}</span>
+              </label>
             </div>
-            {Object.entries(totals.recurring).map(([period, value]) => (
-              <div key={period} className="flex justify-between text-muted">
-                <span>Recorrente ({periodLabel[period] || period})</span>
-                <span>{formatBRL(value)}</span>
+          ) : (
+            <>
+              <div className="space-y-4">
+                {items.map((it, idx) => (
+                  <ItemEditor
+                    key={it.key}
+                    it={it}
+                    idx={idx}
+                    dragFrom={dragFrom}
+                    overIdx={overIdx}
+                    setDragFrom={setDragFrom}
+                    setOverIdx={setOverIdx}
+                    moveItem={moveItem}
+                    setItems={setItems}
+                  />
+                ))}
               </div>
-            ))}
-            <label className="flex items-center justify-between gap-3">
-              <span className="text-muted">Desconto (R$)</span>
-              <input
-                type="number"
-                min="0"
-                step="0.01"
-                value={discount}
-                onChange={(e) => setDiscount(e.target.value)}
-                className="w-28 border-b border-line py-1 text-right"
-              />
-            </label>
-            <div className="flex justify-between border-t border-line pt-2 font-semibold text-navy">
-              <span>TOTAL (único)</span>
-              <span>{formatBRL(totals.total)}</span>
-            </div>
-          </div>
+              <div className="mt-4 ml-auto max-w-xs space-y-1 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-muted">Subtotal (único)</span>
+                  <span>{formatBRL(totals.subtotal)}</span>
+                </div>
+                {Object.entries(totals.recurring).map(([period, value]) => (
+                  <div key={period} className="flex justify-between text-muted">
+                    <span>Recorrente ({periodLabel[period] || period})</span>
+                    <span>{formatBRL(value)}</span>
+                  </div>
+                ))}
+                <label className="flex items-center justify-between gap-3">
+                  <span className="text-muted">Desconto (R$)</span>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={discount}
+                    onChange={(e) => setDiscount(e.target.value)}
+                    className="w-28 border-b border-line py-1 text-right"
+                  />
+                </label>
+                <div className="flex justify-between border-t border-line pt-2 font-semibold text-navy">
+                  <span>TOTAL (único)</span>
+                  <span>{formatBRL(totals.total)}</span>
+                </div>
+              </div>
+            </>
+          )}
         </section>
 
         <section className="rounded-2xl border border-line p-6">
@@ -816,10 +927,11 @@ export function BudgetBuilder({ budget }: { budget?: BudgetDetail | null }) {
                 key={s.id}
                 type="button"
                 onClick={() => {
+                  const opt = resolveActiveOption();
                   setItems((prev) => [
                     ...prev,
                     {
-                      ...emptyItem("service"),
+                      ...emptyItem("service", opt),
                       service_id: s.id,
                       description: s.name,
                       unit_price: String(s.hourly_rate ?? 0),
@@ -842,6 +954,163 @@ export function BudgetBuilder({ budget }: { budget?: BudgetDetail | null }) {
         onClose={() => setAiOpen(false)}
         clientName={client?.name}
         onApply={applyAiDraft}
+      />
+    </div>
+  );
+}
+
+function ItemEditor({
+  it,
+  idx,
+  dragFrom,
+  overIdx,
+  setDragFrom,
+  setOverIdx,
+  moveItem,
+  setItems,
+}: {
+  it: BudgetItemForm;
+  idx: number;
+  dragFrom: number | null;
+  overIdx: number | null;
+  setDragFrom: (v: number | null) => void;
+  setOverIdx: (v: number | null) => void;
+  moveItem: (from: number, to: number) => void;
+  setItems: Dispatch<SetStateAction<BudgetItemForm[]>>;
+}) {
+  return (
+    <div
+      onDragOver={(e) => {
+        e.preventDefault();
+        setOverIdx(idx);
+      }}
+      onDrop={(e) => {
+        e.preventDefault();
+        const from = Number(e.dataTransfer.getData("text/plain"));
+        moveItem(from, idx);
+        setDragFrom(null);
+        setOverIdx(null);
+      }}
+      className={cn(
+        "rounded-xl border p-4",
+        overIdx === idx && dragFrom !== null && dragFrom !== idx ? "border-brand bg-brand/5" : "border-line",
+      )}
+    >
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <span
+            draggable
+            title="Arrastar para reordenar"
+            onDragStart={(e) => {
+              setDragFrom(idx);
+              e.dataTransfer.effectAllowed = "move";
+              e.dataTransfer.setData("text/plain", String(idx));
+            }}
+            onDragEnd={() => {
+              setDragFrom(null);
+              setOverIdx(null);
+            }}
+            className="inline-flex cursor-grab touch-none text-muted active:cursor-grabbing"
+          >
+            <GripVertical className="h-5 w-5" />
+          </span>
+          <span className="rounded-full bg-wash px-2 py-0.5 text-xs font-medium text-ink">
+            {TYPE_LABEL[it.item_type] || "Item"}
+          </span>
+          <button
+            type="button"
+            onClick={() =>
+              setItems((prev) =>
+                prev.map((row, i) => (i === idx ? { ...row, is_recurring: !row.is_recurring } : row)),
+              )
+            }
+            className={cn(
+              "rounded-full px-3 py-1 text-xs font-medium",
+              it.is_recurring ? "bg-brand text-white" : "bg-wash text-muted hover:text-ink",
+            )}
+          >
+            Recorrente
+          </button>
+          {it.is_recurring ? (
+            <select
+              value={it.recurrence_period}
+              onChange={(e) =>
+                setItems((prev) =>
+                  prev.map((row, i) =>
+                    i === idx
+                      ? { ...row, recurrence_period: e.target.value as BudgetItemForm["recurrence_period"] }
+                      : row,
+                  ),
+                )
+              }
+              className="rounded-lg border border-line px-2 py-1 text-xs"
+            >
+              <option value="monthly">Mensal</option>
+              <option value="quarterly">Trimestral</option>
+              <option value="yearly">Anual</option>
+            </select>
+          ) : null}
+        </div>
+        <button
+          type="button"
+          onClick={() => setItems((prev) => prev.filter((_, i) => i !== idx))}
+          className="text-open"
+          aria-label="Remover item"
+        >
+          <Trash2 className="h-4 w-4" />
+        </button>
+      </div>
+      <textarea
+        value={it.description}
+        onChange={(e) =>
+          setItems((prev) => prev.map((row, i) => (i === idx ? { ...row, description: e.target.value } : row)))
+        }
+        placeholder={
+          it.item_type === "service"
+            ? "Descreva o serviço (ex: Instalação de rede, manutenção…)"
+            : "Descrição do item"
+        }
+        rows={2}
+        className="mb-3 w-full rounded-lg border border-line px-3 py-2 text-sm"
+      />
+      <div className="grid gap-3 sm:grid-cols-3">
+        <label className="text-xs text-muted">
+          Qtd
+          <input
+            type="number"
+            min="0"
+            step="0.01"
+            value={it.quantity}
+            onChange={(e) =>
+              setItems((prev) => prev.map((row, i) => (i === idx ? { ...row, quantity: e.target.value } : row)))
+            }
+            className="mt-1 w-full border-b border-line py-1 text-sm text-ink"
+          />
+        </label>
+        <label className="text-xs text-muted">
+          Valor unit. (R$)
+          <input
+            type="number"
+            min="0"
+            step="0.01"
+            value={it.unit_price}
+            onChange={(e) =>
+              setItems((prev) => prev.map((row, i) => (i === idx ? { ...row, unit_price: e.target.value } : row)))
+            }
+            className="mt-1 w-full border-b border-line py-1 text-sm text-ink"
+          />
+        </label>
+        <div className="flex items-end justify-between text-sm font-medium text-navy">
+          {formatBRL((Number(it.quantity.replace(",", ".")) || 0) * (Number(it.unit_price.replace(",", ".")) || 0))}
+        </div>
+      </div>
+      <input
+        value={it.observations}
+        onChange={(e) =>
+          setItems((prev) => prev.map((row, i) => (i === idx ? { ...row, observations: e.target.value } : row)))
+        }
+        placeholder="Observações (visível ao cliente)"
+        className="mt-3 w-full border-0 border-b border-line py-1 text-sm"
       />
     </div>
   );

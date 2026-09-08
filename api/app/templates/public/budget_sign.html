@@ -180,7 +180,7 @@
 			<i class="fas fa-arrow-left"></i> Voltar ao orçamento
 		</a>
 		<h1>Assinar aprovação</h1>
-		<div class="meta">{{ budget.title }} • Total {{ format_brl(budget.total) }}</div>
+		<div class="meta">{{ budget.title }}{% if not options %} • Total {{ format_brl(budget.total) }}{% endif %}</div>
 	</div>
 
 	{% with messages = get_flashed_messages(with_categories=true, category_filter=public_flash_categories) %}
@@ -191,6 +191,23 @@
 
 	<form id="sign-form" method="post" action="{{ url_for('budget.public_approve', token=budget.public_token) }}">
 		<div class="content">
+			{% if options %}
+			<div class="field">
+				<label>Escolha a opção *</label>
+				<div style="display:flex;flex-direction:column;gap:8px;margin-top:6px">
+					{% for opt in options %}
+					<label style="display:flex;align-items:flex-start;gap:10px;padding:12px;border:1px solid #e2e8f0;border-radius:12px;cursor:pointer">
+						<input type="radio" name="selected_option_key" value="{{ opt.key }}" required style="margin-top:3px"
+							{% if loop.first %}checked{% endif %}>
+						<span>
+							<span style="display:block;font-weight:600;color:#0f172a">{{ opt.label }}</span>
+							<span style="display:block;font-size:13px;color:#64748b;margin-top:2px">Total {{ format_brl(opt.total) }}</span>
+						</span>
+					</label>
+					{% endfor %}
+				</div>
+			</div>
+			{% else %}
 			<div class="summary">
 				<div class="summary-row">
 					<span>Cliente</span>
@@ -205,6 +222,7 @@
 					<span>{{ format_brl(budget.total) }}</span>
 				</div>
 			</div>
+			{% endif %}
 
 			<div class="field">
 				<label for="signer-name">Nome completo *</label>

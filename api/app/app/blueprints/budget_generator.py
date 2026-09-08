@@ -136,97 +136,131 @@ def generate_budget_pdf(budget, logo_path: str = None) -> io.BytesIO:
 		"ItemObs", parent=styles["Normal"], textColor=colors.HexColor("#64748b"),
 		fontSize=8, leading=10, leftIndent=8,
 	)
+	style_option = ParagraphStyle(
+		"OptionTitle", parent=styles["Normal"], textColor=primary,
+		fontSize=11, leading=14, fontName="Helvetica-Bold", spaceBefore=4, spaceAfter=2,
+	)
 
-	# Tabela de itens
-	items = list(budget.items)
-	item_rows = [["#", "Tipo", "Descrição", "Qtd", "Valor Unit.", "Total"]]
-	for index, item in enumerate(items, start=1):
-		quantity = item.quantity or 0
-		quantity_text = f"{quantity:g}"
-		if item.unit_of_measure:
-			quantity_text += f" {item.unit_of_measure}"
-		desc_parts = [html_to_reportlab(item.description) or item.description]
-		if item.codigo:
-			desc_parts.append(f"(Cód: {item.codigo})")
-		type_text = item.type_label
-		if getattr(item, "is_recurring", False):
-			rec_label = getattr(item, "recurrence_label", None) or "Mensal"
-			type_text = f"{type_text}\n({rec_label})"
-		total_text = _brl(item.total)
-		if getattr(item, "is_recurring", False):
-			period = getattr(item, "recurrence_period", None) or "monthly"
-			suffix = {"monthly": "/mês", "quarterly": "/trim.", "yearly": "/ano"}.get(period, "/mês")
-			total_text = f"{total_text}\n{suffix}"
-		item_rows.append([
-			str(index),
-			type_text,
-			Paragraph("<br/>".join(desc_parts), style_body),
-			quantity_text,
-			_brl(item.unit_price or 0),
-			total_text,
-		])
-		if item.observations and rich_text_has_content(item.observations):
-			obs_html = html_to_reportlab(item.observations)
+	def _append_items_table(items_list, start_index=1):
+		item_rows = [["#", "Tipo", "Descrição", "Qtd", "Valor Unit.", "Total"]]
+		for index, item in enumerate(items_list, start=start_index):
+			quantity = item.quantity or 0
+			quantity_text = f"{quantity:g}"
+			if item.unit_of_measure:
+				quantity_text += f" {item.unit_of_measure}"
+			desc_parts = [html_to_reportlab(item.description) or item.description]
+			if item.codigo:
+				desc_parts.append(f"(Cód: {item.codigo})")
+			type_text = item.type_label
+			if getattr(item, "is_recurring", False):
+				rec_label = getattr(item, "recurrence_label", None) or "Mensal"
+				type_text = f"{type_text}\n({rec_label})"
+			total_text = _brl(item.total)
+			if getattr(item, "is_recurring", False):
+				period = getattr(item, "recurrence_period", None) or "monthly"
+				suffix = {"monthly": "/mês", "quarterly": "/trim.", "yearly": "/ano"}.get(period, "/mês")
+				total_text = f"{total_text}\n{suffix}"
 			item_rows.append([
-				"",
-				"",
-				Paragraph(f"<i>Obs: {obs_html}</i>", style_obs),
-				"", "", "",
+				str(index),
+				type_text,
+				Paragraph("<br/>".join(desc_parts), style_body),
+				quantity_text,
+				_brl(item.unit_price or 0),
+				total_text,
 			])
-	if not items:
-		item_rows.append(["-", "-", Paragraph("Nenhum item informado", style_body), "-", "-", "-"])
+			if item.observations and rich_text_has_content(item.observations):
+				obs_html = html_to_reportlab(item.observations)
+				item_rows.append([
+					"",
+					"",
+					Paragraph(f"<i>Obs: {obs_html}</i>", style_obs),
+					"", "", "",
+				])
+		if not items_list:
+			item_rows.append(["-", "-", Paragraph("Nenhum item informado", style_body), "-", "-", "-"])
 
-	items_table = Table(item_rows, colWidths=[10 * mm, 18 * mm, None, 18 * mm, 30 * mm, 30 * mm], repeatRows=1)
-	items_table.setStyle(TableStyle([
-		("BACKGROUND", (0, 0), (-1, 0), primary),
-		("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-		("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-		("FONTSIZE", (0, 0), (-1, -1), 9),
-		("TEXTCOLOR", (0, 1), (-1, -1), text_color),
-		("ALIGN", (0, 0), (0, -1), "CENTER"),
-		("ALIGN", (2, 0), (-1, -1), "RIGHT"),
-		("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-		("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#f1f5f9")]),
-		("LINEBELOW", (0, -1), (-1, -1), 0.75, accent),
-		("TOPPADDING", (0, 0), (-1, -1), 5),
-		("BOTTOMPADDING", (0, 0), (-1, -1), 5),
-	]))
-	elements.append(items_table)
-	elements.append(Spacer(1, 4 * mm))
+		table = Table(item_rows, colWidths=[10 * mm, 18 * mm, None, 18 * mm, 30 * mm, 30 * mm], repeatRows=1)
+		table.setStyle(TableStyle([
+			("BACKGROUND", (0, 0), (-1, 0), primary),
+			("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+			("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+			("FONTSIZE", (0, 0), (-1, -1), 9),
+			("TEXTCOLOR", (0, 1), (-1, -1), text_color),
+			("ALIGN", (0, 0), (0, -1), "CENTER"),
+			("ALIGN", (2, 0), (-1, -1), "RIGHT"),
+			("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+			("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#f1f5f9")]),
+			("LINEBELOW", (0, -1), (-1, -1), 0.75, accent),
+			("TOPPADDING", (0, 0), (-1, -1), 5),
+			("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+		]))
+		elements.append(table)
 
-	# Totais
-	totals_rows = [[Paragraph("Subtotal (único)", style_body), Paragraph(_brl(budget.subtotal), style_body)]]
-	recurring = getattr(budget, "recurring_totals_by_period", {}) or {}
-	period_labels = {
-		"monthly": ("Recorrente (mensal)", "/mês"),
-		"quarterly": ("Recorrente (trimestral)", "/trim."),
-		"yearly": ("Recorrente (anual)", "/ano"),
-	}
-	for period_key in ("monthly", "quarterly", "yearly"):
-		amount = recurring.get(period_key) or 0
-		if amount:
-			label, suffix = period_labels[period_key]
+	def _append_totals(subtotal, recurring_map, total_value, title_suffix=""):
+		label_sub = f"Subtotal (único){title_suffix}"
+		totals_rows = [[Paragraph(label_sub, style_body), Paragraph(_brl(subtotal), style_body)]]
+		period_labels = {
+			"monthly": ("Recorrente (mensal)", "/mês"),
+			"quarterly": ("Recorrente (trimestral)", "/trim."),
+			"yearly": ("Recorrente (anual)", "/ano"),
+		}
+		for period_key in ("monthly", "quarterly", "yearly"):
+			amount = (recurring_map or {}).get(period_key) or 0
+			if amount:
+				label, suffix = period_labels[period_key]
+				totals_rows.append([
+					Paragraph(label, style_body),
+					Paragraph(f"{_brl(amount)} {suffix}", style_body),
+				])
+		if budget.discount:
 			totals_rows.append([
-				Paragraph(label, style_body),
-				Paragraph(f"{_brl(amount)} {suffix}", style_body),
+				Paragraph("Desconto", style_body),
+				Paragraph(f"- {_brl(budget.discount)}", style_body),
 			])
-	if budget.discount:
 		totals_rows.append([
-			Paragraph("Desconto", style_body),
-			Paragraph(f"- {_brl(budget.discount)}", style_body),
+			Paragraph(f"<b>TOTAL (único){title_suffix}</b>", style_value),
+			Paragraph(_brl(total_value), style_total),
 		])
-	totals_rows.append([
-		Paragraph("<b>TOTAL (único)</b>", style_value),
-		Paragraph(_brl(budget.total), style_total),
-	])
-	totals_table = Table(totals_rows, colWidths=[None, 40 * mm], hAlign="RIGHT")
-	totals_table.setStyle(TableStyle([
-		("ALIGN", (1, 0), (1, -1), "RIGHT"),
-		("LINEABOVE", (0, -1), (-1, -1), 1, primary),
-		("TOPPADDING", (0, 0), (-1, -1), 3),
-		("BOTTOMPADDING", (0, 0), (-1, -1), 3),
-	]))
-	elements.append(totals_table)
+		totals_table = Table(totals_rows, colWidths=[None, 40 * mm], hAlign="RIGHT")
+		totals_table.setStyle(TableStyle([
+			("ALIGN", (1, 0), (1, -1), "RIGHT"),
+			("LINEABOVE", (0, -1), (-1, -1), 1, primary),
+			("TOPPADDING", (0, 0), (-1, -1), 3),
+			("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+		]))
+		elements.append(totals_table)
+
+	option_groups = getattr(budget, "option_groups", lambda: [])()
+	selected_key = (getattr(budget, "selected_option_key", None) or "").strip()
+
+	if option_groups:
+		elements.append(Paragraph(
+			"Este orçamento apresenta alternativas. Escolha uma das opções abaixo.",
+			style_body,
+		))
+		elements.append(Spacer(1, 3 * mm))
+		for group in option_groups:
+			selected_mark = " — SELECIONADA" if selected_key and selected_key == group["key"] else ""
+			elements.append(Paragraph(f"{group['label']}{selected_mark}", style_option))
+			_append_items_table(group["items"], start_index=1)
+			elements.append(Spacer(1, 2 * mm))
+			totals = budget.totals_for_items(group["items"])
+			_append_totals(
+				totals["subtotal"],
+				totals["recurring"],
+				totals["total"],
+				title_suffix=f" · {group['label']}",
+			)
+			elements.append(Spacer(1, 5 * mm))
+	else:
+		items = list(budget.items)
+		_append_items_table(items)
+		elements.append(Spacer(1, 4 * mm))
+		_append_totals(
+			budget.subtotal,
+			getattr(budget, "recurring_totals_by_period", {}) or {},
+			budget.total,
+		)
 
 	# Condições de pagamento / observações (não inclui internal_notes — uso interno)
 	if budget.payment_terms and rich_text_has_content(budget.payment_terms):
