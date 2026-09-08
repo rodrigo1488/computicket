@@ -29,6 +29,29 @@ def _source_context(sources: list[dict]) -> str:
 	)
 
 
+def _filter_cited_sources(sources: list[dict], cited: Any) -> list[dict]:
+	"""Mantém só as fontes que o modelo citou; se não citar, devolve todas."""
+	indexes: list[int] = []
+	if isinstance(cited, list):
+		for value in cited:
+			try:
+				idx = int(value)
+			except (TypeError, ValueError):
+				continue
+			if 1 <= idx <= len(sources):
+				indexes.append(idx)
+	if not indexes:
+		return sources
+	seen: set[int] = set()
+	picked: list[dict] = []
+	for idx in indexes:
+		if idx in seen:
+			continue
+		seen.add(idx)
+		picked.append(sources[idx - 1])
+	return picked or sources
+
+
 def _generate(contents: str, system: str, schema: dict[str, Any]) -> dict[str, Any]:
 	try:
 		response = get_client().models.generate_content(
@@ -79,15 +102,28 @@ def answer_question(question: str, history: str = "") -> dict:
 		(
 			"Você é o Copiloto de suporte do Computicket. Responda em português do Brasil, "
 			"objetivamente. Use as fontes como base factual e não invente credenciais, procedimentos "
-			"ou fatos ausentes. Fontes podem ser artigos, tickets, metadados do cofre de senhas "
+			"ou fatos ausentes. Priorize artigos da base de conhecimento quando existirem. "
+			"Cite no texto os artigos usados pelo título (ex.: segundo o artigo X). "
+			"Retorne JSON com draft e cited: lista dos números [1], [2] das FONTES realmente usadas. "
+			"Fontes podem ser artigos, tickets, metadados do cofre de senhas "
 			"(máquina/AnyDesk/cliente) e orçamentos. "
 			"Nunca peça nem reproduza senhas, tokens ou dados pessoais. "
 			"Se a fonte for do cofre, indique a máquina/cliente e oriente abrir o Cofre — "
-			"nunca invente nem cite a senha. Retorne JSON com o campo draft."
+			"nunca invente nem cite a senha."
 		),
-		{"type": "object", "properties": {"draft": {"type": "string"}}, "required": ["draft"]},
+		{
+			"type": "object",
+			"properties": {
+				"draft": {"type": "string"},
+				"cited": {"type": "array", "items": {"type": "integer"}},
+			},
+			"required": ["draft"],
+		},
 	)
-	return {"draft": str(data.get("draft") or "").strip(), "sources": sources}
+	return {
+		"draft": str(data.get("draft") or "").strip(),
+		"sources": _filter_cited_sources(sources, data.get("cited")),
+	}
 
 
 def suggest_reply(instruction: str, history: str) -> dict:

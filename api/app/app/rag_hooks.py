@@ -15,6 +15,8 @@ _executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="rag-index")
 _registered = False
 _PENDING_KEY = "rag_pending_sources"
 _NEW_KEY = "rag_new_sources"
+# Visualização não muda o conteúdo indexável; updated_at costuma acompanhar views_count.
+_ARTICLE_NOISE_ATTRS = frozenset({"views_count", "updated_at"})
 
 
 def _queue(session: Session, source_type: str, source_id: int | None = None, obj=None) -> None:
@@ -24,9 +26,21 @@ def _queue(session: Session, source_type: str, source_id: int | None = None, obj
 		session.info.setdefault(_NEW_KEY, []).append((source_type, obj))
 
 
+def _article_needs_reindex(session: Session, obj: KnowledgeArticle) -> bool:
+	if obj in session.new or obj in session.deleted:
+		return True
+	state = inspect(obj)
+	if not state.modified:
+		return False
+	changed = {attr.key for attr in state.attrs if attr.history.has_changes()}
+	return bool(changed - _ARTICLE_NOISE_ATTRS)
+
+
 def _record_pending(session: Session, _flush_context, _instances) -> None:
 	for obj in session.new | session.dirty | session.deleted:
 		if isinstance(obj, KnowledgeArticle):
+			if not _article_needs_reindex(session, obj):
+				continue
 			if obj.id is not None:
 				_queue(session, "knowledge_article", obj.id)
 			elif obj in session.new:

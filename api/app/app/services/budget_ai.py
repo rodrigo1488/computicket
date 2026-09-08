@@ -6,14 +6,26 @@ import json
 import re
 from typing import Any
 
-from ..models import Service
+from ..models import Plan, Service, System
 from ..rich_text_utils import sanitize_rich_html
 from .gemini_client import GeminiConfigError, api_key, generation_model, get_client
 
 MIN_PROMPT_LEN = 15
 MAX_PRODUCT_CANDIDATES = 40
 MAX_SERVICE_CANDIDATES = 30
+MAX_PLAN_CANDIDATES = 20
+MAX_KNOWLEDGE_SNIPPETS = 6
 BUDGET_GENERATE_TIMEOUT_MS = 90_000
+
+_OPTION_HINT = re.compile(
+	r"\b(op(?:ç|c)(?:ão|oes|ões)|alternativ(?:a|as)|duas propostas|tr[eê]s propostas|"
+	r"proposta b[áa]sica|proposta completa|com e sem)\b",
+	re.I,
+)
+_PLAN_HINT = re.compile(
+	r"\b(plano|planos|mensalidade|licen[cç]a|colaborador|assinatura| implanta[cç][aã]o)\b",
+	re.I,
+)
 
 STOPWORDS = {
 	"a", "o", "os", "as", "um", "uma", "uns", "umas", "de", "da", "do", "das", "dos",
@@ -46,6 +58,14 @@ BUDGET_JSON_SCHEMA: dict[str, Any] = {
 					"service_id": {"type": "integer", "nullable": True},
 					"codigo": {"type": "string", "nullable": True},
 					"unit_of_measure": {"type": "string", "nullable": True},
+					"option_key": {"type": "string", "nullable": True},
+					"option_label": {"type": "string", "nullable": True},
+					"is_recurring": {"type": "boolean"},
+					"recurrence_period": {
+						"type": "string",
+						"enum": ["monthly", "quarterly", "yearly"],
+						"nullable": True,
+					},
 				},
 				"required": ["item_type", "description", "quantity", "unit_price"],
 			},
@@ -60,16 +80,23 @@ Monte orçamentos profissionais em português do Brasil.
 Regras:
 - Use HTML simples apenas com <p>, <ul>, <li>, <strong>, <em>, <br>.
 - Valores monetários em reais (BRL), realistas para o mercado brasileiro.
-- Prefira produtos e serviços da lista de candidatos quando houver correspondência clara.
+- Prefira produtos, serviços e planos da lista de candidatos quando houver correspondência clara.
 - Só use product_id, service_id, codigo e unit_of_measure se vierem exatamente da lista de candidatos.
 - Se não houver match no catálogo, use item_type "manual" com product_id e service_id nulos.
 - Para produtos do catálogo: item_type "product"; para serviços locais: item_type "service".
+- Planos comerciais: item_type "manual". Use o monthly_value do plano como preço unitário.
+  Se o pedido informar N colaboradores/usuários/licenças, quantity = N (o valor mensal é por colaborador).
+  Taxa de implantação (setup_fee) vira item único (não recorrente). Mensalidade é is_recurring=true e recurrence_period="monthly".
 - payment_terms: condições visíveis ao cliente (pagamento, validade, garantia, prazo).
 - internal_notes: anotações internas da equipe (margem, riscos, lembretes) — não para o cliente.
 - description: introdução comercial curta do orçamento.
 - title: título objetivo do orçamento.
 - Cada item deve ter descrição clara; observations por item é opcional (string vazia se não houver).
 - Inclua quantidade e preço unitário coerentes com a descrição do usuário.
+- Artigos da base de conhecimento são referência factual (procedimentos, escopo, regras comerciais). Não invente preços se o plano/catálogo já trouxe o valor.
+- Opções alternativas: só preencha option_key e option_label se o pedido pedir alternativas/opções.
+  Nesse caso cada item pertence a uma opção (option_key "1", "2"…). As opções NÃO somam juntas — o cliente escolhe uma.
+  Sem pedido de alternativas, deixe option_key e option_label nulos (lista plana).
 """
 
 
@@ -120,6 +147,131 @@ def extract_search_terms(prompt: str, limit: int = 8) -> list[str]:
 		add(prompt.strip()[:40])
 
 	return terms
+
+
+def wants_alternative_options(prompt: str) -> bool:
+	"""True se o vendedor pediu propostas alternativas (não uma lista única)."""
+	return bool(_OPTION_HINT.search(prompt or ""))
+
+
+def extract_seat_count(prompt: str) -> int | None:
+	"""Quantidade de colaboradores/licenças mencionada no pedido."""
+	match = _SEAT_HINT.search(prompt or "")
+	if not match:
+		return None
+	try:
+		count = int(match.group(1))
+	except (TypeError, ValueError):
+		return None
+	return count if count > 0 else None
+
+
+def _fetch_plan_candidates(prompt: str) -> list[dict[str, Any]]:
+	"""Planos ativos cujo nome/sistema bate com o pedido (ex.: RH ID)."""
+	terms = extract_search_terms(prompt, limit=6)
+	prompt_lower = (prompt or "").lower()
+	try:
+		plans = (
+			Plan.query.filter(Plan.is_active.is_(True))
+			.join(System, Plan.system_id == System.id)
+			.order_by(Plan.is_featured.desc(), Plan.name.asc())
+			.limit(200)
+			.all()
+		)
+	except Exception:
+		return []
+	if not plans:
+		return []
+
+	scored: list[tuple[int, dict[str, Any]]] = []
+	for plan in plans:
+		name = (plan.name or "").strip()
+		system_name = (plan.system.name if plan.system else "") or ""
+		desc = (plan.description or "").strip()
+		hay = f"{name} {system_name} {desc}".lower()
+		score = 0
+		if name and name.lower() in prompt_lower:
+			score += 8
+		if system_name and system_name.lower() in prompt_lower:
+			score += 6
+		for term in terms:
+			if term in hay:
+				score += 3
+		if plan.is_featured:
+			score += 1
+		if score <= 0:
+			continue
+		additionals = []
+		try:
+			additionals = [
+				{"description": (extra.description or "").strip(), "value": float(extra.value or 0)}
+				for extra in (plan.additionals or [])
+				if (extra.description or "").strip()
+			]
+		except Exception:
+			additionals = []
+		scored.append((
+			score,
+			{
+				"id": plan.id,
+				"name": name,
+				"system": system_name,
+				"description": desc[:400],
+				"monthly_value": float(plan.monthly_value or 0),
+				"setup_fee": float(plan.setup_fee or 0),
+				"monthly_hours": int(plan.monthly_hours or 0),
+				"additional_hour_rate": float(plan.additional_hour_rate or 0),
+				"support_included": bool(plan.support_included),
+				"support_types": plan.get_support_types() if hasattr(plan, "get_support_types") else [],
+				"additionals": additionals,
+			},
+		))
+
+	scored.sort(key=lambda x: (-x[0], x[1]["name"].lower()))
+	picked = [item for _, item in scored[:MAX_PLAN_CANDIDATES]]
+	if picked:
+		return picked
+	if not _PLAN_HINT.search(prompt or ""):
+		return []
+	featured = [plan for plan in plans if plan.is_featured] or plans[:MAX_PLAN_CANDIDATES]
+	fallback: list[dict[str, Any]] = []
+	for plan in featured[:MAX_PLAN_CANDIDATES]:
+		fallback.append({
+			"id": plan.id,
+			"name": (plan.name or "").strip(),
+			"system": (plan.system.name if plan.system else "") or "",
+			"description": ((plan.description or "").strip())[:400],
+			"monthly_value": float(plan.monthly_value or 0),
+			"setup_fee": float(plan.setup_fee or 0),
+			"monthly_hours": int(plan.monthly_hours or 0),
+			"additional_hour_rate": float(plan.additional_hour_rate or 0),
+			"support_included": bool(plan.support_included),
+			"support_types": plan.get_support_types() if hasattr(plan, "get_support_types") else [],
+			"additionals": [],
+		})
+	return fallback
+
+
+def _fetch_knowledge_snippets(prompt: str) -> list[dict[str, Any]]:
+	try:
+		from .rag import hybrid_search
+		hits = hybrid_search(prompt, limit=MAX_KNOWLEDGE_SNIPPETS)
+	except Exception:
+		return []
+	out: list[dict[str, Any]] = []
+	for hit in hits:
+		title = (hit.get("title") or "").strip()
+		snippet = (hit.get("snippet") or "").strip()
+		if not title and not snippet:
+			continue
+		out.append({
+			"source_type": hit.get("source_type"),
+			"source_id": hit.get("source_id"),
+			"title": title,
+			"snippet": snippet[:400],
+			"href": hit.get("href") or "",
+		})
+	return out
 
 
 def _fetch_product_candidates(prompt: str) -> list[dict[str, Any]]:
@@ -278,6 +430,11 @@ def _build_user_contents(
 	client_name: str | None,
 	products: list[dict[str, Any]],
 	services: list[dict[str, Any]],
+	plans: list[dict[str, Any]] | None = None,
+	knowledge: list[dict[str, Any]] | None = None,
+	*,
+	wants_options: bool = False,
+	seat_count: int | None = None,
 ) -> str:
 	parts = [
 		"Descrição do orçamento pelo vendedor:",
@@ -286,6 +443,23 @@ def _build_user_contents(
 	]
 	if client_name:
 		parts.extend([f"Cliente: {client_name.strip()}", ""])
+	if seat_count:
+		parts.extend([
+			f"Quantidade de colaboradores/licenças detectada no pedido: {seat_count}.",
+			"Use essa quantidade nos itens de plano (mensalidade).",
+			"",
+		])
+	if wants_options:
+		parts.extend([
+			"O pedido pede ALTERNATIVAS. Gere 2 ou mais opções mutuamente exclusivas.",
+			"Todo item deve ter option_key (\"1\", \"2\"…) e option_label descritivo.",
+			"",
+		])
+	else:
+		parts.extend([
+			"Não gere opções alternativas. Deixe option_key e option_label nulos.",
+			"",
+		])
 
 	parts.append("Candidatos de produtos do ERP (use apenas estes IDs/códigos se houver match):")
 	if products:
@@ -297,6 +471,20 @@ def _build_user_contents(
 	parts.append("Candidatos de serviços locais (use apenas estes IDs se houver match):")
 	if services:
 		parts.append(json.dumps(services, ensure_ascii=False))
+	else:
+		parts.append("[]")
+
+	parts.append("")
+	parts.append("Planos comerciais cadastrados (use monthly_value/setup_fee destes registros):")
+	if plans:
+		parts.append(json.dumps(plans, ensure_ascii=False))
+	else:
+		parts.append("[]")
+
+	parts.append("")
+	parts.append("Base de conhecimento e histórico interno (referência; não copie dados sensíveis):")
+	if knowledge:
+		parts.append(json.dumps(knowledge, ensure_ascii=False))
 	else:
 		parts.append("[]")
 
@@ -319,6 +507,8 @@ def _post_process(
 	raw: dict[str, Any],
 	products: list[dict[str, Any]],
 	services: list[dict[str, Any]],
+	*,
+	wants_options: bool = False,
 ) -> dict[str, Any]:
 	products_by_id = {int(p["id"]): p for p in products if p.get("id") is not None}
 	services_by_id = {int(s["id"]): s for s in services if s.get("id") is not None}
@@ -352,6 +542,17 @@ def _post_process(
 		quantity = _safe_float(item.get("quantity"), 1.0) or 1.0
 		unit_price = _safe_float(item.get("unit_price"), 0.0)
 		observations = sanitize_rich_html(item.get("observations") or "") or ""
+		is_recurring = bool(item.get("is_recurring"))
+		recurrence_period = (item.get("recurrence_period") or "monthly").strip() or "monthly"
+		if recurrence_period not in ("monthly", "quarterly", "yearly"):
+			recurrence_period = "monthly"
+		option_key = (item.get("option_key") or "").strip() or None
+		option_label = (item.get("option_label") or "").strip() or None
+		if option_key:
+			option_key = option_key[:40]
+			option_label = (option_label or f"Opção {option_key}")[:200]
+		else:
+			option_label = None
 
 		if item_type == "product" and product_id in products_by_id:
 			prod = products_by_id[product_id]
@@ -391,11 +592,27 @@ def _post_process(
 			"quantity": quantity,
 			"unit_price": unit_price,
 			"observations": observations,
+			"is_recurring": is_recurring,
+			"recurrence_period": recurrence_period if is_recurring else None,
+			"option_key": option_key,
+			"option_label": option_label,
 		})
 
 	title = (raw.get("title") or "").strip() or "Orçamento"
 	if len(title) > 200:
 		title = title[:200]
+
+	if not wants_options:
+		for row in items_out:
+			row["option_key"] = None
+			row["option_label"] = None
+	else:
+		keys = {(row.get("option_key") or "").strip() for row in items_out if (row.get("option_key") or "").strip()}
+		if len(keys) < 2:
+			# Pediu alternativas mas a IA devolveu lista plana — não inventa opções.
+			for row in items_out:
+				row["option_key"] = None
+				row["option_label"] = None
 
 	return {
 		"title": title,
@@ -476,7 +693,27 @@ def generate_budget_draft(prompt: str, client_name: str | None = None) -> dict[s
 		services = _fetch_service_candidates(prompt)
 	except Exception:
 		services = []
-	contents = _build_user_contents(prompt, client_name, products, services)
+	try:
+		plans = _fetch_plan_candidates(prompt)
+	except Exception:
+		plans = []
+	try:
+		knowledge = _fetch_knowledge_snippets(prompt)
+	except Exception:
+		knowledge = []
+
+	want_options = wants_alternative_options(prompt)
+	seat_count = extract_seat_count(prompt)
+	contents = _build_user_contents(
+		prompt,
+		client_name,
+		products,
+		services,
+		plans,
+		knowledge,
+		wants_options=want_options,
+		seat_count=seat_count,
+	)
 
 	text = ""
 	last_error: Exception | None = None
@@ -507,7 +744,7 @@ def generate_budget_draft(prompt: str, client_name: str | None = None) -> dict[s
 		raise BudgetAIGenerationError("Formato de resposta da IA inesperado.")
 
 	try:
-		processed = _post_process(raw, products, services)
+		processed = _post_process(raw, products, services, wants_options=want_options)
 	except Exception as exc:
 		raise BudgetAIGenerationError(f"Falha ao interpretar o orçamento gerado: {exc}") from exc
 	if not processed["items"]:

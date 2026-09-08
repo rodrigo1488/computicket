@@ -359,7 +359,8 @@ def _source_link(row: KnowledgeChunk) -> dict:
 		if article:
 			return {
 				"category_id": article.category_id,
-				"href": f"/conhecimento/{article.category_id}",
+				"article_id": article.id,
+				"href": f"/conhecimento/{article.category_id}?artigo={article.id}",
 			}
 	if row.source_type == SOURCE_VAULT:
 		vault = db.session.get(PasswordVault, row.source_id)
@@ -413,6 +414,8 @@ def hybrid_search(query: str, limit: int = 6) -> list[dict]:
 			vector = _cosine(query_vector, row.embedding)
 		has_vector = row.id in vector_scores or row.embedding is not None
 		score = (0.65 * vector + 0.35 * lexical) if query_vector is not None and has_vector else lexical
+		if row.source_type == SOURCE_ARTICLE:
+			score = min(1.0, score + 0.08)
 		if score >= min_score:
 			scored.append((score, row))
 	scored.sort(key=lambda item: item[0], reverse=True)
@@ -422,7 +425,7 @@ def hybrid_search(query: str, limit: int = 6) -> list[dict]:
 			"source_type": row.source_type,
 			"source_id": row.source_id,
 			"title": row.title,
-			"snippet": row.content[:320],
+			"snippet": row.content[:480] if row.source_type == SOURCE_ARTICLE else row.content[:320],
 			"score": round(score, 4),
 		}
 		result.update(_source_link(row))

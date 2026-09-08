@@ -53,6 +53,11 @@ function sourceHref(source: HelpdeskAiSource) {
     source.metadata?.category_id ||
     source.knowledge_id ||
     source.metadata?.knowledge_id;
+  const articleId =
+    source.article_id ||
+    source.metadata?.article_id ||
+    (source.source_type === "knowledge_article" ? source.source_id : undefined);
+  if (categoryId && articleId) return `/conhecimento/${categoryId}?artigo=${articleId}`;
   if (categoryId) return `/conhecimento/${categoryId}`;
   if (source.source_type === "knowledge_article" && source.source_id) {
     return `/conhecimento`;
@@ -75,7 +80,9 @@ function Sources({ sources }: { sources: HelpdeskAiSource[] }) {
                 ? `Cofre #${source.source_id}`
                 : source.source_type === "budget"
                   ? `Orçamento #${source.source_id}`
-                  : `Artigo #${source.source_id || index + 1}`;
+                  : source.source_type === "knowledge_article"
+                    ? `Artigo: ${source.title || `#${source.source_id}`}`
+                    : `Artigo #${source.source_id || index + 1}`;
           const label = source.title || source.name || typeLabel;
           const chip = (
             <span className="inline-flex max-w-full truncate rounded-md border border-[#dbe4f3] bg-surface px-2 py-0.5 text-[11px] text-navy">
@@ -211,7 +218,7 @@ export function DashboardAiChat() {
                   Assistente IA
                 </p>
                 <p className="mt-0.5 text-xs text-muted">
-                  Respostas com base na base de conhecimento e tickets fechados.
+                  Respostas com base nos artigos do conhecimento, tickets, orçamentos e cofre.
                 </p>
               </div>
               <div className="flex items-center gap-1">

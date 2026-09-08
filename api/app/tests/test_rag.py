@@ -56,15 +56,19 @@ class RAGServiceTest(unittest.TestCase):
 		self.assertEqual(err.status_code, 503)
 		self.assertEqual(err.code, "gemini_error")
 
-	def test_answer_without_sources_does_not_call_generation(self):
+	def test_answer_cites_knowledge_article_sources(self):
+		sources = [
+			{"source_type": "knowledge_article", "source_id": 11, "title": "RH ID", "snippet": "Mensalidade por colaborador."},
+			{"source_type": "ticket", "source_id": 22, "title": "Chamado antigo", "snippet": "Outro assunto."},
+		]
 		with (
-			patch("app.services.copilot.hybrid_search", return_value=[]),
-			patch("app.services.copilot._generate") as generate,
+			patch("app.services.copilot.hybrid_search", return_value=sources),
+			patch("app.services.copilot._generate", return_value={"draft": "Use o artigo RH ID.", "cited": [1]}),
 		):
-			result = answer_question("Como resolvo este problema?")
-		generate.assert_not_called()
-		self.assertEqual(result["sources"], [])
-		self.assertIn("evidências suficientes", result["draft"])
+			result = answer_question("Como funciona o plano RH ID?")
+		self.assertEqual(result["draft"], "Use o artigo RH ID.")
+		self.assertEqual(len(result["sources"]), 1)
+		self.assertEqual(result["sources"][0]["source_id"], 11)
 
 	def test_index_keeps_lexical_fallback_and_removes_unpublished(self):
 		user = User(name="Teste", email="teste@example.invalid", password_hash="x")
@@ -93,7 +97,8 @@ class RAGServiceTest(unittest.TestCase):
 			self.assertTrue(results)
 			self.assertEqual(results[0]["source_type"], "knowledge_article")
 			self.assertEqual(results[0]["source_id"], article.id)
-			self.assertEqual(results[0]["href"], f"/conhecimento/{category_id}")
+			self.assertEqual(results[0]["href"], f"/conhecimento/{category_id}?artigo={article.id}")
+			self.assertEqual(results[0]["article_id"], article.id)
 
 		article.status = "draft"
 		db.session.commit()

@@ -462,19 +462,28 @@ export function BudgetBuilder({ budget }: { budget?: BudgetDetail | null }) {
     setDescription(stripHtml(draft.description) || "");
     setPaymentTerms(stripHtml(draft.payment_terms) || "");
     setInternalNotes(stripHtml(draft.internal_notes) || "");
-    const nextItems = (draft.items || []).map((it) => ({
-      ...emptyItem((it.item_type as BudgetItemForm["item_type"]) || "manual"),
-      product_id: it.product_id,
-      service_id: it.service_id,
-      codigo: it.codigo || "",
-      description: stripHtml(it.description) || it.description || "",
-      quantity: String(it.quantity ?? 1),
-      unit_price: String(it.unit_price ?? 0),
-      unit_of_measure: it.unit_of_measure || "",
-      observations: stripHtml(it.observations) || it.observations || "",
-    }));
-    setOptions([]);
-    setActiveOptionKey(null);
+    const nextItems = (draft.items || []).map((it) => {
+      const optKey = (it.option_key || "").trim() || null;
+      const optLabel = (it.option_label || "").trim() || (optKey ? `Opção ${optKey}` : null);
+      return {
+        ...emptyItem((it.item_type as BudgetItemForm["item_type"]) || "manual"),
+        product_id: it.product_id,
+        service_id: it.service_id,
+        codigo: it.codigo || "",
+        description: stripHtml(it.description) || it.description || "",
+        quantity: String(it.quantity ?? 1),
+        unit_price: String(it.unit_price ?? 0),
+        unit_of_measure: it.unit_of_measure || "",
+        observations: stripHtml(it.observations) || it.observations || "",
+        is_recurring: Boolean(it.is_recurring),
+        recurrence_period: (it.recurrence_period as BudgetItemForm["recurrence_period"]) || "monthly",
+        option_key: optKey,
+        option_label: optLabel,
+      };
+    });
+    const nextOptions = optionsFromItems(nextItems);
+    setOptions(nextOptions);
+    setActiveOptionKey(nextOptions[0]?.key || null);
     setItems(nextItems.length ? nextItems : [emptyItem()]);
     return true;
   }

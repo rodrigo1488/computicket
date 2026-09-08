@@ -2,7 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus } from "lucide-react";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { PageTitle } from "@/components/layout/AppShell";
 import { DataTable } from "@/components/ui/DataTable";
@@ -58,6 +58,7 @@ const emptyArt = { title: "", summary: "", content: "", tags: "", status: "publi
 export default function ConhecimentoCategoriaPage() {
   const params = useParams<{ categoryId: string }>();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const qc = useQueryClient();
   const categoryId = Number(params.categoryId);
   const [q, setQ] = useState("");
@@ -116,6 +117,24 @@ export default function ConhecimentoCategoriaPage() {
     setView(full);
     qc.invalidateQueries({ queryKey: ["knowledge-arts", categoryId] });
   };
+
+  useEffect(() => {
+    const raw = searchParams.get("artigo");
+    const articleId = raw ? Number(raw) : NaN;
+    if (!Number.isFinite(articleId) || articleId <= 0) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const full = await flask.get<Art>(`/api/web/knowledge/articles/${articleId}?view=1`);
+        if (!cancelled) setView(full);
+      } catch {
+        /* artigo inválido ou sem permissão */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [searchParams]);
 
   return (
     <div>

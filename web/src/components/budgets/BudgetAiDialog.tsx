@@ -25,6 +25,10 @@ export type BudgetAiDraftItem = {
   service_id?: number | null;
   codigo?: string | null;
   unit_of_measure?: string | null;
+  option_key?: string | null;
+  option_label?: string | null;
+  is_recurring?: boolean;
+  recurrence_period?: "monthly" | "quarterly" | "yearly" | string | null;
 };
 
 export type BudgetAiDraft = {
@@ -73,6 +77,24 @@ export function BudgetAiDialog({
     return sum + qty * price;
   }, 0);
 
+  const optionGroups = (() => {
+    const items = draft?.items || [];
+    const seen: string[] = [];
+    for (const it of items) {
+      const key = (it.option_key || "").trim();
+      if (key && !seen.includes(key)) seen.push(key);
+    }
+    if (seen.length < 2) return null;
+    return seen.map((key) => {
+      const rows = items.filter((it) => (it.option_key || "").trim() === key);
+      const label = (rows[0]?.option_label || "").trim() || `Opção ${key}`;
+      const subtotal = rows.reduce((sum, item) => {
+        return sum + (Number(item.quantity) || 0) * (Number(item.unit_price) || 0);
+      }, 0);
+      return { key, label, rows, subtotal };
+    });
+  })();
+
   async function generate() {
     if (busy) return;
     const text = prompt.trim();
@@ -116,8 +138,8 @@ export function BudgetAiDialog({
   return (
     <Modal open={open} onClose={busy ? () => undefined : onClose} title="Assistente de orçamento" wide>
       <p className="mb-4 text-sm text-muted">
-        Descreva o que precisa. A IA preenche itens (com match no catálogo quando possível), condições e observações.
-        Revise antes de salvar.
+        Descreva o que precisa. A IA usa catálogo, planos (ex.: RH ID × N colaboradores), artigos do conhecimento
+        e gera opções alternativas só se você pedir. Revise antes de salvar.
       </p>
       <label className="block">
         <span className="text-[11px] font-medium tracking-[0.08em] text-muted uppercase">Descreva o orçamento</span>
@@ -133,7 +155,7 @@ export function BudgetAiDialog({
           }}
           rows={5}
           disabled={busy}
-          placeholder='Ex: 2 switches 24 portas PoE, 1 rack 19" 24U, 50m de cabo Cat6 e instalação de rede. Pagamento em 3x, garantia de 90 dias.'
+          placeholder='Ex: orçamento para a empresa X com o plano RH ID para 10 colaboradores. Ou: duas opções, com e sem relógio de ponto.'
           className="mt-1 w-full rounded-lg border border-line px-3 py-2 text-sm disabled:opacity-60"
         />
       </label>
@@ -152,32 +174,49 @@ export function BudgetAiDialog({
             <p className="text-[11px] font-medium tracking-[0.08em] text-muted uppercase">Pré-visualização</p>
             <p className="mt-1 text-base font-semibold text-navy">{draft.title || "Orçamento"}</p>
           </div>
-          <div className="max-h-44 space-y-1.5 overflow-y-auto">
-            {(draft.items || []).map((item, idx) => {
-              const qty = Number(item.quantity) || 0;
-              const price = Number(item.unit_price) || 0;
-              const line = qty * price;
-              const desc = stripHtml(item.description) || "(sem descrição)";
-              return (
-                <div key={`${idx}-${desc.slice(0, 24)}`} className="flex justify-between gap-3 rounded-lg bg-wash px-3 py-2 text-sm">
-                  <div className="min-w-0">
-                    <p className="text-[11px] text-muted">
-                      {TYPE_LABEL[item.item_type || ""] || "Item"}
-                      {item.codigo ? ` · ${item.codigo}` : ""}
-                    </p>
-                    <p className="truncate text-ink">{desc}</p>
-                  </div>
-                  <div className="shrink-0 text-right text-muted">
-                    <p>
-                      {qty} × {formatBRL(price)}
-                    </p>
-                    <p className="font-medium text-ink">{formatBRL(line)}</p>
-                  </div>
+          <div className="max-h-56 space-y-3 overflow-y-auto">
+            {(optionGroups || [{ key: "", label: "", rows: draft.items || [], subtotal: previewTotal }]).map((group) => (
+              <div key={group.key || "flat"}>
+                {group.label ? (
+                  <p className="mb-1 text-xs font-semibold text-navy">{group.label}</p>
+                ) : null}
+                <div className="space-y-1.5">
+                  {group.rows.map((item, idx) => {
+                    const qty = Number(item.quantity) || 0;
+                    const price = Number(item.unit_price) || 0;
+                    const line = qty * price;
+                    const desc = stripHtml(item.description) || "(sem descrição)";
+                    return (
+                      <div key={`${group.key}-${idx}-${desc.slice(0, 24)}`} className="flex justify-between gap-3 rounded-lg bg-wash px-3 py-2 text-sm">
+                        <div className="min-w-0">
+                          <p className="text-[11px] text-muted">
+                            {TYPE_LABEL[item.item_type || ""] || "Item"}
+                            {item.codigo ? ` · ${item.codigo}` : ""}
+                            {item.is_recurring ? " · Recorrente" : ""}
+                          </p>
+                          <p className="truncate text-ink">{desc}</p>
+                        </div>
+                        <div className="shrink-0 text-right text-muted">
+                          <p>
+                            {qty} × {formatBRL(price)}
+                          </p>
+                          <p className="font-medium text-ink">{formatBRL(line)}</p>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
-              );
-            })}
+                {group.label ? (
+                  <p className="mt-1 text-right text-xs font-medium text-navy">
+                    Total · {group.label}: {formatBRL(group.subtotal)}
+                  </p>
+                ) : null}
+              </div>
+            ))}
           </div>
-          <p className="text-right text-sm font-semibold text-navy">Total estimado: {formatBRL(previewTotal)}</p>
+          {optionGroups ? null : (
+            <p className="text-right text-sm font-semibold text-navy">Total estimado: {formatBRL(previewTotal)}</p>
+          )}
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="rounded-lg border border-line p-3">
               <p className="mb-1 text-[11px] font-medium tracking-[0.08em] text-muted uppercase">Condições</p>
