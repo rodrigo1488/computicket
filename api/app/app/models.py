@@ -1333,16 +1333,42 @@ class Budget(db.Model):
 	def is_expired(self) -> bool:
 		return bool(self.valid_until and self.valid_until < get_brasilia_now().date())
 	
+	@staticmethod
+	def _hex_luminance(hex_color: str) -> float:
+		raw = (hex_color or "").strip().lstrip("#")
+		if len(raw) != 6:
+			return 0.5
+		try:
+			r = int(raw[0:2], 16) / 255.0
+			g = int(raw[2:4], 16) / 255.0
+			b = int(raw[4:6], 16) / 255.0
+		except ValueError:
+			return 0.5
+		return 0.2126 * r + 0.7152 * g + 0.0722 * b
+
 	def get_theme_colors(self) -> Dict[str, str]:
-		"""Cores do tema do orçamento (ou padrão)"""
+		"""Cores do tema do orçamento (ou padrão).
+
+		`action` é a cor usada em botões/totais/badges: se `primary` for clara
+		demais (ex. branco no header), cai para accent ou slate escuro.
+		"""
 		if self.theme:
-			return {
-				"primary": self.theme.primary_color or "#2563eb",
-				"accent": self.theme.accent_color or "#0ea5e9",
-				"text": self.theme.text_color or "#1e293b",
-				"title": self.theme.title_color or "#ffffff",
-			}
-		return {"primary": "#2563eb", "accent": "#0ea5e9", "text": "#1e293b", "title": "#ffffff"}
+			primary = self.theme.primary_color or "#2563eb"
+			accent = self.theme.accent_color or "#0ea5e9"
+			text = self.theme.text_color or "#1e293b"
+			title = self.theme.title_color or "#ffffff"
+		else:
+			primary, accent, text, title = "#2563eb", "#0ea5e9", "#1e293b", "#ffffff"
+		action = primary
+		if self._hex_luminance(primary) > 0.72:
+			action = accent if self._hex_luminance(accent) <= 0.72 else "#0f172a"
+		return {
+			"primary": primary,
+			"accent": accent,
+			"text": text,
+			"title": title,
+			"action": action,
+		}
 	
 	def get_client_name(self) -> str:
 		"""Retorna o nome do cliente (interno ou externo)"""

@@ -11,6 +11,7 @@
 		:root {
 			--primary: {{ colors.primary }};
 			--accent: {{ colors.accent }};
+			--action: {{ colors.action | default(colors.accent) }};
 			--text: {{ colors.text }};
 			--title: {{ colors.title }};
 			--safe-bottom: env(safe-area-inset-bottom, 0px);
@@ -68,7 +69,7 @@
 			padding-top: 10px;
 			font-size: 18px;
 			font-weight: 700;
-			color: var(--primary);
+			color: var(--action);
 		}
 		.field { margin-bottom: 16px; }
 		.field label {
@@ -89,7 +90,7 @@
 		}
 		.field input:focus {
 			outline: none;
-			border-color: var(--primary);
+			border-color: var(--action);
 			box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
 		}
 		.signature-box {
@@ -99,7 +100,7 @@
 			overflow: hidden;
 			touch-action: none;
 		}
-		.signature-box.drawing { border-color: var(--primary); background: #fafafa; }
+		.signature-box.drawing { border-color: var(--action); background: #fafafa; }
 		.signature-box canvas {
 			display: block;
 			width: 100%;
@@ -202,8 +203,8 @@
 			transition: border-color .15s, box-shadow .15s;
 		}
 		.options-pick-card.is-selected {
-			border-color: var(--primary);
-			box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 18%, transparent);
+			border-color: var(--action);
+			box-shadow: 0 0 0 3px color-mix(in srgb, var(--action) 18%, transparent);
 		}
 		.options-pick-card input { position: absolute; opacity: 0; pointer-events: none; }
 		.options-pick-title {
@@ -220,7 +221,7 @@
 		.options-pick-nav { display: flex; gap: 8px; }
 		.options-pick-btn {
 			width: 36px; height: 36px; border-radius: 10px;
-			border: 1px solid #e2e8f0; background: #fff; color: var(--primary);
+			border: 1px solid #e2e8f0; background: #fff; color: var(--action);
 			display: inline-flex; align-items: center; justify-content: center; cursor: pointer;
 		}
 		.options-pick-btn:disabled { opacity: 0.35; cursor: default; }
@@ -229,7 +230,7 @@
 			width: 7px; height: 7px; border-radius: 999px; border: none;
 			background: #cbd5e1; padding: 0; cursor: pointer;
 		}
-		.options-pick-dot.is-active { width: 18px; background: var(--primary); }
+		.options-pick-dot.is-active { width: 18px; background: var(--action); }
 	</style>
 </head>
 <body>

@@ -1176,12 +1176,24 @@ def _budget_signature_abs_path(relative_path: str):
 def public_budget(token):
     """Página pública do orçamento"""
     budget_entry = _get_public_budget(token)
-    return render_template('public/budget.html',
-                         budget=budget_entry,
-                         colors=budget_entry.get_theme_colors(),
-                         has_logo=bool(get_budget_logo_path()) and budget_entry.show_logo,
-                         options=budget_entry.totals_by_option(),
-                         option_groups=budget_entry.option_groups())
+    try:
+        option_groups = budget_entry.option_groups()
+        options = budget_entry.totals_by_option()
+        return render_template(
+            'public/budget.html',
+            budget=budget_entry,
+            colors=budget_entry.get_theme_colors(),
+            has_logo=bool(get_budget_logo_path()) and budget_entry.show_logo,
+            options=options,
+            option_groups=option_groups,
+        )
+    except Exception:
+        current_app.logger.exception(
+            "Falha ao renderizar orçamento público token=%s id=%s",
+            token,
+            getattr(budget_entry, "id", None),
+        )
+        raise
 
 
 @budget.route('/publico/<token>/aprovar', methods=['GET', 'POST'])
