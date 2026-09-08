@@ -350,6 +350,25 @@
 						<span>Subtotal (único)</span>
 						<span>{{ format_brl(opt.subtotal) }}</span>
 					</div>
+					{% set recurring = opt.recurring or {} %}
+					{% if recurring.get('monthly') %}
+					<div class="totals-row">
+						<span>Recorrente (mensal)</span>
+						<span>{{ format_brl(recurring.monthly) }} /mês</span>
+					</div>
+					{% endif %}
+					{% if recurring.get('quarterly') %}
+					<div class="totals-row">
+						<span>Recorrente (trimestral)</span>
+						<span>{{ format_brl(recurring.quarterly) }} /trim.</span>
+					</div>
+					{% endif %}
+					{% if recurring.get('yearly') %}
+					<div class="totals-row">
+						<span>Recorrente (anual)</span>
+						<span>{{ format_brl(recurring.yearly) }} /ano</span>
+					</div>
+					{% endif %}
 					{% if budget.discount %}
 					<div class="totals-row">
 						<span>Desconto</span>
@@ -357,7 +376,7 @@
 					</div>
 					{% endif %}
 					<div class="totals-row total">
-						<span>TOTAL · {{ group.label }}</span>
+						<span>TOTAL (único) · {{ group.label }}</span>
 						<span>{{ format_brl(opt.total) }}</span>
 					</div>
 				</div>
@@ -473,7 +492,14 @@
 						{% if budget.selected_option_key %}
 						{% for opt in options or [] %}
 						{% if opt.key == budget.selected_option_key %}
-						<br><span style="font-weight:600;font-size:13px">Opção escolhida: {{ opt.label }} ({{ format_brl(opt.total) }})</span>
+						{% set rec = opt.recurring or {} %}
+						<br><span style="font-weight:600;font-size:13px">
+							Opção escolhida: {{ opt.label }}
+							{% if opt.total and opt.total > 0 %} · único {{ format_brl(opt.total) }}{% endif %}
+							{% if rec.get('monthly') %} · {{ format_brl(rec.monthly) }}/mês{% endif %}
+							{% if rec.get('quarterly') %} · {{ format_brl(rec.quarterly) }}/trim.{% endif %}
+							{% if rec.get('yearly') %} · {{ format_brl(rec.yearly) }}/ano{% endif %}
+						</span>
 						{% endif %}
 						{% endfor %}
 						{% endif %}

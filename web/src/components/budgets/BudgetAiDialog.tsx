@@ -88,10 +88,18 @@ export function BudgetAiDialog({
     return seen.map((key) => {
       const rows = items.filter((it) => (it.option_key || "").trim() === key);
       const label = (rows[0]?.option_label || "").trim() || `Opção ${key}`;
-      const subtotal = rows.reduce((sum, item) => {
-        return sum + (Number(item.quantity) || 0) * (Number(item.unit_price) || 0);
-      }, 0);
-      return { key, label, rows, subtotal };
+      let unique = 0;
+      const recurring: Record<string, number> = {};
+      for (const item of rows) {
+        const line = (Number(item.quantity) || 0) * (Number(item.unit_price) || 0);
+        if (item.is_recurring) {
+          const p = item.recurrence_period || "monthly";
+          recurring[p] = (recurring[p] || 0) + line;
+        } else {
+          unique += line;
+        }
+      }
+      return { key, label, rows, unique, recurring };
     });
   })();
 
@@ -175,7 +183,7 @@ export function BudgetAiDialog({
             <p className="mt-1 text-base font-semibold text-navy">{draft.title || "Orçamento"}</p>
           </div>
           <div className="max-h-56 space-y-3 overflow-y-auto">
-            {(optionGroups || [{ key: "", label: "", rows: draft.items || [], subtotal: previewTotal }]).map((group) => (
+            {(optionGroups || [{ key: "", label: "", rows: draft.items || [], unique: previewTotal, recurring: {} as Record<string, number> }]).map((group) => (
               <div key={group.key || "flat"}>
                 {group.label ? (
                   <p className="mb-1 text-xs font-semibold text-navy">{group.label}</p>
@@ -207,9 +215,15 @@ export function BudgetAiDialog({
                   })}
                 </div>
                 {group.label ? (
-                  <p className="mt-1 text-right text-xs font-medium text-navy">
-                    Total · {group.label}: {formatBRL(group.subtotal)}
-                  </p>
+                  <div className="mt-1 space-y-0.5 text-right text-xs font-medium text-navy">
+                    {group.unique > 0 ? <p>Único: {formatBRL(group.unique)}</p> : null}
+                    {Object.entries(group.recurring).map(([period, value]) => (
+                      <p key={period}>
+                        Recorrente ({period === "monthly" ? "mensal" : period === "quarterly" ? "trimestral" : period === "yearly" ? "anual" : period}):{" "}
+                        {formatBRL(value)}
+                      </p>
+                    ))}
+                  </div>
                 ) : null}
               </div>
             ))}

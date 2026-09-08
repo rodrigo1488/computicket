@@ -40,6 +40,7 @@ export type BudgetOptionTotal = {
   subtotal: number;
   discount: number;
   total: number;
+  recurring?: Record<string, number>;
   selected?: boolean;
 };
 
@@ -710,9 +711,15 @@ export function BudgetBuilder({ budget }: { budget?: BudgetDetail | null }) {
                     {optTotal ? (
                       <div className="mt-3 ml-auto max-w-xs space-y-1 text-sm">
                         <div className="flex justify-between text-muted">
-                          <span>Subtotal</span>
+                          <span>Subtotal (único)</span>
                           <span>{formatBRL(optTotal.subtotal)}</span>
                         </div>
+                        {Object.entries(optTotal.recurring || {}).map(([period, value]) => (
+                          <div key={period} className="flex justify-between text-muted">
+                            <span>Recorrente ({periodLabel[period] || period})</span>
+                            <span>{formatBRL(value)}</span>
+                          </div>
+                        ))}
                         {totals.discount > 0 ? (
                           <div className="flex justify-between text-muted">
                             <span>Desconto</span>
@@ -720,7 +727,7 @@ export function BudgetBuilder({ budget }: { budget?: BudgetDetail | null }) {
                           </div>
                         ) : null}
                         <div className="flex justify-between border-t border-line pt-2 font-semibold text-navy">
-                          <span>Total · {opt.label}</span>
+                          <span>Total (único) · {opt.label}</span>
                           <span>{formatBRL(optTotal.total)}</span>
                         </div>
                       </div>

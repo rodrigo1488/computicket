@@ -269,9 +269,15 @@ export default function VerOrcamentoPage() {
                   </div>
                   <div className="mt-3 ml-auto max-w-xs space-y-1 text-sm">
                     <div className="flex justify-between text-muted">
-                      <span>Subtotal</span>
+                      <span>Subtotal (único)</span>
                       <span>{formatBRL(opt.subtotal)}</span>
                     </div>
+                    {Object.entries(opt.recurring || {}).map(([period, value]) => (
+                      <div key={period} className="flex justify-between text-muted">
+                        <span>Recorrente ({periodLabel[period] || period})</span>
+                        <span>{formatBRL(value)}</span>
+                      </div>
+                    ))}
                     {opt.discount > 0 ? (
                       <div className="flex justify-between text-muted">
                         <span>Desconto</span>
@@ -279,7 +285,7 @@ export default function VerOrcamentoPage() {
                       </div>
                     ) : null}
                     <div className="flex justify-between border-t border-line pt-2 font-semibold text-navy">
-                      <span>Total · {opt.label}</span>
+                      <span>Total (único) · {opt.label}</span>
                       <span>{formatBRL(opt.total)}</span>
                     </div>
                   </div>

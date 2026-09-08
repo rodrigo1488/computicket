@@ -180,7 +180,7 @@
 			<i class="fas fa-arrow-left"></i> Voltar ao orçamento
 		</a>
 		<h1>Assinar aprovação</h1>
-		<div class="meta">{{ budget.title }}{% if not options %} • Total {{ format_brl(budget.total) }}{% endif %}</div>
+		<div class="meta">{{ budget.title }}{% if not options %}{% if budget.total and budget.total > 0 %} • Único {{ format_brl(budget.total) }}{% endif %}{% set recurring = budget.recurring_totals_by_period %}{% if recurring.get('monthly') %} • {{ format_brl(recurring.monthly) }}/mês{% endif %}{% endif %}</div>
 	</div>
 
 	{% with messages = get_flashed_messages(with_categories=true, category_filter=public_flash_categories) %}
@@ -196,12 +196,29 @@
 				<label>Escolha a opção *</label>
 				<div style="display:flex;flex-direction:column;gap:8px;margin-top:6px">
 					{% for opt in options %}
+					{% set rec = opt.recurring or {} %}
 					<label style="display:flex;align-items:flex-start;gap:10px;padding:12px;border:1px solid #e2e8f0;border-radius:12px;cursor:pointer">
 						<input type="radio" name="selected_option_key" value="{{ opt.key }}" required style="margin-top:3px"
 							{% if loop.first %}checked{% endif %}>
 						<span>
 							<span style="display:block;font-weight:600;color:#0f172a">{{ opt.label }}</span>
-							<span style="display:block;font-size:13px;color:#64748b;margin-top:2px">Total {{ format_brl(opt.total) }}</span>
+							<span style="display:block;font-size:13px;color:#64748b;margin-top:2px;line-height:1.45">
+								{% if opt.total and opt.total > 0 %}
+								<span style="display:block">Único {{ format_brl(opt.total) }}</span>
+								{% endif %}
+								{% if rec.get('monthly') %}
+								<span style="display:block">Recorrente {{ format_brl(rec.monthly) }} /mês</span>
+								{% endif %}
+								{% if rec.get('quarterly') %}
+								<span style="display:block">Recorrente {{ format_brl(rec.quarterly) }} /trimestre</span>
+								{% endif %}
+								{% if rec.get('yearly') %}
+								<span style="display:block">Recorrente {{ format_brl(rec.yearly) }} /ano</span>
+								{% endif %}
+								{% if (not opt.total or opt.total <= 0) and not rec.get('monthly') and not rec.get('quarterly') and not rec.get('yearly') %}
+								<span style="display:block">Total {{ format_brl(0) }}</span>
+								{% endif %}
+							</span>
 						</span>
 					</label>
 					{% endfor %}
@@ -217,10 +234,31 @@
 					<span>Orçamento Nº</span>
 					<span>{{ budget.id }}</span>
 				</div>
+				{% if budget.total and budget.total > 0 %}
 				<div class="summary-row total">
-					<span>Total</span>
+					<span>Total (único)</span>
 					<span>{{ format_brl(budget.total) }}</span>
 				</div>
+				{% endif %}
+				{% set recurring = budget.recurring_totals_by_period %}
+				{% if recurring.get('monthly') %}
+				<div class="summary-row">
+					<span>Recorrente (mensal)</span>
+					<span>{{ format_brl(recurring.monthly) }} /mês</span>
+				</div>
+				{% endif %}
+				{% if recurring.get('quarterly') %}
+				<div class="summary-row">
+					<span>Recorrente (trimestral)</span>
+					<span>{{ format_brl(recurring.quarterly) }} /trim.</span>
+				</div>
+				{% endif %}
+				{% if recurring.get('yearly') %}
+				<div class="summary-row">
+					<span>Recorrente (anual)</span>
+					<span>{{ format_brl(recurring.yearly) }} /ano</span>
+				</div>
+				{% endif %}
 			</div>
 			{% endif %}
 
