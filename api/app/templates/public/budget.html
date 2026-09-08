@@ -278,6 +278,11 @@
 		.options-carousel-footer .totals-row {
 			padding: 6px 4px;
 			font-size: 13px;
+			color: #334155;
+		}
+		.options-carousel-footer .totals-row span:last-child {
+			font-weight: 700;
+			color: #0f172a;
 		}
 		.options-carousel-footer .totals-row.total {
 			margin-top: 6px;
@@ -285,16 +290,25 @@
 			font-size: 15px;
 			font-weight: 700;
 			color: #fff;
-			background: var(--primary);
+			background: #0f172a;
 			border-radius: 12px;
 			border-top: none;
+			gap: 10px;
+		}
+		.options-carousel-footer .totals-row.total span:first-child {
+			color: #e2e8f0;
+			min-width: 0;
+			line-height: 1.3;
 		}
 		.options-carousel-footer .totals-row.total span:last-child {
 			color: #fff;
 			font-size: 18px;
-			background: rgba(255,255,255,0.18);
-			padding: 4px 10px;
+			font-weight: 800;
+			background: rgba(255,255,255,0.14);
+			padding: 6px 12px;
 			border-radius: 8px;
+			white-space: nowrap;
+			flex-shrink: 0;
 		}
 		.options-carousel-dots {
 			display: flex; justify-content: center; gap: 8px;
