@@ -47,6 +47,7 @@ export type InternalChatColleague = {
   email?: string;
   role?: string;
   engine_user_id: number;
+  avatar_url?: string | null;
 };
 
 export type InternalChatListRes = {

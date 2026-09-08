@@ -1109,7 +1109,7 @@ function GroupModal({
                         );
                       }}
                     />
-                    <UserAvatar name={item.name} size="sm" />
+                    <UserAvatar name={item.name} src={item.avatar_url || undefined} size="sm" />
                     <span className="min-w-0">
                       <span className="block truncate font-medium text-ink">{item.name}</span>
                       <span className="block truncate text-[11px] text-muted">{item.email}</span>

@@ -9,6 +9,7 @@ import requests
 from flask import Blueprint, Response, current_app, has_app_context, jsonify, request
 from flask_login import current_user, login_required
 
+from ..avatar import avatar_public_url
 from ..engine_client import (
     EngineError,
     agent_request,
@@ -127,13 +128,27 @@ def _name_from_engine_user(engine_user_id: int | None, payload_name: str | None 
     return looked_up or raw or None
 
 
+def _avatar_from_engine_user(engine_user_id: int | None, payload_avatar: str | None = None) -> str | None:
+    """Prefer avatar do engine; se vazio, usa a foto do Computicket."""
+    rewritten = _rewrite_media_url(payload_avatar if isinstance(payload_avatar, str) else None)
+    if rewritten:
+        return rewritten
+    if not engine_user_id or not has_app_context():
+        return None
+    mapping = HelpDeskAgentMap.query.filter_by(engine_user_id=engine_user_id).first()
+    user = getattr(mapping, "user", None) if mapping else None
+    if not user:
+        return None
+    return avatar_public_url(user)
+
+
 def _participant(user: dict | None, fallback_id: int | None = None) -> dict:
     data = user if isinstance(user, dict) else {}
     uid = _as_int(data.get("id")) or fallback_id
     return {
         "id": uid,
         "name": _name_from_engine_user(uid, data.get("name")),
-        "avatar": _rewrite_media_url(data.get("avatar")),
+        "avatar": _avatar_from_engine_user(uid, data.get("avatar")),
     }
 
 
@@ -339,6 +354,7 @@ def colleagues():
                 "email": user.email,
                 "role": user.role,
                 "engine_user_id": mapping.engine_user_id,
+                "avatar_url": avatar_public_url(user),
             }
         )
     return jsonify({"items": items})
