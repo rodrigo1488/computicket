@@ -16,7 +16,7 @@ from ..models import (
 	Ticket,
 	User,
 )
-from ..timezone_utils import get_brasilia_now
+from ..timezone_utils import get_brasilia_now, utc_to_brasilia
 
 bp = Blueprint("implantacao", __name__, url_prefix="/api/implantacao")
 
@@ -1071,7 +1071,10 @@ def start_scheduled_implantations() -> int:
 		if not appt:
 			_clear_schedule(item)
 			continue
-		when = _naive(appt.appointment_date)
+		when = appt.appointment_date
+		if when is not None and getattr(when, "tzinfo", None):
+			when = utc_to_brasilia(when)
+		when = _naive(when)
 		if not when or when.date() > today:
 			continue
 		try:
@@ -1088,13 +1091,23 @@ def start_scheduled_implantations() -> int:
 
 
 def _parse_when(raw):
+	"""Interpreta o horário digitado como Brasília.
+
+	datetime-local chega sem fuso (naive) e é gravado como está.
+	ISO com Z/+00:00 é convertido de UTC para America/Sao_Paulo, para não
+	persistir 16:50 local como 19:50.
+	"""
 	if not raw:
 		raise ValueError("Informe data e horário do agendamento.")
-	text = str(raw).strip().replace("Z", "+00:00")
+	text = str(raw).strip()
+	if text.endswith("Z"):
+		text = text[:-1] + "+00:00"
 	try:
 		value = datetime.fromisoformat(text)
 	except ValueError as exc:
 		raise ValueError("Data do agendamento inválida.") from exc
+	if getattr(value, "tzinfo", None) is not None:
+		value = utc_to_brasilia(value)
 	return _naive(value)
 
 

@@ -26,6 +26,28 @@ function toDatetimeLocal(d = new Date()) {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
+/** Envia o valor de datetime-local sem toISOString() (que converteria para UTC). */
+function datetimeLocalPayload(value: string) {
+  const text = (value || "").trim();
+  if (!text) return text;
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(text)) return `${text}:00`;
+  return text;
+}
+
+/** ISO naive do backend = horário de Brasília; ISO com Z é convertido para local. */
+function isoToDatetimeLocal(value?: string | null) {
+  if (!value) return toDatetimeLocal();
+  const text = value.trim();
+  const hasTz = /[zZ]|[+-]\d{2}:\d{2}$/.test(text);
+  if (!hasTz) {
+    const m = /^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2})/.exec(text);
+    if (m) return `${m[1]}T${m[2]}`;
+  }
+  const parsed = new Date(text);
+  if (Number.isNaN(parsed.getTime())) return toDatetimeLocal();
+  return toDatetimeLocal(parsed);
+}
+
 function ImplantacaoBoardInner() {
   const qc = useQueryClient();
   const router = useRouter();
@@ -104,6 +126,7 @@ function ImplantacaoBoardInner() {
     setNotesDraft(detail.data.notes || "");
     setAssignedDraft(detail.data.assigned_to_id ? String(detail.data.assigned_to_id) : "");
     setStepAssigneeDraft(detail.data.step_assignee_id ? String(detail.data.step_assignee_id) : "inherit");
+    setScheduleWhen(isoToDatetimeLocal(detail.data.scheduled_at));
   }, [detail.data]);
 
   const invalidate = () => {
@@ -168,7 +191,7 @@ function ImplantacaoBoardInner() {
   const scheduleNext = useMutation({
     mutationFn: (id: number) =>
       flask.post(`/api/implantacao/${id}/schedule-next`, {
-        appointment_date: new Date(scheduleWhen).toISOString(),
+        appointment_date: datetimeLocalPayload(scheduleWhen),
       }),
     onSuccess: invalidate,
     onError: (e) => setError(e instanceof Error ? e.message : "Erro ao agendar etapa"),
