@@ -102,16 +102,25 @@ def verificar_contratos_vencendo():
 
 
 def verificar_prazos_implantacao():
-    """Cria notificações in-app para etapas de implantação com prazo estourado."""
+    """Cria notificações de prazo/pausa e inicia etapas agendadas para o dia."""
     app = create_app()
     with app.app_context():
         try:
-            from app.blueprints.implantacao import notify_overdue_implantations
+            from app.blueprints.implantacao import (
+                notify_overdue_implantations,
+                notify_paused_implantations,
+                start_scheduled_implantations,
+            )
 
-            created_total = notify_overdue_implantations()
+            started = start_scheduled_implantations()
+            created_overdue = notify_overdue_implantations()
+            created_paused = notify_paused_implantations()
+            created_total = created_overdue + created_paused
+            if started:
+                app.logger.info("Etapas de implantação iniciadas pelo agendamento: %s.", started)
             if created_total:
                 app.logger.info(
-                    "Prazos de implantação estourados: %s notificação(ões) criada(s).",
+                    "Alertas de implantação: %s notificação(ões) criada(s).",
                     created_total,
                 )
         except Exception as e:

@@ -8,6 +8,7 @@ import { Suspense, useEffect, useMemo, useState } from "react";
 import { PageTitle } from "@/components/layout/AppShell";
 import { ImplantationForm } from "@/components/implantacao/ImplantationForm";
 import { KanbanBoard } from "@/components/implantacao/KanbanBoard";
+import { TechnicianSelect } from "@/components/implantacao/TechnicianSelect";
 import type {
   ImplantationCard,
   ImplantationDetail,
@@ -20,6 +21,11 @@ import { Modal } from "@/components/ui/Modal";
 import { PrimaryButton, UnderlineField } from "@/components/ui/UnderlineField";
 import { flask, type PageRes } from "@/lib/api";
 
+function toDatetimeLocal(d = new Date()) {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
 function ImplantacaoBoardInner() {
   const qc = useQueryClient();
   const router = useRouter();
@@ -31,6 +37,11 @@ function ImplantacaoBoardInner() {
   const [detailId, setDetailId] = useState<number | null>(null);
   const [error, setError] = useState("");
   const [notesDraft, setNotesDraft] = useState("");
+  const [assignedDraft, setAssignedDraft] = useState("");
+  const [stepAssigneeDraft, setStepAssigneeDraft] = useState("inherit");
+  const [movePrompt, setMovePrompt] = useState<{ id: number; columnKey: string } | null>(null);
+  const [moveAssignee, setMoveAssignee] = useState("inherit");
+  const [scheduleWhen, setScheduleWhen] = useState(() => toDatetimeLocal());
 
   useEffect(() => {
     const fromUrl = params.get("model") || "";
@@ -89,23 +100,34 @@ function ImplantacaoBoardInner() {
   });
 
   useEffect(() => {
-    if (detail.data) setNotesDraft(detail.data.notes || "");
+    if (!detail.data) return;
+    setNotesDraft(detail.data.notes || "");
+    setAssignedDraft(detail.data.assigned_to_id ? String(detail.data.assigned_to_id) : "");
+    setStepAssigneeDraft(detail.data.step_assignee_id ? String(detail.data.step_assignee_id) : "inherit");
   }, [detail.data]);
 
   const invalidate = () => {
     qc.invalidateQueries({ queryKey: ["implantacao-board"] });
     qc.invalidateQueries({ queryKey: ["implantacao-item"] });
     qc.invalidateQueries({ queryKey: ["implantacao-models"] });
+    qc.invalidateQueries({ queryKey: ["implantacao-dashboard"] });
+    qc.invalidateQueries({ queryKey: ["agenda-cal"] });
   };
 
   const move = useMutation({
-    mutationFn: ({ id, columnKey }: { id: number; columnKey: string }) => {
+    mutationFn: ({ id, columnKey, assigneeId }: { id: number; columnKey: string; assigneeId?: string }) => {
+      const body: Record<string, unknown> = {};
+      if (assigneeId && assigneeId !== "inherit") body.assignee_id = Number(assigneeId);
+      else body.assignee_id = null;
       if (columnKey === COMPLETED_COLUMN_KEY) {
-        return flask.post(`/api/implantacao/${id}/move`, { completed: true });
+        return flask.post(`/api/implantacao/${id}/move`, { completed: true, ...body });
       }
-      return flask.post(`/api/implantacao/${id}/move`, { step_id: Number(columnKey) });
+      return flask.post(`/api/implantacao/${id}/move`, { step_id: Number(columnKey), ...body });
     },
-    onSuccess: invalidate,
+    onSuccess: () => {
+      setMovePrompt(null);
+      invalidate();
+    },
     onError: (e) => setError(e instanceof Error ? e.message : "Erro ao mover"),
   });
 
@@ -127,10 +149,47 @@ function ImplantacaoBoardInner() {
     onError: (e) => setError(e instanceof Error ? e.message : "Erro ao cancelar"),
   });
 
+  const saveAssignees = useMutation({
+    mutationFn: (id: number) =>
+      flask.patch(`/api/implantacao/${id}`, {
+        assigned_to_id: assignedDraft ? Number(assignedDraft) : null,
+        assignee_id: stepAssigneeDraft === "inherit" ? null : Number(stepAssigneeDraft),
+      }),
+    onSuccess: invalidate,
+    onError: (e) => setError(e instanceof Error ? e.message : "Erro ao salvar responsável"),
+  });
+
   const saveNotes = useMutation({
     mutationFn: (id: number) => flask.patch(`/api/implantacao/${id}`, { notes: notesDraft }),
     onSuccess: invalidate,
     onError: (e) => setError(e instanceof Error ? e.message : "Erro ao salvar notas"),
+  });
+
+  const scheduleNext = useMutation({
+    mutationFn: (id: number) =>
+      flask.post(`/api/implantacao/${id}/schedule-next`, {
+        appointment_date: new Date(scheduleWhen).toISOString(),
+      }),
+    onSuccess: invalidate,
+    onError: (e) => setError(e instanceof Error ? e.message : "Erro ao agendar etapa"),
+  });
+
+  const cancelSchedule = useMutation({
+    mutationFn: (id: number) => flask.delete(`/api/implantacao/${id}/schedule-next`),
+    onSuccess: invalidate,
+    onError: (e) => setError(e instanceof Error ? e.message : "Erro ao cancelar agendamento"),
+  });
+
+  const pause = useMutation({
+    mutationFn: (id: number) => flask.post(`/api/implantacao/${id}/pause`),
+    onSuccess: invalidate,
+    onError: (e) => setError(e instanceof Error ? e.message : "Erro ao pausar"),
+  });
+
+  const resume = useMutation({
+    mutationFn: (id: number) => flask.post(`/api/implantacao/${id}/resume`),
+    onSuccess: invalidate,
+    onError: (e) => setError(e instanceof Error ? e.message : "Erro ao retomar"),
   });
 
   const openCard = (card: ImplantationCard) => setDetailId(card.id);
@@ -234,7 +293,12 @@ function ImplantacaoBoardInner() {
             onOpen={openCard}
             onMove={(id, columnKey) => {
               setError("");
-              move.mutate({ id, columnKey });
+              if (columnKey === COMPLETED_COLUMN_KEY) {
+                move.mutate({ id, columnKey });
+                return;
+              }
+              setMoveAssignee("inherit");
+              setMovePrompt({ id, columnKey });
             }}
           />
         </div>
@@ -269,7 +333,85 @@ function ImplantacaoBoardInner() {
               <p className={detail.data.overdue ? "mt-1 font-medium text-open" : "mt-1 text-ink"}>
                 {detail.data.current_step_name} · {detail.data.due_label}
               </p>
+              <p className="mt-1 text-xs text-ink">
+                Responsável atual: {detail.data.current_assignee_name || "não atribuído"}
+              </p>
+              {detail.data.ticket_id ? (
+                <Link href={`/tickets/${detail.data.ticket_id}`} className="mt-1 inline-block text-xs font-medium text-navy">
+                  Ticket da etapa #{detail.data.ticket_id}
+                </Link>
+              ) : null}
+              {detail.data.status === "paused" ? (
+                <p className="mt-1 text-xs text-warn-fg">
+                  {detail.data.paused_for_label || `Pausada em ${detail.data.paused_at_label || "—"}`}
+                </p>
+              ) : null}
+              {detail.data.scheduled_at_label ? (
+                <p className="mt-1 text-xs text-progress">
+                  Próxima etapa agendada: {detail.data.scheduled_step_name} · {detail.data.scheduled_at_label}
+                </p>
+              ) : null}
             </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <TechnicianSelect
+                label="Responsável da implantação"
+                value={assignedDraft}
+                onChange={setAssignedDraft}
+                emptyLabel="Não atribuído"
+              />
+              <TechnicianSelect
+                label="Responsável da etapa atual"
+                value={stepAssigneeDraft}
+                onChange={setStepAssigneeDraft}
+                inheritLabel={
+                  detail.data.assigned_to_name
+                    ? `Herdar da implantação (${detail.data.assigned_to_name})`
+                    : "Herdar da implantação"
+                }
+              />
+            </div>
+            <PrimaryButton
+              type="button"
+              disabled={saveAssignees.isPending}
+              onClick={() => detailId && saveAssignees.mutate(detailId)}
+            >
+              {saveAssignees.isPending ? "Salvando…" : "Salvar responsáveis"}
+            </PrimaryButton>
+            {detail.data.next_step_name && detail.data.status !== "completed" && detail.data.status !== "cancelled" ? (
+              <div className="rounded-xl border border-line p-3">
+                <p className="text-[11px] font-medium uppercase tracking-wide text-muted">Agendar próxima etapa</p>
+                <p className="mt-1 text-ink">{detail.data.next_step_name}</p>
+                <label className="mt-3 block">
+                  <span className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted">Data e horário</span>
+                  <input
+                    type="datetime-local"
+                    value={scheduleWhen}
+                    onChange={(e) => setScheduleWhen(e.target.value)}
+                    className="mt-1 w-full border-0 border-b border-line bg-transparent py-2 text-[15px] text-ink"
+                  />
+                </label>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    disabled={scheduleNext.isPending}
+                    onClick={() => detailId && scheduleNext.mutate(detailId)}
+                    className="rounded-xl bg-progress-bg px-4 py-2 text-sm font-medium text-progress disabled:opacity-60"
+                  >
+                    {scheduleNext.isPending ? "Agendando…" : "Agendar na Agenda"}
+                  </button>
+                  {detail.data.scheduled_appointment_id ? (
+                    <button
+                      type="button"
+                      disabled={cancelSchedule.isPending}
+                      onClick={() => detailId && cancelSchedule.mutate(detailId)}
+                      className="rounded-xl bg-wash px-4 py-2 text-sm font-medium text-ink disabled:opacity-60"
+                    >
+                      Cancelar agendamento
+                    </button>
+                  ) : null}
+                </div>
+              </div>
+            ) : null}
             <div>
               <p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-muted">Histórico</p>
               <ul className="space-y-2">
@@ -279,8 +421,18 @@ function ImplantacaoBoardInner() {
                     <p className="text-xs text-muted">
                       Entrou {log.entered_at_label || "—"}
                       {log.due_at_label ? ` · prazo ${log.due_at_label}` : ""}
-                      {log.completed_at_label ? ` · saiu ${log.completed_at_label}` : " · em andamento"}
+                      {log.completed_at_label
+                        ? ` · saiu ${log.completed_at_label}`
+                        : detail.data.status === "paused"
+                          ? " · pausada"
+                          : " · em andamento"}
+                      {log.assignee_name ? ` · ${log.assignee_name}` : ""}
                     </p>
+                    {log.ticket_id ? (
+                      <Link href={`/tickets/${log.ticket_id}`} className="mt-1 inline-block text-xs font-medium text-navy">
+                        Ticket #{log.ticket_id}
+                      </Link>
+                    ) : null}
                   </li>
                 ))}
               </ul>
@@ -294,7 +446,15 @@ function ImplantacaoBoardInner() {
               {saveNotes.isPending ? "Salvando…" : "Salvar notas"}
             </PrimaryButton>
             {detail.data.status === "in_progress" ? (
-              <div className="flex gap-2">
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => detailId && pause.mutate(detailId)}
+                  disabled={pause.isPending}
+                  className="flex-1 rounded-xl bg-warn-bg py-3 text-sm font-medium text-warn-fg disabled:opacity-60"
+                >
+                  {pause.isPending ? "Pausando…" : "Pausar"}
+                </button>
                 <button
                   type="button"
                   onClick={() => detailId && complete.mutate(detailId)}
@@ -313,8 +473,53 @@ function ImplantacaoBoardInner() {
                 </button>
               </div>
             ) : null}
+            {detail.data.status === "paused" ? (
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => detailId && resume.mutate(detailId)}
+                  disabled={resume.isPending}
+                  className="flex-1 rounded-xl bg-progress-bg py-3 text-sm font-medium text-progress disabled:opacity-60"
+                >
+                  {resume.isPending ? "Retomando…" : "Retomar"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (detailId && window.confirm("Cancelar esta implantação?")) cancel.mutate(detailId);
+                  }}
+                  className="flex-1 rounded-xl bg-open-bg py-3 text-sm font-medium text-open"
+                >
+                  Cancelar
+                </button>
+              </div>
+            ) : null}
           </div>
         ) : null}
+      </Modal>
+
+      <Modal open={movePrompt != null} onClose={() => setMovePrompt(null)} title="Mover etapa">
+        <div className="space-y-4">
+          <p className="text-sm text-muted">
+            Atribua o técnico desta etapa ou herde o responsável da implantação.
+          </p>
+          <TechnicianSelect
+            label="Técnico da etapa"
+            value={moveAssignee}
+            onChange={setMoveAssignee}
+            inheritLabel="Herdar da implantação"
+          />
+          <PrimaryButton
+            type="button"
+            disabled={move.isPending || !movePrompt}
+            onClick={() => {
+              if (!movePrompt) return;
+              move.mutate({ id: movePrompt.id, columnKey: movePrompt.columnKey, assigneeId: moveAssignee });
+            }}
+          >
+            {move.isPending ? "Movendo…" : "Confirmar"}
+          </PrimaryButton>
+        </div>
       </Modal>
     </div>
   );

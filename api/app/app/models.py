@@ -286,6 +286,8 @@ class Ticket(db.Model):
 
 	opened_by_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
 	assigned_to_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=True)
+	implantation_id = db.Column(db.Integer, db.ForeignKey("implantation.id"), nullable=True, index=True)
+	implantation_step_id = db.Column(db.Integer, db.ForeignKey("implantation_step.id"), nullable=True, index=True)
 
 	total_cost = db.Column(db.Float, default=0.0)
 	ps_printed = db.Column(db.Boolean, default=False)  # Marca se a PS já foi impressa
@@ -1558,6 +1560,8 @@ class Appointment(db.Model):
 	created_at = db.Column(db.DateTime, default=get_brasilia_now)
 	updated_at = db.Column(db.DateTime, default=get_brasilia_now, onupdate=get_brasilia_now)
 	reminder_sent = db.Column(db.Boolean, default=False)  # Flag para controlar envio de lembretes
+	implantation_id = db.Column(db.Integer, nullable=True, index=True)
+	implantation_step_id = db.Column(db.Integer, nullable=True)
 	
 	# Relacionamentos
 	user = db.relationship('User', backref='appointments', lazy=True, foreign_keys=[user_id])
@@ -2395,6 +2399,7 @@ class ImplantationStep(db.Model):
 	id = db.Column(db.Integer, primary_key=True)
 	model_id = db.Column(db.Integer, db.ForeignKey("implantation_model.id"), nullable=False, index=True)
 	name = db.Column(db.String(120), nullable=False)
+	description = db.Column(db.Text)
 	position = db.Column(db.Integer, nullable=False, default=0)
 	duration_value = db.Column(db.Integer, nullable=False, default=1)
 	duration_unit = db.Column(db.String(10), nullable=False, default="days")
@@ -2419,7 +2424,7 @@ class Implantation(db.Model):
 	__tablename__ = "implantation"
 	__table_args__ = (
 		db.CheckConstraint(
-			"status IN ('in_progress', 'completed', 'cancelled')",
+			"status IN ('in_progress', 'paused', 'completed', 'cancelled')",
 			name="ck_implantation_status",
 		),
 	)
@@ -2434,13 +2439,19 @@ class Implantation(db.Model):
 	status = db.Column(db.String(20), nullable=False, default="in_progress", index=True)
 	notes = db.Column(db.Text)
 	created_by_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=True)
+	assigned_to_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=True, index=True)
+	scheduled_appointment_id = db.Column(db.Integer, nullable=True)
+	scheduled_step_id = db.Column(db.Integer, db.ForeignKey("implantation_step.id"), nullable=True)
 	created_at = db.Column(db.DateTime, default=get_brasilia_now, nullable=False)
 	updated_at = db.Column(db.DateTime, default=get_brasilia_now, onupdate=get_brasilia_now, nullable=False)
+	paused_at = db.Column(db.DateTime, nullable=True)
 	completed_at = db.Column(db.DateTime, nullable=True)
 	cancelled_at = db.Column(db.DateTime, nullable=True)
 
 	current_step = db.relationship("ImplantationStep", foreign_keys=[current_step_id])
 	created_by = db.relationship("User", foreign_keys=[created_by_id])
+	assigned_to = db.relationship("User", foreign_keys=[assigned_to_id])
+	scheduled_step = db.relationship("ImplantationStep", foreign_keys=[scheduled_step_id])
 	step_logs = db.relationship(
 		"ImplantationStepLog",
 		backref="implantation",
@@ -2464,8 +2475,12 @@ class ImplantationStepLog(db.Model):
 	entered_at = db.Column(db.DateTime, nullable=False, default=get_brasilia_now)
 	due_at = db.Column(db.DateTime, nullable=True)
 	completed_at = db.Column(db.DateTime, nullable=True)
+	assignee_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=True, index=True)
+	ticket_id = db.Column(db.Integer, db.ForeignKey("ticket.id"), nullable=True)
 
 	step = db.relationship("ImplantationStep")
+	assignee = db.relationship("User", foreign_keys=[assignee_id])
+	ticket = db.relationship("Ticket", foreign_keys=[ticket_id])
 
 	def __repr__(self) -> str:
 		return f"<ImplantationStepLog imp={self.implantation_id} step={self.step_id}>"

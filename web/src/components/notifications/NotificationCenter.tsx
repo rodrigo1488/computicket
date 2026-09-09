@@ -1,7 +1,7 @@
 "use client";
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bell, CalendarDays, Columns3, FileSignature, MessageCircle, Ticket, X } from "lucide-react";
+import { Bell, CalendarDays, Columns3, FileSignature, MessageCircle, Pause, Ticket, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { io } from "socket.io-client";
@@ -79,6 +79,7 @@ function iconFor(type: string) {
   if (type === "appointment") return CalendarDays;
   if (type === "contract_expiry") return FileSignature;
   if (type === "implantation_overdue") return Columns3;
+  if (type === "implantation_paused") return Pause;
   if (type === "ticket") return Ticket;
   return Bell;
 }
@@ -90,6 +91,7 @@ function notificationTone(type: string) {
   if (type === "appointment") return "bg-open-bg text-warn-fg";
   if (type === "contract_expiry") return "bg-open-bg text-warn-fg";
   if (type === "implantation_overdue") return "bg-open-bg text-open";
+  if (type === "implantation_paused") return "bg-warn-bg text-warn-fg";
   if (type === "ticket") return "bg-open-bg text-open";
   return "bg-line text-navy";
 }

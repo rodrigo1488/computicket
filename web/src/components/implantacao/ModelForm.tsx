@@ -10,12 +10,13 @@ import type { DurationUnit, ImplantationModel, ImplantationSystem } from "@/comp
 type StepDraft = {
   id?: number;
   name: string;
+  description: string;
   duration_value: string;
   duration_unit: DurationUnit;
 };
 
 export function emptyStep(): StepDraft {
-  return { name: "", duration_value: "5", duration_unit: "days" };
+  return { name: "", description: "", duration_value: "5", duration_unit: "days" };
 }
 
 export function ModelForm({
@@ -35,6 +36,7 @@ export function ModelForm({
       ? initial.steps.map((s) => ({
           id: s.id,
           name: s.name,
+          description: s.description || "",
           duration_value: String(s.duration_value),
           duration_unit: s.duration_unit,
         }))
@@ -91,6 +93,7 @@ export function ModelForm({
       .map((step) => ({
         id: step.id,
         name: step.name.trim(),
+        description: step.description.trim(),
         duration_value: Number(step.duration_value),
         duration_unit: step.duration_unit,
       }))
@@ -188,6 +191,18 @@ export function ModelForm({
                     value={step.name}
                     onChange={(v) => updateStep(index, { name: v })}
                   />
+                  <label className="block">
+                    <span className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted">
+                      Descrição do passo
+                    </span>
+                    <textarea
+                      value={step.description}
+                      onChange={(e) => updateStep(index, { description: e.target.value })}
+                      rows={3}
+                      placeholder="O que deve ser feito nesta etapa…"
+                      className="mt-1 w-full resize-y rounded-xl border border-line bg-transparent px-3 py-2 text-[15px] text-ink placeholder:text-muted"
+                    />
+                  </label>
                   <div className="grid grid-cols-2 gap-3">
                     <UnderlineField
                       label="Prazo"

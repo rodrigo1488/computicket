@@ -176,6 +176,9 @@ export default function ImplantacaoModelosPage() {
                     {i + 1}. {step.name}
                   </p>
                   <p className="text-xs text-muted">Prazo: {step.duration_label}</p>
+                  {step.description ? (
+                    <p className="mt-1 whitespace-pre-wrap text-sm text-ink">{step.description}</p>
+                  ) : null}
                 </li>
               ))}
             </ul>

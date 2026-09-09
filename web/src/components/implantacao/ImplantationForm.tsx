@@ -5,6 +5,7 @@ import { useMemo, useState } from "react";
 import { PrimaryButton, UnderlineField } from "@/components/ui/UnderlineField";
 import { flask, type PageRes } from "@/lib/api";
 import type { ImplantationDetail, ImplantationModel } from "@/components/implantacao/types";
+import { TechnicianSelect } from "@/components/implantacao/TechnicianSelect";
 
 type Client = { id: number; name: string };
 
@@ -23,6 +24,7 @@ export function ImplantationForm({
   const [clientId, setClientId] = useState("");
   const [q, setQ] = useState("");
   const [notes, setNotes] = useState("");
+  const [assignedTo, setAssignedTo] = useState("");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
 
@@ -48,6 +50,10 @@ export function ImplantationForm({
       setError("Selecione um cliente.");
       return;
     }
+    if (!assignedTo) {
+      setError("Selecione o técnico responsável.");
+      return;
+    }
     const client = (clients.data?.items || []).find((c) => String(c.id) === clientId);
     setSaving(true);
     try {
@@ -56,6 +62,7 @@ export function ImplantationForm({
         external_client_id: Number(clientId),
         external_client_name: client?.name || "",
         step_id: stepId ? Number(stepId) : undefined,
+        assigned_to_id: Number(assignedTo),
         notes,
       });
       onCreated(created);
@@ -126,6 +133,13 @@ export function ImplantationForm({
           ))}
         </select>
       </label>
+
+      <TechnicianSelect
+        label="Técnico responsável"
+        value={assignedTo}
+        onChange={setAssignedTo}
+        emptyLabel="Selecione…"
+      />
 
       <label className="block">
         <span className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted">Notas</span>

@@ -1,5 +1,5 @@
 """API JSON do módulo Implantação (modelos, passos, Kanban e prazos)."""
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from flask import Blueprint, jsonify, request
 from flask_login import current_user, login_required
@@ -7,11 +7,13 @@ from flask_login import current_user, login_required
 from .. import db
 from ..external_pg import ExternalPgError, get_external_client_by_id
 from ..models import (
+	Appointment,
 	Implantation,
 	ImplantationModel,
 	ImplantationStep,
 	ImplantationStepLog,
 	System,
+	Ticket,
 	User,
 )
 from ..timezone_utils import get_brasilia_now
@@ -20,6 +22,7 @@ bp = Blueprint("implantacao", __name__, url_prefix="/api/implantacao")
 
 DURATION_UNITS = {"hours", "days"}
 COMPLETED_COLUMN = "completed"
+PAUSED_ALERT_DAYS = 2
 
 
 def _now():
@@ -117,6 +120,7 @@ def _step_json(step: ImplantationStep):
 		"id": step.id,
 		"model_id": step.model_id,
 		"name": step.name,
+		"description": step.description or "",
 		"position": step.position,
 		"duration_value": int(step.duration_value or 0),
 		"duration_unit": step.duration_unit,
@@ -136,15 +140,98 @@ def _model_json(model: ImplantationModel, *, include_steps=True):
 		"system": _system_json(model.system) if model.system else None,
 		"is_active": bool(model.is_active),
 		"steps_count": len(active),
-		"active_count": Implantation.query.filter_by(model_id=model.id, status="in_progress").count(),
+		"active_count": Implantation.query.filter(
+			Implantation.model_id == model.id,
+			Implantation.status.in_(["in_progress", "paused"]),
+		).count(),
 	}
 	if include_steps:
 		payload["steps"] = [_step_json(s) for s in sorted(active, key=lambda s: s.position)]
 	return payload
 
 
+def _user_brief(user: User | None):
+	if not user:
+		return None, None
+	return user.id, user.name
+
+
+def _resolve_user_id(raw):
+	if raw in (None, "", "inherit"):
+		return None
+	try:
+		uid = int(raw)
+	except (TypeError, ValueError):
+		return None
+	user = User.query.get(uid)
+	return user.id if user else None
+
+
+def _current_open_log(item: Implantation) -> ImplantationStepLog | None:
+	return (
+		ImplantationStepLog.query.filter_by(implantation_id=item.id, completed_at=None)
+		.order_by(ImplantationStepLog.entered_at.desc())
+		.first()
+	)
+
+
+def _effective_assignee(item: Implantation) -> User | None:
+	log = _current_open_log(item)
+	if log and log.assignee_id:
+		return log.assignee
+	return item.assigned_to
+
+
+def _human_delta(seconds: int, *, overdue=False, prefix_ok="há", prefix_overdue="há"):
+	seconds = abs(int(seconds))
+	days, rem = divmod(seconds, 86400)
+	hours, rem = divmod(rem, 3600)
+	minutes = rem // 60
+	if days:
+		chunk = f"{days} dia{'s' if days != 1 else ''}"
+	elif hours:
+		chunk = f"{hours}h"
+	else:
+		chunk = f"{max(minutes, 1)} min"
+	if overdue:
+		return f"{prefix_overdue} {chunk}".strip()
+	return f"{prefix_ok} {chunk}".strip()
+
+
+def _paused_info(item: Implantation):
+	paused = _naive(item.paused_at) if item.status == "paused" else None
+	if not paused:
+		return {
+			"paused_days": 0,
+			"paused_seconds": 0,
+			"paused_long": False,
+			"paused_for_label": None,
+		}
+	seconds = int((_now() - paused).total_seconds())
+	days = seconds / 86400
+	return {
+		"paused_days": round(days, 2),
+		"paused_seconds": max(seconds, 0),
+		"paused_long": seconds > PAUSED_ALERT_DAYS * 86400,
+		"paused_for_label": f"pausada há {_human_delta(seconds, prefix_ok='').strip()}",
+	}
+
+
+def _alert_kind(item: Implantation, due: dict, paused: dict) -> str:
+	if item.status == "completed":
+		return "completed"
+	if item.status == "cancelled":
+		return "cancelled"
+	if item.status == "paused":
+		return "paused_long" if paused.get("paused_long") else "paused"
+	if item.status == "in_progress" and due.get("overdue"):
+		return "overdue"
+	return "ok"
+
+
 def _log_json(log: ImplantationStepLog):
 	due = _due_info(log.due_at)
+	assignee_id, assignee_name = _user_brief(log.assignee)
 	return {
 		"id": log.id,
 		"step_id": log.step_id,
@@ -156,18 +243,145 @@ def _log_json(log: ImplantationStepLog):
 		"completed_at": _iso(log.completed_at),
 		"completed_at_label": _fmt(log.completed_at),
 		"overdue": bool(due["overdue"] and not log.completed_at),
+		"assignee_id": assignee_id,
+		"assignee_name": assignee_name,
+		"ticket_id": log.ticket_id,
 	}
 
 
-def _implantation_json(item: Implantation, *, include_logs=False):
-	due = _due_info(item.due_at) if item.status == "in_progress" else {
+def _status_due_info(item: Implantation):
+	if item.status == "in_progress":
+		return _due_info(item.due_at)
+	if item.status == "paused":
+		frozen = _due_info(item.due_at, now=_naive(item.paused_at) or _now())
+		remaining = frozen.get("due_label") or ""
+		if remaining.startswith("vence em "):
+			label = f"pausada · restavam {remaining[9:]}"
+		elif remaining.startswith("prazo estourado"):
+			label = f"pausada · {remaining}"
+		else:
+			label = "pausada"
+		return {
+			"overdue": False,
+			"due_at": frozen.get("due_at"),
+			"due_label": label,
+			"due_at_label": frozen.get("due_at_label"),
+		}
+	return {
 		"overdue": False,
 		"due_at": _iso(item.due_at),
 		"due_label": "concluída" if item.status == "completed" else "cancelada",
 		"due_at_label": _fmt(item.due_at),
 	}
+
+
+def _next_step(item: Implantation) -> ImplantationStep | None:
+	model = item.model
+	if not model:
+		return None
+	steps = sorted(model.active_steps(), key=lambda s: s.position)
+	if not steps:
+		return None
+	if not item.current_step_id:
+		return steps[0]
+	seen = False
+	for step in steps:
+		if seen:
+			return step
+		if step.id == item.current_step_id:
+			seen = True
+	return None
+
+
+def _scheduled_appointment(item: Implantation) -> Appointment | None:
+	if not item.scheduled_appointment_id:
+		return None
+	return Appointment.query.get(item.scheduled_appointment_id)
+
+
+def _clear_schedule(item: Implantation, *, delete_appointment=False):
+	if delete_appointment:
+		appt = _scheduled_appointment(item)
+		if appt:
+			db.session.delete(appt)
+	item.scheduled_appointment_id = None
+	item.scheduled_step_id = None
+
+
+def _current_user_id():
+	try:
+		if current_user and getattr(current_user, "is_authenticated", False):
+			return int(current_user.id)
+	except Exception:
+		return None
+	return None
+
+
+def _ensure_step_ticket(item: Implantation, step: ImplantationStep) -> Ticket | None:
+	existing = Ticket.query.filter_by(
+		implantation_id=item.id,
+		implantation_step_id=step.id,
+	).first()
+	if existing:
+		return existing
+	assignee = _effective_assignee(item)
+	opened_by = _current_user_id() or item.created_by_id or (assignee.id if assignee else None)
+	if not opened_by:
+		fallback = User.query.filter(User.status == "1").order_by(User.id.asc()).first()
+		opened_by = fallback.id if fallback else None
+	if not opened_by:
+		return None
+	model_name = item.model.name if item.model else "Implantação"
+	ticket = Ticket(
+		title=f"[Implantação] {item.external_client_name} · {step.name}"[:200],
+		description=(
+			f"Ticket gerado pela etapa da implantação.\n"
+			f"Cliente: {item.external_client_name}\n"
+			f"Modelo: {model_name}\n"
+			f"Etapa: {step.name}\n"
+			f"Implantação #{item.id}\n"
+			f"Kanban: /implantacao?model={item.model_id}"
+		),
+		external_client_id=item.external_client_id,
+		external_client_name=item.external_client_name,
+		solicitante=item.external_client_name,
+		assigned_to_id=assignee.id if assignee else item.assigned_to_id,
+		opened_by_id=opened_by,
+		implantation_id=item.id,
+		implantation_step_id=step.id,
+		status="aberto",
+	)
+	db.session.add(ticket)
+	db.session.flush()
+	try:
+		from ..notification_service import create_notifications, ticket_recipient_ids
+
+		create_notifications(
+			ticket_recipient_ids(ticket.assigned_to_id),
+			notification_type="ticket",
+			title=f"Novo ticket #{ticket.id}",
+			message=f"{ticket.title} · {ticket.display_client_name() or 'Cliente não informado'}",
+			url=f"/tickets/{ticket.id}",
+			entity_type="ticket",
+			entity_id=ticket.id,
+		)
+	except Exception:
+		pass
+	return ticket
+
+
+def _implantation_json(item: Implantation, *, include_logs=False):
+	due = _status_due_info(item)
+	paused = _paused_info(item)
 	model = item.model
 	step = item.current_step
+	assigned_id, assigned_name = _user_brief(item.assigned_to)
+	open_log = _current_open_log(item)
+	step_assignee_id, step_assignee_name = _user_brief(open_log.assignee if open_log else None)
+	current_id, current_name = _user_brief(_effective_assignee(item))
+	nxt = _next_step(item)
+	appt = _scheduled_appointment(item)
+	scheduled_step = item.scheduled_step
 	payload = {
 		"id": item.id,
 		"external_client_id": item.external_client_id,
@@ -184,8 +398,26 @@ def _implantation_json(item: Implantation, *, include_logs=False):
 		"entered_at_label": _fmt(item.entered_at),
 		"created_at": _iso(item.created_at),
 		"created_at_label": _fmt(item.created_at),
+		"paused_at": _iso(item.paused_at),
+		"paused_at_label": _fmt(item.paused_at),
 		"completed_at": _iso(item.completed_at),
 		"created_by_name": item.created_by.name if item.created_by else None,
+		"assigned_to_id": assigned_id,
+		"assigned_to_name": assigned_name,
+		"step_assignee_id": step_assignee_id,
+		"step_assignee_name": step_assignee_name,
+		"current_assignee_id": current_id,
+		"current_assignee_name": current_name,
+		"ticket_id": open_log.ticket_id if open_log else None,
+		"next_step_id": nxt.id if nxt else None,
+		"next_step_name": nxt.name if nxt else None,
+		"scheduled_appointment_id": item.scheduled_appointment_id,
+		"scheduled_step_id": item.scheduled_step_id,
+		"scheduled_step_name": scheduled_step.name if scheduled_step else None,
+		"scheduled_at": _iso(appt.appointment_date) if appt else None,
+		"scheduled_at_label": _fmt(appt.appointment_date) if appt else None,
+		"alert": _alert_kind(item, due, paused),
+		**paused,
 		**due,
 	}
 	if include_logs:
@@ -194,7 +426,7 @@ def _implantation_json(item: Implantation, *, include_logs=False):
 	return payload
 
 
-def _open_step(item: Implantation, step: ImplantationStep, now=None):
+def _open_step(item: Implantation, step: ImplantationStep, now=None, assignee_id=None):
 	now = now or _now()
 	due_at = _compute_due_at(now, step)
 	item.current_step_id = step.id
@@ -203,14 +435,21 @@ def _open_step(item: Implantation, step: ImplantationStep, now=None):
 	item.status = "in_progress"
 	item.completed_at = None
 	item.cancelled_at = None
-	db.session.add(
-		ImplantationStepLog(
-			implantation=item,
-			step_id=step.id,
-			entered_at=now,
-			due_at=due_at,
-		)
+	item.paused_at = None
+	log = ImplantationStepLog(
+		implantation=item,
+		step_id=step.id,
+		entered_at=now,
+		due_at=due_at,
+		assignee_id=assignee_id,
 	)
+	db.session.add(log)
+	db.session.flush()
+	ticket = _ensure_step_ticket(item, step)
+	if ticket:
+		log.ticket_id = ticket.id
+	if item.scheduled_step_id == step.id:
+		_clear_schedule(item, delete_appointment=True)
 
 
 def _close_current_log(item: Implantation, now=None):
@@ -255,6 +494,7 @@ def _sync_steps(model: ImplantationModel, steps_payload: list):
 			step = ImplantationStep(model=model)
 			db.session.add(step)
 		step.name = name[:120]
+		step.description = (raw.get("description") or "").strip() or None
 		step.position = index
 		step.duration_value = duration_value
 		step.duration_unit = unit
@@ -265,9 +505,9 @@ def _sync_steps(model: ImplantationModel, steps_payload: list):
 	for step in list(model.steps or []):
 		if step.id in keep_ids:
 			continue
-		busy = Implantation.query.filter_by(
-			current_step_id=step.id,
-			status="in_progress",
+		busy = Implantation.query.filter(
+			Implantation.current_step_id == step.id,
+			Implantation.status.in_(["in_progress", "paused"]),
 		).count()
 		if busy:
 			raise ValueError(
@@ -442,7 +682,7 @@ def board():
 	steps = sorted(model.active_steps(), key=lambda s: s.position)
 	query = Implantation.query.filter(
 		Implantation.model_id == model.id,
-		Implantation.status.in_(["in_progress", "completed"]),
+		Implantation.status.in_(["in_progress", "paused", "completed"]),
 	)
 	items = query.order_by(Implantation.updated_at.desc()).all()
 	if q:
@@ -462,6 +702,7 @@ def board():
 			"id": step.id,
 			"key": str(step.id),
 			"name": step.name,
+			"description": step.description or "",
 			"duration_label": step.duration_label(),
 			"cards": by_step.get(step.id, []),
 		}
@@ -471,6 +712,7 @@ def board():
 		"id": None,
 		"key": COMPLETED_COLUMN,
 		"name": "Concluído",
+		"description": "",
 		"duration_label": None,
 		"cards": by_step[COMPLETED_COLUMN],
 	})
@@ -484,6 +726,39 @@ def board():
 		"columns": columns,
 		"overdue_count": overdue_count,
 		"total": len(items),
+	})
+
+
+@bp.route("/dashboard")
+@login_required
+def implantation_dashboard():
+	now = _now()
+	horizon = now - timedelta(days=21)
+	query = Implantation.query.filter(
+		db.or_(
+			Implantation.status.in_(["in_progress", "paused"]),
+			db.and_(
+				Implantation.status == "completed",
+				Implantation.completed_at.isnot(None),
+				Implantation.completed_at >= horizon,
+			),
+		)
+	).order_by(Implantation.updated_at.desc())
+	records = query.limit(200).all()
+	cards = [_implantation_json(item) for item in records]
+	in_progress = sum(1 for item in records if item.status == "in_progress")
+	paused = sum(1 for item in records if item.status == "paused")
+	overdue = sum(1 for c in cards if c.get("alert") == "overdue")
+	paused_long = sum(1 for c in cards if c.get("alert") == "paused_long")
+	return jsonify({
+		"kpis": {
+			"in_progress": in_progress,
+			"paused": paused,
+			"overdue": overdue,
+			"paused_long": paused_long,
+			"completed_recent": sum(1 for item in records if item.status == "completed"),
+		},
+		"items": cards,
 	})
 
 
@@ -510,10 +785,10 @@ def create_implantation():
 			client_name = (ext or {}).get("name") or f"Cliente #{client_id}"
 		except ExternalPgError:
 			client_name = f"Cliente #{client_id}"
-	duplicate = Implantation.query.filter_by(
-		model_id=model.id,
-		external_client_id=client_id,
-		status="in_progress",
+	duplicate = Implantation.query.filter(
+		Implantation.model_id == model.id,
+		Implantation.external_client_id == client_id,
+		Implantation.status.in_(["in_progress", "paused"]),
 	).first()
 	if duplicate:
 		return jsonify({"error": "Este cliente já está neste modelo de implantação."}), 409
@@ -533,9 +808,11 @@ def create_implantation():
 		model_id=model.id,
 		notes=(data.get("notes") or "").strip() or None,
 		created_by_id=getattr(current_user, "id", None),
+		assigned_to_id=_resolve_user_id(data.get("assigned_to_id")),
 	)
 	db.session.add(item)
-	_open_step(item, step)
+	step_assignee = _resolve_user_id(data.get("assignee_id") or data.get("step_assignee_id"))
+	_open_step(item, step, assignee_id=step_assignee)
 	db.session.commit()
 	return jsonify(_implantation_json(item, include_logs=True)), 201
 
@@ -562,19 +839,30 @@ def update_implantation(implantation_id: int):
 	data = _json()
 	if "notes" in data:
 		item.notes = (data.get("notes") or "").strip() or None
+	if "assigned_to_id" in data:
+		item.assigned_to_id = _resolve_user_id(data.get("assigned_to_id"))
+	if "assignee_id" in data or "step_assignee_id" in data:
+		raw = data.get("assignee_id") if "assignee_id" in data else data.get("step_assignee_id")
+		open_log = _current_open_log(item)
+		if open_log:
+			open_log.assignee_id = _resolve_user_id(raw)
 	db.session.commit()
 	return jsonify(_implantation_json(item, include_logs=True))
 
 
-def _move_implantation(item: Implantation, *, step_id=None, complete=False):
+def _move_implantation(item: Implantation, *, step_id=None, complete=False, assignee_id=None):
 	now = _now()
+	if item.status == "cancelled":
+		raise ValueError("Implantação cancelada não pode ser movida.")
+	if item.status == "paused" and not complete:
+		raise ValueError("Retome a implantação antes de mover de etapa.")
 	if complete or step_id in (None, "", COMPLETED_COLUMN, "done"):
-		if item.status == "cancelled":
-			raise ValueError("Implantação cancelada não pode ser movida.")
 		_close_current_log(item, now)
 		item.status = "completed"
 		item.completed_at = now
+		item.paused_at = None
 		item.due_at = None
+		_clear_schedule(item, delete_appointment=True)
 		return
 	try:
 		target_id = int(step_id)
@@ -583,12 +871,10 @@ def _move_implantation(item: Implantation, *, step_id=None, complete=False):
 	step = ImplantationStep.query.filter_by(id=target_id, model_id=item.model_id, is_active=True).first()
 	if not step:
 		raise ValueError("Etapa inválida.")
-	if item.status == "cancelled":
-		raise ValueError("Implantação cancelada não pode ser movida.")
 	if item.status == "in_progress" and item.current_step_id == step.id:
 		return
 	_close_current_log(item, now)
-	_open_step(item, step, now)
+	_open_step(item, step, now, assignee_id=assignee_id)
 
 
 @bp.route("/<int:implantation_id>/move", methods=["POST"])
@@ -602,7 +888,12 @@ def move_implantation(implantation_id: int):
 		complete = True
 		step_id = None
 	try:
-		_move_implantation(item, step_id=step_id, complete=complete)
+		_move_implantation(
+			item,
+			step_id=step_id,
+			complete=complete,
+			assignee_id=_resolve_user_id(data.get("assignee_id") or data.get("step_assignee_id")),
+		)
 		db.session.commit()
 	except ValueError as exc:
 		db.session.rollback()
@@ -633,7 +924,49 @@ def cancel_implantation(implantation_id: int):
 	_close_current_log(item, now)
 	item.status = "cancelled"
 	item.cancelled_at = now
+	item.paused_at = None
 	item.due_at = None
+	_clear_schedule(item, delete_appointment=True)
+	db.session.commit()
+	return jsonify(_implantation_json(item, include_logs=True))
+
+
+@bp.route("/<int:implantation_id>/pause", methods=["POST"])
+@login_required
+def pause_implantation(implantation_id: int):
+	item = Implantation.query.get_or_404(implantation_id)
+	if item.status == "paused":
+		return jsonify(_implantation_json(item, include_logs=True))
+	if item.status != "in_progress":
+		return jsonify({"error": "Só é possível pausar uma implantação em andamento."}), 400
+	item.status = "paused"
+	item.paused_at = _now()
+	db.session.commit()
+	return jsonify(_implantation_json(item, include_logs=True))
+
+
+@bp.route("/<int:implantation_id>/resume", methods=["POST"])
+@login_required
+def resume_implantation(implantation_id: int):
+	item = Implantation.query.get_or_404(implantation_id)
+	if item.status == "in_progress":
+		return jsonify(_implantation_json(item, include_logs=True))
+	if item.status != "paused":
+		return jsonify({"error": "Esta implantação não está pausada."}), 400
+	now = _now()
+	paused_at = _naive(item.paused_at) or now
+	due = _naive(item.due_at)
+	if due:
+		item.due_at = now + (due - paused_at)
+		open_log = (
+			ImplantationStepLog.query.filter_by(implantation_id=item.id, completed_at=None)
+			.order_by(ImplantationStepLog.entered_at.desc())
+			.first()
+		)
+		if open_log:
+			open_log.due_at = item.due_at
+	item.status = "in_progress"
+	item.paused_at = None
 	db.session.commit()
 	return jsonify(_implantation_json(item, include_logs=True))
 
@@ -680,3 +1013,171 @@ def notify_overdue_implantations() -> int:
 		)
 		created_total += len(items)
 	return created_total
+
+
+def notify_paused_implantations() -> int:
+	"""Notifica implantações pausadas há mais de 2 dias. Usado pelo scheduler."""
+	from ..notification_service import create_notifications
+
+	threshold = timedelta(days=PAUSED_ALERT_DAYS)
+	now = _now()
+	records = Implantation.query.filter(
+		Implantation.status == "paused",
+		Implantation.paused_at.isnot(None),
+	).all()
+	records = [
+		item for item in records
+		if _naive(item.paused_at) and (now - _naive(item.paused_at)) > threshold
+	]
+	if not records:
+		return 0
+	recipients = _team_recipient_ids()
+	if not recipients:
+		return 0
+	created_total = 0
+	for item in records:
+		paused = _naive(item.paused_at)
+		paused_key = paused.date().isoformat() if paused else "none"
+		client = (item.external_client_name or f"Cliente #{item.external_client_id}").strip()
+		model_name = item.model.name if item.model else "Implantação"
+		info = _paused_info(item)
+		items = create_notifications(
+			recipients,
+			notification_type="implantation_paused",
+			title=f"Implantação pausada · {client}"[:200],
+			message=(
+				f"{model_name} está pausada {info.get('paused_for_label') or 'há mais de 2 dias'}."
+			)[:1000],
+			url=f"/implantacao?model={item.model_id}",
+			entity_type="implantation",
+			entity_id=f"imp:{item.id}:paused:{paused_key}",
+			send_push=True,
+		)
+		created_total += len(items)
+	return created_total
+
+
+def start_scheduled_implantations() -> int:
+	"""No dia do agendamento, avança a implantação para a etapa marcada."""
+	today = _now().date()
+	records = Implantation.query.filter(
+		Implantation.status.in_(["in_progress", "paused"]),
+		Implantation.scheduled_appointment_id.isnot(None),
+		Implantation.scheduled_step_id.isnot(None),
+	).all()
+	started = 0
+	for item in records:
+		appt = _scheduled_appointment(item)
+		if not appt:
+			_clear_schedule(item)
+			continue
+		when = _naive(appt.appointment_date)
+		if not when or when.date() > today:
+			continue
+		try:
+			if item.status == "paused":
+				item.status = "in_progress"
+				item.paused_at = None
+			_move_implantation(item, step_id=item.scheduled_step_id)
+			started += 1
+		except ValueError:
+			continue
+	if records:
+		db.session.commit()
+	return started
+
+
+def _parse_when(raw):
+	if not raw:
+		raise ValueError("Informe data e horário do agendamento.")
+	text = str(raw).strip().replace("Z", "+00:00")
+	try:
+		value = datetime.fromisoformat(text)
+	except ValueError as exc:
+		raise ValueError("Data do agendamento inválida.") from exc
+	return _naive(value)
+
+
+@bp.route("/<int:implantation_id>/schedule-next", methods=["POST"])
+@login_required
+def schedule_next_step(implantation_id: int):
+	item = Implantation.query.get_or_404(implantation_id)
+	if item.status in ("completed", "cancelled"):
+		return jsonify({"error": "Não é possível agendar etapa de uma implantação encerrada."}), 400
+	data = _json()
+	nxt = _next_step(item)
+	step_id = data.get("step_id") or data.get("scheduled_step_id")
+	if step_id not in (None, ""):
+		try:
+			wanted = int(step_id)
+		except (TypeError, ValueError):
+			return jsonify({"error": "Etapa inválida."}), 400
+		step = ImplantationStep.query.filter_by(id=wanted, model_id=item.model_id, is_active=True).first()
+	else:
+		step = nxt
+	if not step:
+		return jsonify({"error": "Não há próxima etapa para agendar."}), 400
+	if item.current_step_id == step.id:
+		return jsonify({"error": "A etapa escolhida já está em andamento."}), 400
+	try:
+		when = _parse_when(data.get("appointment_date") or data.get("scheduled_at"))
+	except ValueError as exc:
+		return jsonify({"error": str(exc)}), 400
+	assignee = _effective_assignee(item)
+	user_id = _resolve_user_id(data.get("user_id")) or (assignee.id if assignee else None) or _current_user_id()
+	if not user_id:
+		return jsonify({"error": "Selecione um técnico para o agendamento."}), 400
+	title = f"Implantação · {item.external_client_name} · {step.name}"[:200]
+	description = (
+		f"Início automático da etapa \"{step.name}\" da implantação #{item.id} "
+		f"({item.model.name if item.model else 'modelo'})."
+	)
+	appt = _scheduled_appointment(item)
+	if appt:
+		appt.title = title
+		appt.description = description
+		appt.appointment_date = when
+		appt.client_id = item.external_client_id
+		appt.user_id = user_id
+		appt.implantation_id = item.id
+		appt.implantation_step_id = step.id
+	else:
+		appt = Appointment(
+			title=title,
+			description=description,
+			appointment_date=when,
+			client_id=item.external_client_id,
+			user_id=user_id,
+			created_by=_current_user_id() or user_id,
+			implantation_id=item.id,
+			implantation_step_id=step.id,
+		)
+		db.session.add(appt)
+		db.session.flush()
+	item.scheduled_appointment_id = appt.id
+	item.scheduled_step_id = step.id
+	db.session.commit()
+	try:
+		from ..notification_service import create_notifications
+
+		create_notifications(
+			[user_id],
+			notification_type="appointment",
+			title="Etapa de implantação agendada",
+			message=f"{title} · {appt.get_formatted_date()}",
+			url="/agenda",
+			entity_type="appointment",
+			entity_id=appt.id,
+		)
+	except Exception:
+		pass
+	return jsonify(_implantation_json(item, include_logs=True))
+
+
+@bp.route("/<int:implantation_id>/schedule-next", methods=["DELETE"])
+@login_required
+def cancel_scheduled_next_step(implantation_id: int):
+	item = Implantation.query.get_or_404(implantation_id)
+	_clear_schedule(item, delete_appointment=True)
+	db.session.commit()
+	return jsonify(_implantation_json(item, include_logs=True))

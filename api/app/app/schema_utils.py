@@ -53,3 +53,69 @@ def ensure_tables_from_metadata(table_names: Iterable[str] | None = None) -> Non
 		db.metadata.create_all(bind=bind, tables=tables)
 	else:
 		db.metadata.create_all(bind=bind)
+
+
+_IMPLANTATION_STATUS_CHECK = (
+	"CHECK (status IN ('in_progress', 'paused', 'completed', 'cancelled'))"
+)
+_IMPLANTATION_STATUS_INDEXES = (
+	"CREATE INDEX IF NOT EXISTS ix_implantation_external_client_id ON implantation (external_client_id)",
+	"CREATE INDEX IF NOT EXISTS ix_implantation_current_step_id ON implantation (current_step_id)",
+	"CREATE INDEX IF NOT EXISTS ix_implantation_due_at ON implantation (due_at)",
+	"CREATE INDEX IF NOT EXISTS ix_implantation_model_id ON implantation (model_id)",
+	"CREATE INDEX IF NOT EXISTS ix_implantation_status ON implantation (status)",
+	"CREATE INDEX IF NOT EXISTS ix_implantation_assigned_to_id ON implantation (assigned_to_id)",
+)
+
+
+def ensure_implantation_status_check() -> None:
+	"""Garante que o CHECK de status aceite 'paused' (SQLite precisa recriar a tabela)."""
+	if not table_exists("implantation"):
+		return
+	bind = db.session.get_bind()
+	if bind is None:
+		return
+	dialect = bind.dialect.name
+	if dialect == "postgresql":
+		db.session.execute(text("ALTER TABLE implantation DROP CONSTRAINT IF EXISTS ck_implantation_status"))
+		db.session.execute(text(
+			"ALTER TABLE implantation ADD CONSTRAINT ck_implantation_status "
+			+ _IMPLANTATION_STATUS_CHECK
+		))
+		db.session.commit()
+		return
+	if dialect != "sqlite":
+		return
+	row = db.session.execute(
+		text("SELECT sql FROM sqlite_master WHERE type='table' AND name='implantation'")
+	).fetchone()
+	ddl = (row[0] or "") if row else ""
+	if "'paused'" in ddl:
+		return
+	if "ck_implantation_status" not in ddl and "CHECK (status" not in ddl:
+		return
+	new_ddl = ddl.replace(
+		"CHECK (status IN ('in_progress', 'completed', 'cancelled'))",
+		_IMPLANTATION_STATUS_CHECK,
+	)
+	if "'paused'" not in new_ddl:
+		new_ddl = ddl.replace(
+			"CONSTRAINT ck_implantation_status CHECK (status IN ('in_progress', 'completed', 'cancelled'))",
+			f"CONSTRAINT ck_implantation_status {_IMPLANTATION_STATUS_CHECK}",
+		)
+	if "'paused'" not in new_ddl:
+		return
+	new_ddl = new_ddl.replace("CREATE TABLE implantation", "CREATE TABLE implantation__status_fix", 1)
+	cols = sorted(column_names("implantation"), key=lambda name: 0 if name == "id" else 1)
+	col_list = ", ".join(cols)
+	db.session.execute(text("PRAGMA foreign_keys=OFF"))
+	db.session.execute(text(new_ddl))
+	db.session.execute(text(
+		f"INSERT INTO implantation__status_fix ({col_list}) SELECT {col_list} FROM implantation"
+	))
+	db.session.execute(text("DROP TABLE implantation"))
+	db.session.execute(text("ALTER TABLE implantation__status_fix RENAME TO implantation"))
+	for index_sql in _IMPLANTATION_STATUS_INDEXES:
+		db.session.execute(text(index_sql))
+	db.session.commit()
+	db.session.execute(text("PRAGMA foreign_keys=ON"))

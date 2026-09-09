@@ -8,6 +8,7 @@ import {
   CheckCircle2,
   CircleHelp,
   Clock3,
+  Columns3,
   Cpu,
   DollarSign,
   HardDrive,
@@ -16,6 +17,8 @@ import {
   MemoryStick,
   MessageCircle,
   Monitor,
+  Pause,
+  CalendarClock,
   RefreshCw,
   Star,
   Thermometer,
@@ -58,6 +61,7 @@ import { flask, type PageRes } from "@/lib/api";
 import { cn } from "@/lib/cn";
 import { formatBRL, formatHours } from "@/lib/format";
 import { helpdesk } from "@/lib/helpdesk";
+import type { ImplantationCard, ImplantationDashboard } from "@/components/implantacao/types";
 import {
   formatDate,
   formatMetric,
@@ -71,7 +75,7 @@ import {
 } from "@/lib/remote-monitor";
 import { flaskSocketOptions } from "@/lib/flask-socket";
 
-type DashTab = "tickets" | "helpdesk" | "monitoramento";
+type DashTab = "tickets" | "helpdesk" | "monitoramento" | "implantacao";
 type DailyCount = { date: string; count: number };
 type ComparativoDia = { date: string; conversas: number; tickets: number };
 
@@ -846,11 +850,122 @@ function MonitoramentoDash() {
   );
 }
 
+function implantationAlertStyle(card: ImplantationCard) {
+  if (card.alert === "overdue") return { border: "border-open", badge: "bg-open-bg text-open", label: "Prazo estourado" };
+  if (card.alert === "paused_long") return { border: "border-warn-fg/40", badge: "bg-warn-bg text-warn-fg", label: "Pausada > 2 dias" };
+  if (card.alert === "paused") return { border: "border-warn-fg/40", badge: "bg-warn-bg text-warn-fg", label: "Pausada" };
+  if (card.alert === "completed") return { border: "border-done/40", badge: "bg-done-bg text-done", label: "Concluída" };
+  return { border: "border-line", badge: "bg-progress-bg text-progress", label: "Em andamento" };
+}
+
+function ImplantacoesDash() {
+  const query = useQuery({
+    queryKey: ["implantacao-dashboard"],
+    queryFn: () => flask.get<ImplantationDashboard>("/api/implantacao/dashboard"),
+  });
+  if (query.isLoading) return <DashboardLoading cards={4} />;
+  if (query.error || !query.data) {
+    return <ErrorState title="Não foi possível carregar as implantações" error={query.error} onRetry={() => query.refetch()} />;
+  }
+  const { kpis, items } = query.data;
+  return (
+    <div className="space-y-6">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <MetricCard label="Em andamento" value={kpis.in_progress} hint="Implantações ativas" icon={Activity} tone="progress" href="/implantacao" />
+        <MetricCard label="Pausadas" value={kpis.paused} hint="Aguardando retomada" icon={Pause} tone="open" href="/implantacao" />
+        <MetricCard label="Atrasadas" value={kpis.overdue} hint="Prazo da etapa estourado" icon={AlertTriangle} tone="open" href="/implantacao" />
+        <MetricCard label="Pausa > 2 dias" value={kpis.paused_long} hint="Alerta de pausa longa" icon={Clock3} href="/implantacao" />
+      </div>
+      {!items.length ? (
+        <Card className="py-12 text-center">
+          <CardContent>
+            <Columns3 className="mx-auto h-9 w-9 text-muted" />
+            <p className="mt-4 font-medium text-navy">Nenhuma implantação para exibir</p>
+            <p className="mt-1 text-sm text-muted">Crie uma implantação no Kanban para acompanhar aqui.</p>
+            <Link href="/implantacao" className="mt-4 inline-flex items-center gap-1.5 text-sm font-medium text-brand hover:underline">
+              Ir para Implantação <ArrowRight className="h-4 w-4" />
+            </Link>
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+          {items.map((card) => {
+            const tone = implantationAlertStyle(card);
+            return (
+              <Link
+                key={card.id}
+                href={`/implantacao?model=${card.model_id}`}
+                className={cn(
+                  "block rounded-2xl border bg-surface p-4 shadow-[0_1px_2px_rgba(16,24,40,0.04)] transition hover:shadow-md",
+                  tone.border,
+                )}
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <h3 className="text-[15px] font-semibold leading-snug text-ink">{card.external_client_name}</h3>
+                  <span className={cn("shrink-0 rounded-md px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide", tone.badge)}>
+                    {tone.label}
+                  </span>
+                </div>
+                <p className="mt-1 truncate text-xs text-muted">
+                  {card.system_name || card.model_name}
+                  {card.system_name && card.model_name ? ` · ${card.model_name}` : ""}
+                </p>
+                <dl className="mt-3 space-y-1 text-sm text-ink">
+                  <div className="flex justify-between gap-2">
+                    <dt className="text-muted">Técnico</dt>
+                    <dd className="truncate text-right">{card.current_assignee_name || "—"}</dd>
+                  </div>
+                  <div className="flex justify-between gap-2">
+                    <dt className="text-muted">Etapa</dt>
+                    <dd className="truncate text-right">{card.current_step_name || "—"}</dd>
+                  </div>
+                  <div className="flex justify-between gap-2">
+                    <dt className="text-muted">Início</dt>
+                    <dd>{card.created_at_label || card.entered_at_label || "—"}</dd>
+                  </div>
+                  <div className="flex justify-between gap-2">
+                    <dt className="text-muted">Prazo</dt>
+                    <dd className="truncate text-right">{card.due_label || "—"}</dd>
+                  </div>
+                  {card.status === "paused" && card.paused_for_label ? (
+                    <div className="flex justify-between gap-2 text-warn-fg">
+                      <dt>Pausa</dt>
+                      <dd>{card.paused_for_label}</dd>
+                    </div>
+                  ) : null}
+                  {card.scheduled_at_label ? (
+                    <div className="flex items-start justify-between gap-2 text-progress">
+                      <dt className="inline-flex items-center gap-1">
+                        <CalendarClock className="h-3.5 w-3.5" />
+                        Agendada
+                      </dt>
+                      <dd className="truncate text-right">
+                        {card.scheduled_step_name} · {card.scheduled_at_label}
+                      </dd>
+                    </div>
+                  ) : null}
+                </dl>
+              </Link>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function DashboardInner() {
   const router = useRouter();
   const params = useSearchParams();
   const raw = params.get("tab");
-  const tab: DashTab = raw === "helpdesk" ? "helpdesk" : raw === "monitoramento" ? "monitoramento" : "tickets";
+  const tab: DashTab =
+    raw === "helpdesk"
+      ? "helpdesk"
+      : raw === "monitoramento"
+        ? "monitoramento"
+        : raw === "implantacao"
+          ? "implantacao"
+          : "tickets";
 
   return (
     <TooltipProvider>
@@ -865,6 +980,7 @@ function DashboardInner() {
               <TabsTrigger value="tickets"><Tickets className="h-4 w-4" /> Operação</TabsTrigger>
               <TabsTrigger value="helpdesk"><Headphones className="h-4 w-4" /> Help Desk</TabsTrigger>
               <TabsTrigger value="monitoramento"><Monitor className="h-4 w-4" /> Monitoramento</TabsTrigger>
+              <TabsTrigger value="implantacao"><Columns3 className="h-4 w-4" /> Implantações</TabsTrigger>
             </TabsList>
           </Tabs>
         </div>
@@ -872,6 +988,7 @@ function DashboardInner() {
           <TabsContent value="tickets"><TicketsDash /></TabsContent>
           <TabsContent value="helpdesk"><HelpdeskDash /></TabsContent>
           <TabsContent value="monitoramento"><MonitoramentoDash /></TabsContent>
+          <TabsContent value="implantacao"><ImplantacoesDash /></TabsContent>
         </Tabs>
         <DashboardAiChat />
       </div>

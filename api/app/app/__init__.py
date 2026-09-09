@@ -797,13 +797,25 @@ def create_app() -> Flask:
 				ImplantationStep,
 				ImplantationStepLog,
 			)
-			from .schema_utils import ensure_tables_from_metadata
+			from .schema_utils import ensure_column, ensure_implantation_status_check, ensure_tables_from_metadata
 			ensure_tables_from_metadata([
 				"implantation_model",
 				"implantation_step",
 				"implantation",
 				"implantation_step_log",
 			])
+			ensure_column("implantation_step", "description", "TEXT")
+			ensure_column("implantation", "paused_at", "TIMESTAMP")
+			ensure_column("implantation", "assigned_to_id", "INTEGER")
+			ensure_column("implantation", "scheduled_appointment_id", "INTEGER")
+			ensure_column("implantation", "scheduled_step_id", "INTEGER")
+			ensure_column("implantation_step_log", "assignee_id", "INTEGER")
+			ensure_column("implantation_step_log", "ticket_id", "INTEGER")
+			ensure_column("ticket", "implantation_id", "INTEGER")
+			ensure_column("ticket", "implantation_step_id", "INTEGER")
+			ensure_column("appointment", "implantation_id", "INTEGER")
+			ensure_column("appointment", "implantation_step_id", "INTEGER")
+			ensure_implantation_status_check()
 	except Exception as _implantation_schema_error:
 		app.logger.warning("Não foi possível garantir o schema de implantação: %s", _implantation_schema_error)
 	
