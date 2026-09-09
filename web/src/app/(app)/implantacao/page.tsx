@@ -61,8 +61,16 @@ function ImplantacaoBoardInner() {
   const [notesDraft, setNotesDraft] = useState("");
   const [assignedDraft, setAssignedDraft] = useState("");
   const [stepAssigneeDraft, setStepAssigneeDraft] = useState("inherit");
-  const [movePrompt, setMovePrompt] = useState<{ id: number; columnKey: string } | null>(null);
+  const [movePrompt, setMovePrompt] = useState<{
+    id: number;
+    columnKey: string;
+    ticketId?: number | null;
+    stepName?: string | null;
+  } | null>(null);
   const [moveAssignee, setMoveAssignee] = useState("inherit");
+  const [moveStart, setMoveStart] = useState(() => toDatetimeLocal());
+  const [moveEnd, setMoveEnd] = useState(() => toDatetimeLocal());
+  const [moveComment, setMoveComment] = useState("");
   const [scheduleWhen, setScheduleWhen] = useState(() => toDatetimeLocal());
 
   useEffect(() => {
@@ -135,11 +143,50 @@ function ImplantacaoBoardInner() {
     qc.invalidateQueries({ queryKey: ["implantacao-models"] });
     qc.invalidateQueries({ queryKey: ["implantacao-dashboard"] });
     qc.invalidateQueries({ queryKey: ["agenda-cal"] });
+    qc.invalidateQueries({ queryKey: ["tickets"] });
+    qc.invalidateQueries({ queryKey: ["ticket"] });
+  };
+
+  const findCard = (id: number) =>
+    (board.data?.columns || []).flatMap((column) => column.cards).find((card) => card.id === id);
+
+  const openMovePrompt = (
+    id: number,
+    columnKey: string,
+    extras?: { ticketId?: number | null; enteredAt?: string | null; stepName?: string | null },
+  ) => {
+    const card = findCard(id);
+    const currentKey =
+      card?.status === "completed" ? COMPLETED_COLUMN_KEY : String(card?.current_step_id || "");
+    if (card && currentKey === columnKey) return;
+    setError("");
+    setMoveAssignee("inherit");
+    setMoveStart(isoToDatetimeLocal(extras?.enteredAt || card?.entered_at));
+    setMoveEnd(toDatetimeLocal());
+    setMoveComment("");
+    setMovePrompt({
+      id,
+      columnKey,
+      ticketId: extras?.ticketId ?? card?.ticket_id,
+      stepName: extras?.stepName ?? card?.current_step_name,
+    });
   };
 
   const move = useMutation({
-    mutationFn: ({ id, columnKey, assigneeId }: { id: number; columnKey: string; assigneeId?: string }) => {
-      const body: Record<string, unknown> = {};
+    mutationFn: ({
+      id,
+      columnKey,
+      assigneeId,
+    }: {
+      id: number;
+      columnKey: string;
+      assigneeId?: string;
+    }) => {
+      const body: Record<string, unknown> = {
+        start_time: datetimeLocalPayload(moveStart),
+        end_time: datetimeLocalPayload(moveEnd),
+        comment: moveComment.trim(),
+      };
       if (assigneeId && assigneeId !== "inherit") body.assignee_id = Number(assigneeId);
       else body.assignee_id = null;
       if (columnKey === COMPLETED_COLUMN_KEY) {
@@ -152,15 +199,6 @@ function ImplantacaoBoardInner() {
       invalidate();
     },
     onError: (e) => setError(e instanceof Error ? e.message : "Erro ao mover"),
-  });
-
-  const complete = useMutation({
-    mutationFn: (id: number) => flask.post(`/api/implantacao/${id}/complete`),
-    onSuccess: () => {
-      setDetailId(null);
-      invalidate();
-    },
-    onError: (e) => setError(e instanceof Error ? e.message : "Erro ao concluir"),
   });
 
   const cancel = useMutation({
@@ -314,15 +352,7 @@ function ImplantacaoBoardInner() {
           <KanbanBoard
             columns={board.data.columns}
             onOpen={openCard}
-            onMove={(id, columnKey) => {
-              setError("");
-              if (columnKey === COMPLETED_COLUMN_KEY) {
-                move.mutate({ id, columnKey });
-                return;
-              }
-              setMoveAssignee("inherit");
-              setMovePrompt({ id, columnKey });
-            }}
+            onMove={(id, columnKey) => openMovePrompt(id, columnKey)}
           />
         </div>
       ) : null}
@@ -480,7 +510,15 @@ function ImplantacaoBoardInner() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => detailId && complete.mutate(detailId)}
+                  onClick={() => {
+                    if (!detailId) return;
+                    setDetailId(null);
+                    openMovePrompt(detailId, COMPLETED_COLUMN_KEY, {
+                      ticketId: detail.data?.ticket_id,
+                      enteredAt: detail.data?.entered_at,
+                      stepName: detail.data?.current_step_name,
+                    });
+                  }}
                   className="flex-1 rounded-xl bg-done-bg py-3 text-sm font-medium text-done"
                 >
                   Concluir
@@ -521,27 +559,66 @@ function ImplantacaoBoardInner() {
         ) : null}
       </Modal>
 
-      <Modal open={movePrompt != null} onClose={() => setMovePrompt(null)} title="Mover etapa">
+      <Modal
+        open={movePrompt != null}
+        onClose={() => setMovePrompt(null)}
+        title={movePrompt?.columnKey === COMPLETED_COLUMN_KEY ? "Concluir implantação" : "Finalizar etapa"}
+      >
         <div className="space-y-4">
           <p className="text-sm text-muted">
-            Atribua o técnico desta etapa ou herde o responsável da implantação.
+            {movePrompt?.stepName ? (
+              <>
+                Finalize o ticket da etapa <strong>{movePrompt.stepName}</strong> com o apontamento desta sessão.
+              </>
+            ) : (
+              "Finalize o ticket da etapa atual com horário de início, fim e descrição."
+            )}
+            {movePrompt?.ticketId ? ` Ticket #${movePrompt.ticketId}.` : ""}
           </p>
-          <TechnicianSelect
-            label="Técnico da etapa"
-            value={moveAssignee}
-            onChange={setMoveAssignee}
-            inheritLabel="Herdar da implantação"
-          />
+          <UnderlineField label="Início" type="datetime-local" value={moveStart} onChange={setMoveStart} />
+          <UnderlineField label="Fim" type="datetime-local" value={moveEnd} onChange={setMoveEnd} />
+          <label className="block">
+            <span className="text-[11px] font-medium tracking-[0.08em] text-muted uppercase">Descrição</span>
+            <textarea
+              value={moveComment}
+              onChange={(e) => setMoveComment(e.target.value)}
+              rows={3}
+              placeholder="O que foi feito nesta etapa"
+              className="mt-1 w-full border-0 border-b border-line bg-transparent py-2 text-[15px] text-ink"
+            />
+          </label>
+          {movePrompt?.columnKey !== COMPLETED_COLUMN_KEY ? (
+            <TechnicianSelect
+              label="Técnico da próxima etapa"
+              value={moveAssignee}
+              onChange={setMoveAssignee}
+              inheritLabel="Herdar da implantação"
+            />
+          ) : null}
           <PrimaryButton
             type="button"
             disabled={move.isPending || !movePrompt}
             onClick={() => {
               if (!movePrompt) return;
+              if (!moveStart || !moveEnd) {
+                setError("Informe horário de início e fim.");
+                return;
+              }
+              if (moveStart >= moveEnd) {
+                setError("Horário final deve ser após o início.");
+                return;
+              }
+              if (!moveComment.trim()) {
+                setError("Informe a descrição do que foi feito nesta etapa.");
+                return;
+              }
+              setError("");
               move.mutate({ id: movePrompt.id, columnKey: movePrompt.columnKey, assigneeId: moveAssignee });
             }}
           >
-            {move.isPending ? "Movendo…" : "Confirmar"}
+            {move.isPending ? "Salvando…" : "Encerrar ticket e avançar"}
           </PrimaryButton>
+          {error ? <p className="text-sm text-open">{error}</p> : null}
         </div>
       </Modal>
     </div>

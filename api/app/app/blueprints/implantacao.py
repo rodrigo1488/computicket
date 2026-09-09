@@ -14,9 +14,10 @@ from ..models import (
 	ImplantationStepLog,
 	System,
 	Ticket,
+	TimeEntry,
 	User,
 )
-from ..timezone_utils import get_brasilia_now, utc_to_brasilia
+from ..timezone_utils import brasilia_to_utc, get_brasilia_now, utc_to_brasilia
 
 bp = Blueprint("implantacao", __name__, url_prefix="/api/implantacao")
 
@@ -463,6 +464,88 @@ def _close_current_log(item: Implantation, now=None):
 		open_log.completed_at = now
 
 
+def _as_naive_dt(value, *, empty_error: str):
+	if isinstance(value, datetime):
+		return _naive(value)
+	if value in (None, ""):
+		raise ValueError(empty_error)
+	return _parse_when(value, empty=empty_error, invalid="Horário inválido.")
+
+
+def _close_current_step_ticket(
+	item: Implantation,
+	*,
+	start_time=None,
+	end_time=None,
+	comment=None,
+	required=True,
+):
+	"""Aponta e fecha o ticket da etapa atual ao sair dela."""
+	open_log = _current_open_log(item)
+	if not open_log or not open_log.ticket_id:
+		return None
+	ticket = Ticket.query.get(open_log.ticket_id)
+	if not ticket or ticket.status in ("fechado", "cancelado"):
+		return ticket
+
+	comment_text = (comment or "").strip()
+	if required:
+		if start_time in (None, "") or end_time in (None, ""):
+			raise ValueError("Informe horário de início e fim para finalizar o ticket da etapa.")
+		if not comment_text:
+			raise ValueError("Informe a descrição do que foi feito nesta etapa.")
+
+	if start_time in (None, "") or end_time in (None, ""):
+		start_naive = _naive(item.entered_at) or _now()
+		end_naive = _now()
+		if end_naive <= start_naive:
+			end_naive = start_naive + timedelta(minutes=1)
+	else:
+		start_naive = _as_naive_dt(start_time, empty_error="Informe o horário de início.")
+		end_naive = _as_naive_dt(end_time, empty_error="Informe o horário de fim.")
+		if end_naive <= start_naive:
+			raise ValueError("Horário final deve ser após o início.")
+	if not comment_text:
+		step_name = item.current_step.name if item.current_step else "etapa"
+		comment_text = f"Etapa {step_name} finalizada."
+
+	start_dt = brasilia_to_utc(start_naive)
+	end_dt = brasilia_to_utc(end_naive)
+	hours = max(0.0, (end_dt - start_dt).total_seconds() / 3600.0)
+	user_id = _current_user_id() or ticket.assigned_to_id or item.assigned_to_id
+	if not user_id:
+		raise ValueError("Não há usuário para registrar o apontamento da etapa.")
+
+	db.session.add(
+		TimeEntry(
+			ticket_id=ticket.id,
+			user_id=user_id,
+			hours=hours,
+			comment=comment_text,
+			start_time=start_dt,
+			end_time=end_dt,
+		)
+	)
+	db.session.flush()
+	ticket.in_progress_started_at = None
+	ticket.status = "fechado"
+	ticket.closed_at = brasilia_to_utc(get_brasilia_now())
+	try:
+		from .tickets import _calculate_ticket_total_cost
+
+		total, _, _ = _calculate_ticket_total_cost(ticket, force_charge=False, manual=None)
+		ticket.total_cost = total
+	except Exception:
+		pass
+	try:
+		from ..engine_client import notify_helpdesk_ticket
+
+		notify_helpdesk_ticket(ticket.id, f"Ticket #{ticket.id} encerrado", internal=True)
+	except Exception:
+		pass
+	return ticket
+
+
 def _sync_steps(model: ImplantationModel, steps_payload: list):
 	if not isinstance(steps_payload, list) or not steps_payload:
 		raise ValueError("Informe ao menos um passo da implantação.")
@@ -850,13 +933,30 @@ def update_implantation(implantation_id: int):
 	return jsonify(_implantation_json(item, include_logs=True))
 
 
-def _move_implantation(item: Implantation, *, step_id=None, complete=False, assignee_id=None):
+def _move_implantation(
+	item: Implantation,
+	*,
+	step_id=None,
+	complete=False,
+	assignee_id=None,
+	start_time=None,
+	end_time=None,
+	comment=None,
+	require_ticket_times=True,
+):
 	now = _now()
 	if item.status == "cancelled":
 		raise ValueError("Implantação cancelada não pode ser movida.")
 	if item.status == "paused" and not complete:
 		raise ValueError("Retome a implantação antes de mover de etapa.")
 	if complete or step_id in (None, "", COMPLETED_COLUMN, "done"):
+		_close_current_step_ticket(
+			item,
+			start_time=start_time,
+			end_time=end_time,
+			comment=comment,
+			required=require_ticket_times,
+		)
 		_close_current_log(item, now)
 		item.status = "completed"
 		item.completed_at = now
@@ -873,6 +973,13 @@ def _move_implantation(item: Implantation, *, step_id=None, complete=False, assi
 		raise ValueError("Etapa inválida.")
 	if item.status == "in_progress" and item.current_step_id == step.id:
 		return
+	_close_current_step_ticket(
+		item,
+		start_time=start_time,
+		end_time=end_time,
+		comment=comment,
+		required=require_ticket_times,
+	)
 	_close_current_log(item, now)
 	_open_step(item, step, now, assignee_id=assignee_id)
 
@@ -893,6 +1000,9 @@ def move_implantation(implantation_id: int):
 			step_id=step_id,
 			complete=complete,
 			assignee_id=_resolve_user_id(data.get("assignee_id") or data.get("step_assignee_id")),
+			start_time=data.get("start_time") or data.get("inicio"),
+			end_time=data.get("end_time") or data.get("fim"),
+			comment=data.get("comment") or data.get("description") or data.get("descricao"),
 		)
 		db.session.commit()
 	except ValueError as exc:
@@ -905,8 +1015,15 @@ def move_implantation(implantation_id: int):
 @login_required
 def complete_implantation(implantation_id: int):
 	item = Implantation.query.get_or_404(implantation_id)
+	data = _json()
 	try:
-		_move_implantation(item, complete=True)
+		_move_implantation(
+			item,
+			complete=True,
+			start_time=data.get("start_time") or data.get("inicio"),
+			end_time=data.get("end_time") or data.get("fim"),
+			comment=data.get("comment") or data.get("description") or data.get("descricao"),
+		)
 		db.session.commit()
 	except ValueError as exc:
 		db.session.rollback()
@@ -1081,7 +1198,12 @@ def start_scheduled_implantations() -> int:
 			if item.status == "paused":
 				item.status = "in_progress"
 				item.paused_at = None
-			_move_implantation(item, step_id=item.scheduled_step_id)
+			_move_implantation(
+				item,
+				step_id=item.scheduled_step_id,
+				require_ticket_times=False,
+				comment="Etapa encerrada automaticamente pelo agendamento.",
+			)
 			started += 1
 		except ValueError:
 			continue
@@ -1090,7 +1212,7 @@ def start_scheduled_implantations() -> int:
 	return started
 
 
-def _parse_when(raw):
+def _parse_when(raw, *, empty="Informe data e horário do agendamento.", invalid="Data do agendamento inválida."):
 	"""Interpreta o horário digitado como Brasília.
 
 	datetime-local chega sem fuso (naive) e é gravado como está.
@@ -1098,14 +1220,14 @@ def _parse_when(raw):
 	persistir 16:50 local como 19:50.
 	"""
 	if not raw:
-		raise ValueError("Informe data e horário do agendamento.")
+		raise ValueError(empty)
 	text = str(raw).strip()
 	if text.endswith("Z"):
 		text = text[:-1] + "+00:00"
 	try:
 		value = datetime.fromisoformat(text)
 	except ValueError as exc:
-		raise ValueError("Data do agendamento inválida.") from exc
+		raise ValueError(invalid) from exc
 	if getattr(value, "tzinfo", None) is not None:
 		value = utc_to_brasilia(value)
 	return _naive(value)

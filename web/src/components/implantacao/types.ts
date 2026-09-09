@@ -68,6 +68,7 @@ export type ImplantationCard = {
   paused_days?: number;
   paused_long?: boolean;
   paused_for_label?: string | null;
+  entered_at?: string | null;
   entered_at_label?: string | null;
   created_at_label?: string | null;
   created_by_name?: string | null;
