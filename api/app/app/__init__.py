@@ -681,12 +681,14 @@ def create_app() -> Flask:
 	from .blueprints.web_api import bp as web_api_bp
 	from .blueprints.uniplus_api import bp as uniplus_api_bp
 	from .blueprints.remote_monitor import bp as remote_monitor_bp
+	from .blueprints.implantacao import bp as implantacao_bp
 	from .blueprints import remote_monitor_agent_ws  # noqa: F401
 
 	app.register_blueprint(auth_bp)
 	app.register_blueprint(web_api_bp)
 	app.register_blueprint(uniplus_api_bp)
 	app.register_blueprint(remote_monitor_bp)
+	app.register_blueprint(implantacao_bp)
 	app.register_blueprint(utils_bp)
 	app.register_blueprint(clients_bp, url_prefix="/clientes")
 	app.register_blueprint(users_bp, url_prefix="/usuarios")
@@ -775,6 +777,24 @@ def create_app() -> Flask:
 			])
 	except Exception as _remote_schema_error:
 		app.logger.warning("Não foi possível garantir o schema de monitoramento remoto: %s", _remote_schema_error)
+
+	try:
+		with app.app_context():
+			from .models import (  # noqa: F401
+				Implantation,
+				ImplantationModel,
+				ImplantationStep,
+				ImplantationStepLog,
+			)
+			from .schema_utils import ensure_tables_from_metadata
+			ensure_tables_from_metadata([
+				"implantation_model",
+				"implantation_step",
+				"implantation",
+				"implantation_step_log",
+			])
+	except Exception as _implantation_schema_error:
+		app.logger.warning("Não foi possível garantir o schema de implantação: %s", _implantation_schema_error)
 	
 	# Registrar blueprint de planos
 	from app.blueprints.plans import plans_bp

@@ -21,6 +21,7 @@ import {
   Settings,
   Ticket,
   Monitor,
+  Columns3,
 } from "lucide-react";
 
 export type NavItem = {
@@ -42,6 +43,7 @@ export const NAV_ITEMS: NavItem[] = [
   { href: "/servicos", label: "Serviços", icon: Cog },
   { href: "/contratos", label: "Contratos", icon: FileSignature },
   { href: "/planos", label: "Planos", icon: Layers },
+  { href: "/implantacao", label: "Implantação", icon: Columns3 },
   { href: "/monitoramento", label: "Monitoramento", icon: MapPin, techOnly: true },
   { href: "/monitoramento-remoto", label: "Monitoramento remoto", icon: Monitor, techOnly: true },
   { href: "/relatorios", label: "Relatórios", icon: PieChart },

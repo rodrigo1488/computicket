@@ -101,6 +101,27 @@ def verificar_contratos_vencendo():
                 pass
 
 
+def verificar_prazos_implantacao():
+    """Cria notificações in-app para etapas de implantação com prazo estourado."""
+    app = create_app()
+    with app.app_context():
+        try:
+            from app.blueprints.implantacao import notify_overdue_implantations
+
+            created_total = notify_overdue_implantations()
+            if created_total:
+                app.logger.info(
+                    "Prazos de implantação estourados: %s notificação(ões) criada(s).",
+                    created_total,
+                )
+        except Exception as e:
+            app.logger.warning("Falha ao verificar prazos de implantação: %s", e)
+            try:
+                db.session.rollback()
+            except Exception:
+                pass
+
+
 def verificar_novas_mensagens_helpdesk():
     """Consulta o motor para que Web Push funcione mesmo sem navegador aberto."""
     global _helpdesk_poll_initialized
@@ -604,10 +625,12 @@ def run_scheduler():
     schedule.every().minute.do(enviar_lembretes_automaticos)
     schedule.every(15).seconds.do(verificar_novas_mensagens_helpdesk)
     schedule.every().hour.do(verificar_contratos_vencendo)
+    schedule.every(15).minutes.do(verificar_prazos_implantacao)
     verificar_novas_mensagens_helpdesk()
     verificar_contratos_vencendo()
+    verificar_prazos_implantacao()
     
-    print("⏰ Scheduler: agendamentos (1min), helpdesk (15s), contratos a vencer (1h)")
+    print("⏰ Scheduler: agendamentos (1min), helpdesk (15s), contratos a vencer (1h), implantação (15min)")
     
     # Loop infinito para manter o scheduler rodando
     while True:

@@ -2351,3 +2351,121 @@ class RemoteFileTransfer(db.Model):
 			"updated_at": _remote_utc_iso(self.updated_at),
 			"completed_at": _remote_utc_iso(self.completed_at),
 		}
+
+
+class ImplantationModel(db.Model):
+	"""Modelo (template) de implantação: sistema + passos com prazo."""
+
+	__tablename__ = "implantation_model"
+
+	id = db.Column(db.Integer, primary_key=True)
+	name = db.Column(db.String(120), nullable=False)
+	description = db.Column(db.Text)
+	system_id = db.Column(db.Integer, db.ForeignKey("system.id"), nullable=False, index=True)
+	is_active = db.Column(db.Boolean, default=True, nullable=False)
+	created_at = db.Column(db.DateTime, default=get_brasilia_now, nullable=False)
+	updated_at = db.Column(db.DateTime, default=get_brasilia_now, onupdate=get_brasilia_now, nullable=False)
+
+	system = db.relationship("System", backref=db.backref("implantation_models", lazy=True))
+	steps = db.relationship(
+		"ImplantationStep",
+		backref="model",
+		lazy=True,
+		cascade="all, delete-orphan",
+		order_by="ImplantationStep.position",
+	)
+	implantations = db.relationship("Implantation", backref="model", lazy=True)
+
+	def active_steps(self):
+		return [step for step in (self.steps or []) if step.is_active]
+
+	def __repr__(self) -> str:
+		return f"<ImplantationModel {self.name}>"
+
+
+class ImplantationStep(db.Model):
+	"""Etapa de um modelo de implantação (coluna do Kanban)."""
+
+	__tablename__ = "implantation_step"
+	__table_args__ = (
+		db.CheckConstraint("duration_unit IN ('hours', 'days')", name="ck_implantation_step_duration_unit"),
+		db.CheckConstraint("duration_value >= 1", name="ck_implantation_step_duration_value"),
+	)
+
+	id = db.Column(db.Integer, primary_key=True)
+	model_id = db.Column(db.Integer, db.ForeignKey("implantation_model.id"), nullable=False, index=True)
+	name = db.Column(db.String(120), nullable=False)
+	position = db.Column(db.Integer, nullable=False, default=0)
+	duration_value = db.Column(db.Integer, nullable=False, default=1)
+	duration_unit = db.Column(db.String(10), nullable=False, default="days")
+	is_active = db.Column(db.Boolean, default=True, nullable=False)
+	created_at = db.Column(db.DateTime, default=get_brasilia_now, nullable=False)
+	updated_at = db.Column(db.DateTime, default=get_brasilia_now, onupdate=get_brasilia_now, nullable=False)
+
+	def duration_label(self) -> str:
+		unit = "dia" if self.duration_unit == "days" else "hora"
+		value = int(self.duration_value or 0)
+		if value != 1:
+			unit = f"{unit}s"
+		return f"{value} {unit}"
+
+	def __repr__(self) -> str:
+		return f"<ImplantationStep {self.name}>"
+
+
+class Implantation(db.Model):
+	"""Implantação de um cliente em um modelo (card do Kanban)."""
+
+	__tablename__ = "implantation"
+	__table_args__ = (
+		db.CheckConstraint(
+			"status IN ('in_progress', 'completed', 'cancelled')",
+			name="ck_implantation_status",
+		),
+	)
+
+	id = db.Column(db.Integer, primary_key=True)
+	external_client_id = db.Column(db.Integer, nullable=False, index=True)
+	external_client_name = db.Column(db.String(200), nullable=False)
+	model_id = db.Column(db.Integer, db.ForeignKey("implantation_model.id"), nullable=False, index=True)
+	current_step_id = db.Column(db.Integer, db.ForeignKey("implantation_step.id"), nullable=True, index=True)
+	entered_at = db.Column(db.DateTime, nullable=True)
+	due_at = db.Column(db.DateTime, nullable=True, index=True)
+	status = db.Column(db.String(20), nullable=False, default="in_progress", index=True)
+	notes = db.Column(db.Text)
+	created_by_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=True)
+	created_at = db.Column(db.DateTime, default=get_brasilia_now, nullable=False)
+	updated_at = db.Column(db.DateTime, default=get_brasilia_now, onupdate=get_brasilia_now, nullable=False)
+	completed_at = db.Column(db.DateTime, nullable=True)
+	cancelled_at = db.Column(db.DateTime, nullable=True)
+
+	current_step = db.relationship("ImplantationStep", foreign_keys=[current_step_id])
+	created_by = db.relationship("User", foreign_keys=[created_by_id])
+	step_logs = db.relationship(
+		"ImplantationStepLog",
+		backref="implantation",
+		lazy=True,
+		cascade="all, delete-orphan",
+		order_by="ImplantationStepLog.entered_at",
+	)
+
+	def __repr__(self) -> str:
+		return f"<Implantation {self.external_client_name} model={self.model_id}>"
+
+
+class ImplantationStepLog(db.Model):
+	"""Histórico de entrada e saída de cada etapa de uma implantação."""
+
+	__tablename__ = "implantation_step_log"
+
+	id = db.Column(db.Integer, primary_key=True)
+	implantation_id = db.Column(db.Integer, db.ForeignKey("implantation.id"), nullable=False, index=True)
+	step_id = db.Column(db.Integer, db.ForeignKey("implantation_step.id"), nullable=False, index=True)
+	entered_at = db.Column(db.DateTime, nullable=False, default=get_brasilia_now)
+	due_at = db.Column(db.DateTime, nullable=True)
+	completed_at = db.Column(db.DateTime, nullable=True)
+
+	step = db.relationship("ImplantationStep")
+
+	def __repr__(self) -> str:
+		return f"<ImplantationStepLog imp={self.implantation_id} step={self.step_id}>"
