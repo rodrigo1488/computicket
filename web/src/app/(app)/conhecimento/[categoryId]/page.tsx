@@ -1,7 +1,7 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Plus } from "lucide-react";
+import { Download, Plus, Trash2 } from "lucide-react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { PageTitle } from "@/components/layout/AppShell";
@@ -23,6 +23,14 @@ type Cat = {
   articles_count?: number;
 };
 
+type Attachment = {
+  id: number;
+  filename: string;
+  file_size_label?: string;
+  available?: boolean;
+  download_count?: number;
+};
+
 type Art = {
   id: number;
   title: string;
@@ -36,6 +44,8 @@ type Art = {
   views_count: number;
   created_at?: string | null;
   created_by?: string;
+  attachments?: Attachment[];
+  attachments_count?: number;
 };
 
 type Res = {
@@ -68,6 +78,9 @@ export default function ConhecimentoCategoriaPage() {
   const [view, setView] = useState<Art | null>(null);
   const [form, setForm] = useState(emptyArt);
   const [formError, setFormError] = useState("");
+  const [pendingFiles, setPendingFiles] = useState<File[]>([]);
+  const [editAttachments, setEditAttachments] = useState<Attachment[]>([]);
+  const [downloadingId, setDownloadingId] = useState<number | null>(null);
   const { colQuery, colFilters, onFiltersChange } = useColFilters();
 
   useEffect(() => setPage(1), [q, colFilters]);
@@ -92,17 +105,25 @@ export default function ConhecimentoCategoriaPage() {
   };
 
   const save = useMutation({
-    mutationFn: () => {
+    mutationFn: async () => {
       if (!form.title.trim() || !form.content.trim()) throw new Error("Título e conteúdo são obrigatórios");
       const payload = { ...form, category_id: categoryId };
-      if (creating) return flask.post("/api/web/knowledge/articles", payload);
-      if (!edit) throw new Error("Nenhum artigo");
-      return flask.patch(`/api/web/knowledge/articles/${edit.id}`, payload);
+      const saved = creating
+        ? await flask.post<Art>("/api/web/knowledge/articles", payload)
+        : await flask.patch<Art>(`/api/web/knowledge/articles/${edit?.id}`, payload);
+      if (!saved?.id) throw new Error("Não foi possível salvar o artigo");
+      if (pendingFiles.length) {
+        const data = new FormData();
+        pendingFiles.forEach((file) => data.append("attachments", file));
+        await flask.post(`/api/web/knowledge/articles/${saved.id}/attachments`, data);
+      }
     },
     onSuccess: () => {
       invalidate();
       setCreating(false);
       setEdit(null);
+      setPendingFiles([]);
+      setEditAttachments([]);
     },
     onError: (e) => setFormError(e instanceof Error ? e.message : "Erro ao salvar"),
   });
@@ -110,6 +131,31 @@ export default function ConhecimentoCategoriaPage() {
   const remove = useMutation({
     mutationFn: (id: number) => flask.delete(`/api/web/knowledge/articles/${id}`),
     onSuccess: invalidate,
+  });
+
+  const downloadAttachment = async (att: Attachment) => {
+    if (!att.available) {
+      window.alert("Arquivo não encontrado no servidor.");
+      return;
+    }
+    setDownloadingId(att.id);
+    try {
+      await flask.download(`/api/web/knowledge/attachments/${att.id}/download`);
+    } catch (e) {
+      window.alert(e instanceof Error ? e.message : "Não foi possível baixar o anexo.");
+    } finally {
+      setDownloadingId(null);
+    }
+  };
+
+  const removeAttachment = useMutation({
+    mutationFn: (id: number) => flask.delete<Art>(`/api/web/knowledge/attachments/${id}`),
+    onSuccess: (article) => {
+      setEditAttachments(article.attachments || []);
+      if (view && view.id === article.id) setView(article);
+      invalidate();
+    },
+    onError: (e) => setFormError(e instanceof Error ? e.message : "Erro ao excluir anexo"),
   });
 
   const openView = async (a: Art) => {
@@ -164,6 +210,8 @@ export default function ConhecimentoCategoriaPage() {
             setForm(emptyArt);
             setFormError("");
             setEdit(null);
+            setPendingFiles([]);
+            setEditAttachments([]);
             setCreating(true);
           }}
           className="inline-flex h-10 items-center gap-2 rounded-xl bg-inverse px-4 text-sm font-medium text-on-inverse"
@@ -193,17 +241,20 @@ export default function ConhecimentoCategoriaPage() {
           <RowActions key={a.id}>
             <ViewAction onClick={() => openView(a)} />
             <EditAction
-              onClick={() => {
+              onClick={async () => {
+                const full = await flask.get<Art>(`/api/web/knowledge/articles/${a.id}`);
                 setForm({
-                  title: a.title,
-                  summary: a.summary || "",
-                  content: a.content || "",
-                  tags: a.tags || "",
-                  status: a.status || "published",
+                  title: full.title,
+                  summary: full.summary || "",
+                  content: full.content || "",
+                  tags: full.tags || "",
+                  status: full.status || "published",
                 });
                 setFormError("");
+                setPendingFiles([]);
+                setEditAttachments(full.attachments || []);
                 setCreating(false);
-                setEdit(a);
+                setEdit(full);
               }}
             />
             <DeleteAction
@@ -227,6 +278,36 @@ export default function ConhecimentoCategoriaPage() {
         </p>
         {view?.summary ? <p className="mt-2 text-sm italic text-muted">{view.summary}</p> : null}
         <p className="mt-3 whitespace-pre-wrap text-sm text-ink">{view?.content || "—"}</p>
+        {(view?.attachments || []).length > 0 ? (
+          <div className="mt-5">
+            <p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-muted">Anexos</p>
+            <ul className="space-y-2">
+              {(view?.attachments || []).map((att) => (
+                <li
+                  key={att.id}
+                  className="flex items-center justify-between gap-3 rounded-xl border border-line px-3 py-2"
+                >
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium text-ink">{att.filename}</p>
+                    <p className="text-xs text-muted">
+                      {att.file_size_label || ""}
+                      {att.available === false ? " · arquivo indisponível" : ""}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    disabled={!att.available || downloadingId === att.id}
+                    onClick={() => downloadAttachment(att)}
+                    className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg bg-inverse px-3 text-[13px] font-medium text-on-inverse disabled:opacity-50"
+                  >
+                    <Download className="h-3.5 w-3.5" />
+                    {downloadingId === att.id ? "Baixando…" : "Baixar"}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
       </Modal>
 
       <Modal
@@ -234,6 +315,8 @@ export default function ConhecimentoCategoriaPage() {
         onClose={() => {
           setCreating(false);
           setEdit(null);
+          setPendingFiles([]);
+          setEditAttachments([]);
         }}
         title={creating ? "Novo artigo" : "Editar artigo"}
         wide
@@ -272,6 +355,59 @@ export default function ConhecimentoCategoriaPage() {
               <option value="draft">Rascunho</option>
               <option value="archived">Arquivado</option>
             </select>
+          </label>
+          {editAttachments.length > 0 ? (
+            <div>
+              <p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-muted">Anexos atuais</p>
+              <ul className="space-y-2">
+                {editAttachments.map((att) => (
+                  <li key={att.id} className="flex items-center justify-between gap-2 rounded-xl border border-line px-3 py-2">
+                    <div className="min-w-0">
+                      <p className="truncate text-sm text-ink">{att.filename}</p>
+                      <p className="text-xs text-muted">
+                        {att.file_size_label || ""}
+                        {att.available === false ? " · indisponível" : ""}
+                      </p>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-1">
+                      <button
+                        type="button"
+                        disabled={!att.available || downloadingId === att.id}
+                        onClick={() => downloadAttachment(att)}
+                        className="inline-flex h-8 items-center gap-1 rounded-lg bg-wash px-2 text-xs text-ink disabled:opacity-50"
+                      >
+                        <Download className="h-3.5 w-3.5" />
+                        Baixar
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (window.confirm(`Excluir o anexo ${att.filename}?`)) removeAttachment.mutate(att.id);
+                        }}
+                        className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-open hover:bg-open-bg"
+                        aria-label="Excluir anexo"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+          <label className="block">
+            <span className="text-[11px] font-medium tracking-[0.08em] text-muted uppercase">Novos anexos</span>
+            <input
+              type="file"
+              multiple
+              onChange={(e) => setPendingFiles(Array.from(e.target.files || []))}
+              className="mt-2 block w-full text-sm text-ink file:mr-3 file:rounded-lg file:border-0 file:bg-wash file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-ink"
+            />
+            {pendingFiles.length > 0 ? (
+              <p className="mt-1 text-xs text-muted">
+                {pendingFiles.length} arquivo{pendingFiles.length === 1 ? "" : "s"} para enviar
+              </p>
+            ) : null}
           </label>
           {formError ? <p className="text-sm text-open">{formError}</p> : null}
           <PrimaryButton type="submit" disabled={save.isPending}>

@@ -1,10 +1,13 @@
 """JSON para o frontend Next.js — listagens dos módulos existentes."""
 from datetime import datetime, timedelta
+import os
+import uuid
 
-from flask import Blueprint, jsonify, request, current_app
+from flask import Blueprint, jsonify, request, current_app, send_file
 from flask_login import current_user, login_required
 from sqlalchemy import case, cast, func, String
 from werkzeug.security import generate_password_hash
+from werkzeug.utils import secure_filename
 
 from .. import db
 from ..avatar import avatar_public_url, delete_user_avatar, save_user_avatar, send_user_avatar
@@ -17,6 +20,7 @@ from ..models import (
 	ClientPlan,
 	InventoryItem,
 	KnowledgeArticle,
+	KnowledgeAttachment,
 	KnowledgeCategory,
 	PasswordVault,
 	Plan,
@@ -1082,6 +1086,108 @@ def _knowledge_category_json(c: KnowledgeCategory):
 	}
 
 
+_KB_ALLOWED_EXTENSIONS = {
+	"pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "txt", "zip", "rar",
+	"jpg", "jpeg", "png", "gif", "mp4", "avi", "mp3", "wav",
+}
+_KB_MAX_FILE_SIZE = 50 * 1024 * 1024
+
+
+def _kb_upload_folder():
+	folder = os.path.join(current_app.instance_path, "knowledge_uploads")
+	os.makedirs(folder, exist_ok=True)
+	return folder
+
+
+def _kb_size_label(size: int) -> str:
+	value = int(size or 0)
+	if value < 1024:
+		return f"{value} B"
+	if value < 1024 * 1024:
+		return f"{value / 1024:.1f} KB"
+	return f"{value / (1024 * 1024):.1f} MB"
+
+
+def _kb_disk_path(att: KnowledgeAttachment) -> str | None:
+	path = att.file_path or ""
+	if path and os.path.exists(path):
+		return path
+	names = [att.filename, os.path.basename(path) if path else ""]
+	folder = _kb_upload_folder()
+	for name in names:
+		if not name:
+			continue
+		fallback = os.path.join(folder, name)
+		if os.path.exists(fallback):
+			return fallback
+	return None
+
+
+def _knowledge_attachment_json(att: KnowledgeAttachment):
+	path = _kb_disk_path(att)
+	return {
+		"id": att.id,
+		"article_id": att.article_id,
+		"filename": att.original_filename,
+		"file_size": int(att.file_size or 0),
+		"file_size_label": _kb_size_label(att.file_size or 0),
+		"file_type": att.file_type or "",
+		"download_count": int(att.download_count or 0),
+		"available": bool(path),
+	}
+
+
+def _knowledge_attachments(article: KnowledgeArticle):
+	try:
+		rows = article.attachments.order_by(KnowledgeAttachment.created_at.asc()).all()
+	except Exception:
+		rows = KnowledgeAttachment.query.filter_by(article_id=article.id).order_by(
+			KnowledgeAttachment.created_at.asc()
+		).all()
+	return [_knowledge_attachment_json(row) for row in rows]
+
+
+def _save_knowledge_files(article: KnowledgeArticle, files) -> list[KnowledgeAttachment]:
+	saved: list[KnowledgeAttachment] = []
+	for file in files or []:
+		if not file or not getattr(file, "filename", None):
+			continue
+		filename = secure_filename(file.filename)
+		if not filename or "." not in filename:
+			raise ValueError("Arquivo inválido.")
+		ext = filename.rsplit(".", 1)[-1].lower()
+		if ext not in _KB_ALLOWED_EXTENSIONS:
+			raise ValueError(f"Tipo de arquivo não permitido: .{ext}")
+		file.seek(0, os.SEEK_END)
+		size = file.tell()
+		file.seek(0)
+		if size > _KB_MAX_FILE_SIZE:
+			raise ValueError("Cada anexo pode ter no máximo 50 MB.")
+		unique_name = f"{uuid.uuid4()}_{filename}"
+		path = os.path.join(_kb_upload_folder(), unique_name)
+		file.save(path)
+		att = KnowledgeAttachment(
+			article_id=article.id,
+			filename=unique_name,
+			original_filename=filename,
+			file_path=path,
+			file_size=size,
+			file_type=file.mimetype or "application/octet-stream",
+			created_by_id=current_user.id,
+		)
+		db.session.add(att)
+		saved.append(att)
+	return saved
+
+
+def _delete_knowledge_file(att: KnowledgeAttachment) -> None:
+	if att.file_path and os.path.exists(att.file_path):
+		try:
+			os.remove(att.file_path)
+		except OSError:
+			current_app.logger.warning("Não foi possível apagar o anexo %s", att.file_path)
+
+
 def _knowledge_article_json(a: KnowledgeArticle, include_content=True):
 	payload = {
 		"id": a.id,
@@ -1098,7 +1204,9 @@ def _knowledge_article_json(a: KnowledgeArticle, include_content=True):
 		"created_at": _fmt(a.created_at),
 		"updated_at": _fmt(a.updated_at),
 		"created_by": a.created_by.name if a.created_by else "",
+		"attachments": _knowledge_attachments(a),
 	}
+	payload["attachments_count"] = len(payload["attachments"])
 	if include_content:
 		payload["content"] = a.content or ""
 	return payload
@@ -1820,6 +1928,8 @@ def knowledge_article_item(article_id: int):
 			db.session.commit()
 		return jsonify(_knowledge_article_json(a))
 	if request.method == "DELETE":
+		for att in list(a.attachments):
+			_delete_knowledge_file(att)
 		db.session.delete(a)
 		db.session.commit()
 		return jsonify({"ok": True})
@@ -1847,6 +1957,54 @@ def knowledge_article_item(article_id: int):
 	a.updated_by_id = current_user.id
 	db.session.commit()
 	return jsonify(_knowledge_article_json(a))
+
+
+@bp.route("/knowledge/articles/<int:article_id>/attachments", methods=["POST"])
+@login_required
+def knowledge_article_attachments(article_id: int):
+	article = KnowledgeArticle.query.get_or_404(article_id)
+	files = request.files.getlist("attachments")
+	if not files or not any(f and f.filename for f in files):
+		return jsonify({"error": "Selecione ao menos um arquivo."}), 400
+	try:
+		_save_knowledge_files(article, files)
+		db.session.commit()
+	except ValueError as exc:
+		db.session.rollback()
+		return jsonify({"error": str(exc)}), 400
+	except Exception:
+		db.session.rollback()
+		current_app.logger.exception("Falha ao salvar anexos do artigo %s", article_id)
+		return jsonify({"error": "Não foi possível enviar o anexo."}), 500
+	return jsonify(_knowledge_article_json(article)), 201
+
+
+@bp.route("/knowledge/attachments/<int:attachment_id>/download")
+@login_required
+def knowledge_attachment_download(attachment_id: int):
+	att = KnowledgeAttachment.query.get_or_404(attachment_id)
+	path = _kb_disk_path(att)
+	if not path:
+		return jsonify({"error": "Arquivo não encontrado no servidor."}), 404
+	att.increment_downloads()
+	return send_file(
+		path,
+		as_attachment=True,
+		download_name=att.original_filename,
+		mimetype=att.file_type or "application/octet-stream",
+	)
+
+
+@bp.route("/knowledge/attachments/<int:attachment_id>", methods=["DELETE"])
+@login_required
+def knowledge_attachment_delete(attachment_id: int):
+	att = KnowledgeAttachment.query.get_or_404(attachment_id)
+	article_id = att.article_id
+	_delete_knowledge_file(att)
+	db.session.delete(att)
+	db.session.commit()
+	article = KnowledgeArticle.query.get_or_404(article_id)
+	return jsonify(_knowledge_article_json(article))
 
 
 @bp.route("/inventory/<int:item_id>", methods=["GET", "PATCH", "DELETE"])
