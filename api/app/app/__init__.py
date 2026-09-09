@@ -727,6 +727,17 @@ def create_app() -> Flask:
 			ensure_column("budget", "selected_option_key", "VARCHAR(40)")
 			from .models import PlanAdditional, CustomPlan, CustomPlanItem  # noqa: F401
 			ensure_tables_from_metadata(["plan_additional", "custom_plan", "custom_plan_item"])
+			# Corrige tickets cancelados que foram reabertos por corrida stop×cancel
+			from sqlalchemy import text
+			repaired = db.session.execute(text(
+				"UPDATE ticket SET status = 'cancelado', in_progress_started_at = NULL "
+				"WHERE cancelled_at IS NOT NULL AND status <> 'cancelado'"
+			))
+			if repaired.rowcount:
+				db.session.commit()
+				print(f"✅ Reparados {repaired.rowcount} ticket(s) cancelados com status inconsistente")
+			else:
+				db.session.rollback()
 	except Exception as _e:
 		print(f"⚠️ Não foi possível verificar/adicionar schema de planos: {_e}")
 

@@ -568,7 +568,11 @@ def view_ticket(ticket_id: int):
 @bp.route("/<int:ticket_id>/start", methods=["POST"])
 @login_required
 def start_ticket(ticket_id: int):
-	ticket = Ticket.query.get_or_404(ticket_id)
+	ticket = _lock_ticket(ticket_id)
+	blocked = _ticket_blocks_session(ticket)
+	if blocked:
+		flash(blocked, "error")
+		return redirect(url_for("tickets.view_ticket", ticket_id=ticket_id))
 	ticket.status = "em_andamento"
 	ticket.assigned_to_id = current_user.id  # Atribuir o ticket ao usuário atual
 	ticket.in_progress_started_at = brasilia_to_utc(get_brasilia_now())
@@ -647,7 +651,11 @@ def stop_ticket(ticket_id: int):
 	import logging
 	logging.warning(f"🚨 STOP_TICKET CHAMADO - Ticket ID: {ticket_id}, User: {current_user.name}, IP: {request.remote_addr}")
 	
-	ticket = Ticket.query.get_or_404(ticket_id)
+	ticket = _lock_ticket(ticket_id)
+	blocked = _ticket_blocks_session(ticket)
+	if blocked:
+		flash(blocked, "error")
+		return redirect(url_for("tickets.view_ticket", ticket_id=ticket_id))
 	if not ticket.in_progress_started_at:
 		logging.warning(f"🚨 STOP_TICKET - Ticket {ticket_id} não estava em andamento!")
 		flash("Ticket não estava em andamento.")
@@ -707,9 +715,10 @@ def stop_ticket(ticket_id: int):
 	
 	logging.warning(f"🚨 TIMEENTRY CRIADO via STOP_TICKET - Ticket: {ticket_id}, Comment: '{comment or 'Encerrado pelo botão'}', Hours: {delta_hours}")
 	db.session.add(entry)
-	# Limpa início e volta para aberto (ou mantém em andamento até fechar?) aqui voltamos para aberto
+	# Limpa início; só volta para aberto se o ticket ainda estiver ativo
 	ticket.in_progress_started_at = None
-	ticket.status = "aberto"
+	if not _ticket_is_cancelled(ticket) and ticket.status != "fechado":
+		ticket.status = "aberto"
 	db.session.commit()
 	flash(f"Sessão encerrada. Apontado {delta_hours:.2f}h.")
 	return redirect(url_for("tickets.view_ticket", ticket_id=ticket_id))
@@ -1299,11 +1308,14 @@ def close_ticket(ticket_id: int):
 @login_required
 def cancel_ticket(ticket_id: int):
 	"""Cancela um ticket (apenas se não foi fechado) e apaga todos os apontamentos"""
-	ticket = Ticket.query.get_or_404(ticket_id)
+	ticket = _lock_ticket(ticket_id)
 	
 	# Verificar se o ticket pode ser cancelado
 	if ticket.status == "fechado":
 		flash("Não é possível cancelar um ticket que já foi fechado.", "error")
+		return redirect(url_for("tickets.view_ticket", ticket_id=ticket_id))
+	if _ticket_is_cancelled(ticket):
+		flash("Ticket já estava cancelado.", "info")
 		return redirect(url_for("tickets.view_ticket", ticket_id=ticket_id))
 	
 	# Contar apontamentos antes de apagar
@@ -1318,6 +1330,9 @@ def cancel_ticket(ticket_id: int):
 	
 	# Atualizar status do ticket para cancelado
 	ticket.status = "cancelado"
+	ticket.cancelled_at = brasilia_to_utc(get_brasilia_now())
+	ticket.cancelled_by_id = current_user.id
+	ticket.cancellation_reason = cancel_reason or None
 	ticket.closed_at = brasilia_to_utc(get_brasilia_now())
 	ticket.closed_by_id = current_user.id
 	
@@ -1351,6 +1366,8 @@ def reopen_ticket(ticket_id: int):
 
 def _reopen_closed_ticket(ticket: Ticket, reopen_reason: str = "") -> tuple[bool, str, int]:
 	"""Reabre ticket fechado há menos de 7 dias (somente admin)."""
+	if ticket.status == "cancelado" or ticket.cancelled_at:
+		return False, "Tickets cancelados não podem ser reabertos por este fluxo.", 400
 	if ticket.status != "fechado":
 		return False, "Apenas tickets fechados podem ser reabertos.", 400
 	if not current_user.has_role("admin"):
@@ -1389,6 +1406,32 @@ def _reopen_closed_ticket(ticket: Ticket, reopen_reason: str = "") -> tuple[bool
 	else:
 		time_str = f"{hours_ago} hora{'s' if hours_ago > 1 else ''}"
 	return True, f"Ticket reaberto com sucesso! Foi fechado há {time_str}.", 200
+
+
+def _ticket_is_cancelled(ticket: Ticket) -> bool:
+	return ticket.status == "cancelado" or bool(ticket.cancelled_at)
+
+
+def _ticket_blocks_session(ticket: Ticket) -> str | None:
+	"""Retorna mensagem de erro se o ticket não pode iniciar/encerrar sessão."""
+	if _ticket_is_cancelled(ticket):
+		return "Ticket cancelado não pode ter sessão iniciada ou encerrada."
+	if ticket.status == "fechado":
+		return "Ticket fechado não pode ter sessão iniciada ou encerrada."
+	return None
+
+
+def _lock_ticket(ticket_id: int) -> Ticket:
+	"""Carrega o ticket com lock de linha para evitar corrida cancel×stop."""
+	ticket = (
+		Ticket.query.filter_by(id=ticket_id)
+		.with_for_update()
+		.first()
+	)
+	if not ticket:
+		from flask import abort
+		abort(404)
+	return ticket
 
 
 @bp.route("/<int:ticket_id>/observations")
@@ -2828,9 +2871,10 @@ def api_close_preview(ticket_id: int):
 @bp.route("/api/<int:ticket_id>/start", methods=["POST"])
 @login_required
 def api_start_ticket(ticket_id: int):
-	ticket = Ticket.query.get_or_404(ticket_id)
-	if ticket.status in ("fechado", "cancelado"):
-		return jsonify({"error": "Não é possível iniciar este chamado."}), 400
+	ticket = _lock_ticket(ticket_id)
+	blocked = _ticket_blocks_session(ticket)
+	if blocked:
+		return jsonify({"error": blocked}), 400
 	ticket.status = "em_andamento"
 	ticket.assigned_to_id = current_user.id
 	ticket.in_progress_started_at = brasilia_to_utc(get_brasilia_now())
@@ -2865,7 +2909,10 @@ def _parse_local_datetime_payload(raw: str | None):
 @bp.route("/api/<int:ticket_id>/stop", methods=["POST"])
 @login_required
 def api_stop_ticket(ticket_id: int):
-	ticket = Ticket.query.get_or_404(ticket_id)
+	ticket = _lock_ticket(ticket_id)
+	blocked = _ticket_blocks_session(ticket)
+	if blocked:
+		return jsonify({"error": blocked}), 400
 	if not ticket.in_progress_started_at:
 		return jsonify({"error": "Ticket não estava em andamento."}), 400
 	if ticket.assigned_to_id != current_user.id:
@@ -2893,7 +2940,8 @@ def api_stop_ticket(ticket_id: int):
 	)
 	db.session.add(entry)
 	ticket.in_progress_started_at = None
-	ticket.status = "aberto"
+	if not _ticket_is_cancelled(ticket) and ticket.status != "fechado":
+		ticket.status = "aberto"
 	db.session.commit()
 	return jsonify(_serialize_ticket_detail(ticket))
 
@@ -2997,7 +3045,7 @@ def _mark_ticket_cancelled(ticket: Ticket, *, reason: str, ps_number: str | None
 @bp.route("/api/<int:ticket_id>/cancel", methods=["POST"])
 @login_required
 def api_cancel_ticket(ticket_id: int):
-	ticket = Ticket.query.get_or_404(ticket_id)
+	ticket = _lock_ticket(ticket_id)
 	data = request.get_json(silent=True) or {}
 	reason = (data.get("reason") or "").strip()
 	is_admin = current_user.has_role("admin")
