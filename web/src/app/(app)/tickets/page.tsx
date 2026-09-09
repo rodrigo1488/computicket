@@ -25,11 +25,16 @@ const STATUS_PILLS: { value: string; label: string }[] = [
   { value: "aberto", label: "Aberto" },
   { value: "em_andamento", label: "Em andamento" },
   { value: "fechado", label: "Fechado" },
+  { value: "ps_pending", label: "PS não impressa" },
   { value: "cancelado", label: "Cancelado" },
   { value: "all", label: "Todos" },
 ];
 
 const STATUS_VALUES = new Set(STATUS_PILLS.map((p) => p.value));
+
+function isPsPendingParam(raw: string | null) {
+  return ["1", "true", "on", "yes"].includes((raw || "").trim().toLowerCase());
+}
 
 function qs(params: Record<string, string | number | undefined>) {
   const u = new URLSearchParams();
@@ -39,7 +44,8 @@ function qs(params: Record<string, string | number | undefined>) {
   return u.toString();
 }
 
-function paramStatus(raw: string | null) {
+function paramStatus(raw: string | null, psPendingRaw?: string | null) {
+  if (isPsPendingParam(psPendingRaw || null)) return "ps_pending";
   const value = (raw || "").trim();
   return STATUS_VALUES.has(value) ? value : "aberto";
 }
@@ -50,7 +56,7 @@ function TicketsPageInner() {
   const { user } = useAuth();
   const uid = user?.id;
   const isAdmin = ["admin", "administrador", "administrator"].includes((user?.role || "").toLowerCase());
-  const [status, setStatus] = useState(() => paramStatus(params.get("status")));
+  const [status, setStatus] = useState(() => paramStatus(params.get("status"), params.get("ps_pending")));
   const [assigned, setAssigned] = useState("");
   const [q, setQ] = useState("");
   const [dateFrom, setDateFrom] = useState(() => (params.get("date_from") || "").trim());
@@ -77,7 +83,8 @@ function TicketsPageInner() {
     queryFn: () =>
       flask.get<PageRes<TicketRow>>(
         `/tickets/api/list?${qs({
-          status,
+          status: status === "ps_pending" ? "fechado" : status,
+          ps_pending: status === "ps_pending" ? 1 : undefined,
           assigned_to_id: assigned || undefined,
           q: q || undefined,
           date_from: dateFrom || undefined,
@@ -269,7 +276,14 @@ function TicketsPageInner() {
             t.solicitante || "—",
             t.category,
             t.assigned_to_name || "—",
-            <StatusBadge key={`s-${t.id}`} status={t.status as TicketStatus} />,
+            <div key={`s-${t.id}`} className="flex flex-col gap-1">
+              <StatusBadge status={t.status as TicketStatus} />
+              {t.status === "fechado" && Number(t.total_cost || 0) > 0 && !t.ps_printed ? (
+                <span className="text-[10px] font-medium uppercase tracking-wide text-warn-fg">PS não impressa</span>
+              ) : t.ps_printed ? (
+                <span className="text-[10px] text-muted">PS {t.ps_number || "impressa"}</span>
+              ) : null}
+            </div>,
             t.hours_label || "0min",
             t.status === "fechado" ? formatBRL(t.total_cost) : "—",
             t.created_at || "—",
