@@ -2,6 +2,7 @@
 from datetime import datetime, timedelta
 import os
 import uuid
+from pathlib import Path
 
 from flask import Blueprint, jsonify, request, current_app, send_file
 from flask_login import current_user, login_required
@@ -1108,18 +1109,69 @@ def _kb_size_label(size: int) -> str:
 	return f"{value / (1024 * 1024):.1f} MB"
 
 
+def _kb_basename(path: str | None) -> str:
+	"""Nome do arquivo mesmo quando o caminho veio do Windows (C:\\...\\arquivo.pdf)."""
+	text = str(path or "").strip().replace("\\", "/")
+	if not text:
+		return ""
+	return Path(text).name
+
+
+def _kb_search_dirs() -> list[Path]:
+	dirs: list[Path] = []
+	seen: set[str] = set()
+
+	def add(raw):
+		if not raw:
+			return
+		try:
+			folder = Path(raw)
+		except Exception:
+			return
+		key = str(folder)
+		if key in seen:
+			return
+		seen.add(key)
+		if folder.is_dir():
+			dirs.append(folder)
+
+	add(_kb_upload_folder())
+	try:
+		add(Path(current_app.instance_path) / "knowledge_uploads")
+	except Exception:
+		pass
+	here = Path(__file__).resolve()
+	# api/app/app/blueprints/web_api.py → api/app/instance e api/instance
+	if len(here.parents) > 2:
+		add(here.parents[2] / "instance" / "knowledge_uploads")
+	if len(here.parents) > 3:
+		add(here.parents[3] / "instance" / "knowledge_uploads")
+	add(Path.cwd() / "instance" / "knowledge_uploads")
+	add(Path.cwd() / "app" / "instance" / "knowledge_uploads")
+	add(Path("/app/instance/knowledge_uploads"))
+	return dirs
+
+
 def _kb_disk_path(att: KnowledgeAttachment) -> str | None:
-	path = att.file_path or ""
-	if path and os.path.exists(path):
-		return path
-	names = [att.filename, os.path.basename(path) if path else ""]
-	folder = _kb_upload_folder()
-	for name in names:
-		if not name:
-			continue
-		fallback = os.path.join(folder, name)
-		if os.path.exists(fallback):
-			return fallback
+	raw = att.file_path or ""
+	normalized = str(raw).replace("\\", "/")
+	for candidate in (raw, normalized):
+		if candidate and os.path.exists(candidate):
+			return candidate
+	names = [
+		att.filename,
+		_kb_basename(raw),
+		_kb_basename(att.filename),
+		att.original_filename,
+		_kb_basename(att.original_filename),
+	]
+	for folder in _kb_search_dirs():
+		for name in names:
+			if not name or "/" in str(name) or "\\" in str(name):
+				continue
+			fallback = folder / name
+			if fallback.is_file():
+				return str(fallback)
 	return None
 
 
@@ -1170,7 +1222,7 @@ def _save_knowledge_files(article: KnowledgeArticle, files) -> list[KnowledgeAtt
 			article_id=article.id,
 			filename=unique_name,
 			original_filename=filename,
-			file_path=path,
+			file_path=unique_name,
 			file_size=size,
 			file_type=file.mimetype or "application/octet-stream",
 			created_by_id=current_user.id,
@@ -1181,11 +1233,12 @@ def _save_knowledge_files(article: KnowledgeArticle, files) -> list[KnowledgeAtt
 
 
 def _delete_knowledge_file(att: KnowledgeAttachment) -> None:
-	if att.file_path and os.path.exists(att.file_path):
+	path = _kb_disk_path(att)
+	if path and os.path.exists(path):
 		try:
-			os.remove(att.file_path)
+			os.remove(path)
 		except OSError:
-			current_app.logger.warning("Não foi possível apagar o anexo %s", att.file_path)
+			current_app.logger.warning("Não foi possível apagar o anexo %s", path)
 
 
 def _knowledge_article_json(a: KnowledgeArticle, include_content=True):

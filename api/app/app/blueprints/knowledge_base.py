@@ -413,9 +413,12 @@ def delete_article(article_id):
 @login_required
 def download_attachment(attachment_id):
     """Download de anexo"""
+    from .web_api import _kb_disk_path
+
     attachment = KnowledgeAttachment.query.get_or_404(attachment_id)
+    file_path = _kb_disk_path(attachment)
     
-    if not os.path.exists(attachment.file_path):
+    if not file_path or not os.path.exists(file_path):
         flash('Arquivo não encontrado!', 'error')
         return redirect(url_for('knowledge_base.article_view', article_id=attachment.article_id))
     
@@ -423,7 +426,7 @@ def download_attachment(attachment_id):
     attachment.increment_downloads()
     
     return send_file(
-        attachment.file_path,
+        file_path,
         as_attachment=True,
         download_name=attachment.original_filename,
         mimetype=attachment.file_type
@@ -437,9 +440,11 @@ def delete_attachment(attachment_id):
     article_id = attachment.article_id
     
     try:
-        # Deletar arquivo físico
-        if os.path.exists(attachment.file_path):
-            os.remove(attachment.file_path)
+        from .web_api import _kb_disk_path
+
+        disk_path = _kb_disk_path(attachment)
+        if disk_path and os.path.exists(disk_path):
+            os.remove(disk_path)
         
         # Deletar registro do anexo
         db.session.delete(attachment)

@@ -134,10 +134,6 @@ export default function ConhecimentoCategoriaPage() {
   });
 
   const downloadAttachment = async (att: Attachment) => {
-    if (!att.available) {
-      window.alert("Arquivo não encontrado no servidor.");
-      return;
-    }
     setDownloadingId(att.id);
     try {
       await flask.download(`/api/web/knowledge/attachments/${att.id}/download`);
@@ -296,7 +292,7 @@ export default function ConhecimentoCategoriaPage() {
                   </div>
                   <button
                     type="button"
-                    disabled={!att.available || downloadingId === att.id}
+                    disabled={downloadingId === att.id}
                     onClick={() => downloadAttachment(att)}
                     className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg bg-inverse px-3 text-[13px] font-medium text-on-inverse disabled:opacity-50"
                   >
@@ -372,7 +368,7 @@ export default function ConhecimentoCategoriaPage() {
                     <div className="flex shrink-0 items-center gap-1">
                       <button
                         type="button"
-                        disabled={!att.available || downloadingId === att.id}
+                        disabled={downloadingId === att.id}
                         onClick={() => downloadAttachment(att)}
                         className="inline-flex h-8 items-center gap-1 rounded-lg bg-wash px-2 text-xs text-ink disabled:opacity-50"
                       >
