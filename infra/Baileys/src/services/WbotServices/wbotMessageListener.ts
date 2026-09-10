@@ -2245,8 +2245,19 @@ const verifyQueue = async (
 
   const companyId = ticket.companyId;
 
+  const whatsappConn = await ShowWhatsAppService(wbot.id!, ticket.companyId);
   const { queues, greetingMessage, maxUseBotQueues, timeUseBotQueues } =
-    await ShowWhatsAppService(wbot.id!, ticket.companyId);
+    whatsappConn;
+
+  if (whatsappConn.flowIdWelcome) {
+    logger.info({
+      msg: "verifyQueue: fluxo de boas-vindas na conexão — menu de setor não enviado",
+      ticketId: ticket.id,
+      whatsappId: whatsappConn.id,
+      flowIdWelcome: whatsappConn.flowIdWelcome
+    });
+    return;
+  }
 
   if (queues.length === 1) {
     const sendGreetingMessageOneQueues = await Setting.findOne({
@@ -4231,7 +4242,8 @@ const handleMessage = async (
       !isFromMe &&
       !ticket.userId &&
       whatsapp.queues.length >= 1 &&
-      !ticket.useIntegration
+      !ticket.useIntegration &&
+      !whatsapp.flowIdWelcome
     ) {
       await verifyQueue(wbot, msg, ticket, contact);
 

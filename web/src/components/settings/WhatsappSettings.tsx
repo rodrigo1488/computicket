@@ -374,7 +374,7 @@ function ConnectionForm({
           onToggle={(id) => setQueueIds((cur) => (cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id]))}
         />
         <p className="mt-2 text-xs text-muted">
-          Só as filas marcadas aqui entram no menu do WhatsApp. O cliente responde 1, 2, 3… e cai na fila.
+          Só as filas marcadas aqui entram no menu do WhatsApp. Com fluxo de boas-vindas, esse menu não é enviado: o fluxo escolhe o setor.
         </p>
       </div>
       <TextArea
@@ -382,7 +382,7 @@ function ConnectionForm({
         value={greeting}
         onChange={setGreeting}
         placeholder="Olá! Escolha o setor:"
-        hint="Texto inicial. O menu numerado das filas é montado automaticamente pelo WhatsApp."
+        hint="Texto inicial. Sem fluxo, o menu numerado das filas é montado automaticamente. Com fluxo de boas-vindas, essa lista de setores não é enviada."
       />
       <TextArea
         label="Mensagem de conclusão"
@@ -415,7 +415,7 @@ function ConnectionForm({
           ))}
         </select>
         <p className="mt-1 text-xs text-muted">
-          Contato novo nesta linha inicia o fluxo. Monte em Automação.
+          Contato novo nesta linha inicia o fluxo. O menu de setores da conexão não é enviado.
         </p>
       </label>
       {save.error ? <p className="text-sm text-open">{(save.error as Error).message}</p> : null}
