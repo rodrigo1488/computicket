@@ -22,10 +22,12 @@ import {
   type FlowBuilder,
   type FlowCanvasConnection,
   type FlowCanvasNode,
+  type FlowMenuOption,
   type FlowNodeData,
   type FlowNodeType,
 } from "@/lib/flows";
-import { PrimaryButton } from "@/components/ui/UnderlineField";
+import { helpdesk, type HelpdeskQueue } from "@/lib/helpdesk";
+import { Trash2 } from "lucide-react";
 
 type ServiceOpt = { id: number; name: string };
 
@@ -39,10 +41,7 @@ function defaultData(type: FlowNodeType): FlowNodeData {
   if (type === "menu") {
     return {
       message: "Selecione o setor para ser atendido",
-      arrayOption: [
-        { number: 1, value: "Suporte" },
-        { number: 2, value: "Vendas" },
-      ],
+      arrayOption: [],
     };
   }
   if (type === "question") {
@@ -141,11 +140,28 @@ function FlowCanvasInner({
   }, [flow.id, seeded, flow.flow?.connections, setEdges, setNodes]);
 
   const selected = nodes.find((n) => n.id === selectedId) || null;
+  const canDeleteSelected = Boolean(
+    selected && (selected.type !== "start" || nodes.filter((n) => n.type === "start").length > 1),
+  );
 
   const onConnect = useCallback(
     (connection: Connection) => setEdges((eds) => addEdge({ ...connection, animated: false }, eds)),
     [setEdges],
   );
+
+  const handleNodesChange: typeof onNodesChange = (changes) => {
+    const startCount = nodes.filter((n) => n.type === "start").length;
+    const next = changes.filter((change) => {
+      if (change.type !== "remove") return true;
+      const node = nodes.find((n) => n.id === change.id);
+      if (node?.type === "start" && startCount <= 1) return false;
+      return true;
+    });
+    onNodesChange(next);
+    if (selectedId && next.some((change) => change.type === "remove" && change.id === selectedId)) {
+      setSelectedId(null);
+    }
+  };
 
   const addNode = (type: FlowNodeType) => {
     if (type === "start" && nodes.some((n) => n.type === "start")) return;
@@ -165,6 +181,13 @@ function FlowCanvasInner({
   const updateSelected = (data: FlowNodeData) => {
     if (!selected) return;
     setNodes((cur) => cur.map((n) => (n.id === selected.id ? { ...n, data } : n)));
+  };
+
+  const removeSelected = () => {
+    if (!selected || !canDeleteSelected) return;
+    setNodes((cur) => cur.filter((n) => n.id !== selected.id));
+    setEdges((cur) => cur.filter((e) => e.source !== selected.id && e.target !== selected.id));
+    setSelectedId(null);
   };
 
   return (
@@ -190,7 +213,7 @@ function FlowCanvasInner({
         <ReactFlow
           nodes={nodes}
           edges={edges}
-          onNodesChange={onNodesChange}
+          onNodesChange={handleNodesChange}
           onEdgesChange={onEdgesChange}
           onConnect={onConnect}
           nodeTypes={FLOW_NODE_TYPES}
@@ -204,25 +227,126 @@ function FlowCanvasInner({
           <MiniMap pannable zoomable />
         </ReactFlow>
         <div className="absolute right-3 top-3">
-          <PrimaryButton
+          <button
             type="button"
             disabled={saving}
             onClick={() => {
               const payload = serialize(nodes, edges);
               onSave(payload.nodes, payload.connections);
             }}
+            className="inline-flex h-10 items-center rounded-xl bg-inverse px-4 text-sm font-medium text-on-inverse disabled:opacity-50"
           >
             {saving ? "Salvando…" : "Salvar"}
-          </PrimaryButton>
+          </button>
         </div>
       </div>
       <aside className="w-80 shrink-0 overflow-y-auto border-l border-line bg-surface p-4">
         {selected ? (
-          <NodeEditor node={selected} onChange={updateSelected} />
+          <div>
+            <div className="mb-3 flex items-center justify-between gap-2">
+              <span className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted">Bloco</span>
+              {canDeleteSelected ? (
+                <button
+                  type="button"
+                  onClick={removeSelected}
+                  className="rounded-lg p-1.5 text-open hover:bg-open-bg"
+                  title="Excluir bloco"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </button>
+              ) : (
+                <span className="text-[11px] text-muted">Início permanece</span>
+              )}
+            </div>
+            <NodeEditor node={selected} onChange={updateSelected} />
+          </div>
         ) : (
           <p className="text-sm text-muted">Selecione um bloco para editar. Use {"{{variavel}}"} nos textos.</p>
         )}
       </aside>
+    </div>
+  );
+}
+
+function optionsFromQueues(queues: HelpdeskQueue[]): FlowMenuOption[] {
+  return queues.map((queue, index) => ({
+    number: index + 1,
+    value: queue.name,
+    queueId: queue.id,
+  }));
+}
+
+function MenuQueueEditor({
+  data,
+  queues,
+  loading,
+  error,
+  onChange,
+}: {
+  data: FlowNodeData;
+  queues: HelpdeskQueue[];
+  loading: boolean;
+  error: Error | null;
+  onChange: (data: FlowNodeData) => void;
+}) {
+  const options = data.arrayOption || [];
+  const selectedIds = new Set(
+    options.map((item) => Number(item.queueId)).filter((id) => Number.isFinite(id) && id > 0),
+  );
+
+  useEffect(() => {
+    if (!queues.length) return;
+    if (options.some((item) => Number(item.queueId) > 0)) return;
+    onChange({ ...data, arrayOption: optionsFromQueues(queues) });
+    // Preenche uma vez com as filas reais quando o bloco ainda não tem setores.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [queues]);
+
+  const toggleQueue = (queue: HelpdeskQueue, checked: boolean) => {
+    const nextIds = new Set(selectedIds);
+    if (checked) nextIds.add(queue.id);
+    else nextIds.delete(queue.id);
+    const selected = queues.filter((item) => nextIds.has(item.id));
+    onChange({ ...data, arrayOption: optionsFromQueues(selected.length ? selected : []) });
+  };
+
+  return (
+    <div className="space-y-3">
+      <h3 className="text-sm font-semibold text-navy">Menu de setores</h3>
+      <p className="text-xs text-muted">
+        O WhatsApp lista as filas cadastradas. Depois da escolha, o fluxo segue pela saída Continuar — ou por um caminho próprio de cada setor.
+      </p>
+      <textarea
+        value={data.message || ""}
+        onChange={(e) => onChange({ ...data, message: e.target.value })}
+        rows={3}
+        className="w-full rounded-lg border border-line px-3 py-2 text-sm outline-none focus:border-brand"
+        placeholder="Selecione o setor para ser atendido"
+      />
+      {error ? <p className="text-xs text-open">{error.message}</p> : null}
+      {loading ? <p className="text-xs text-muted">Carregando setores…</p> : null}
+      {!loading && queues.length === 0 ? (
+        <p className="text-xs text-muted">Nenhuma fila cadastrada. Crie setores em Configurações → WhatsApp → Filas.</p>
+      ) : null}
+      <div className="space-y-1">
+        {queues.map((queue) => {
+          const checked = selectedIds.has(queue.id);
+          const number = options.find((item) => Number(item.queueId) === queue.id)?.number;
+          return (
+            <label key={queue.id} className="flex items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-wash">
+              <input
+                type="checkbox"
+                checked={checked}
+                onChange={(e) => toggleQueue(queue, e.target.checked)}
+              />
+              <span className="text-sm text-ink">
+                {checked && number ? `[${number}] ` : ""}
+                {queue.name}
+              </span>
+            </label>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -240,7 +364,13 @@ function NodeEditor({
     queryFn: () => flask.get<PageRes<ServiceOpt> | ServiceOpt[]>("/api/web/services?per_page=200"),
     enabled: node.type === "ticket",
   });
+  const queues = useQuery({
+    queryKey: ["hd-queues"],
+    queryFn: helpdesk.queues,
+    enabled: node.type === "menu",
+  });
   const serviceItems = asItems(services.data);
+  const queueList = asItems(queues.data);
 
   if (node.type === "start") {
     return (
@@ -342,50 +472,14 @@ function NodeEditor({
   }
 
   if (node.type === "menu") {
-    const options = data.arrayOption || [];
     return (
-      <div className="space-y-3">
-        <h3 className="text-sm font-semibold text-navy">Menu</h3>
-        <textarea
-          value={data.message || ""}
-          onChange={(e) => onChange({ ...data, message: e.target.value })}
-          rows={3}
-          className="w-full rounded-lg border border-line px-3 py-2 text-sm outline-none focus:border-brand"
-          placeholder="Escolha uma opção"
-        />
-        {options.map((opt, index) => (
-          <div key={opt.number} className="flex gap-2">
-            <input
-              value={opt.value}
-              onChange={(e) => {
-                const next = options.map((item, i) => (i === index ? { ...item, value: e.target.value } : item));
-                onChange({ ...data, arrayOption: next });
-              }}
-              className="flex-1 rounded-lg border border-line px-3 py-2 text-sm outline-none focus:border-brand"
-            />
-            <button
-              type="button"
-              className="text-xs text-open"
-              onClick={() => onChange({ ...data, arrayOption: options.filter((_, i) => i !== index) })}
-            >
-              Remover
-            </button>
-          </div>
-        ))}
-        <button
-          type="button"
-          className="text-xs font-medium text-brand"
-          onClick={() => {
-            const nextNumber = options.reduce((max, item) => Math.max(max, item.number), 0) + 1;
-            onChange({
-              ...data,
-              arrayOption: [...options, { number: nextNumber, value: `Opção ${nextNumber}` }],
-            });
-          }}
-        >
-          Adicionar opção
-        </button>
-      </div>
+      <MenuQueueEditor
+        data={data}
+        queues={queueList}
+        loading={queues.isLoading}
+        error={queues.error as Error | null}
+        onChange={onChange}
+      />
     );
   }
 

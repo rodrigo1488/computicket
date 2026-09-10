@@ -6,6 +6,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useState } from "react";
 import { FlowCanvas } from "@/components/automacao/FlowCanvas";
+import { PageTitle } from "@/components/layout/AppShell";
 import { flowsApi, type FlowCanvasConnection, type FlowCanvasNode } from "@/lib/flows";
 import { useAuth } from "@/lib/auth-context";
 
@@ -35,30 +36,30 @@ export default function AutomacaoEditorPage() {
   });
 
   if (!isAdmin) {
-    return <p className="p-4 text-sm text-muted">Apenas administradores editam a automação do WhatsApp.</p>;
+    return <p className="text-sm text-muted">Apenas administradores editam a automação do WhatsApp.</p>;
   }
 
   if (flow.isLoading) {
-    return <p className="p-4 text-sm text-muted">Carregando fluxo…</p>;
+    return <p className="text-sm text-muted">Carregando fluxo…</p>;
   }
   if (flow.error || !flow.data) {
-    return <p className="p-4 text-sm text-open">{(flow.error as Error)?.message || "Fluxo não encontrado."}</p>;
+    return <p className="text-sm text-open">{(flow.error as Error)?.message || "Fluxo não encontrado."}</p>;
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col gap-3">
-      <div className="flex items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <Link href="/automacao" className="rounded-lg p-1.5 text-muted hover:bg-wash" aria-label="Voltar">
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="mb-4 flex flex-wrap items-start justify-between gap-4">
+        <div className="flex items-start gap-3">
+          <Link href="/automacao" className="mt-1 rounded-lg p-1.5 text-muted hover:bg-wash" aria-label="Voltar">
             <ArrowLeft className="h-4 w-4" />
           </Link>
           <div>
-            <h1 className="text-lg font-semibold text-navy">{flow.data.name}</h1>
-            <p className="text-xs text-muted">Ligue este fluxo na conexão WhatsApp (Configurações → WhatsApp → Fluxo de boas-vindas).</p>
+            <PageTitle className="mb-0">{flow.data.name}</PageTitle>
+            <p className="mt-1 text-sm text-muted">Ligue este fluxo na conexão WhatsApp (Configurações → WhatsApp → Fluxo de boas-vindas).</p>
           </div>
         </div>
-        {notice ? <p className="text-xs text-muted">{notice}</p> : null}
-        {save.error ? <p className="text-xs text-open">{(save.error as Error).message}</p> : null}
+        {notice ? <p className="text-sm text-muted">{notice}</p> : null}
+        {save.error ? <p className="text-sm text-open">{(save.error as Error).message}</p> : null}
       </div>
       <FlowCanvas
         flow={flow.data}

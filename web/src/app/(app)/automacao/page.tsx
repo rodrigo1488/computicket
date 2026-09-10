@@ -65,33 +65,35 @@ export default function AutomacaoPage() {
   const flows = list.data?.flows || [];
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
-      <div className="flex items-start justify-between gap-4">
+    <div>
+      <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
         <div>
-          <PageTitle>Automação</PageTitle>
-          <p className="-mt-4 mb-6 text-sm text-muted">
-            Monte o fluxo de triagem no WhatsApp. As respostas viram variáveis e o bloco Ticket abre o chamado.
-          </p>
+          <PageTitle className="mb-0">Automação</PageTitle>
+          <p className="mt-1 text-sm text-muted">Monte o fluxo de triagem no WhatsApp. As respostas viram variáveis e o bloco Ticket abre o chamado.</p>
         </div>
-        <PrimaryButton type="button" onClick={() => { setCreating(true); setName(""); }}>
+        <button
+          type="button"
+          onClick={() => { setCreating(true); setName(""); }}
+          className="inline-flex h-10 items-center gap-2 rounded-xl bg-inverse px-4 text-sm font-medium text-on-inverse"
+        >
           <Plus className="h-4 w-4" />
           Novo fluxo
-        </PrimaryButton>
+        </button>
       </div>
 
       {list.error ? <p className="mb-4 text-sm text-open">{(list.error as Error).message}</p> : null}
 
       {list.isLoading ? <p className="text-sm text-muted">Carregando fluxos…</p> : null}
       {!list.isLoading && flows.length === 0 ? (
-        <div className="flex flex-1 flex-col items-center justify-center rounded-2xl border border-dashed border-line text-center">
-          <Workflow className="mb-3 h-10 w-10 text-line" />
+        <div className="rounded-2xl border border-line px-6 py-12 text-center">
+          <Workflow className="mx-auto mb-3 h-8 w-8 text-muted" />
           <p className="font-semibold text-navy">Nenhum fluxo ainda</p>
-          <p className="mt-1 max-w-sm text-sm text-muted">Crie o primeiro para perguntar dados e abrir ticket automaticamente.</p>
+          <p className="mt-1 text-sm text-muted">Crie o primeiro para perguntar dados e abrir ticket automaticamente.</p>
         </div>
       ) : (
         <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {flows.map((flow) => (
-            <li key={flow.id} className="rounded-2xl border border-line bg-surface p-4 shadow-sm">
+            <li key={flow.id} className="rounded-2xl border border-line bg-surface p-4">
               <Link href={`/automacao/${flow.id}`} className="block">
                 <p className="font-semibold text-navy">{flow.name}</p>
                 <p className="mt-1 text-xs text-muted">{flow.flow?.nodes?.length || 0} bloco(s)</p>

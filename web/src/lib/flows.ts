@@ -2,7 +2,7 @@ import { flask } from "@/lib/api";
 
 export type FlowNodeType = "start" | "message" | "menu" | "question" | "identify" | "ticket";
 
-export type FlowMenuOption = { number: number; value: string };
+export type FlowMenuOption = { number: number; value: string; queueId?: number | null };
 
 export type FlowTicketMapping = {
   title?: string;

@@ -667,22 +667,54 @@ export const ActionsWebhookService = async (
       if (nodeSelected.type === "menu") {
         console.log(650, "menu");
         if (pressKey) {
-          const filterOne = connectStatic.filter(
+          const menuNode =
+            nodes.find(item => item.id === next) || nodeSelected;
+          const rawKey = String(pressKey).trim();
+          const digits = (rawKey.match(/^\s*(\d+)/) || [])[1] || rawKey;
+          const options = (menuNode?.data?.arrayOption || []) as Array<{
+            number: number;
+            value?: string;
+            queueId?: number;
+          }>;
+          const option = options.find(
+            item =>
+              String(item.number) === String(digits) ||
+              String(item.value || "").toLowerCase() === rawKey.toLowerCase()
+          );
+          const optionNumber = option ? String(option.number) : digits;
+
+          if (ticket && option) {
+            const webhook: any = ticket.dataWebhook || {};
+            const queueId = option.queueId ? Number(option.queueId) : undefined;
+            const nextVars = {
+              ...webhook,
+              variables: {
+                ...(webhook.variables || {}),
+                setor: option.value || "",
+                fila: option.value || "",
+                ...(queueId ? { queueId: String(queueId) } : {})
+              }
+            };
+            await ticket.update({
+              ...(queueId ? { queueId } : {}),
+              dataWebhook: nextVars
+            });
+            ticket.dataWebhook = nextVars;
+          }
+
+          const fromMenu = connectStatic.filter(
             confil => confil.source === next
           );
-          const filterTwo = filterOne.filter(
-            filt2 => filt2.sourceHandle === "a" + pressKey
+          const optionConn = fromMenu.find(
+            filt2 => String(filt2.sourceHandle || "") === "a" + optionNumber
           );
-          if (filterTwo.length > 0) {
-            execFn = filterTwo[0].target;
-          } else {
-            execFn = undefined;
-          }
-          // execFn =
-          //   connectStatic
-          //     .filter(confil => confil.source === next)
-          //     .filter(filt2 => filt2.sourceHandle === "a" + pressKey)[0]?.target ??
-          //   undefined;
+          const defaultConn = fromMenu.find(
+            filt2 =>
+              filt2.sourceHandle === "out" ||
+              !filt2.sourceHandle
+          );
+          execFn = optionConn?.target || defaultConn?.target;
+
           if (execFn === undefined) {
             break;
           }

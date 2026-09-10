@@ -28,6 +28,7 @@ export interface IConnections {
 interface IArrayOption {
   number: number
   value: string
+  queueId?: number
 }
 
 export interface INodes {
