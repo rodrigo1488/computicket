@@ -6,6 +6,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Modal } from "@/components/ui/Modal";
 import { PrimaryButton, UnderlineField } from "@/components/ui/UnderlineField";
 import { cn } from "@/lib/cn";
+import { flowsApi } from "@/lib/flows";
 import {
   helpdesk,
   unwrapConnections,
@@ -328,6 +329,14 @@ function ConnectionForm({
   const [completion, setCompletion] = useState(initial?.complationMessage || "");
   const [outOfHours, setOutOfHours] = useState(initial?.outOfHoursMessage || "");
   const [isDefault, setIsDefault] = useState(!!initial?.isDefault);
+  const [flowIdWelcome, setFlowIdWelcome] = useState<string>(
+    initial?.flowIdWelcome ? String(initial.flowIdWelcome) : "",
+  );
+
+  const flows = useQuery({
+    queryKey: ["helpdesk-flows"],
+    queryFn: flowsApi.list,
+  });
 
   const save = useMutation({
     mutationFn: () => {
@@ -338,6 +347,7 @@ function ConnectionForm({
         complationMessage: completion,
         outOfHoursMessage: outOfHours,
         isDefault,
+        flowIdWelcome: flowIdWelcome ? Number(flowIdWelcome) : null,
       };
       return initial?.id ? helpdesk.updateConnection(initial.id, payload) : helpdesk.createConnection(payload);
     },
@@ -389,6 +399,24 @@ function ConnectionForm({
       <label className="flex items-center gap-2 text-sm text-ink">
         <input type="checkbox" checked={isDefault} onChange={(e) => setIsDefault(e.target.checked)} />
         Conexão padrão
+      </label>
+      <label className="block">
+        <span className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted">Fluxo de boas-vindas</span>
+        <select
+          value={flowIdWelcome}
+          onChange={(e) => setFlowIdWelcome(e.target.value)}
+          className="mt-1 w-full rounded-lg border border-line px-3 py-2 text-sm outline-none focus:border-brand"
+        >
+          <option value="">Nenhum (sem triagem automática)</option>
+          {(flows.data?.flows || []).map((flow) => (
+            <option key={flow.id} value={flow.id}>
+              {flow.name}
+            </option>
+          ))}
+        </select>
+        <p className="mt-1 text-xs text-muted">
+          Contato novo nesta linha inicia o fluxo. Monte em Automação.
+        </p>
       </label>
       {save.error ? <p className="text-sm text-open">{(save.error as Error).message}</p> : null}
       <PrimaryButton type="submit" disabled={save.isPending || !name.trim()}>
@@ -748,6 +776,9 @@ export function WhatsappSettings({ section, onSection }: { section: WhatsappSect
                         ))}
                         {!c.queues?.length ? <span className="text-[11px] text-muted">Sem filas vinculadas</span> : null}
                       </div>
+                      {c.flowIdWelcome ? (
+                        <p className="mt-2 text-[11px] text-muted">Fluxo de boas-vindas #{c.flowIdWelcome}</p>
+                      ) : null}
                     </div>
                     <div className="flex gap-1">
                       <button

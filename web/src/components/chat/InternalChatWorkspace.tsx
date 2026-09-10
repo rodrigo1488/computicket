@@ -10,6 +10,7 @@ import {
   Plus,
   Search,
   Send,
+  Share2,
   Trash2,
   Users,
   X,
@@ -18,6 +19,8 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ComposerContextBanner, MessageActions } from "@/components/chat/MessageActions";
 import { SharedEntityCard } from "@/components/chat/SharedEntityCard";
+import { ShareToChatDialog, type ShareToChatTarget } from "@/components/chat/ShareToChatDialog";
+import { AttachEntityToChatDialog } from "@/components/chat/AttachEntityToChatDialog";
 import { ComposerAttachZone, ComposerFilePreview } from "@/components/ui/ComposerAttachZone";
 import { MediaViewer, type MediaViewerItem } from "@/components/media/MediaViewer";
 import { Modal } from "@/components/ui/Modal";
@@ -150,6 +153,8 @@ export function InternalChatWorkspace() {
   const [olderMessages, setOlderMessages] = useState<InternalChatMessage[]>([]);
   const [loadingOlder, setLoadingOlder] = useState(false);
   const [mediaViewer, setMediaViewer] = useState<MediaViewerItem | null>(null);
+  const [shareTarget, setShareTarget] = useState<ShareToChatTarget | null>(null);
+  const [attachOpen, setAttachOpen] = useState(false);
 
   const threadRef = useRef<HTMLDivElement | null>(null);
   const fileRef = useRef<HTMLInputElement | null>(null);
@@ -761,11 +766,21 @@ export function InternalChatWorkspace() {
                                 align={mine ? "start" : "end"}
                                 tone={mine ? "onBrand" : "default"}
                                 canReply
+                                canForward
                                 canEdit={mine && !src}
                                 canDelete={mine}
                                 onReply={() => {
                                   setReplyTo(m);
                                   setEditingMessage(null);
+                                }}
+                                onForward={() => {
+                                  const shared = parseChatShare(m.message);
+                                  setShareTarget({
+                                    payload: shared?.payload,
+                                    text: shared ? undefined : m.message || undefined,
+                                    mediaUrl: src,
+                                    mediaName: m.mediaName,
+                                  });
                                 }}
                                 onEdit={() => {
                                   setEditingMessage(m);
@@ -909,6 +924,16 @@ export function InternalChatWorkspace() {
                   >
                     <Paperclip className="h-5 w-5" />
                   </button>
+                  <button
+                    type="button"
+                    onClick={() => setAttachOpen(true)}
+                    className="text-muted hover:text-ink disabled:opacity-40"
+                    aria-label="Encaminhar ticket, conhecimento, cofre ou help desk"
+                    title="Encaminhar ticket, conhecimento, cofre ou help desk"
+                    disabled={!!editingMessage}
+                  >
+                    <Share2 className="h-5 w-5" />
+                  </button>
                   <input
                     ref={fileRef}
                     type="file"
@@ -991,6 +1016,26 @@ export function InternalChatWorkspace() {
           </button>
         </div>
       </Modal>
+
+      <ShareToChatDialog
+        open={!!shareTarget}
+        target={shareTarget}
+        excludeChatId={activeId}
+        onClose={() => setShareTarget(null)}
+      />
+      <AttachEntityToChatDialog
+        open={attachOpen}
+        chatId={activeId}
+        onClose={() => setAttachOpen(false)}
+        onSent={(msg) => {
+          qc.setQueryData(["ic-messages", activeId], (prev: { records?: InternalChatMessage[] } | undefined) => ({
+            ...prev,
+            records: mergeMessage(prev?.records, msg),
+          }));
+          invalidateLists();
+          stickToBottomRef.current = true;
+        }}
+      />
 
       <MediaViewer
         item={mediaViewer}

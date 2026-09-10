@@ -27,6 +27,7 @@ import { getWbot } from "../../libs/wbot";
 import { proto } from "baileys";
 import { handleOpenAi } from "../IntegrationsServices/OpenAiService";
 import { IOpenAi } from "../../@types/openai";
+import { createComputicketTicketFromFlow, identifyComputicketClientFromFlow } from "../../helpers/createComputicketTicketFromFlow";
 
 interface IAddContact {
   companyId: number;
@@ -234,21 +235,19 @@ export const ActionsWebhookService = async (
         }
       }
 
+      if (!nodeSelected) {
+        break;
+      }
+
       if (nodeSelected.type === "message") {
-
-        let msg;
-
-        const webhook = ticket.dataWebhook
-
-        if (webhook && webhook.hasOwnProperty("variables")) {
-          msg = {
-            body: replaceMessages(webhook, nodeSelected.data.label)
-          };
-        } else {
-          msg = {
-            body: nodeSelected.data.label
-          };
-        }
+        const extras = contactExtras(numberPhrase, numberClient);
+        const msg = {
+          body: replaceMessages(
+            ticket?.dataWebhook,
+            nodeSelected.data?.label || "",
+            extras
+          )
+        };
 
         await SendMessage(whatsapp, {
           number: numberClient,
@@ -326,17 +325,64 @@ export const ActionsWebhookService = async (
         );
       }
 
+      if (nodeSelected.type === "start") {
+        // Nó visual de início: só segue a conexão de saída.
+      }
+
       if (nodeSelected.type === "question") {
-        const webhook = ticket?.dataWebhook;
-        const variables = ticket?.dataWebhook?.variables;
+        const { message } = nodeSelected.data?.typebotIntegration || {};
+        const ticketDetails = await ShowTicketService(ticket.id, companyId);
+        const extras = contactExtras(numberPhrase, numberClient);
+        const raw = formatBody(`${message || ""}`, ticket.contact);
+        const bodyFila = replaceMessages(ticket?.dataWebhook, raw, extras);
 
-        if (!variables || variables === undefined || variables === null) {
-          const { message } = nodeSelected.data.typebotIntegration;
+        await delay(1500);
+        await typeSimulation(ticket, "composing");
+
+        await SendWhatsAppMessage({
+          body: bodyFila,
+          ticket: ticketDetails,
+          quotedMsg: null
+        });
+
+        SetTicketMessagesAsRead(ticketDetails);
+
+        await ticketDetails.update({
+          lastMessage: bodyFila
+        });
+
+        await ticket.update({
+          userId: null,
+          companyId: companyId,
+          lastFlowId: nodeSelected.id,
+          hashFlowId: hashWebhookId,
+          flowStopped: idFlowDb.toString(),
+          flowWebhook: true
+        });
+          break;
+      }
+
+      if (nodeSelected.type === "identify") {
+        const extras = contactExtras(numberPhrase, numberClient);
+        const identified = await identifyComputicketClientFromFlow({
+          engine_contact_id: ticket?.contactId,
+          contact_number: numberClient || extras.numero
+        });
+
+        if (identified.linked) {
+          const nextVars = mergeIdentifyVariables(ticket, identified);
+          await ticket.update({ dataWebhook: nextVars });
+          ticket.dataWebhook = nextVars;
+        } else {
+          const { message } = nodeSelected.data?.typebotIntegration || {};
           const ticketDetails = await ShowTicketService(ticket.id, companyId);
+          const raw = formatBody(
+            `${message || "Qual o seu CNPJ?"}`,
+            ticket.contact
+          );
+          const bodyFila = replaceMessages(ticket?.dataWebhook, raw, extras);
 
-          const bodyFila = formatBody(`${message}`, ticket.contact);
-
-          await delay(3000);
+          await delay(1500);
           await typeSimulation(ticket, "composing");
 
           await SendWhatsAppMessage({
@@ -346,103 +392,122 @@ export const ActionsWebhookService = async (
           });
 
           SetTicketMessagesAsRead(ticketDetails);
-
-          await ticketDetails.update({
-            lastMessage: bodyFila
-          });
-
+          await ticketDetails.update({ lastMessage: bodyFila });
           await ticket.update({
             userId: null,
             companyId: companyId,
             lastFlowId: nodeSelected.id,
             hashFlowId: hashWebhookId,
-            flowStopped: idFlowDb.toString()
+            flowStopped: idFlowDb.toString(),
+            flowWebhook: true
           });
+          break;
         }
-        break;
       }
 
       if (nodeSelected.type === "ticket") {
-        /*const queueId = nodeSelected.data?.data?.id || nodeSelected.data?.id;
-        const queue = await ShowQueueService(queueId, companyId);
+        const extras = contactExtras(numberPhrase, numberClient);
+        const mapping = nodeSelected.data?.mapping || {};
+        const interpolate = (value: any) =>
+          replaceMessages(ticket?.dataWebhook, String(value ?? ""), extras);
+        const title = interpolate(mapping.title || nodeSelected.data?.title || "");
+        const description = interpolate(
+          mapping.description || nodeSelected.data?.description || ""
+        );
+        const solicitante = interpolate(
+          mapping.solicitante || "{{nome}}"
+        );
+        const clientQuery = interpolate(
+          mapping.client_query ||
+            nodeSelected.data?.clientVariable ||
+            extras.numero ||
+            extras.nome
+        );
+        const serviceRaw = mapping.service_id ?? nodeSelected.data?.service_id;
+        const serviceId = serviceRaw ? Number(serviceRaw) : null;
+        const assignedRaw =
+          mapping.assigned_to_id ?? nodeSelected.data?.assigned_to_id;
+        const assignedToId = assignedRaw ? Number(assignedRaw) : null;
+        const queueId = nodeSelected.data?.queueId;
+        const failMessage =
+          interpolate(nodeSelected.data?.failMessage) ||
+          "Não foi possível identificar o cliente para abrir o chamado. Um atendente vai continuar daqui.";
+        const confirmationMessage =
+          nodeSelected.data?.confirmationMessage ||
+          "Chamado {{ticket_id}} aberto. Em breve um técnico retorna.";
 
-        await ticket.update({
-          status: "pending",
-          queueId: queue.id,
-          userId: ticket.userId,
-          companyId: companyId,
-          flowWebhook: true,
-          lastFlowId: nodeSelected.id,
-          hashFlowId: hashWebhookId,
-          flowStopped: idFlowDb.toString()
+        const ticketDetails = await ShowTicketService(ticket.id, companyId);
+        const created = await createComputicketTicketFromFlow({
+          engine_ticket_id: ticket.id,
+          engine_contact_id: ticket.contactId || ticketDetails.contactId || ticketDetails.contact?.id,
+          contact_number: numberClient || extras.numero,
+          contact_name: extras.nome || ticketDetails.contact?.name,
+          engine_user_id: ticket.userId,
+          title,
+          description,
+          solicitante: solicitante || extras.nome || ticketDetails.contact?.name,
+          service_id: Number.isFinite(serviceId) ? serviceId : null,
+          assigned_to_id: Number.isFinite(assignedToId) ? assignedToId : null,
+          client_query: clientQuery,
+          external_client_id: mapping.external_client_id
+            ? Number(mapping.external_client_id)
+            : Number(
+                ticket.dataWebhook?.variables?.external_client_id ||
+                  extras.external_client_id
+              ) || null,
+          external_client_name:
+            ticket.dataWebhook?.variables?.empresa ||
+            extras.nome ||
+            ticketDetails.contact?.name
         });
 
-        await FindOrCreateATicketTrakingService({
-          ticketId: ticket.id,
-          companyId,
-          whatsappId: ticket.whatsappId,
-          userId: ticket.userId
-        });
-
-        await UpdateTicketService({
-          ticketData: {
-            status: "pending",
-            queueId: queue.id
-          },
-          ticketId: ticket.id,
-          companyId
-        });
-
-        await CreateLogTicketService({
-          ticketId: ticket.id,
-          type: "queue",
-          queueId: queue.id
-        });
-
-        let settings = await CompaniesSettings.findOne({
-          where: {
-            companyId: companyId
-          }
-        });
-
-        const enableQueuePosition = settings.sendQueuePosition === "enabled";
-
-        if (enableQueuePosition) {
-          const count = await Ticket.findAndCountAll({
-            where: {
-              userId: null,
-              status: "pending",
-              companyId,
-              queueId: queue.id,
-              whatsappId: whatsapp.id,
-              isGroup: false
-            }
-          });
-
-          // Lógica para enviar posição da fila de atendimento
-          const qtd = count.count === 0 ? 1 : count.count;
-
-          const msgFila = `${settings.sendQueuePositionMessage} *${qtd}*`;
-
-          const ticketDetails = await ShowTicketService(ticket.id, companyId);
-
-          const bodyFila = formatBody(`${msgFila}`, ticket.contact);
-
-          await delay(3000);
+        if (!created.ok || !created.ticket_id) {
           await typeSimulation(ticket, "composing");
-
           await SendWhatsAppMessage({
-            body: bodyFila,
+            body: failMessage,
             ticket: ticketDetails,
             quotedMsg: null
           });
-
-          SetTicketMessagesAsRead(ticketDetails);
-
-          await ticketDetails.update({
-            lastMessage: bodyFila
+          await ticket.update({
+            lastFlowId: nodeSelected.id,
+            flowWebhook: false,
+            flowStopped: idFlowDb.toString()
           });
-        }*/
+          break;
+        }
+
+        const nextVars = {
+          ...(ticket.dataWebhook || {}),
+          variables: {
+            ...((ticket.dataWebhook && ticket.dataWebhook.variables) || {}),
+            ticket_id: String(created.ticket_id)
+          }
+        };
+        await ticket.update({
+          dataWebhook: nextVars,
+          lastFlowId: nodeSelected.id,
+          ...(queueId
+            ? { status: "pending", queueId: Number(queueId), userId: null }
+            : {})
+        });
+        ticket.dataWebhook = nextVars;
+
+        const confirmBody = replaceMessages(
+          nextVars,
+          confirmationMessage,
+          extras
+        );
+        if (confirmBody.trim()) {
+          await delay(800);
+          await typeSimulation(ticket, "composing");
+          await SendWhatsAppMessage({
+            body: confirmBody,
+            ticket: ticketDetails,
+            quotedMsg: null
+          });
+          SetTicketMessagesAsRead(ticketDetails);
+          await ticketDetails.update({ lastMessage: confirmBody });
+        }
       }
 
       if (nodeSelected.type === "singleBlock") {
@@ -631,28 +696,17 @@ export const ActionsWebhookService = async (
         } else {
           console.log(681, "menu");
           let optionsMenu = "";
-          nodeSelected.data.arrayOption.map(item => {
+          (nodeSelected.data.arrayOption || []).map(item => {
             optionsMenu += `[${item.number}] ${item.value}\n`;
           });
 
-          const menuCreate = `${nodeSelected.data.message}\n\n${optionsMenu}`;
-
-          const webhook = ticket.dataWebhook;
-
-          let msg;
-          if (webhook && webhook.hasOwnProperty("variables")) {
-            msg = {
-              body: replaceMessages(webhook, menuCreate),
-              number: numberClient,
-              companyId: companyId
-            };
-          } else {
-            msg = {
-              body: menuCreate,
-              number: numberClient,
-              companyId: companyId
-            };
-          }
+          const menuCreate = `${nodeSelected.data.message || ""}\n\n${optionsMenu}`;
+          const extras = contactExtras(numberPhrase, numberClient);
+          const msg = {
+            body: replaceMessages(ticket?.dataWebhook, menuCreate, extras),
+            number: numberClient,
+            companyId: companyId
+          };
 
           const ticketDetails = await ShowTicketService(ticket.id, companyId);
 
@@ -862,10 +916,60 @@ const intervalWhats = (time: string) => {
   return new Promise(resolve => setTimeout(resolve, seconds));
 };
 
-const replaceMessages = (variables, message) => {
-  return message.replace(
+const mergeIdentifyVariables = (ticket: Ticket, result: {
+  cnpj?: string;
+  external_client_id?: number;
+  external_client_name?: string;
+}) => {
+  const name = result.external_client_name || "";
+  const cnpj = String(result.cnpj || "").replace(/\D/g, "");
+  return {
+    ...(ticket.dataWebhook || {}),
+    variables: {
+      ...((ticket.dataWebhook && ticket.dataWebhook.variables) || {}),
+      ...(cnpj ? { cnpj } : {}),
+      empresa: name,
+      cliente: name,
+      ...(result.external_client_id
+        ? { external_client_id: String(result.external_client_id) }
+        : {})
+    }
+  };
+};
+
+const flowVariables = (webhook: any): Record<string, string> => {
+  if (!webhook) return {};
+  if (webhook.variables && typeof webhook.variables === "object") {
+    return webhook.variables;
+  }
+  return webhook;
+};
+
+const contactExtras = (
+  numberPhrase: "" | { number?: string; name?: string; email?: string },
+  numberClient: string
+): Record<string, string> => {
+  if (!numberPhrase || numberPhrase === "") {
+    return { numero: numberClient || "", number: numberClient || "" };
+  }
+  return {
+    nome: numberPhrase.name || "",
+    name: numberPhrase.name || "",
+    numero: numberClient || numberPhrase.number || "",
+    number: numberClient || numberPhrase.number || "",
+    email: numberPhrase.email || ""
+  };
+};
+
+const replaceMessages = (
+  variables: any,
+  message: string,
+  extra?: Record<string, string>
+) => {
+  const map = { ...flowVariables(variables), ...(extra || {}) };
+  return String(message || "").replace(
     /{{\s*([^{}\s]+)\s*}}/g,
-    (match, key) => variables[key] || ""
+    (_match, key) => (map[key] != null && map[key] !== "" ? String(map[key]) : "")
   );
 };
 

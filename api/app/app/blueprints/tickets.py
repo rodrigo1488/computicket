@@ -7,8 +7,20 @@ import uuid
 from pathlib import Path
 from .. import db
 from ..avatar import avatar_public_url
-from ..models import Ticket, Client, Contract, Service, User, TimeEntry, TicketProduct, TicketAddon, HelpDeskTicketLink
-from ..external_pg import ExternalPgError, fetch_external_clients, get_external_client_by_id
+from ..models import (
+	Ticket,
+	Client,
+	Contract,
+	Service,
+	User,
+	TimeEntry,
+	TicketProduct,
+	TicketAddon,
+	HelpDeskTicketLink,
+	HelpDeskContactClientLink,
+	HelpDeskAgentMap,
+)
+from ..external_pg import ExternalPgError, fetch_external_clients, fetch_external_clients_search, get_external_client_by_id
 from ..timezone_utils import get_brasilia_now, brasilia_to_utc, utc_to_brasilia
 from .utils import connect_postgres
 from ..engine_client import EngineError, admin_request, notify_helpdesk_ticket
@@ -2713,6 +2725,257 @@ def api_get_ticket(ticket_id: int):
 	return jsonify(_serialize_ticket_detail(ticket))
 
 
+_CLOSED_TICKET_STATUSES = ("fechado", "cancelado")
+
+
+def _internal_token_ok() -> bool:
+	expected = (
+		os.environ.get("COMPUTICKET_INTERNAL_TOKEN")
+		or os.environ.get("SECRET_KEY")
+		or ""
+	).strip()
+	provided = (request.headers.get("X-Internal-Token") or "").strip()
+	return bool(expected) and provided == expected
+
+
+def _only_digits(raw) -> str:
+	return "".join(ch for ch in str(raw or "") if ch.isdigit())
+
+
+def _system_opened_by_id(engine_user_id=None) -> int | None:
+	if engine_user_id is not None:
+		try:
+			mapping = HelpDeskAgentMap.query.filter_by(engine_user_id=int(engine_user_id)).first()
+			if mapping:
+				return mapping.computicket_user_id
+		except (TypeError, ValueError):
+			pass
+	admin = (
+		User.query.filter(User.status == "1")
+		.filter(User.role.in_(["admin", "administrador", "administrator"]))
+		.order_by(User.id.asc())
+		.first()
+	)
+	if admin:
+		return admin.id
+	fallback = User.query.filter(User.status == "1").order_by(User.id.asc()).first()
+	return fallback.id if fallback else None
+
+
+def _notify_new_ticket(ticket: Ticket) -> None:
+	try:
+		from ..notification_service import create_notifications, ticket_recipient_ids
+		create_notifications(
+			ticket_recipient_ids(ticket.assigned_to_id),
+			notification_type="ticket",
+			title=f"Novo ticket #{ticket.id}",
+			message=f"{ticket.title} · {ticket.display_client_name() or 'Cliente não informado'}",
+			url=f"/tickets/{ticket.id}",
+			entity_type="ticket",
+			entity_id=ticket.id,
+		)
+	except Exception:
+		pass
+
+
+def _resolve_external_client(external_client_id, fallback_name: str):
+	try:
+		ext_id = int(external_client_id)
+	except (TypeError, ValueError):
+		return None, "Cliente inválido."
+	selected_ext = None
+	try:
+		selected_ext = get_external_client_by_id(ext_id)
+	except ExternalPgError as e:
+		if fallback_name:
+			return ext_id, {"id": ext_id, "name": fallback_name}
+		return None, str(e)
+	except Exception as e:
+		if fallback_name:
+			return ext_id, {"id": ext_id, "name": fallback_name}
+		return None, f"Erro ao validar cliente: {e}"
+	if not selected_ext:
+		if fallback_name:
+			return ext_id, {"id": ext_id, "name": fallback_name}
+		return None, "Cliente não encontrado."
+	return ext_id, selected_ext
+
+
+def _format_br_document(digits: str) -> str:
+	if len(digits) == 14:
+		return f"{digits[:2]}.{digits[2:5]}.{digits[5:8]}/{digits[8:12]}-{digits[12:]}"
+	if len(digits) == 11:
+		return f"{digits[:3]}.{digits[3:6]}.{digits[6:9]}-{digits[9:]}"
+	return digits
+
+
+def _find_contact_client_link(engine_contact_id=None, contact_number: str | None = None):
+	if engine_contact_id not in (None, ""):
+		try:
+			row = HelpDeskContactClientLink.query.filter_by(engine_contact_id=int(engine_contact_id)).first()
+			if row:
+				return row
+		except (TypeError, ValueError):
+			pass
+	digits = _only_digits(contact_number)
+	if not digits:
+		return None
+	number = (contact_number or "").strip()
+	if number:
+		row = HelpDeskContactClientLink.query.filter_by(contact_number=number).first()
+		if row:
+			return row
+	for candidate in HelpDeskContactClientLink.query.filter(HelpDeskContactClientLink.contact_number.isnot(None)).all():
+		rd = _only_digits(candidate.contact_number)
+		if rd and digits[-8:] and (rd.endswith(digits[-8:]) or digits[-8:] in rd):
+			return candidate
+	return None
+
+
+def _find_client_by_document(cnpj: str):
+	digits = _only_digits(cnpj)
+	if len(digits) < 11:
+		return None
+	queries = [digits, _format_br_document(digits)]
+	seen_ids: set[int] = set()
+	candidates: list[dict] = []
+	for q in queries:
+		if not q:
+			continue
+		try:
+			items = fetch_external_clients_search(q) or []
+		except Exception:
+			items = []
+		for client in items:
+			try:
+				cid = int(client.get("id"))
+			except (TypeError, ValueError):
+				continue
+			if cid in seen_ids:
+				continue
+			seen_ids.add(cid)
+			candidates.append(client)
+	for client in candidates:
+		doc = _only_digits(client.get("document"))
+		if doc and (doc == digits or doc.endswith(digits) or digits.endswith(doc)):
+			return {"id": client.get("id"), "name": client.get("name") or "", "document": doc}
+	return None
+
+
+def _upsert_contact_client_link(
+	*,
+	engine_contact_id,
+	contact_number: str | None,
+	external_client_id: int,
+	external_client_name: str,
+):
+	row = _find_contact_client_link(engine_contact_id, contact_number)
+	number = (contact_number or "").strip()[:50] or None
+	name = (external_client_name or "")[:200]
+	if row:
+		row.external_client_id = int(external_client_id)
+		row.external_client_name = name
+		if number:
+			row.contact_number = number
+		if engine_contact_id not in (None, ""):
+			try:
+				row.engine_contact_id = int(engine_contact_id)
+			except (TypeError, ValueError):
+				pass
+	else:
+		try:
+			cid = int(engine_contact_id)
+		except (TypeError, ValueError):
+			return None
+		row = HelpDeskContactClientLink(
+			engine_contact_id=cid,
+			contact_number=number,
+			external_client_id=int(external_client_id),
+			external_client_name=name,
+		)
+		db.session.add(row)
+	try:
+		db.session.commit()
+	except Exception:
+		db.session.rollback()
+		return None
+	return row
+
+
+def _find_client_for_flow(data: dict):
+	fallback_name = (data.get("external_client_name") or data.get("contact_name") or "").strip()
+	explicit = data.get("external_client_id")
+	if explicit not in (None, ""):
+		ext_id, selected = _resolve_external_client(explicit, fallback_name)
+		if ext_id:
+			return {"id": ext_id, "name": (selected or {}).get("name") or fallback_name}
+
+	row = _find_contact_client_link(data.get("engine_contact_id"), data.get("contact_number"))
+	if row:
+		return {"id": row.external_client_id, "name": row.external_client_name or fallback_name}
+
+	contact_number = (data.get("contact_number") or "").strip()
+	digits = _only_digits(contact_number)
+
+	queries = [
+		(data.get("client_query") or "").strip(),
+		contact_number,
+		digits,
+		fallback_name,
+	]
+	seen: set[str] = set()
+	for q in queries:
+		if not q or q in seen:
+			continue
+		seen.add(q)
+		try:
+			items = fetch_external_clients_search(q) or []
+		except Exception:
+			items = []
+		if not items:
+			continue
+		needle = _only_digits(q)
+		if needle and len(needle) >= 8:
+			for client in items:
+				phone = _only_digits(client.get("phone"))
+				doc = _only_digits(client.get("document"))
+				if (phone and (phone.endswith(needle[-8:]) or needle[-8:] in phone)) or (doc and needle in doc):
+					return {"id": client.get("id"), "name": client.get("name") or fallback_name}
+		exact = [c for c in items if (c.get("name") or "").strip().lower() == q.lower()]
+		if len(exact) == 1:
+			return {"id": exact[0].get("id"), "name": exact[0].get("name") or fallback_name}
+		if len(items) == 1:
+			return {"id": items[0].get("id"), "name": items[0].get("name") or fallback_name}
+	return None
+
+
+def _persist_ticket(
+	*,
+	title: str,
+	description: str,
+	solicitante: str,
+	ext_id: int,
+	external_client_name: str | None,
+	service_id,
+	assigned_to_id,
+	opened_by_id: int,
+) -> Ticket:
+	ticket = Ticket(
+		title=title,
+		description=description,
+		external_client_id=ext_id,
+		external_client_name=external_client_name,
+		solicitante=solicitante,
+		service_id=int(service_id) if service_id else None,
+		opened_by_id=opened_by_id,
+		assigned_to_id=int(assigned_to_id) if assigned_to_id else None,
+	)
+	db.session.add(ticket)
+	db.session.commit()
+	_notify_new_ticket(ticket)
+	return ticket
+
+
 @bp.route("/api", methods=["POST"])
 @login_required
 def api_create_ticket():
@@ -2730,61 +2993,24 @@ def api_create_ticket():
 		return jsonify({"error": "Informe o nome do solicitante."}), 400
 	if not external_client_id:
 		return jsonify({"error": "Selecione um cliente."}), 400
+	ext_id, selected_ext = _resolve_external_client(external_client_id, fallback_name)
+	if not ext_id:
+		status = 503 if selected_ext and "Unico" in str(selected_ext) else 400
+		return jsonify({"error": selected_ext or "Cliente inválido."}), status
 	try:
-		ext_id = int(external_client_id)
-	except (TypeError, ValueError):
-		return jsonify({"error": "Cliente inválido."}), 400
-
-	selected_ext = None
-	try:
-		selected_ext = get_external_client_by_id(ext_id)
-	except ExternalPgError as e:
-		if fallback_name:
-			selected_ext = {"id": ext_id, "name": fallback_name}
-		else:
-			return jsonify({"error": str(e)}), 503
-	except Exception as e:
-		if fallback_name:
-			selected_ext = {"id": ext_id, "name": fallback_name}
-		else:
-			return jsonify({"error": f"Erro ao validar cliente: {e}"}), 503
-
-	if not selected_ext:
-		if fallback_name:
-			selected_ext = {"id": ext_id, "name": fallback_name}
-		else:
-			return jsonify({"error": "Cliente não encontrado."}), 400
-
-	try:
-		ticket = Ticket(
+		ticket = _persist_ticket(
 			title=title,
 			description=description,
-			external_client_id=ext_id,
-			external_client_name=selected_ext.get("name") or fallback_name or None,
 			solicitante=solicitante,
-			service_id=int(service_id) if service_id else None,
+			ext_id=ext_id,
+			external_client_name=(selected_ext or {}).get("name") or fallback_name or None,
+			service_id=service_id,
+			assigned_to_id=assigned_to_id,
 			opened_by_id=current_user.id,
-			assigned_to_id=int(assigned_to_id) if assigned_to_id else None,
 		)
-		db.session.add(ticket)
-		db.session.commit()
 	except Exception as e:
 		db.session.rollback()
 		return jsonify({"error": f"Erro ao criar chamado: {e}"}), 500
-
-	try:
-		from ..notification_service import create_notifications, ticket_recipient_ids
-		create_notifications(
-			ticket_recipient_ids(ticket.assigned_to_id),
-			notification_type="ticket",
-			title=f"Novo ticket #{ticket.id}",
-			message=f"{ticket.title} · {ticket.display_client_name() or 'Cliente não informado'}",
-			url=f"/tickets/{ticket.id}",
-			entity_type="ticket",
-			entity_id=ticket.id,
-		)
-	except Exception:
-		pass
 
 	try:
 		return jsonify(_serialize_ticket_detail(ticket)), 201
@@ -2799,6 +3025,120 @@ def api_create_ticket():
 			"external_client_name": ticket.external_client_name,
 			"warning": f"Chamado criado, mas a resposta detalhada falhou: {e}",
 		}), 201
+
+
+@bp.route("/api/from-flow", methods=["POST"])
+def api_create_ticket_from_flow():
+	if not _internal_token_ok():
+		return jsonify({"error": "unauthorized"}), 401
+	data = request.get_json(silent=True) or {}
+	try:
+		engine_ticket_id = int(data.get("engine_ticket_id"))
+	except (TypeError, ValueError):
+		return jsonify({"error": "engine_ticket_id é obrigatório."}), 400
+
+	existing_link = HelpDeskTicketLink.query.filter_by(engine_ticket_id=engine_ticket_id).first()
+	if existing_link:
+		current = Ticket.query.get(existing_link.computicket_ticket_id)
+		if current and current.status not in _CLOSED_TICKET_STATUSES:
+			return jsonify({"ticket_id": current.id, "already_linked": True})
+
+	client = _find_client_for_flow(data)
+	if not client or not client.get("id"):
+		return jsonify({"error": "Não foi possível identificar o cliente para abrir o chamado."}), 400
+
+	title = (data.get("title") or "").strip() or f"WhatsApp {(data.get('contact_name') or '').strip()}".strip()
+	solicitante = (data.get("solicitante") or data.get("contact_name") or "").strip()
+	if not title:
+		return jsonify({"error": "Título é obrigatório."}), 400
+	if not solicitante:
+		return jsonify({"error": "Informe o nome do solicitante."}), 400
+
+	opened_by = _system_opened_by_id(data.get("engine_user_id"))
+	if not opened_by:
+		return jsonify({"error": "Nenhum usuário disponível para abrir o chamado."}), 500
+
+	try:
+		ticket = _persist_ticket(
+			title=title[:200],
+			description=(data.get("description") or "").strip(),
+			solicitante=solicitante[:200],
+			ext_id=int(client["id"]),
+			external_client_name=client.get("name") or None,
+			service_id=data.get("service_id"),
+			assigned_to_id=data.get("assigned_to_id"),
+			opened_by_id=opened_by,
+		)
+	except Exception as e:
+		db.session.rollback()
+		return jsonify({"error": f"Erro ao criar chamado: {e}"}), 500
+
+	linked_at = brasilia_to_utc(get_brasilia_now())
+	if existing_link:
+		existing_link.computicket_ticket_id = ticket.id
+		existing_link.created_at = linked_at
+	else:
+		db.session.add(
+			HelpDeskTicketLink(
+				engine_ticket_id=engine_ticket_id,
+				computicket_ticket_id=ticket.id,
+				created_at=linked_at,
+			)
+		)
+	db.session.commit()
+	return jsonify({"ticket_id": ticket.id, "already_linked": False}), 201
+
+
+@bp.route("/api/from-flow/identify-client", methods=["POST"])
+def api_identify_client_from_flow():
+	if not _internal_token_ok():
+		return jsonify({"error": "unauthorized"}), 401
+	data = request.get_json(silent=True) or {}
+	engine_contact_id = data.get("engine_contact_id")
+	contact_number = (data.get("contact_number") or "").strip() or None
+	cnpj = (data.get("cnpj") or data.get("document") or "").strip()
+
+	existing = _find_contact_client_link(engine_contact_id, contact_number)
+	if existing and not cnpj:
+		document = ""
+		try:
+			client = get_external_client_by_id(existing.external_client_id)
+			document = _only_digits((client or {}).get("document"))
+		except Exception:
+			document = ""
+		return jsonify({
+			"linked": True,
+			"already_linked": True,
+			"external_client_id": existing.external_client_id,
+			"external_client_name": existing.external_client_name,
+			"cnpj": document or None,
+		})
+
+	if not cnpj:
+		return jsonify({"linked": False, "already_linked": False})
+
+	client = _find_client_by_document(cnpj)
+	if not client or not client.get("id"):
+		return jsonify({
+			"linked": False,
+			"error": "CNPJ não encontrado no cadastro de clientes.",
+		}), 404
+
+	row = _upsert_contact_client_link(
+		engine_contact_id=engine_contact_id,
+		contact_number=contact_number,
+		external_client_id=int(client["id"]),
+		external_client_name=client.get("name") or "",
+	)
+	if not row:
+		return jsonify({"linked": False, "error": "Não foi possível vincular o contato."}), 400
+	return jsonify({
+		"linked": True,
+		"already_linked": bool(existing),
+		"external_client_id": row.external_client_id,
+		"external_client_name": row.external_client_name,
+		"cnpj": client.get("document") or _only_digits(cnpj),
+	})
 
 
 @bp.route("/api/<int:ticket_id>", methods=["PATCH"])

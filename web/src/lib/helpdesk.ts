@@ -94,6 +94,7 @@ export type HelpdeskConnection = {
   greetingMessage?: string;
   complationMessage?: string;
   outOfHoursMessage?: string;
+  flowIdWelcome?: number | null;
   queues?: HelpdeskQueue[];
 };
 
@@ -297,6 +298,7 @@ export type ConnectionPayload = {
   complationMessage?: string;
   outOfHoursMessage?: string;
   isDefault?: boolean;
+  flowIdWelcome?: number | null;
 };
 
 export type QueuePayload = {

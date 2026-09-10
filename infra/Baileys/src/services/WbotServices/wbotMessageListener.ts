@@ -122,6 +122,7 @@ import { AIProviderSelector } from "../AiServices/AIProviderSelector";
 
 import { IConnections, INodes } from "../WebhookService/DispatchWebHookService";
 import { ActionsWebhookService } from "../WebhookService/ActionsWebhookService";
+import { identifyComputicketClientFromFlow } from "../../helpers/createComputicketTicketFromFlow";
 import { WebhookModel } from "../../models/Webhook";
 
 import Whatsapp from "../../models/Whatsapp";
@@ -3792,6 +3793,7 @@ const handleMessage = async (
     let isMenu = false;
     let isOpenai = false;
     let isQuestion = false;
+    let isIdentify = false;
 
     if (flow) {
       isMenu =
@@ -3803,6 +3805,127 @@ const handleMessage = async (
       isQuestion =
         flow.flow["nodes"].find((node: any) => node.id === ticket.lastFlowId)
           ?.type === "question";
+      isIdentify =
+        flow.flow["nodes"].find((node: any) => node.id === ticket.lastFlowId)
+          ?.type === "identify";
+    }
+
+    if (!isNil(flow) && isIdentify && !isFromMe) {
+      const body = getBodyMessage(msg);
+      if (body) {
+        const nodes: INodes[] = flow.flow["nodes"];
+        const nodeSelected = flow.flow["nodes"].find(
+          (node: any) => node.id === ticket.lastFlowId
+        );
+        if (!nodeSelected) {
+          return;
+        }
+
+        const nodeData: any = nodeSelected.data || {};
+        const connections: IConnections[] = flow.flow["connections"];
+        const digits = String(body).replace(/\D/g, "");
+        const failMessage =
+          nodeData.failMessage ||
+          "Não encontrei esse CNPJ no cadastro. Confira e envie novamente.";
+
+        const sendIdentifyFail = async (text: string) => {
+          try {
+            await SendWhatsAppMessage({ body: text, ticket });
+          } catch (err) {
+            logger.warn({
+              msg: "identify: falha ao reenviar pergunta de CNPJ",
+              ticketId: ticket.id,
+              error: (err as Error)?.message || err
+            });
+          }
+        };
+
+        if (digits.length < 11) {
+          await sendIdentifyFail(failMessage);
+          return;
+        }
+
+        const identified = await identifyComputicketClientFromFlow({
+          engine_contact_id: ticket.contactId || contact.id,
+          contact_number: contact.number,
+          cnpj: digits
+        });
+
+        if (!identified.linked) {
+          await sendIdentifyFail(identified.error || failMessage);
+          return;
+        }
+
+        const { answerKey } = nodeData.typebotIntegration || {};
+        const oldDataWebhook = ticket.dataWebhook || {};
+        const key = String(answerKey || "cnpj").trim() || "cnpj";
+        const companyName = identified.external_client_name || "";
+        const nextConn = connections.find(
+          (c: any) => c.source === nodeSelected.id
+        );
+        const nodeIndex = nodes.findIndex(node => node.id === nodeSelected.id);
+        const lastFlowId =
+          nextConn?.target || nodes[nodeIndex + 1]?.id || nodeSelected.id;
+
+        await ticket.update({
+          lastFlowId: lastFlowId,
+          dataWebhook: {
+            ...oldDataWebhook,
+            variables: {
+              ...(oldDataWebhook.variables || {}),
+              [key]: identified.cnpj || digits,
+              cnpj: identified.cnpj || digits,
+              empresa: companyName,
+              cliente: companyName,
+              ...(identified.external_client_id
+                ? { external_client_id: String(identified.external_client_id) }
+                : {})
+            }
+          }
+        });
+        await ticket.save();
+
+        const confirm = String(nodeData.confirmationMessage || "").trim();
+        if (confirm) {
+          const confirmBody = confirm
+            .replace(/{{\s*empresa\s*}}/gi, companyName)
+            .replace(/{{\s*cliente\s*}}/gi, companyName)
+            .replace(/{{\s*cnpj\s*}}/gi, identified.cnpj || digits);
+          try {
+            await SendWhatsAppMessage({ body: confirmBody, ticket });
+          } catch (err) {
+            logger.warn({
+              msg: "identify: falha ao enviar confirmação",
+              ticketId: ticket.id,
+              error: (err as Error)?.message || err
+            });
+          }
+        }
+
+        const mountDataContact = {
+          number: contact.number,
+          name: contact.name,
+          email: contact.email
+        };
+
+        await ActionsWebhookService(
+          whatsapp.id,
+          parseInt(ticket.flowStopped),
+          ticket.companyId,
+          nodes,
+          connections,
+          lastFlowId,
+          null,
+          "",
+          "",
+          "",
+          ticket.id,
+          mountDataContact,
+          msg
+        );
+      }
+
+      return;
     }
 
     if (!isNil(flow) && isQuestion && !isFromMe) {
@@ -3816,20 +3939,28 @@ const handleMessage = async (
         const nodeSelected = flow.flow["nodes"].find(
           (node: any) => node.id === ticket.lastFlowId
         );
+        if (!nodeSelected) {
+          return;
+        }
 
         const connections: IConnections[] = flow.flow["connections"];
 
-        const { message, answerKey } = nodeSelected.data.typebotIntegration;
-        const oldDataWebhook = ticket.dataWebhook;
-
+        const { answerKey } = nodeSelected.data.typebotIntegration || {};
+        const oldDataWebhook = ticket.dataWebhook || {};
+        const key = String(answerKey || "resposta").trim() || "resposta";
+        const nextConn = connections.find(
+          (c: any) => c.source === nodeSelected.id
+        );
         const nodeIndex = nodes.findIndex(node => node.id === nodeSelected.id);
-
-        const lastFlowId = nodes[nodeIndex + 1].id;
+        const lastFlowId =
+          nextConn?.target || nodes[nodeIndex + 1]?.id || nodeSelected.id;
         await ticket.update({
           lastFlowId: lastFlowId,
           dataWebhook: {
+            ...oldDataWebhook,
             variables: {
-              [answerKey]: body
+              ...(oldDataWebhook.variables || {}),
+              [key]: body
             }
           }
         });

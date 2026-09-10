@@ -11,7 +11,8 @@ import { encodeChatShare, type ChatSharePayload } from "@/lib/chat-share";
 import { cn } from "@/lib/cn";
 
 export type ShareToChatTarget = {
-  payload: ChatSharePayload;
+  payload?: ChatSharePayload;
+  text?: string;
   mediaUrl?: string | null;
   mediaName?: string | null;
 };
@@ -24,14 +25,24 @@ async function fileFromUrl(url: string, name: string) {
   return new File([blob], fileName, { type: blob.type || "application/octet-stream" });
 }
 
+function shareMessage(target: ShareToChatTarget, note: string) {
+  if (target.payload) return encodeChatShare(target.payload, note);
+  const extra = note.trim();
+  const body = (target.text || "").trim();
+  if (body && extra) return `${body}\n\n${extra}`;
+  return body || extra;
+}
+
 export function ShareToChatDialog({
   open,
   onClose,
   target,
+  excludeChatId,
 }: {
   open: boolean;
   onClose: () => void;
   target: ShareToChatTarget | null;
+  excludeChatId?: number | null;
 }) {
   const [query, setQuery] = useState("");
   const [chatId, setChatId] = useState<number | null>(null);
@@ -45,16 +56,16 @@ export function ShareToChatDialog({
   });
 
   const items = useMemo(() => {
-    const records = chats.data?.records || [];
+    const records = (chats.data?.records || []).filter((chat) => chat.id !== excludeChatId);
     const q = query.trim().toLowerCase();
     if (!q) return records;
     return records.filter((chat) => chatDisplayName(chat).toLowerCase().includes(q));
-  }, [chats.data?.records, query]);
+  }, [chats.data?.records, query, excludeChatId]);
 
   const send = useMutation({
     mutationFn: async () => {
       if (!target || !chatId) throw new Error("Escolha uma conversa.");
-      const message = encodeChatShare(target.payload, note);
+      const message = shareMessage(target, note);
       const mediaUrl = target.mediaUrl?.trim();
       if (mediaUrl) {
         const file = await fileFromUrl(mediaUrl, target.mediaName || "midia");
@@ -80,7 +91,13 @@ export function ShareToChatDialog({
   return (
     <Modal open={open} onClose={onClose} title="Encaminhar no chat interno">
       <div className="space-y-4">
-        {target ? <SharedEntityCard payload={target.payload} compact /> : null}
+        {target?.payload ? (
+          <SharedEntityCard payload={target.payload} compact />
+        ) : target?.text || target?.mediaName ? (
+          <p className="rounded-xl border border-line bg-wash px-3 py-2 text-sm text-ink">
+            {(target.text || target.mediaName || "Mensagem").slice(0, 180)}
+          </p>
+        ) : null}
         <label className="block">
           <span className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted">Buscar conversa</span>
           <input
@@ -115,7 +132,12 @@ export function ShareToChatDialog({
         {error ? <p className="text-sm text-open">{error}</p> : null}
         <PrimaryButton
           type="button"
-          disabled={send.isPending || !target || !chatId}
+          disabled={
+            send.isPending ||
+            !chatId ||
+            !target ||
+            (!target.payload && !target.text?.trim() && !target.mediaUrl)
+          }
           onClick={() => send.mutate()}
         >
           {send.isPending ? "Enviando…" : "Encaminhar"}

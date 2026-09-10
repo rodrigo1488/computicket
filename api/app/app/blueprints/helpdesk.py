@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import mimetypes
 import os
 import random
@@ -755,6 +756,23 @@ def _whatsapp_body(payload: dict, queues: list[dict], *, name: str | None = None
         body["name"] = name
     elif payload.get("name"):
         body["name"] = str(payload.get("name")).strip()
+    if "flowIdWelcome" in payload:
+        try:
+            flow_id = int(payload.get("flowIdWelcome") or 0)
+        except (TypeError, ValueError):
+            flow_id = 0
+        body["flowIdWelcome"] = flow_id if flow_id > 0 else None
+        if flow_id > 0:
+            integ = _integration_id_for_flow(flow_id)
+            if integ:
+                body["integrationId"] = integ
+        elif payload.get("integrationId") in (None, "", 0):
+            body["integrationId"] = None
+    if "integrationId" in payload and "integrationId" not in body:
+        try:
+            body["integrationId"] = int(payload.get("integrationId") or 0) or None
+        except (TypeError, ValueError):
+            body["integrationId"] = None
     return body
 
 
@@ -1772,7 +1790,7 @@ def update_connection(whatsapp_id: int):
         if "queueIds" not in payload:
             payload = dict(payload)
             payload["queueIds"] = [q.get("id") for q in (current.get("queues") or []) if q.get("id") is not None]
-        for field in ("greetingMessage", "complationMessage", "outOfHoursMessage", "isDefault"):
+        for field in ("greetingMessage", "complationMessage", "outOfHoursMessage", "isDefault", "flowIdWelcome", "integrationId"):
             if field not in payload and current.get(field) is not None:
                 payload[field] = current.get(field)
         data = admin_request("PUT", f"/whatsapp/{whatsapp_id}", json=_whatsapp_body(payload, queues, name=name))
@@ -2309,3 +2327,162 @@ def proxy_media(filename: str):
         return jsonify({"error": f"Falha ao obter mídia ({res.status_code})"}), 502
     mime = _media_mime(safe, res.headers.get("Content-Type"))
     return Response(res.content, mimetype=mime)
+
+
+def _unwrap_flow(data):
+    if not data:
+        return None
+    if isinstance(data, dict) and data.get("flow") and isinstance(data.get("flow"), dict) and data.get("flow").get("id"):
+        return data.get("flow")
+    if isinstance(data, dict) and data.get("id") and "name" in data:
+        return data
+    return data
+
+
+def _integration_id_for_flow(flow_id: int) -> int | None:
+    try:
+        page = 1
+        while page <= 5:
+            data = admin_request(
+                "GET",
+                "/queueIntegration",
+                params={"pageNumber": str(page), "searchParam": "FlowBuilder"},
+            ) or {}
+            items = data.get("queueIntegrations") if isinstance(data, dict) else data
+            if not items:
+                break
+            for item in items:
+                if (item.get("type") or "").lower() != "flowbuilder":
+                    continue
+                raw = item.get("jsonContent") or "{}"
+                try:
+                    parsed = json.loads(raw) if isinstance(raw, str) else (raw or {})
+                except Exception:
+                    parsed = {}
+                if int(parsed.get("flowId") or 0) == int(flow_id):
+                    return item.get("id")
+            if not data.get("hasMore"):
+                break
+            page += 1
+    except EngineError:
+        return None
+    return None
+
+
+@helpdesk_bp.route("/api/flows")
+@login_required
+def list_flows():
+    denied = _require_admin()
+    if denied:
+        return denied
+    try:
+        data = admin_request("GET", "/flowbuilder") or {}
+        flows = data.get("flows") if isinstance(data, dict) else data
+        return jsonify({"flows": flows or []})
+    except EngineError as exc:
+        return _fail(exc)
+
+
+@helpdesk_bp.route("/api/flows", methods=["POST"])
+@login_required
+def create_flow():
+    denied = _require_admin()
+    if denied:
+        return denied
+    payload = request.get_json(silent=True) or {}
+    name = (payload.get("name") or "").strip()
+    if not name:
+        return jsonify({"error": "Nome do fluxo é obrigatório."}), 400
+    try:
+        data = admin_request("POST", "/flowbuilder", json={"name": name})
+        if data == "exist" or (isinstance(data, str) and data == "exist"):
+            return jsonify({"error": "Já existe um fluxo com esse nome."}), 409
+        flow = _unwrap_flow(data)
+        return jsonify(flow), 201
+    except EngineError as exc:
+        if exc.status_code == 402:
+            return jsonify({"error": "Já existe um fluxo com esse nome."}), 409
+        return _fail(exc)
+
+
+@helpdesk_bp.route("/api/flows/<int:flow_id>")
+@login_required
+def get_flow(flow_id: int):
+    denied = _require_admin()
+    if denied:
+        return denied
+    try:
+        data = admin_request("GET", f"/flowbuilder/flow/{flow_id}")
+        flow = _unwrap_flow(data)
+        if not flow:
+            return jsonify({"error": "Fluxo não encontrado."}), 404
+        return jsonify(flow)
+    except EngineError as exc:
+        return _fail(exc)
+
+
+@helpdesk_bp.route("/api/flows/<int:flow_id>", methods=["PUT"])
+@login_required
+def rename_flow(flow_id: int):
+    denied = _require_admin()
+    if denied:
+        return denied
+    payload = request.get_json(silent=True) or {}
+    name = (payload.get("name") or "").strip()
+    if not name:
+        return jsonify({"error": "Nome do fluxo é obrigatório."}), 400
+    try:
+        data = admin_request("PUT", "/flowbuilder", json={"flowId": flow_id, "name": name})
+        if data == "exist":
+            return jsonify({"error": "Já existe um fluxo com esse nome."}), 409
+        return jsonify(_unwrap_flow(data) or {"id": flow_id, "name": name})
+    except EngineError as exc:
+        if exc.status_code == 402:
+            return jsonify({"error": "Já existe um fluxo com esse nome."}), 409
+        return _fail(exc)
+
+
+@helpdesk_bp.route("/api/flows/<int:flow_id>", methods=["DELETE"])
+@login_required
+def delete_flow(flow_id: int):
+    denied = _require_admin()
+    if denied:
+        return denied
+    try:
+        data = admin_request("DELETE", f"/flowbuilder/{flow_id}")
+        return jsonify(data or {"ok": True})
+    except EngineError as exc:
+        return _fail(exc)
+
+
+@helpdesk_bp.route("/api/flows/<int:flow_id>/canvas", methods=["PUT"])
+@login_required
+def save_flow_canvas(flow_id: int):
+    denied = _require_admin()
+    if denied:
+        return denied
+    payload = request.get_json(silent=True) or {}
+    nodes = payload.get("nodes") or []
+    connections = payload.get("connections") or payload.get("edges") or []
+    try:
+        data = admin_request(
+            "POST",
+            "/flowbuilder/flow",
+            json={"idFlow": flow_id, "nodes": nodes, "connections": connections},
+        )
+        return jsonify({"ok": True, "result": data})
+    except EngineError as exc:
+        return _fail(exc)
+
+
+@helpdesk_bp.route("/api/flows/<int:flow_id>/duplicate", methods=["POST"])
+@login_required
+def duplicate_flow(flow_id: int):
+    denied = _require_admin()
+    if denied:
+        return denied
+    try:
+        data = admin_request("POST", "/flowbuilder/duplicate", json={"flowId": flow_id})
+        return jsonify(_unwrap_flow(data) or data), 201
+    except EngineError as exc:
+        return _fail(exc)

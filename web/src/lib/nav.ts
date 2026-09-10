@@ -22,6 +22,7 @@ import {
   Ticket,
   Monitor,
   Columns3,
+  Workflow,
 } from "lucide-react";
 
 export type NavItem = {
@@ -35,6 +36,7 @@ export type NavItem = {
 export const NAV_ITEMS: NavItem[] = [
   { href: "/dashboard", label: "Dashboard", icon: BarChart3 },
   { href: "/helpdesk", label: "Help Desk", icon: Headset },
+  { href: "/automacao", label: "Automação", icon: Workflow, adminOnly: true },
   { href: "/chat", label: "Chat", icon: MessageCircle },
   { href: "/tickets", label: "Tickets", icon: Ticket },
   { href: "/agenda", label: "Agenda", icon: CalendarDays },
