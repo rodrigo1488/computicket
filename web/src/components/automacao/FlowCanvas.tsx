@@ -86,13 +86,16 @@ function toRfEdges(raw: FlowCanvasConnection[]): Edge[] {
   }));
 }
 
-function serialize(nodes: Node<FlowNodeData>[], edges: Edge[]) {
+function serialize(nodes: Node<FlowNodeData>[], edges: Edge[]): {
+  nodes: FlowCanvasNode[];
+  connections: FlowCanvasConnection[];
+} {
   const start = nodes.filter((n) => n.type === "start");
   const rest = nodes.filter((n) => n.type !== "start");
   return {
     nodes: [...start, ...rest].map((n) => ({
       id: n.id,
-      type: n.type,
+      type: n.type || "message",
       position: n.position,
       data: n.data,
     })),

@@ -13,7 +13,6 @@ import {
   Share2,
   Trash2,
   Users,
-  X,
 } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -194,7 +193,7 @@ export function InternalChatWorkspace() {
 
   const engineDown = health.isFetched && !health.data?.ok;
   const engineUserId = session.data?.engineUserId ?? list.data?.engineUserId ?? health.data?.engineUserId ?? null;
-  const chats = list.data?.records || [];
+  const chats = useMemo(() => list.data?.records || [], [list.data?.records]);
   const current = chats.find((c) => c.id === activeId) || null;
 
   useEffect(() => {
