@@ -1,12 +1,13 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Ban, Hand, Play, Plus, RotateCcw, Square } from "lucide-react";
+import { Ban, Hand, Play, Plus, RotateCcw, Share2, Square } from "lucide-react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
 import { PageTitle } from "@/components/layout/AppShell";
 import { TicketCreateDialog } from "@/components/tickets/TicketCreateDialog";
+import { ShareToChatDialog, type ShareToChatTarget } from "@/components/chat/ShareToChatDialog";
 import { CancelTicketDialog } from "@/components/tickets/CancelTicketDialog";
 import { ReopenTicketDialog } from "@/components/tickets/ReopenTicketDialog";
 import { DataTable } from "@/components/ui/DataTable";
@@ -69,6 +70,7 @@ function TicketsPageInner() {
   const [cancelReason, setCancelReason] = useState("");
   const [reopenTarget, setReopenTarget] = useState<TicketRow | null>(null);
   const [reopenReason, setReopenReason] = useState("");
+  const [shareTarget, setShareTarget] = useState<ShareToChatTarget | null>(null);
   const { colQuery, colFilters, onFiltersChange } = useColFilters();
 
   useEffect(() => setPage(1), [status, assigned, q, dateFrom, dateTo, dateBy, colFilters]);
@@ -289,6 +291,22 @@ function TicketsPageInner() {
             t.created_at || "—",
             <RowActions key={`a-${t.id}`}>
               <ViewAction href={`/tickets/${t.id}`} />
+              <IconAction
+                label="Encaminhar no chat"
+                icon={Share2}
+                onClick={() =>
+                  setShareTarget({
+                    payload: {
+                      kind: "ticket",
+                      id: t.id,
+                      title: `#${t.id} ${t.title}`,
+                      subtitle: t.client_name || undefined,
+                      status: t.status,
+                      url: `/tickets/${t.id}`,
+                    },
+                  })
+                }
+              />
               {!closed && mine && t.status === "aberto" ? (
                 <IconAction
                   label="Iniciar"
@@ -376,6 +394,7 @@ function TicketsPageInner() {
           reopenTicket.mutate({ id: reopenTarget.id, reason: reopenReason.trim() });
         }}
       />
+      <ShareToChatDialog open={!!shareTarget} onClose={() => setShareTarget(null)} target={shareTarget} />
     </div>
   );
 }

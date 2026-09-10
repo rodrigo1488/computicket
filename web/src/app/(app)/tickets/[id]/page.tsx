@@ -1,7 +1,7 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Ban, Check, Clock, Hand, MessageCircle, Plus, Printer, RotateCcw, Trash2 } from "lucide-react";
+import { Ban, Check, Clock, Hand, MessageCircle, Plus, Printer, RotateCcw, Share2, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useState } from "react";
@@ -10,6 +10,7 @@ import { CancelTicketDialog } from "@/components/tickets/CancelTicketDialog";
 import { CloseTicketDialog } from "@/components/tickets/CloseTicketDialog";
 import { ReopenTicketDialog } from "@/components/tickets/ReopenTicketDialog";
 import { TimeEntryDialog } from "@/components/tickets/TimeEntryDialog";
+import { ShareToChatDialog, type ShareToChatTarget } from "@/components/chat/ShareToChatDialog";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { UserAvatar } from "@/components/ui/UserAvatar";
 import { flask } from "@/lib/api";
@@ -31,6 +32,7 @@ export default function TicketDetailPage() {
   const [reopenReason, setReopenReason] = useState("");
   const [err, setErr] = useState("");
   const [printing, setPrinting] = useState(false);
+  const [shareTarget, setShareTarget] = useState<ShareToChatTarget | null>(null);
 
   const { data, isLoading } = useQuery({
     queryKey: ["ticket", id],
@@ -224,6 +226,25 @@ export default function TicketDetailPage() {
               {printing ? "Gerando PS…" : "Imprimir PS"}
             </button>
           ) : null}
+          <button
+            type="button"
+            onClick={() =>
+              setShareTarget({
+                payload: {
+                  kind: "ticket",
+                  id: data.id,
+                  title: `#${data.id} ${data.title}`,
+                  subtitle: data.client_name || undefined,
+                  status: data.status,
+                  url: `/tickets/${data.id}`,
+                },
+              })
+            }
+            className="inline-flex items-center gap-2 rounded-xl border border-line bg-surface px-4 py-2.5 text-sm font-medium text-ink"
+          >
+            <Share2 className="h-4 w-4" />
+            Encaminhar no chat
+          </button>
         </div>
       </div>
       {err ? <p className="mb-4 text-sm text-open">{err}</p> : null}
@@ -435,6 +456,7 @@ export default function TicketDetailPage() {
         onClose={() => setReopenOpen(false)}
         onConfirm={() => reopenTicket.mutate(reopenReason.trim())}
       />
+      <ShareToChatDialog open={!!shareTarget} onClose={() => setShareTarget(null)} target={shareTarget} />
     </div>
   );
 }

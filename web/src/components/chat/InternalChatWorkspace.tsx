@@ -17,11 +17,13 @@ import {
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ComposerContextBanner, MessageActions } from "@/components/chat/MessageActions";
+import { SharedEntityCard } from "@/components/chat/SharedEntityCard";
 import { ComposerAttachZone, ComposerFilePreview } from "@/components/ui/ComposerAttachZone";
 import { MediaViewer, type MediaViewerItem } from "@/components/media/MediaViewer";
 import { Modal } from "@/components/ui/Modal";
 import { UserAvatar } from "@/components/ui/UserAvatar";
 import { cn } from "@/lib/cn";
+import { parseChatShare, chatSharePreview } from "@/lib/chat-share";
 import {
   engineSocketOptions,
   helpdesk,
@@ -92,7 +94,7 @@ function snippet(text?: string | null) {
 }
 
 function lastMessagePreview(chat: InternalChat) {
-  return snippet(chat.lastMessage) || "Nenhuma mensagem ainda";
+  return snippet(chatSharePreview(chat.lastMessage)) || "Nenhuma mensagem ainda";
 }
 
 function senderLabel(message: InternalChatMessage, chat: InternalChat | null) {
@@ -744,11 +746,13 @@ export function InternalChatWorkspace() {
                       const src = publicInternalMediaUrl(m.mediaUrl || m.mediaPath);
                       const kind = mediaKind(src, m.mediaName);
                       const canAct = !m.isDeleted;
+                      const shared = m.isDeleted ? null : parseChatShare(m.message);
                       return (
                         <div key={m.id} className={cn("mb-2 flex", mine ? "justify-end" : "justify-start")}>
                           <div
                             className={cn(
-                              "group/msg relative max-w-[75%] rounded-lg px-3 py-1.5 text-sm shadow-sm",
+                              "group/msg relative max-w-[75%] rounded-lg text-sm shadow-sm",
+                              shared ? "px-1.5 py-1.5" : "px-3 py-1.5",
                               mine ? "bg-brand text-white" : "bg-surface text-ink",
                             )}
                           >
@@ -792,7 +796,7 @@ export function InternalChatWorkspace() {
                                   )}>
                                     {m.quotedMsg.isDeleted
                                       ? "Mensagem apagada"
-                                      : (m.quotedMsg.message || m.quotedMsg.mediaName || "Mensagem").slice(0, 90)}
+                                      : chatSharePreview(m.quotedMsg.message || m.quotedMsg.mediaName || "Mensagem").slice(0, 90)}
                                   </p>
                                 ) : null}
                                 {src && kind === "image" ? (
@@ -836,7 +840,13 @@ export function InternalChatWorkspace() {
                                     {m.mediaName || "Arquivo"}
                                   </a>
                                 ) : null}
-                                {m.message ? <p className="whitespace-pre-wrap break-words">{m.message}</p> : null}
+                                {shared ? (
+                                  <div className="mb-1">
+                                    <SharedEntityCard payload={shared.payload} note={shared.note} />
+                                  </div>
+                                ) : m.message ? (
+                                  <p className="whitespace-pre-wrap break-words">{m.message}</p>
+                                ) : null}
                               </>
                             )}
                             <p className={cn("mt-1 text-right text-[10px]", mine ? "text-white/70" : "text-muted")}>

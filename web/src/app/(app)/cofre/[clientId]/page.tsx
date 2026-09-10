@@ -1,14 +1,15 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Copy, Eye, EyeOff, Plus } from "lucide-react";
+import { Copy, Eye, EyeOff, Plus, Share2 } from "lucide-react";
 import { Suspense, useEffect, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { PageTitle } from "@/components/layout/AppShell";
 import { DataTable } from "@/components/ui/DataTable";
 import { Modal } from "@/components/ui/Modal";
 import { Pagination } from "@/components/ui/Pagination";
-import { DeleteAction, EditAction, RowActions, ViewAction } from "@/components/ui/RowActions";
+import { ShareToChatDialog, type ShareToChatTarget } from "@/components/chat/ShareToChatDialog";
+import { DeleteAction, EditAction, IconAction, RowActions, ViewAction } from "@/components/ui/RowActions";
 import { PrimaryButton, UnderlineField } from "@/components/ui/UnderlineField";
 import { flask, type PageRes } from "@/lib/api";
 import { useColFilters } from "@/lib/use-col-filters";
@@ -61,6 +62,7 @@ function CofreClienteInner() {
   const [copied, setCopied] = useState(false);
   const [form, setForm] = useState(emptyForm);
   const [formError, setFormError] = useState("");
+  const [shareTarget, setShareTarget] = useState<ShareToChatTarget | null>(null);
   const { colQuery, colFilters, onFiltersChange } = useColFilters();
 
   useEffect(() => setPage(1), [q, colFilters]);
@@ -187,6 +189,21 @@ function CofreClienteInner() {
                 openReveal(i).catch((e) => window.alert(e instanceof Error ? e.message : "Erro ao revelar senha"));
               }}
             />
+            <IconAction
+              label="Encaminhar no chat"
+              icon={Share2}
+              onClick={() =>
+                setShareTarget({
+                  payload: {
+                    kind: "vault",
+                    id: i.id,
+                    title: i.machine_name,
+                    subtitle: client?.name,
+                    url: `/cofre/${clientId}${isExternal ? "?external=1" : ""}`,
+                  },
+                })
+              }
+            />
             <EditAction
               onClick={() => {
                 setForm({
@@ -287,6 +304,7 @@ function CofreClienteInner() {
           </div>
         ) : null}
       </Modal>
+      <ShareToChatDialog open={!!shareTarget} target={shareTarget} onClose={() => setShareTarget(null)} />
     </div>
   );
 }

@@ -41,6 +41,7 @@ import { CloseTicketDialog } from "@/components/tickets/CloseTicketDialog";
 import { TicketCreateDialog } from "@/components/tickets/TicketCreateDialog";
 import { TimeEntryDialog } from "@/components/tickets/TimeEntryDialog";
 import { ComposerContextBanner, MessageActions } from "@/components/chat/MessageActions";
+import { ShareToChatDialog, type ShareToChatTarget } from "@/components/chat/ShareToChatDialog";
 import { WhatsAppFormattedText } from "@/components/helpdesk/WhatsAppFormattedText";
 import { ContactShareCard } from "@/components/helpdesk/ContactShareCard";
 import { MediaViewer, type MediaViewerItem } from "@/components/media/MediaViewer";
@@ -845,6 +846,7 @@ export function HelpdeskWorkspace() {
   const [ticketDefaults, setTicketDefaults] = useState<HelpdeskAiTicketDraft | null>(null);
   const [historyViewId, setHistoryViewId] = useState<number | null>(null);
   const [mediaViewer, setMediaViewer] = useState<MediaViewerItem | null>(null);
+  const [shareTarget, setShareTarget] = useState<ShareToChatTarget | null>(null);
   const [expandedPhoneKeys, setExpandedPhoneKeys] = useState<Set<string>>(() => new Set());
   const [sign, setSign] = useState(() => {
     if (typeof window === "undefined") return true;
@@ -2403,6 +2405,7 @@ export function HelpdeskWorkspace() {
                       const audio = !!(m.mediaUrl && mediaKind(m.mediaType, m.mediaUrl) === "audio");
                       const persisted = !isTempMessageId(m.id);
                       const canAct = canReply && persisted && !m.isDeleted;
+                      const canForward = persisted && !m.isDeleted && !!current;
                       return (
                         <div key={`${m.id}-${idx}`} className={cn("mb-2 flex", system ? "justify-center" : mine ? "justify-end" : "justify-start")}>
                           <div
@@ -2417,17 +2420,34 @@ export function HelpdeskWorkspace() {
                                   : "rounded-tl-none bg-bubble-in text-ink",
                             )}
                           >
-                            {canAct ? (
+                            {canAct || canForward ? (
                               <MessageActions
                                 align={mine || system ? "start" : "end"}
-                                canReply
+                                canReply={canAct}
+                                canForward={canForward}
                                 canEdit={
+                                  canAct &&
                                   !!m.fromMe &&
                                   !isMediaMessage(m) &&
                                   !isContactShareMessage(m.mediaType, m.body)
                                 }
-                                canDelete={!!m.fromMe}
+                                canDelete={canAct && !!m.fromMe}
                                 onReply={() => startReply(m)}
+                                onForward={() => {
+                                  if (!current) return;
+                                  const excerpt = snippet(m.body);
+                                  setShareTarget({
+                                    payload: {
+                                      kind: "helpdesk",
+                                      id: current.id,
+                                      title: contactName(current),
+                                      subtitle: excerpt || undefined,
+                                      url: `/helpdesk?c=${current.id}`,
+                                    },
+                                    mediaUrl: publicMediaUrl(m.mediaUrl),
+                                    mediaName: m.mediaUrl?.split("/").pop()?.split("?")[0] || "midia",
+                                  });
+                                }}
                                 onEdit={() => startEdit(m)}
                                 onDelete={() => confirmDeleteMessage(m)}
                               />
@@ -2822,6 +2842,8 @@ export function HelpdeskWorkspace() {
           onSubmit={(payload) => createSchedule.mutate(payload)}
         />
       ) : null}
+
+      <ShareToChatDialog open={!!shareTarget} target={shareTarget} onClose={() => setShareTarget(null)} />
 
       <NewConversationDialog
         open={newConversationOpen}

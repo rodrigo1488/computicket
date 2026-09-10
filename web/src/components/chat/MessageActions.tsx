@@ -1,28 +1,32 @@
 "use client";
 
-import { Pencil, Reply, Trash2 } from "lucide-react";
+import { Forward, Pencil, Reply, Trash2 } from "lucide-react";
 import { cn } from "@/lib/cn";
 
 export function MessageActions({
   align = "end",
   tone = "default",
   canReply,
+  canForward,
   canEdit,
   canDelete,
   onReply,
+  onForward,
   onEdit,
   onDelete,
 }: {
   align?: "start" | "end";
   tone?: "default" | "onBrand";
   canReply?: boolean;
+  canForward?: boolean;
   canEdit?: boolean;
   canDelete?: boolean;
   onReply?: () => void;
+  onForward?: () => void;
   onEdit?: () => void;
   onDelete?: () => void;
 }) {
-  if (!canReply && !canEdit && !canDelete) return null;
+  if (!canReply && !canForward && !canEdit && !canDelete) return null;
   const btn =
     tone === "onBrand"
       ? "text-white/80 hover:bg-white/15 hover:text-white"
@@ -38,6 +42,11 @@ export function MessageActions({
       {canReply ? (
         <button type="button" className={cn("rounded p-1", btn)} title="Responder" onClick={onReply}>
           <Reply className="h-3.5 w-3.5" />
+        </button>
+      ) : null}
+      {canForward ? (
+        <button type="button" className={cn("rounded p-1", btn)} title="Encaminhar no chat interno" onClick={onForward}>
+          <Forward className="h-3.5 w-3.5" />
         </button>
       ) : null}
       {canEdit ? (

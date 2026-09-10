@@ -1,14 +1,15 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Download, Plus, Trash2 } from "lucide-react";
+import { Download, Plus, Share2, Trash2 } from "lucide-react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { PageTitle } from "@/components/layout/AppShell";
 import { DataTable } from "@/components/ui/DataTable";
 import { Modal } from "@/components/ui/Modal";
 import { Pagination } from "@/components/ui/Pagination";
-import { DeleteAction, EditAction, RowActions, ViewAction } from "@/components/ui/RowActions";
+import { DeleteAction, EditAction, IconAction, RowActions, ViewAction } from "@/components/ui/RowActions";
+import { ShareToChatDialog, type ShareToChatTarget } from "@/components/chat/ShareToChatDialog";
 import { PrimaryButton, UnderlineField } from "@/components/ui/UnderlineField";
 import { flask } from "@/lib/api";
 import { knowledgeIcon } from "@/lib/knowledge-icons";
@@ -81,6 +82,7 @@ export default function ConhecimentoCategoriaPage() {
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
   const [editAttachments, setEditAttachments] = useState<Attachment[]>([]);
   const [downloadingId, setDownloadingId] = useState<number | null>(null);
+  const [shareTarget, setShareTarget] = useState<ShareToChatTarget | null>(null);
   const { colQuery, colFilters, onFiltersChange } = useColFilters();
 
   useEffect(() => setPage(1), [q, colFilters]);
@@ -236,6 +238,21 @@ export default function ConhecimentoCategoriaPage() {
           String(a.views_count ?? 0),
           <RowActions key={a.id}>
             <ViewAction onClick={() => openView(a)} />
+            <IconAction
+              label="Encaminhar no chat"
+              icon={Share2}
+              onClick={() =>
+                setShareTarget({
+                  payload: {
+                    kind: "knowledge",
+                    id: a.id,
+                    title: a.title,
+                    subtitle: a.category || cat?.name,
+                    url: `/conhecimento/${a.category_id || categoryId}?artigo=${a.id}`,
+                  },
+                })
+              }
+            />
             <EditAction
               onClick={async () => {
                 const full = await flask.get<Art>(`/api/web/knowledge/articles/${a.id}`);
@@ -274,6 +291,25 @@ export default function ConhecimentoCategoriaPage() {
         </p>
         {view?.summary ? <p className="mt-2 text-sm italic text-muted">{view.summary}</p> : null}
         <p className="mt-3 whitespace-pre-wrap text-sm text-ink">{view?.content || "—"}</p>
+        <button
+          type="button"
+          onClick={() =>
+            view &&
+            setShareTarget({
+              payload: {
+                kind: "knowledge",
+                id: view.id,
+                title: view.title,
+                subtitle: view.category || cat?.name,
+                url: `/conhecimento/${view.category_id || categoryId}?artigo=${view.id}`,
+              },
+            })
+          }
+          className="mt-4 inline-flex items-center gap-2 rounded-xl border border-line bg-wash px-3 py-2 text-sm font-medium text-ink"
+        >
+          <Share2 className="h-4 w-4" />
+          Encaminhar no chat
+        </button>
         {(view?.attachments || []).length > 0 ? (
           <div className="mt-5">
             <p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-muted">Anexos</p>
@@ -411,6 +447,7 @@ export default function ConhecimentoCategoriaPage() {
           </PrimaryButton>
         </form>
       </Modal>
+      <ShareToChatDialog open={!!shareTarget} target={shareTarget} onClose={() => setShareTarget(null)} />
     </div>
   );
 }
