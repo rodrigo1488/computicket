@@ -3857,7 +3857,7 @@ const handleMessage = async (
         }
 
         const { answerKey } = nodeData.typebotIntegration || {};
-        const oldDataWebhook = ticket.dataWebhook || {};
+        const oldDataWebhook: any = ticket.dataWebhook || {};
         const key = String(answerKey || "cnpj").trim() || "cnpj";
         const companyName = identified.external_client_name || "";
         const nextConn = connections.find(
@@ -3946,7 +3946,7 @@ const handleMessage = async (
         const connections: IConnections[] = flow.flow["connections"];
 
         const { answerKey } = nodeSelected.data.typebotIntegration || {};
-        const oldDataWebhook = ticket.dataWebhook || {};
+        const oldDataWebhook: any = ticket.dataWebhook || {};
         const key = String(answerKey || "resposta").trim() || "resposta";
         const nextConn = connections.find(
           (c: any) => c.source === nodeSelected.id

@@ -410,6 +410,7 @@ export const ActionsWebhookService = async (
         const mapping = nodeSelected.data?.mapping || {};
         const interpolate = (value: any) =>
           replaceMessages(ticket?.dataWebhook, String(value ?? ""), extras);
+        const webhookVars: any = (ticket?.dataWebhook as any) || {};
         const title = interpolate(mapping.title || nodeSelected.data?.title || "");
         const description = interpolate(
           mapping.description || nodeSelected.data?.description || ""
@@ -452,11 +453,11 @@ export const ActionsWebhookService = async (
           external_client_id: mapping.external_client_id
             ? Number(mapping.external_client_id)
             : Number(
-                ticket.dataWebhook?.variables?.external_client_id ||
+                webhookVars.variables?.external_client_id ||
                   extras.external_client_id
               ) || null,
           external_client_name:
-            ticket.dataWebhook?.variables?.empresa ||
+            webhookVars.variables?.empresa ||
             extras.nome ||
             ticketDetails.contact?.name
         });
@@ -476,10 +477,11 @@ export const ActionsWebhookService = async (
           break;
         }
 
+        const webhook: any = ticket.dataWebhook || {};
         const nextVars = {
-          ...(ticket.dataWebhook || {}),
+          ...webhook,
           variables: {
-            ...((ticket.dataWebhook && ticket.dataWebhook.variables) || {}),
+            ...(webhook.variables || {}),
             ticket_id: String(created.ticket_id)
           }
         };
@@ -923,10 +925,11 @@ const mergeIdentifyVariables = (ticket: Ticket, result: {
 }) => {
   const name = result.external_client_name || "";
   const cnpj = String(result.cnpj || "").replace(/\D/g, "");
+  const webhook: any = ticket.dataWebhook || {};
   return {
-    ...(ticket.dataWebhook || {}),
+    ...webhook,
     variables: {
-      ...((ticket.dataWebhook && ticket.dataWebhook.variables) || {}),
+      ...(webhook.variables || {}),
       ...(cnpj ? { cnpj } : {}),
       empresa: name,
       cliente: name,
@@ -949,7 +952,7 @@ const contactExtras = (
   numberPhrase: "" | { number?: string; name?: string; email?: string },
   numberClient: string
 ): Record<string, string> => {
-  if (!numberPhrase || numberPhrase === "") {
+  if (typeof numberPhrase !== "object" || !numberPhrase) {
     return { numero: numberClient || "", number: numberClient || "" };
   }
   return {
