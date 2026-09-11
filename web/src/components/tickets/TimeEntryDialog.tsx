@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { Modal } from "@/components/ui/Modal";
 import { PrimaryButton, UnderlineField } from "@/components/ui/UnderlineField";
 import { flask } from "@/lib/api";
+import { TicketImagePicker } from "@/components/tickets/TicketImages";
 
 function pad(n: number) {
   return String(n).padStart(2, "0");
@@ -48,6 +49,7 @@ export function TimeEntryDialog({
   const [start, setStart] = useState("");
   const [end, setEnd] = useState("");
   const [comment, setComment] = useState("");
+  const [images, setImages] = useState<File[]>([]);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const [loadingTimes, setLoadingTimes] = useState(false);
@@ -62,6 +64,7 @@ export function TimeEntryDialog({
     setEnd(now);
     setStart(now);
     setComment(mode === "stop" ? "Encerrado pelo botão" : "");
+    setImages([]);
     setError("");
     setLoadingTimes(true);
 
@@ -109,18 +112,15 @@ export function TimeEntryDialog({
     }
     setSaving(true);
     try {
+      const body = new FormData();
+      body.append("start_time", start);
+      body.append("end_time", end);
+      body.append("comment", comment.trim() || (mode === "stop" ? "Encerrado pelo botão" : ""));
+      images.forEach((file) => body.append("images", file));
       if (mode === "stop") {
-        await flask.post(`/tickets/api/${ticketId}/stop`, {
-          comment: comment.trim() || "Encerrado pelo botão",
-          start_time: start,
-          end_time: end,
-        });
+        await flask.post(`/tickets/api/${ticketId}/stop`, body);
       } else {
-        await flask.post(`/tickets/${ticketId}/apontar`, {
-          start_time: start,
-          end_time: end,
-          comment: comment.trim(),
-        });
+        await flask.post(`/tickets/${ticketId}/apontar`, body);
       }
       onSaved();
       onClose();
@@ -146,6 +146,7 @@ export function TimeEntryDialog({
             className="mt-1 w-full border-0 border-b border-line bg-transparent py-2 text-[15px] text-ink"
           />
         </label>
+        <TicketImagePicker files={images} onChange={setImages} disabled={saving} />
         {loadingTimes ? <p className="text-xs text-muted">Carregando horários…</p> : null}
         {error ? <p className="text-sm text-open">{error}</p> : null}
         <PrimaryButton onClick={() => void save()} disabled={saving || loadingTimes}>

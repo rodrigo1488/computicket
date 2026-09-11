@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import { PrimaryButton, UnderlineField } from "@/components/ui/UnderlineField";
 import { flask, type PageRes, asItems } from "@/lib/api";
 import type { TicketDetail } from "@/lib/format";
+import { TicketImagePicker } from "@/components/tickets/TicketImages";
 
 type Client = { id: number; name: string };
 type Service = { id: number; name: string; hourly_rate: number };
@@ -52,6 +53,7 @@ export function TicketForm({
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const [contractMsg, setContractMsg] = useState("");
+  const [images, setImages] = useState<File[]>([]);
 
   const clients = useQuery({
     queryKey: ["clients", q],
@@ -151,9 +153,19 @@ export function TicketForm({
     try {
       if (ticket) {
         await flask.patch(`/tickets/api/${ticket.id}`, payload);
+        if (images.length) {
+          const data = new FormData();
+          images.forEach((file) => data.append("images", file));
+          await flask.post(`/tickets/api/${ticket.id}/attachments`, data);
+        }
         router.push(`/tickets/${ticket.id}`);
       } else {
         const created = await flask.post<TicketDetail>("/tickets/api", payload);
+        if (images.length && created?.id) {
+          const data = new FormData();
+          images.forEach((file) => data.append("images", file));
+          await flask.post(`/tickets/api/${created.id}/attachments`, data);
+        }
         if (onCreated) onCreated(created);
         else router.push(`/tickets/${created.id}`);
       }
@@ -226,6 +238,7 @@ export function TicketForm({
           ))}
         </select>
       </label>
+      <TicketImagePicker files={images} onChange={setImages} disabled={saving} />
       {error ? <p className="text-sm text-open">{error}</p> : null}
       <div className={onCancel ? "flex gap-2" : undefined}>
         {onCancel ? (

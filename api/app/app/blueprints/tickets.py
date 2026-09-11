@@ -5,6 +5,7 @@ import os
 import base64
 import uuid
 from pathlib import Path
+from werkzeug.utils import secure_filename
 from .. import db
 from ..avatar import avatar_public_url
 from ..models import (
@@ -16,6 +17,7 @@ from ..models import (
 	TimeEntry,
 	TicketProduct,
 	TicketAddon,
+	TicketAttachment,
 	HelpDeskTicketLink,
 	HelpDeskContactClientLink,
 	HelpDeskAgentMap,
@@ -113,6 +115,90 @@ def format_hours(hours: float) -> str:
 			return f"{hours_int}h {minutes}m"
 
 bp = Blueprint("tickets", __name__)
+
+_TICKET_IMAGE_EXTS = {"jpg", "jpeg", "png", "gif", "webp"}
+_TICKET_IMAGE_MAX_BYTES = 8 * 1024 * 1024
+_TICKET_IMAGE_MAX_FILES = 12
+
+
+def _ticket_upload_folder() -> str:
+	folder = os.path.join(current_app.instance_path, "ticket_uploads")
+	os.makedirs(folder, exist_ok=True)
+	return folder
+
+
+def _serialize_ticket_attachment(att: TicketAttachment) -> dict:
+	return {
+		"id": att.id,
+		"ticket_id": att.ticket_id,
+		"time_entry_id": att.time_entry_id,
+		"filename": att.original_filename,
+		"file_size": int(att.file_size or 0),
+		"file_type": att.file_type or "image/jpeg",
+		"url": f"/tickets/api/attachments/{att.id}",
+		"created_at": _fmt_ticket_dt(att.created_at) if att.created_at else None,
+	}
+
+
+def _ticket_images(ticket_id: int, time_entry_id: int | None = None) -> list[dict]:
+	query = TicketAttachment.query.filter_by(ticket_id=int(ticket_id))
+	if time_entry_id is None:
+		query = query.filter(TicketAttachment.time_entry_id.is_(None))
+	else:
+		query = query.filter_by(time_entry_id=int(time_entry_id))
+	return [_serialize_ticket_attachment(att) for att in query.order_by(TicketAttachment.id.asc()).all()]
+
+
+def _save_ticket_images(ticket: Ticket, files, *, time_entry: TimeEntry | None = None) -> list[TicketAttachment]:
+	saved: list[TicketAttachment] = []
+	picked = [f for f in (files or []) if f and getattr(f, "filename", None)]
+	if not picked:
+		return saved
+	if len(picked) > _TICKET_IMAGE_MAX_FILES:
+		raise ValueError(f"Envie no máximo {_TICKET_IMAGE_MAX_FILES} imagens por vez.")
+	folder = _ticket_upload_folder()
+	for file in picked:
+		filename = secure_filename(file.filename)
+		if not filename or "." not in filename:
+			raise ValueError("Arquivo de imagem inválido.")
+		ext = filename.rsplit(".", 1)[-1].lower()
+		if ext not in _TICKET_IMAGE_EXTS:
+			raise ValueError("Use imagens JPG, PNG, GIF ou WEBP.")
+		file.seek(0, os.SEEK_END)
+		size = file.tell()
+		file.seek(0)
+		if size > _TICKET_IMAGE_MAX_BYTES:
+			raise ValueError("Cada imagem pode ter no máximo 8 MB.")
+		unique_name = f"{uuid.uuid4().hex}.{ext}"
+		path = os.path.join(folder, unique_name)
+		file.save(path)
+		att = TicketAttachment(
+			ticket_id=ticket.id,
+			time_entry_id=time_entry.id if time_entry else None,
+			filename=unique_name,
+			original_filename=filename,
+			file_path=path,
+			file_size=size,
+			file_type=file.mimetype or "image/jpeg",
+			created_by_id=current_user.id,
+		)
+		db.session.add(att)
+		saved.append(att)
+	return saved
+
+
+def _ticket_attachment_disk_path(att: TicketAttachment) -> str | None:
+	raw = (att.file_path or "").strip()
+	if raw and os.path.isfile(raw):
+		return raw
+	name = (att.filename or "").strip()
+	if not name:
+		return None
+	folder = os.path.join(current_app.instance_path, "ticket_uploads")
+	candidate = os.path.join(folder, name)
+	if os.path.isfile(candidate):
+		return candidate
+	return None
 
 
 def _helpdesk_conversation_payload(ticket: Ticket) -> dict | None:
@@ -962,7 +1048,7 @@ def add_time(ticket_id: int):
 	
 	# Criar entrada para o usuário atual
 	entries_created = 1
-	create_time_entry(current_user.id, is_current_user=True)
+	main_entry = create_time_entry(current_user.id, is_current_user=True)
 	
 	# Se for apontamento em grupo, criar entradas para os usuários selecionados
 	if is_group_entry and group_users:
@@ -984,6 +1070,12 @@ def add_time(ticket_id: int):
 	
 	# Commit de todas as entradas
 	try:
+		db.session.flush()
+		_save_ticket_images(
+			ticket,
+			list(request.files.getlist("images")) + list(request.files.getlist("attachments")),
+			time_entry=main_entry,
+		)
 		db.session.commit()
 		
 		if entries_created > 1:
@@ -1000,6 +1092,12 @@ def add_time(ticket_id: int):
 			else:
 				flash(f"Apontamento registrado: {format_hours(delta_hours)}.")
 		
+	except ValueError as e:
+		db.session.rollback()
+		if wants_json:
+			return jsonify({"error": str(e)}), 400
+		flash(str(e), "error")
+		return redirect(url_for("tickets.view_ticket", ticket_id=ticket_id))
 	except Exception as e:
 		db.session.rollback()
 		logging.error(f"Erro ao salvar apontamentos: {str(e)}")
@@ -2596,6 +2694,7 @@ def _serialize_time_entry(entry: TimeEntry) -> dict:
 		"end_time": _fmt_ticket_dt(entry.end_time),
 		"no_charge": bool(entry.no_charge),
 		"created_at": _fmt_ticket_dt(entry.created_at),
+		"images": _ticket_images(entry.ticket_id, time_entry_id=entry.id),
 	}
 
 
@@ -2654,6 +2753,7 @@ def _serialize_ticket_detail(ticket: Ticket) -> dict:
 		"in_progress_started_at": _fmt_ticket_dt_local_input(ticket.in_progress_started_at),
 		"created_at_input": _fmt_ticket_dt_local_input(ticket.created_at),
 		"helpdesk_linked_at": _fmt_ticket_dt_local_input(_helpdesk_linked_at(ticket)),
+		"images": _ticket_images(ticket.id),
 	}
 
 
@@ -3150,6 +3250,66 @@ def api_identify_client_from_flow():
 	})
 
 
+@bp.route("/api/<int:ticket_id>/attachments", methods=["POST"])
+@login_required
+def api_add_ticket_images(ticket_id: int):
+	ticket = Ticket.query.get_or_404(ticket_id)
+	if ticket.status in ("fechado", "cancelado"):
+		return jsonify({"error": "Tickets fechados não recebem imagens."}), 400
+	entry_id = request.form.get("time_entry_id") or request.args.get("time_entry_id")
+	entry = None
+	if entry_id:
+		try:
+			entry = TimeEntry.query.get(int(entry_id))
+		except (TypeError, ValueError):
+			entry = None
+		if not entry or entry.ticket_id != ticket.id:
+			return jsonify({"error": "Apontamento não encontrado neste ticket."}), 404
+	files = list(request.files.getlist("images")) + list(request.files.getlist("attachments"))
+	if not files or not any(f and f.filename for f in files):
+		return jsonify({"error": "Selecione ao menos uma imagem."}), 400
+	try:
+		_save_ticket_images(ticket, files, time_entry=entry)
+		db.session.commit()
+	except ValueError as exc:
+		db.session.rollback()
+		return jsonify({"error": str(exc)}), 400
+	except Exception:
+		db.session.rollback()
+		current_app.logger.exception("Falha ao salvar imagens do ticket %s", ticket_id)
+		return jsonify({"error": "Não foi possível enviar a imagem."}), 500
+	return jsonify(_serialize_ticket_detail(ticket)), 201
+
+
+@bp.route("/api/attachments/<int:attachment_id>")
+@login_required
+def api_ticket_attachment_file(attachment_id: int):
+	att = TicketAttachment.query.get_or_404(attachment_id)
+	path = _ticket_attachment_disk_path(att)
+	if not path:
+		return jsonify({"error": "Arquivo não encontrado no servidor."}), 404
+	return send_file(
+		path,
+		as_attachment=False,
+		download_name=att.original_filename,
+		mimetype=att.file_type or "image/jpeg",
+	)
+
+
+@bp.route("/api/attachments/<int:attachment_id>", methods=["DELETE"])
+@login_required
+def api_delete_ticket_attachment(attachment_id: int):
+	att = TicketAttachment.query.get_or_404(attachment_id)
+	ticket = Ticket.query.get_or_404(att.ticket_id)
+	if ticket.status in ("fechado", "cancelado"):
+		return jsonify({"error": "Imagens de tickets fechados não podem ser removidas."}), 400
+	ticket_id = ticket.id
+	db.session.delete(att)
+	db.session.commit()
+	ticket = Ticket.query.get_or_404(ticket_id)
+	return jsonify(_serialize_ticket_detail(ticket))
+
+
 @bp.route("/api/<int:ticket_id>", methods=["PATCH"])
 @login_required
 def api_update_ticket(ticket_id: int):
@@ -3267,6 +3427,8 @@ def api_stop_ticket(ticket_id: int):
 	if ticket.assigned_to_id != current_user.id:
 		return jsonify({"error": "Apenas quem iniciou a sessão pode encerrá-la."}), 403
 	data = request.get_json(silent=True) or {}
+	if not data:
+		data = _request_values()
 	start_dt = _parse_local_datetime_payload(data.get("start_time")) or ticket.in_progress_started_at
 	end_dt = _parse_local_datetime_payload(data.get("end_time")) or brasilia_to_utc(get_brasilia_now())
 	if start_dt.tzinfo is None:
@@ -3291,7 +3453,17 @@ def api_stop_ticket(ticket_id: int):
 	ticket.in_progress_started_at = None
 	if not _ticket_is_cancelled(ticket) and ticket.status != "fechado":
 		ticket.status = "aberto"
-	db.session.commit()
+	try:
+		db.session.flush()
+		_save_ticket_images(
+			ticket,
+			list(request.files.getlist("images")) + list(request.files.getlist("attachments")),
+			time_entry=entry,
+		)
+		db.session.commit()
+	except ValueError as exc:
+		db.session.rollback()
+		return jsonify({"error": str(exc)}), 400
 	return jsonify(_serialize_ticket_detail(ticket))
 
 

@@ -10,6 +10,7 @@ import { CancelTicketDialog } from "@/components/tickets/CancelTicketDialog";
 import { CloseTicketDialog } from "@/components/tickets/CloseTicketDialog";
 import { ReopenTicketDialog } from "@/components/tickets/ReopenTicketDialog";
 import { TimeEntryDialog } from "@/components/tickets/TimeEntryDialog";
+import { TicketImageGallery, TicketImagePicker } from "@/components/tickets/TicketImages";
 import { ShareToChatDialog, type ShareToChatTarget } from "@/components/chat/ShareToChatDialog";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { UserAvatar } from "@/components/ui/UserAvatar";
@@ -33,6 +34,7 @@ export default function TicketDetailPage() {
   const [err, setErr] = useState("");
   const [printing, setPrinting] = useState(false);
   const [shareTarget, setShareTarget] = useState<ShareToChatTarget | null>(null);
+  const [uploadingImages, setUploadingImages] = useState(false);
 
   const { data, isLoading } = useQuery({
     queryKey: ["ticket", id],
@@ -79,6 +81,32 @@ export default function TicketDetailPage() {
   const removeAddon = async (addonId: number) => {
     await flask.delete(`/tickets/api/${id}/addons/${addonId}`);
     invalidate();
+  };
+
+  const uploadTicketImages = async (files: File[]) => {
+    if (!files.length) return;
+    setUploadingImages(true);
+    setErr("");
+    try {
+      const body = new FormData();
+      files.forEach((file) => body.append("images", file));
+      await flask.post(`/tickets/api/${id}/attachments`, body);
+      invalidate();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Erro ao enviar imagens");
+    } finally {
+      setUploadingImages(false);
+    }
+  };
+
+  const removeImage = async (attachmentId: number) => {
+    setErr("");
+    try {
+      await flask.delete(`/tickets/api/attachments/${attachmentId}`);
+      invalidate();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Erro ao remover imagem");
+    }
   };
 
   const printPs = async () => {
@@ -279,6 +307,24 @@ export default function TicketDetailPage() {
             <h2 className="mt-4 text-xl font-semibold text-ink">{data.title}</h2>
             <p className="mt-4 text-[13px] uppercase tracking-wide text-muted">Descrição</p>
             <p className="mt-1 whitespace-pre-wrap text-[15px] text-ink">{data.description || "—"}</p>
+            <p className="mt-5 text-[13px] uppercase tracking-wide text-muted">Imagens</p>
+            <TicketImageGallery
+              images={data.images || []}
+              canEdit={openTicket}
+              onRemove={openTicket ? (attachmentId) => void removeImage(attachmentId) : undefined}
+            />
+            {openTicket ? (
+              <div className="mt-3">
+                <TicketImagePicker
+                  files={[]}
+                  onChange={(files) => {
+                    if (files.length) void uploadTicketImages(files);
+                  }}
+                  disabled={uploadingImages}
+                />
+                {uploadingImages ? <p className="mt-2 text-xs text-muted">Enviando imagens…</p> : null}
+              </div>
+            ) : null}
             <p className="mt-5 text-[13px] uppercase tracking-wide text-muted">Categoria</p>
             <p className="mt-1 text-[15px]">{data.category}</p>
             <div className="mt-5 grid grid-cols-2 gap-4 text-sm">
@@ -327,6 +373,7 @@ export default function TicketDetailPage() {
                         {e.start_time || "—"} → {e.end_time || "—"}
                       </p>
                       {e.comment ? <p className="mt-1 text-ink">{e.comment}</p> : null}
+                      <TicketImageGallery images={e.images || []} />
                     </div>
                     <div className="text-right">
                       <p className="font-medium">{e.hours_label || formatHours(e.hours)}</p>

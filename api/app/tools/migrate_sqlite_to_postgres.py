@@ -67,6 +67,7 @@ TABLE_ORDER: list[str] = [
 	"knowledge_category",
 	"knowledge_article",
 	"knowledge_attachment",
+	"ticket_attachment",
 	"budget",
 	"budget_item",
 	"appointment",

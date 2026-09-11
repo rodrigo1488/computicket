@@ -773,6 +773,14 @@ def create_app() -> Flask:
 			_contact_link_schema_error,
 		)
 
+	try:
+		with app.app_context():
+			from .models import TicketAttachment  # noqa: F401
+			from .schema_utils import ensure_tables_from_metadata
+			ensure_tables_from_metadata(["ticket_attachment"])
+	except Exception as _ticket_att_schema_error:
+		app.logger.warning("Não foi possível garantir o schema de anexos de ticket: %s", _ticket_att_schema_error)
+
 	# Tabelas do monitoramento remoto (SQLite e PostgreSQL).
 	try:
 		with app.app_context():

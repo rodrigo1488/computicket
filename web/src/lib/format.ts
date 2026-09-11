@@ -78,6 +78,17 @@ export type TicketAddon = {
   value: number;
 };
 
+export type TicketImage = {
+  id: number;
+  ticket_id?: number;
+  time_entry_id?: number | null;
+  filename: string;
+  file_size?: number;
+  file_type?: string;
+  url: string;
+  created_at?: string | null;
+};
+
 export type TimeEntry = {
   id: number;
   user_id: number;
@@ -89,6 +100,7 @@ export type TimeEntry = {
   end_time?: string | null;
   no_charge?: boolean;
   created_at?: string | null;
+  images?: TicketImage[];
 };
 
 export type TicketDetail = TicketCard & {
@@ -117,6 +129,7 @@ export type TicketDetail = TicketCard & {
   in_progress_started_at?: string | null;
   created_at_input?: string | null;
   helpdesk_linked_at?: string | null;
+  images?: TicketImage[];
 };
 
 export type AuthUser = {

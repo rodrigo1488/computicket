@@ -4,6 +4,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Optional
 from flask_login import UserMixin
+from sqlalchemy import event
 from sqlalchemy.types import Text, TypeDecorator
 from . import db, login_manager
 from .timezone_utils import get_brasilia_now, brasilia_to_utc
@@ -320,6 +321,14 @@ class Ticket(db.Model):
 		cascade="all, delete-orphan",
 		order_by="TicketAddon.id",
 	)
+	attachments = db.relationship(
+		"TicketAttachment",
+		backref="ticket",
+		lazy=True,
+		cascade="all, delete-orphan",
+		order_by="TicketAttachment.id",
+		foreign_keys="TicketAttachment.ticket_id",
+	)
 
 	def total_hours(self) -> float:
 		return float(sum(entry.hours for entry in self.time_entries))
@@ -462,6 +471,14 @@ class TimeEntry(db.Model):
     signature_file_path = db.Column(db.String(500), nullable=True)  # Caminho do arquivo de assinatura
     signature_timestamp = db.Column(db.DateTime, nullable=True)  # Timestamp da assinatura
     created_at = db.Column(db.DateTime, default=lambda: brasilia_to_utc(get_brasilia_now()))
+    attachments = db.relationship(
+        "TicketAttachment",
+        backref="time_entry",
+        lazy=True,
+        cascade="all, delete-orphan",
+        foreign_keys="TicketAttachment.time_entry_id",
+        order_by="TicketAttachment.id",
+    )
 
     def formatted_hours(self) -> str:
         """Formata as horas de forma legível (ex: 1h 20m, 45min)"""
@@ -524,6 +541,53 @@ class TimeEntry(db.Model):
 
     def __repr__(self) -> str:
         return f"<TimeEntry ticket={self.ticket_id} user={self.user_id} hours={self.hours}>"
+
+
+class TicketAttachment(db.Model):
+	__tablename__ = "ticket_attachment"
+
+	id = db.Column(db.Integer, primary_key=True)
+	ticket_id = db.Column(db.Integer, db.ForeignKey("ticket.id"), nullable=False, index=True)
+	time_entry_id = db.Column(db.Integer, db.ForeignKey("time_entry.id"), nullable=True, index=True)
+	filename = db.Column(db.String(255), nullable=False)
+	original_filename = db.Column(db.String(255), nullable=False)
+	file_path = db.Column(db.String(500), nullable=False)
+	file_size = db.Column(db.Integer, nullable=False)
+	file_type = db.Column(db.String(100), nullable=False)
+	created_at = db.Column(db.DateTime, default=lambda: brasilia_to_utc(get_brasilia_now()))
+	created_by_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
+
+	created_by = db.relationship("User")
+
+	def __repr__(self) -> str:
+		return f"<TicketAttachment {self.original_filename} ticket={self.ticket_id}>"
+
+
+@event.listens_for(TicketAttachment, "after_delete")
+def _remove_ticket_attachment_file(mapper, connection, target):
+	candidates = []
+	raw = (getattr(target, "file_path", None) or "").strip()
+	name = (getattr(target, "filename", None) or "").strip()
+	if raw:
+		candidates.append(raw)
+	if name:
+		candidates.append(os.path.join("instance", "ticket_uploads", name))
+		try:
+			from flask import current_app
+			folder = os.path.join(current_app.instance_path, "ticket_uploads")
+			candidates.append(os.path.join(folder, name))
+		except Exception:
+			pass
+	seen = set()
+	for path in candidates:
+		if not path or path in seen:
+			continue
+		seen.add(path)
+		if os.path.isfile(path):
+			try:
+				os.remove(path)
+			except OSError:
+				pass
 
 
 class TechnicianLocation(db.Model):
