@@ -2249,7 +2249,7 @@ const verifyQueue = async (
   const { queues, greetingMessage, maxUseBotQueues, timeUseBotQueues } =
     whatsappConn;
 
-  if (whatsappConn.flowIdWelcome) {
+  if (hasWelcomeFlow(whatsappConn)) {
     logger.info({
       msg: "verifyQueue: fluxo de boas-vindas na conexão — menu de setor não enviado",
       ticketId: ticket.id,
@@ -3039,6 +3039,9 @@ const parseIntegrationFlowId = (
   }
 };
 
+const hasWelcomeFlow = (whatsapp?: { flowIdWelcome?: number | null } | null) =>
+  Number(whatsapp?.flowIdWelcome) > 0;
+
 const startFlowBuilderForTicket = async (
   flowId: number | null | undefined,
   whatsappId: number,
@@ -3380,33 +3383,43 @@ export const handleMessageIntegration = async (
         contact,
         isFirstMsg
       );
-    } else {
-      logger.info('📋 FlowBuilder: Modo MENU', {
-        lastMessageIsNumber: !isNaN(parseInt(ticket.lastMessage)),
-        ticketStatus: ticket.status
-      });
-
-      if (
-        !isNaN(parseInt(ticket.lastMessage)) &&
-        ticket.status !== "open" &&
-        ticket.status !== "closed"
-      ) {
-        logger.info('✅ Chamando flowBuilderQueue');
-        await flowBuilderQueue(
-          ticket,
-          msg,
-          wbot,
-          whatsapp,
-          companyId,
-          contact,
-          isFirstMsg
-        );
-        return true;
-      } else {
-        logger.debug('FlowBuilderQueue não chamado - condições não atendidas');
-        return false;
-      }
     }
+
+    logger.info('📋 FlowBuilder: Modo MENU', {
+      lastMessageIsNumber: !isNaN(parseInt(ticket.lastMessage)),
+      ticketStatus: ticket.status,
+      flowWebhook: ticket.flowWebhook
+    });
+
+    if (
+      ticket.flowWebhook &&
+      ticket.lastFlowId &&
+      ticket.status !== "open" &&
+      ticket.status !== "closed"
+    ) {
+      logger.info('✅ Chamando flowBuilderQueue');
+      await flowBuilderQueue(
+        ticket,
+        msg,
+        wbot,
+        whatsapp,
+        companyId,
+        contact,
+        isFirstMsg
+      );
+      return true;
+    }
+
+    logger.info('FlowBuilder: menu sem fluxo em andamento — inicia boas-vindas');
+    return flowbuilderIntegration(
+      msg,
+      wbot,
+      companyId,
+      queueIntegration,
+      ticket,
+      contact,
+      isFirstMsg
+    );
   } else {
     logger.warn('⚠️ Tipo de integração desconhecido:', queueIntegration.type);
     return false;
@@ -4125,7 +4138,7 @@ const handleMessage = async (
         integrations,
         ticket,
         companyId,
-        isMenu
+        isMenu && !!ticket.flowWebhook
       );
 
       if (flowStarted) {
@@ -4133,9 +4146,8 @@ const handleMessage = async (
           useIntegration: true,
           integrationId: integrations.id
         });
+        return;
       }
-
-      return;
     }
 
     //openai/gemini na fila ou conexão
@@ -4243,7 +4255,8 @@ const handleMessage = async (
       !ticket.userId &&
       whatsapp.queues.length >= 1 &&
       !ticket.useIntegration &&
-      !whatsapp.flowIdWelcome
+      !hasWelcomeFlow(whatsapp) &&
+      !ticket.flowWebhook
     ) {
       await verifyQueue(wbot, msg, ticket, contact);
 
@@ -4281,55 +4294,59 @@ const handleMessage = async (
       !ticket.isGroup &&
       !ticket.queue &&
       !ticket.user &&
-      !isNil(whatsapp.integrationId) &&
-      !ticket.useIntegration
+      !ticket.useIntegration &&
+      (hasWelcomeFlow(whatsapp) || !isNil(whatsapp.integrationId))
     ) {
-      logger.info('✅ Condições atendidas! Buscando integração...', {
+      logger.info('✅ Condições atendidas para iniciar fluxo', {
         integrationId: whatsapp.integrationId,
+        flowIdWelcome: whatsapp.flowIdWelcome,
         companyId
       });
 
-      const integrations = await ShowQueueIntegrationService(
-        whatsapp.integrationId,
-        companyId
-      );
+      let flowStarted = false;
+      if (hasWelcomeFlow(whatsapp) && !ticket.flowWebhook) {
+        flowStarted = await startFlowBuilderForTicket(
+          Number(whatsapp.flowIdWelcome),
+          whatsapp.id,
+          ticket,
+          contact,
+          msg
+        );
+      } else if (!isNil(whatsapp.integrationId)) {
+        const integrations = await ShowQueueIntegrationService(
+          whatsapp.integrationId,
+          companyId
+        );
+        flowStarted = await handleMessageIntegration(
+          msg,
+          wbot,
+          integrations,
+          ticket,
+          companyId,
+          isMenu && !!ticket.flowWebhook,
+          whatsapp,
+          contact,
+          isFirstMsg
+        );
+      }
 
-      logger.info('📋 Integração encontrada:', {
-        integrationId: integrations.id,
-        integrationType: integrations.type,
-        integrationName: integrations.name
-      });
-
-      const flowStarted = await handleMessageIntegration(
-        msg,
-        wbot,
-        integrations,
-        ticket,
-        companyId,
-        isMenu,
-        whatsapp,
-        contact,
-        isFirstMsg
-      );
-
-      // Só marca useIntegration se o fluxo realmente iniciou — senão a próxima
-      // mensagem ainda pode tentar (ex.: flowId ainda não configurado).
       if (flowStarted) {
         await ticket.update({
           useIntegration: true,
-          integrationId: integrations.id
+          integrationId: whatsapp.integrationId || ticket.integrationId
         });
-
-        logger.info('✅ FlowBuilder executado! Ticket marcado como useIntegration: true', {
+        logger.info('✅ FlowBuilder executado', {
           ticketId: ticket.id,
-          integrationId: integrations.id
+          flowIdWelcome: whatsapp.flowIdWelcome
         });
-      } else {
-        logger.warn('⚠️ FlowBuilder não iniciou — useIntegration permanece false', {
-          ticketId: ticket.id,
-          integrationId: integrations.id
-        });
+        return;
       }
+
+      logger.warn('⚠️ FlowBuilder não iniciou', {
+        ticketId: ticket.id,
+        integrationId: whatsapp.integrationId,
+        flowIdWelcome: whatsapp.flowIdWelcome
+      });
     } else {
       logger.debug('FlowBuilder NAO foi acionado. Motivos:', {
         bloqueadoPor: {
@@ -4410,6 +4427,8 @@ const handleMessage = async (
     }
 
     if (
+      !hasWelcomeFlow(whatsapp) &&
+      !ticket.flowWebhook &&
       !whatsapp?.queues?.length &&
       !ticket.userId &&
       !isGroup &&
