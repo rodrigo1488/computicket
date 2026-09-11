@@ -1,16 +1,19 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Pencil, PlugZap, Plus, QrCode, RefreshCw, Trash2 } from "lucide-react";
+import { Copy, Pencil, PlugZap, Plus, QrCode, RefreshCw, Trash2, Workflow } from "lucide-react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { Modal } from "@/components/ui/Modal";
 import { PrimaryButton, UnderlineField } from "@/components/ui/UnderlineField";
 import { cn } from "@/lib/cn";
-import { flowsApi } from "@/lib/flows";
+import { flowsApi, type FlowBuilder } from "@/lib/flows";
 import {
   helpdesk,
   unwrapConnections,
   unwrapQuickMessages,
+  type BusinessHoursPayload,
   type ConnectionPayload,
   type HelpdeskConnection,
   type HelpdeskQueue,
@@ -19,13 +22,15 @@ import {
   type QuickMessage,
 } from "@/lib/helpdesk";
 
-export type WhatsappSection = "filas" | "agentes" | "conexoes" | "rapidas";
+export type WhatsappSection = "filas" | "agentes" | "conexoes" | "rapidas" | "expediente" | "automacao";
 
 const SECTIONS: { key: WhatsappSection; label: string }[] = [
   { key: "filas", label: "Filas" },
   { key: "agentes", label: "Agentes" },
   { key: "rapidas", label: "Mensagens rápidas" },
   { key: "conexoes", label: "Conexões" },
+  { key: "expediente", label: "Expediente" },
+  { key: "automacao", label: "Automação" },
 ];
 
 const WEEKDAYS: { weekdayEn: string; weekday: string }[] = [
@@ -250,49 +255,7 @@ function QueueForm({
             </span>
           </span>
         </label>
-        {hoursOn ? (
-          <div className="mt-3 space-y-2">
-            {days.map((day) => (
-              <div key={day.weekdayEn} className="flex flex-wrap items-center gap-2">
-                <label className="flex w-36 items-center gap-2 text-sm text-ink">
-                  <input
-                    type="checkbox"
-                    checked={day.enabled}
-                    onChange={(e) =>
-                      setDays((cur) =>
-                        cur.map((d) => (d.weekdayEn === day.weekdayEn ? { ...d, enabled: e.target.checked } : d)),
-                      )
-                    }
-                  />
-                  {day.weekday}
-                </label>
-                <input
-                  type="time"
-                  disabled={!day.enabled}
-                  value={day.startTime}
-                  onChange={(e) =>
-                    setDays((cur) =>
-                      cur.map((d) => (d.weekdayEn === day.weekdayEn ? { ...d, startTime: e.target.value } : d)),
-                    )
-                  }
-                  className="rounded-md border border-line px-2 py-1 text-sm disabled:opacity-40"
-                />
-                <span className="text-xs text-muted">às</span>
-                <input
-                  type="time"
-                  disabled={!day.enabled}
-                  value={day.endTime}
-                  onChange={(e) =>
-                    setDays((cur) =>
-                      cur.map((d) => (d.weekdayEn === day.weekdayEn ? { ...d, endTime: e.target.value } : d)),
-                    )
-                  }
-                  className="rounded-md border border-line px-2 py-1 text-sm disabled:opacity-40"
-                />
-              </div>
-            ))}
-          </div>
-        ) : null}
+        {hoursOn ? <ScheduleDaysEditor days={days} setDays={setDays} /> : null}
       </div>
       {!initial?.id ? (
         <label className="flex items-start gap-2 text-sm text-ink">
@@ -423,6 +386,311 @@ function ConnectionForm({
         {save.isPending ? "Salvando…" : initial?.id ? "Salvar conexão" : "Criar conexão"}
       </PrimaryButton>
     </form>
+  );
+}
+
+function ScheduleDaysEditor({
+  days,
+  setDays,
+}: {
+  days: DayDraft[];
+  setDays: (next: DayDraft[] | ((cur: DayDraft[]) => DayDraft[])) => void;
+}) {
+  return (
+    <div className="mt-3 space-y-2">
+      {days.map((day) => (
+        <div key={day.weekdayEn} className="flex flex-wrap items-center gap-2">
+          <label className="flex w-36 items-center gap-2 text-sm text-ink">
+            <input
+              type="checkbox"
+              checked={day.enabled}
+              onChange={(e) =>
+                setDays((cur) =>
+                  cur.map((d) => (d.weekdayEn === day.weekdayEn ? { ...d, enabled: e.target.checked } : d)),
+                )
+              }
+            />
+            {day.weekday}
+          </label>
+          <input
+            type="time"
+            disabled={!day.enabled}
+            value={day.startTime}
+            onChange={(e) =>
+              setDays((cur) =>
+                cur.map((d) => (d.weekdayEn === day.weekdayEn ? { ...d, startTime: e.target.value } : d)),
+              )
+            }
+            className="rounded-md border border-line px-2 py-1 text-sm disabled:opacity-40"
+          />
+          <span className="text-xs text-muted">às</span>
+          <input
+            type="time"
+            disabled={!day.enabled}
+            value={day.endTime}
+            onChange={(e) =>
+              setDays((cur) =>
+                cur.map((d) => (d.weekdayEn === day.weekdayEn ? { ...d, endTime: e.target.value } : d)),
+              )
+            }
+            className="rounded-md border border-line px-2 py-1 text-sm disabled:opacity-40"
+          />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function BusinessHoursPanel() {
+  const qc = useQueryClient();
+  const hours = useQuery({
+    queryKey: ["hd-business-hours"],
+    queryFn: helpdesk.businessHours,
+  });
+  const [hoursOn, setHoursOn] = useState(false);
+  const [days, setDays] = useState<DayDraft[]>(emptyDays());
+  const [outOfHours, setOutOfHours] = useState("");
+  const [autoCloseMinutes, setAutoCloseMinutes] = useState("0");
+  const [autoCloseWarning, setAutoCloseWarning] = useState("");
+
+  useEffect(() => {
+    if (!hours.data) return;
+    const next = parseSchedules(hours.data.schedules);
+    setHoursOn(!!hours.data.enabled);
+    setDays(next.days);
+    setOutOfHours(hours.data.outOfHoursMessage || "");
+    setAutoCloseMinutes(String(hours.data.autoCloseMinutes ?? 0));
+    setAutoCloseWarning(hours.data.autoCloseWarningMessage || "");
+  }, [hours.data]);
+
+  const save = useMutation({
+    mutationFn: () => {
+      const minutes = Math.max(0, Math.min(10080, Number.parseInt(autoCloseMinutes, 10) || 0));
+      const payload: BusinessHoursPayload = {
+        enabled: hoursOn,
+        schedules: toSchedules(days, hoursOn),
+        outOfHoursMessage: outOfHours,
+        autoCloseMinutes: minutes,
+        autoCloseWarningMessage: autoCloseWarning,
+      };
+      return helpdesk.updateBusinessHours(payload);
+    },
+    onSuccess: (data) => {
+      qc.setQueryData(["hd-business-hours"], data);
+      qc.invalidateQueries({ queryKey: ["hd-business-hours"] });
+    },
+  });
+
+  return (
+    <div>
+      <p className="mb-4 text-sm text-muted">
+        Com o expediente da empresa ativo, o WhatsApp não inicia atendimento nem fluxo fora do horário. O expediente
+        por fila continua existindo e vale quando o da empresa estiver desligado.
+      </p>
+      {hours.error ? <p className="mb-3 text-sm text-open">{(hours.error as Error).message}</p> : null}
+      {hours.isLoading ? <p className="text-sm text-muted">Carregando expediente…</p> : null}
+      {!hours.isLoading ? (
+        <form
+          className="space-y-5"
+          onSubmit={(e) => {
+            e.preventDefault();
+            save.mutate();
+          }}
+        >
+          <label className="flex items-start gap-2 text-sm text-ink">
+            <input type="checkbox" className="mt-1" checked={hoursOn} onChange={(e) => setHoursOn(e.target.checked)} />
+            <span>
+              Ativar expediente da empresa
+              <span className="mt-0.5 block text-xs text-muted">
+                Desligado, o bloqueio volta a ser o das filas.
+              </span>
+            </span>
+          </label>
+          {hoursOn ? <ScheduleDaysEditor days={days} setDays={setDays} /> : null}
+          <TextArea
+            label="Mensagem fora do expediente"
+            value={outOfHours}
+            onChange={setOutOfHours}
+            placeholder="No momento estamos fora do horário de atendimento. Retornamos em breve."
+            hint="Enviada no WhatsApp quando a empresa está fechada. Se vazia, usa a mensagem da conexão."
+          />
+          <div className="border-t border-line pt-5">
+            <p className="mb-3 text-sm text-muted">
+              Encerramento automático: se ninguém interagir no ticket, na metade do tempo o sistema avisa; no fim, fecha
+              o atendimento. Tickets no meio de um fluxo de automação não são fechados. Use 0 para desligar.
+            </p>
+            <UnderlineField
+              label="Encerrar após (minutos)"
+              type="number"
+              value={autoCloseMinutes}
+              onChange={setAutoCloseMinutes}
+              placeholder="0"
+              hint="Ex.: 10 — aviso aos 5 minutos, encerramento aos 10. Qualquer mensagem no chat reinicia a contagem."
+            />
+            <div className="mt-4">
+              <TextArea
+                label="Mensagem de aviso (metade do período)"
+                value={autoCloseWarning}
+                onChange={setAutoCloseWarning}
+                placeholder="Este chat será encerrado em {{minutos}} minutos por falta de interação."
+                hint="Use {{minutos}} para o tempo que falta até o encerramento. Se vazia, o sistema usa um texto padrão."
+              />
+            </div>
+          </div>
+          {save.error ? <p className="text-sm text-open">{(save.error as Error).message}</p> : null}
+          {save.isSuccess ? <p className="text-sm text-done">Configurações salvas.</p> : null}
+          <PrimaryButton type="submit" disabled={save.isPending}>
+            {save.isPending ? "Salvando…" : "Salvar"}
+          </PrimaryButton>
+        </form>
+      ) : null}
+    </div>
+  );
+}
+
+function AutomationPanel() {
+  const qc = useQueryClient();
+  const router = useRouter();
+  const [name, setName] = useState("");
+  const [creating, setCreating] = useState(false);
+  const [rename, setRename] = useState<FlowBuilder | null>(null);
+
+  const list = useQuery({
+    queryKey: ["helpdesk-flows"],
+    queryFn: flowsApi.list,
+  });
+
+  const create = useMutation({
+    mutationFn: () => flowsApi.create(name.trim()),
+    onSuccess: (flow) => {
+      qc.invalidateQueries({ queryKey: ["helpdesk-flows"] });
+      setCreating(false);
+      setName("");
+      if (flow?.id) router.push(`/automacao/${flow.id}`);
+    },
+  });
+
+  const saveName = useMutation({
+    mutationFn: () => flowsApi.rename(rename!.id, name.trim()),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["helpdesk-flows"] });
+      setRename(null);
+      setName("");
+    },
+  });
+
+  const duplicate = useMutation({
+    mutationFn: (id: number) => flowsApi.duplicate(id),
+    onSuccess: (flow) => {
+      qc.invalidateQueries({ queryKey: ["helpdesk-flows"] });
+      if (flow?.id) router.push(`/automacao/${flow.id}`);
+    },
+  });
+
+  const remove = useMutation({
+    mutationFn: (id: number) => flowsApi.remove(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["helpdesk-flows"] }),
+  });
+
+  const flows = list.data?.flows || [];
+
+  return (
+    <div>
+      <div className="mb-4 flex flex-wrap items-start justify-between gap-4">
+        <p className="text-sm text-muted">
+          Monte o fluxo de triagem no WhatsApp. As respostas viram variáveis e o bloco Ticket abre o chamado. Ligue o
+          fluxo na conexão (aba Conexões → Fluxo de boas-vindas).
+        </p>
+        <button
+          type="button"
+          onClick={() => {
+            setCreating(true);
+            setName("");
+          }}
+          className="inline-flex items-center gap-1 rounded-lg bg-brand px-3 py-2 text-sm font-medium text-white"
+        >
+          <Plus className="h-4 w-4" />
+          Novo fluxo
+        </button>
+      </div>
+      {list.error ? <p className="mb-3 text-sm text-open">{(list.error as Error).message}</p> : null}
+      {list.isLoading ? <p className="text-sm text-muted">Carregando fluxos…</p> : null}
+      {!list.isLoading && flows.length === 0 ? (
+        <div className="rounded-xl border border-dashed border-line px-4 py-10 text-center">
+          <Workflow className="mx-auto mb-3 h-8 w-8 text-muted" />
+          <p className="font-semibold text-ink">Nenhum fluxo ainda</p>
+          <p className="mt-1 text-sm text-muted">Crie o primeiro para perguntar dados e abrir ticket automaticamente.</p>
+        </div>
+      ) : (
+        <ul className="grid gap-3 sm:grid-cols-2">
+          {flows.map((flow) => (
+            <li key={flow.id} className="rounded-xl border border-line px-4 py-3">
+              <Link href={`/automacao/${flow.id}`} className="block">
+                <p className="text-sm font-semibold text-ink">{flow.name}</p>
+                <p className="mt-1 text-xs text-muted">{flow.flow?.nodes?.length || 0} bloco(s)</p>
+              </Link>
+              <div className="mt-3 flex gap-1">
+                <button
+                  type="button"
+                  className="rounded-lg p-1.5 text-muted hover:bg-wash"
+                  title="Renomear"
+                  onClick={() => {
+                    setRename(flow);
+                    setName(flow.name);
+                  }}
+                >
+                  <Pencil className="h-4 w-4" />
+                </button>
+                <button
+                  type="button"
+                  className="rounded-lg p-1.5 text-muted hover:bg-wash"
+                  title="Duplicar"
+                  onClick={() => duplicate.mutate(flow.id)}
+                >
+                  <Copy className="h-4 w-4" />
+                </button>
+                <button
+                  type="button"
+                  className="rounded-lg p-1.5 text-open hover:bg-open-bg"
+                  title="Excluir"
+                  onClick={() => {
+                    if (window.confirm(`Excluir o fluxo “${flow.name}”?`)) remove.mutate(flow.id);
+                  }}
+                >
+                  <Trash2 className="h-4 w-4" />
+                </button>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+      <Modal
+        open={creating || !!rename}
+        onClose={() => {
+          setCreating(false);
+          setRename(null);
+        }}
+        title={rename ? "Renomear fluxo" : "Novo fluxo"}
+      >
+        <form
+          className="space-y-4"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (!name.trim()) return;
+            if (rename) saveName.mutate();
+            else create.mutate();
+          }}
+        >
+          <UnderlineField label="Nome" value={name} onChange={setName} placeholder="Triagem de suporte" />
+          {create.error || saveName.error ? (
+            <p className="text-sm text-open">{((create.error || saveName.error) as Error).message}</p>
+          ) : null}
+          <PrimaryButton type="submit" disabled={create.isPending || saveName.isPending || !name.trim()}>
+            {create.isPending || saveName.isPending ? "Salvando…" : rename ? "Salvar" : "Criar e desenhar"}
+          </PrimaryButton>
+        </form>
+      </Modal>
+    </div>
   );
 }
 
@@ -735,6 +1003,10 @@ export function WhatsappSettings({ section, onSection }: { section: WhatsappSect
       ) : null}
 
       {section === "rapidas" ? <QuickMessagesPanel /> : null}
+
+      {section === "expediente" ? <BusinessHoursPanel /> : null}
+
+      {section === "automacao" ? <AutomationPanel /> : null}
 
       {section === "conexoes" ? (
         <div>

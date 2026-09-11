@@ -310,6 +310,23 @@ export type QueuePayload = {
   schedules?: QueueSchedule[];
 };
 
+export type BusinessHours = {
+  enabled: boolean;
+  scheduleType?: "company" | "queue" | "disabled" | string;
+  schedules?: QueueSchedule[] | null;
+  outOfHoursMessage?: string;
+  autoCloseMinutes?: number;
+  autoCloseWarningMessage?: string;
+};
+
+export type BusinessHoursPayload = {
+  enabled: boolean;
+  schedules?: QueueSchedule[];
+  outOfHoursMessage?: string;
+  autoCloseMinutes?: number;
+  autoCloseWarningMessage?: string;
+};
+
 export type TransferPayload = {
   userId?: number | null;
   queueId?: number | null;
@@ -545,6 +562,9 @@ export const helpdesk = {
   agents: () => flask.get<HelpdeskAgent[]>("/helpdesk/api/agents"),
   updateAgentQueues: (userId: number, queueIds: number[]) =>
     flask.put<HelpdeskAgent>(`/helpdesk/api/agents/${userId}`, { queueIds }),
+  businessHours: () => flask.get<BusinessHours>("/helpdesk/api/business-hours"),
+  updateBusinessHours: (payload: BusinessHoursPayload) =>
+    flask.put<BusinessHours>("/helpdesk/api/business-hours", payload),
 };
 
 export function unwrapConnections(

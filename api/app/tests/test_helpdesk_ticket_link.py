@@ -80,6 +80,44 @@ class HelpdeskTicketLinkVisibilityTest(unittest.TestCase):
 		db.session.commit()
 		self.assertEqual(_helpdesk_linked_at(ticket), link.created_at)
 
+	def test_assign_linked_ticket_on_assume(self):
+		from app.blueprints.helpdesk import _assign_linked_ticket
+
+		ticket = self._ticket("aberto")
+		db.session.add(
+			HelpDeskTicketLink(
+				engine_ticket_id=77,
+				computicket_ticket_id=ticket.id,
+			)
+		)
+		db.session.commit()
+		_assign_linked_ticket(77, self.user_id)
+		self.assertEqual(db.session.get(Ticket, ticket.id).assigned_to_id, self.user_id)
+
+	def test_assign_linked_ticket_skips_in_progress_other_user(self):
+		from app.blueprints.helpdesk import _assign_linked_ticket
+
+		other = User(name="Outro", email="outro@example.invalid", password_hash="x")
+		db.session.add(other)
+		db.session.flush()
+		ticket = Ticket(
+			title="Atendimento",
+			status="em_andamento",
+			opened_by_id=self.user_id,
+			assigned_to_id=other.id,
+		)
+		db.session.add(ticket)
+		db.session.flush()
+		db.session.add(
+			HelpDeskTicketLink(
+				engine_ticket_id=78,
+				computicket_ticket_id=ticket.id,
+			)
+		)
+		db.session.commit()
+		_assign_linked_ticket(78, self.user_id)
+		self.assertEqual(db.session.get(Ticket, ticket.id).assigned_to_id, other.id)
+
 
 if __name__ == "__main__":
 	unittest.main()

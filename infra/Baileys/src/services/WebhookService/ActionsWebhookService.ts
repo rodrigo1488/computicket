@@ -510,9 +510,9 @@ export const ActionsWebhookService = async (
         await ticket.update({
           dataWebhook: nextVars,
           lastFlowId: nodeSelected.id,
-          ...(queueId
-            ? { status: "pending", queueId: Number(queueId), userId: null }
-            : {})
+          status: "pending",
+          userId: null,
+          ...(queueId ? { queueId: Number(queueId) } : {})
         });
         ticket.dataWebhook = nextVars;
 

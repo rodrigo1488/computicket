@@ -141,7 +141,10 @@ export function AppSidebar() {
       </div>
       <nav className={cn("no-scrollbar flex-1 space-y-1 overflow-y-auto py-3", collapsed ? "px-2" : "px-3")}>
         {items.map((item) => {
-          const active = pathname === item.href || pathname.startsWith(item.href + "/");
+          const active =
+            pathname === item.href ||
+            pathname.startsWith(`${item.href}/`) ||
+            (item.href === "/configuracoes" && pathname.startsWith("/automacao"));
           const Icon = item.icon;
           const badge =
             item.href === "/tickets"

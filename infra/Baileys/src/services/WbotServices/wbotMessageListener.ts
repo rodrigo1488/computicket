@@ -3651,16 +3651,31 @@ const handleMessage = async (
       await provider(ticket, msg, companyId, contact, wbot as WASocket);
     }
 
+    const currentSchedule = await VerifyCurrentSchedule(companyId);
+    const scheduleType = await Setting.findOne({
+      where: {
+        companyId,
+        key: "scheduleType"
+      }
+    });
+    const companyClosed =
+      !isFromMe &&
+      scheduleType?.value === "company" &&
+      !isNil(currentSchedule) &&
+      currentSchedule.inActivity === false;
+
     // voltar para o menu inicial
 
     if (bodyMessage == "#") {
-      await ticket.update({
-        queueOptionId: null,
-        chatbot: false,
-        queueId: null
-      });
-      await verifyQueue(wbot, msg, ticket, ticket.contact);
-      return;
+      if (!companyClosed) {
+        await ticket.update({
+          queueOptionId: null,
+          chatbot: false,
+          queueId: null
+        });
+        await verifyQueue(wbot, msg, ticket, ticket.contact);
+        return;
+      }
     }
 
     const ticketTraking = await FindOrCreateATicketTrakingService({
@@ -3699,14 +3714,6 @@ const handleMessage = async (
       console.log(e);
     }
 
-    const currentSchedule = await VerifyCurrentSchedule(companyId);
-    const scheduleType = await Setting.findOne({
-      where: {
-        companyId,
-        key: "scheduleType"
-      }
-    });
-
     try {
       if (!isFromMe && scheduleType) {
         /**
@@ -3720,13 +3727,24 @@ const handleMessage = async (
           !isNil(currentSchedule) &&
           (!currentSchedule || currentSchedule.inActivity === false)
         ) {
-          const body = `\u200e ${whatsapp.outOfHoursMessage}`;
+          const oohSettings = await Setting.findAll({
+            where: {
+              companyId,
+              key: { [Op.in]: ["outOfHoursMessage", "companyOutOfHoursMessage"] }
+            }
+          });
+          const settingByKey = new Map(
+            oohSettings.map(s => [s.key, String(s.value || "").trim()])
+          );
+          const outOfHoursText =
+            settingByKey.get("outOfHoursMessage") ||
+            settingByKey.get("companyOutOfHoursMessage") ||
+            String(whatsapp.outOfHoursMessage || "").trim();
+          const body = `\u200e ${outOfHoursText}`;
 
           const debouncedSentMessage = debounce(
             async () => {
-              // Verifica se a mensagem de fora de horário existe e não está vazia (ignorando caracteres invisíveis)
-              if (whatsapp.outOfHoursMessage && whatsapp.outOfHoursMessage.trim().length > 0) {
-                // Usar getChatJid para obter destino correto
+              if (outOfHoursText.length > 0) {
                 const chatJid = getChatJid(ticket);
                 const sentMsg = await wbot.sendMessage(
                   chatJid,

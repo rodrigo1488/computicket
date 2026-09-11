@@ -312,6 +312,44 @@ def _execute_ai(operation: str, prompt: str, conversation_id: int | None, callba
 _CLOSED_TICKET_STATUSES = ("fechado", "cancelado")
 
 
+def _computicket_user_for_engine(engine_user_id) -> int | None:
+    if engine_user_id in (None, "", "null"):
+        return None
+    try:
+        engine_id = int(engine_user_id)
+    except (TypeError, ValueError):
+        return None
+    row = HelpDeskAgentMap.query.filter_by(engine_user_id=engine_id).first()
+    if not row:
+        return None
+    return int(row.computicket_user_id)
+
+
+def _assign_linked_ticket(engine_ticket_id: int, computicket_user_id: int | None) -> None:
+    """Atribui o chamado aberto pelo fluxo ao usuário que assumiu a conversa."""
+    if not computicket_user_id:
+        return
+    try:
+        link = HelpDeskTicketLink.query.filter_by(engine_ticket_id=int(engine_ticket_id)).first()
+        if not link:
+            return
+        ticket = db.session.get(Ticket, int(link.computicket_ticket_id))
+        if not ticket or ticket.status in _CLOSED_TICKET_STATUSES:
+            return
+        if ticket.status == "em_andamento" and ticket.assigned_to_id and ticket.assigned_to_id != int(computicket_user_id):
+            return
+        if ticket.assigned_to_id == int(computicket_user_id):
+            return
+        ticket.assigned_to_id = int(computicket_user_id)
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        current_app.logger.exception(
+            "Falha ao atribuir chamado vinculado à conversa %s",
+            engine_ticket_id,
+        )
+
+
 def _visible_linked_ticket_id(computicket_id, conversation_status: str | None):
 	"""Chamado fechado/cancelado não fica ativo em conversa nova/aberta."""
 	if not computicket_id:
@@ -719,6 +757,52 @@ def _normalize_schedules(raw) -> list[dict] | None:
             }
         )
     return out
+
+
+_COMPANY_OOH_KEYS = ("outOfHoursMessage", "companyOutOfHoursMessage")
+
+
+def _settings_by_key(raw) -> dict[str, str]:
+    if not isinstance(raw, list):
+        return {}
+    out: dict[str, str] = {}
+    for item in raw:
+        if isinstance(item, dict) and item.get("key"):
+            out[str(item["key"])] = "" if item.get("value") is None else str(item.get("value"))
+    return out
+
+
+def _company_ooh_message(settings: dict[str, str]) -> str:
+    for key in _COMPANY_OOH_KEYS:
+        value = (settings.get(key) or "").strip()
+        if value:
+            return value
+    return ""
+
+
+def _business_hours_payload(company_id: int) -> dict:
+    company = admin_request("GET", f"/companies/{int(company_id)}") or {}
+    settings = _settings_by_key(admin_request("GET", "/settings") or [])
+    schedule_type = (settings.get("scheduleType") or "queue").strip() or "queue"
+    schedules = company.get("schedules") if isinstance(company, dict) else None
+    if not isinstance(schedules, list):
+        schedules = []
+    try:
+        auto_close_minutes = int(settings.get("autoCloseMinutes") or 0)
+    except (TypeError, ValueError):
+        auto_close_minutes = 0
+    if auto_close_minutes < 0:
+        auto_close_minutes = 0
+    if auto_close_minutes > 10080:
+        auto_close_minutes = 10080
+    return {
+        "enabled": schedule_type == "company",
+        "scheduleType": schedule_type,
+        "schedules": schedules,
+        "outOfHoursMessage": _company_ooh_message(settings),
+        "autoCloseMinutes": auto_close_minutes,
+        "autoCloseWarningMessage": (settings.get("autoCloseWarningMessage") or "").strip(),
+    }
 
 
 def _queue_body(payload: dict, queues: list[dict], *, pick_color: bool = False) -> dict:
@@ -1267,6 +1351,7 @@ def assume_conversation(ticket_id: int):
         from app.notification_service import dismiss_helpdesk_notifications
 
         dismiss_helpdesk_notifications(ticket_id, types=("helpdesk_pending",))
+        _assign_linked_ticket(ticket_id, current_user.id)
         return jsonify(_with_link(ticket.get("ticket") if isinstance(ticket, dict) and "ticket" in ticket else ticket))
     except EngineError as exc:
         return _fail(exc)
@@ -1394,6 +1479,8 @@ def transfer_conversation(ticket_id: int):
                 send_engine_message(ticket_id, notice)
             except EngineError:
                 pass
+        if "userId" in body:
+            _assign_linked_ticket(ticket_id, _computicket_user_for_engine(body.get("userId")))
         return jsonify(_with_link(updated or ticket))
     except EngineError as exc:
         return _fail(exc)
@@ -1428,6 +1515,7 @@ def reopen_conversation(ticket_id: int):
             f"/tickets/{ticket_id}",
             json={"status": "open", "userId": session.engine_user_id},
         )
+        _assign_linked_ticket(ticket_id, current_user.id)
         return jsonify(_with_link(ticket.get("ticket") if isinstance(ticket, dict) and "ticket" in ticket else ticket))
     except EngineError as exc:
         return _fail(exc)
@@ -1908,6 +1996,54 @@ def update_queue(queue_id: int):
         queues = ensure_default_queue()
         data = admin_request("PUT", f"/queue/{queue_id}", json=_queue_body(payload, queues))
         return jsonify(data)
+    except EngineError as exc:
+        return _fail(exc)
+
+
+@helpdesk_bp.route("/api/business-hours")
+@login_required
+def get_business_hours():
+    try:
+        session = ensure_agent_session()
+        return jsonify(_business_hours_payload(session.company_id))
+    except EngineError as exc:
+        return _fail(exc)
+
+
+@helpdesk_bp.route("/api/business-hours", methods=["PUT"])
+@login_required
+def update_business_hours():
+    denied = _require_admin()
+    if denied:
+        return denied
+    payload = request.get_json(silent=True) or {}
+    enabled = bool(payload.get("enabled"))
+    message = str(payload.get("outOfHoursMessage") or "").strip()
+    try:
+        session = ensure_agent_session()
+        company_id = int(session.company_id)
+        schedules = _normalize_schedules(payload.get("schedules") if enabled else [])
+        if schedules is None:
+            schedules = []
+        admin_request("PUT", f"/companies/{company_id}/schedules", json={"schedules": schedules})
+        admin_request(
+            "PUT",
+            "/settings/scheduleType",
+            json={"value": "company" if enabled else "queue"},
+        )
+        admin_request("PUT", "/settings/outOfHoursMessage", json={"value": message})
+        try:
+            auto_close_minutes = int(payload.get("autoCloseMinutes") or 0)
+        except (TypeError, ValueError):
+            auto_close_minutes = 0
+        if auto_close_minutes < 0:
+            auto_close_minutes = 0
+        if auto_close_minutes > 10080:
+            auto_close_minutes = 10080
+        warning = str(payload.get("autoCloseWarningMessage") or "").strip()
+        admin_request("PUT", "/settings/autoCloseMinutes", json={"value": str(auto_close_minutes)})
+        admin_request("PUT", "/settings/autoCloseWarningMessage", json={"value": warning})
+        return jsonify(_business_hours_payload(company_id))
     except EngineError as exc:
         return _fail(exc)
 

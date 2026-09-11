@@ -26,6 +26,7 @@ import ShowFileService from "./services/FileServices/ShowService";
 import { differenceInSeconds, addMonths } from "date-fns";
 import formatBody from "./helpers/Mustache";
 import { ClosedAllOpenTickets } from "./services/WbotServices/wbotClosedTickets";
+import AutoCloseUnansweredTicketsService from "./services/TicketServices/AutoCloseUnansweredTicketsService";
 import CloseInactiveTicketsService from "./services/TicketServices/CloseInactiveTicketsService";
 import {
   isDbUnavailableError,
@@ -442,6 +443,12 @@ async function handleCloseTicketsAutomatic() {
           logger.error(`ClosedAllOpenTickets -> Verify: error (companyId=${c.id})`, e.message);
         }
       }));
+      try {
+        await AutoCloseUnansweredTicketsService();
+      } catch (e: any) {
+        Sentry.captureException(e);
+        logger.error("AutoCloseUnansweredTicketsService -> Verify: error", e.message);
+      }
     } catch (e: any) {
       if (isDbUnavailableError(e)) logCronDbUnavailable("handleCloseTicketsAutomatic");
       else {

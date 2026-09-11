@@ -1044,8 +1044,8 @@ export function HelpdeskWorkspace() {
 
   useEffect(() => {
     const status = conversation.data?.status;
-    if (status === "open" || status === "pending" || status === "closed") setTab(status);
-  }, [conversation.data?.id, conversation.data?.status]);
+    if (status === "open" || status === "pending") setTab(status);
+  }, [conversation.data?.id]);
 
   useEffect(() => {
     const convId = conversation.data?.id;
@@ -1270,8 +1270,9 @@ export function HelpdeskWorkspace() {
   const resolve = useMutation({
     mutationFn: (id: number) => helpdesk.resolve(id),
     onSuccess: (ticket) => {
+      const closedId = ticket?.id || activeId;
+      if (closedId) removeConversationFromLists(qc, closedId);
       setActiveId(null);
-      setTab("closed");
       invalidateInbox();
       if (ticket.rating_warning) setError(ticket.rating_warning);
     },

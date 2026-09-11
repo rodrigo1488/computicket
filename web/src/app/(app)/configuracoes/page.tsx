@@ -65,7 +65,15 @@ function asTab(raw: string | null): ConfigTab {
 }
 
 function asSection(raw: string | null): WhatsappSection {
-  if (raw === "agentes" || raw === "conexoes" || raw === "filas" || raw === "rapidas") return raw;
+  if (
+    raw === "agentes" ||
+    raw === "conexoes" ||
+    raw === "filas" ||
+    raw === "rapidas" ||
+    raw === "expediente" ||
+    raw === "automacao"
+  )
+    return raw;
   return "filas";
 }
 

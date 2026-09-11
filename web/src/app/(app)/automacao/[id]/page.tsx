@@ -50,7 +50,11 @@ export default function AutomacaoEditorPage() {
     <div className="flex h-full min-h-0 flex-col">
       <div className="mb-4 flex flex-wrap items-start justify-between gap-4">
         <div className="flex items-start gap-3">
-          <Link href="/automacao" className="mt-1 rounded-lg p-1.5 text-muted hover:bg-wash" aria-label="Voltar">
+          <Link
+            href="/configuracoes?tab=whatsapp&section=automacao"
+            className="mt-1 rounded-lg p-1.5 text-muted hover:bg-wash"
+            aria-label="Voltar"
+          >
             <ArrowLeft className="h-4 w-4" />
           </Link>
           <div>

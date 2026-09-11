@@ -3058,6 +3058,15 @@ def api_create_ticket_from_flow():
 	if not opened_by:
 		return jsonify({"error": "Nenhum usuário disponível para abrir o chamado."}), 500
 
+	assigned_to_id = data.get("assigned_to_id")
+	if not assigned_to_id and data.get("engine_user_id"):
+		try:
+			mapped = HelpDeskAgentMap.query.filter_by(engine_user_id=int(data.get("engine_user_id"))).first()
+		except (TypeError, ValueError):
+			mapped = None
+		if mapped:
+			assigned_to_id = mapped.computicket_user_id
+
 	try:
 		ticket = _persist_ticket(
 			title=title[:200],
@@ -3066,7 +3075,7 @@ def api_create_ticket_from_flow():
 			ext_id=int(client["id"]),
 			external_client_name=client.get("name") or None,
 			service_id=data.get("service_id"),
-			assigned_to_id=data.get("assigned_to_id"),
+			assigned_to_id=assigned_to_id,
 			opened_by_id=opened_by,
 		)
 	except Exception as e:
