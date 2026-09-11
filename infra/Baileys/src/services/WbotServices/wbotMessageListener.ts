@@ -3834,6 +3834,35 @@ const handleMessage = async (
           ?.type === "identify";
     }
 
+    if (!isNil(flow) && isMenu && !isFromMe) {
+      const body = getBodyMessage(msg);
+      if (body) {
+        const nodes: INodes[] = flow.flow["nodes"];
+        const connections: IConnections[] = flow.flow["connections"];
+        const mountDataContact = {
+          number: contact.number,
+          name: contact.name,
+          email: contact.email
+        };
+        await ActionsWebhookService(
+          whatsapp.id,
+          parseInt(ticket.flowStopped),
+          ticket.companyId,
+          nodes,
+          connections,
+          ticket.lastFlowId,
+          null,
+          "",
+          "",
+          body,
+          ticket.id,
+          mountDataContact,
+          msg
+        );
+      }
+      return;
+    }
+
     if (!isNil(flow) && isIdentify && !isFromMe) {
       const body = getBodyMessage(msg);
       if (body) {
@@ -4461,13 +4490,13 @@ const handleMessage = async (
       }
     }
 
-    if (whatsapp.queues.length == 1 && ticket.queue) {
+    if (whatsapp.queues.length == 1 && ticket.queue && !ticket.flowWebhook) {
       if (ticket.chatbot && !isFromMe && msg.key) {
         await handleChartbot(ticket, msg as WAMessage, wbot);
       }
     }
 
-    if (whatsapp.queues.length > 1 && ticket.queue) {
+    if (whatsapp.queues.length > 1 && ticket.queue && !ticket.flowWebhook) {
       if (ticket.chatbot && !isFromMe && msg.key) {
         await handleChartbot(ticket, msg as WAMessage, wbot, dontReadTheFirstQuestion);
       }

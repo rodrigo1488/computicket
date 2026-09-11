@@ -220,7 +220,7 @@ export const ActionsWebhookService = async (
 
         if (execFn === "") {
           console.log("UPDATE5...");
-          nodeSelected = {
+          nodeSelected = nodes.filter(node => node.id === next)[0] || {
             type: "menu"
           };
         } else {
@@ -373,6 +373,28 @@ export const ActionsWebhookService = async (
           const nextVars = mergeIdentifyVariables(ticket, identified);
           await ticket.update({ dataWebhook: nextVars });
           ticket.dataWebhook = nextVars;
+          const confirm = String(nodeSelected.data?.confirmationMessage || "").trim();
+          if (confirm) {
+            const extrasConfirm = {
+              ...extras,
+              empresa: identified.external_client_name || "",
+              cliente: identified.external_client_name || "",
+              cnpj: String(identified.cnpj || "").replace(/\D/g, "")
+            };
+            const confirmBody = replaceMessages(nextVars, confirm, extrasConfirm);
+            if (confirmBody.trim()) {
+              const ticketDetails = await ShowTicketService(ticket.id, companyId);
+              await delay(800);
+              await typeSimulation(ticket, "composing");
+              await SendWhatsAppMessage({
+                body: confirmBody,
+                ticket: ticketDetails,
+                quotedMsg: null
+              });
+              SetTicketMessagesAsRead(ticketDetails);
+              await ticketDetails.update({ lastMessage: confirmBody });
+            }
+          }
         } else {
           const { message } = nodeSelected.data?.typebotIntegration || {};
           const ticketDetails = await ShowTicketService(ticket.id, companyId);
@@ -719,14 +741,7 @@ export const ActionsWebhookService = async (
             break;
           }
           pressKey = "999";
-
-          const isNodeExist = nodes.filter(item => item.id === execFn);
-          console.log(674, "menu");
-          if (isNodeExist.length > 0) {
-            isMenu = isNodeExist[0].type === "menu" ? true : false;
-          } else {
-            isMenu = false;
-          }
+          isMenu = true;
         } else {
           console.log(681, "menu");
           let optionsMenu = "";
@@ -801,7 +816,7 @@ export const ActionsWebhookService = async (
               companyId: companyId,
               flowWebhook: true,
               lastFlowId: nodeSelected.id,
-              dataWebhook: dataWebhook,
+              dataWebhook: ticket.dataWebhook || dataWebhook,
               hashFlowId: hashWebhookId,
               flowStopped: idFlowDb.toString()
             });
@@ -902,7 +917,7 @@ export const ActionsWebhookService = async (
         userId: null,
         companyId: companyId,
         flowWebhook: true,
-        lastFlowId: nodeSelected.id,
+        lastFlowId: nodeSelected.id || next,
         hashFlowId: hashWebhookId,
         flowStopped: idFlowDb.toString()
       });

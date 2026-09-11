@@ -435,7 +435,7 @@ function NodeEditor({
       <div className="space-y-3">
         <h3 className="text-sm font-semibold text-navy">Coleta de dados</h3>
         <p className="text-xs text-muted">
-          Pergunta o CNPJ, busca a empresa no cadastro e vincula este WhatsApp. Se o contato já estiver vinculado, esta etapa é pulada.
+          Pergunta o CNPJ, busca a empresa no cadastro e vincula este WhatsApp. Se o contato já estiver vinculado, envia a confirmação e segue.
         </p>
         <label className="block">
           <span className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted">Pergunta</span>
@@ -464,7 +464,7 @@ function NodeEditor({
             className="mt-1 w-full rounded-lg border border-line px-3 py-2 text-sm outline-none focus:border-brand"
           />
           <p className="mt-1 text-xs text-muted">
-            Use {"{{empresa}}"} e {"{{cnpj}}"}. Em branco, segue o fluxo sem mensagem extra. Contatos já vinculados não recebem esta confirmação.
+            Use {"{{empresa}}"} e {"{{cnpj}}"}. Em branco, segue o fluxo sem mensagem extra. Também é enviada quando o contato já está vinculado.
           </p>
         </label>
       </div>
