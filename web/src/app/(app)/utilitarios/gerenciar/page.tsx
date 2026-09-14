@@ -9,6 +9,7 @@ import { PrimaryButton, UnderlineField } from "@/components/ui/UnderlineField";
 import { flask } from "@/lib/api";
 import {
   formatUtilityDate,
+  uploadUtilityFile,
   utilityDownloadHref,
   UTILITY_MAX_FILE_BYTES,
   type UtilityFile,
@@ -27,6 +28,7 @@ export default function GerenciarUtilitariosPage() {
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
   const [formError, setFormError] = useState("");
   const [copied, setCopied] = useState(false);
+  const [progress, setProgress] = useState("");
 
   const { data, isLoading, error } = useQuery({
     queryKey: ["utilitarios-admin"],
@@ -42,11 +44,20 @@ export default function GerenciarUtilitariosPage() {
         if (!pendingFiles.length) throw new Error("Selecione ao menos um arquivo.");
         const tooBig = pendingFiles.find((file) => file.size > UTILITY_MAX_FILE_BYTES);
         if (tooBig) throw new Error(`"${tooBig.name}" passa de 1 GB. Envie um arquivo menor.`);
-        const body = new FormData();
-        if (form.title.trim()) body.append("title", form.title.trim());
-        if (form.description.trim()) body.append("description", form.description.trim());
-        pendingFiles.forEach((file) => body.append("files", file));
-        return flask.post("/utilitarios/api", body);
+        const items: UtilityFile[] = [];
+        for (let i = 0; i < pendingFiles.length; i += 1) {
+          const file = pendingFiles[i];
+          const prefix = pendingFiles.length > 1 ? `${i + 1}/${pendingFiles.length} · ` : "";
+          setProgress(`${prefix}Enviando ${file.name}…`);
+          items.push(
+            await uploadUtilityFile(
+              file,
+              { title: form.title.trim(), description: form.description.trim() },
+              (percent) => setProgress(`${prefix}${file.name} · ${percent}%`),
+            ),
+          );
+        }
+        return { items };
       }
       if (!edit) throw new Error("Nenhum arquivo");
       if (!form.title.trim()) throw new Error("Título é obrigatório");
@@ -61,8 +72,12 @@ export default function GerenciarUtilitariosPage() {
       setEdit(null);
       setPendingFiles([]);
       setForm(emptyForm);
+      setProgress("");
     },
-    onError: (e) => setFormError(e instanceof Error ? e.message : "Erro ao salvar"),
+    onError: (e) => {
+      setProgress("");
+      setFormError(e instanceof Error ? e.message : "Erro ao salvar");
+    },
   });
 
   const remove = useMutation({
@@ -241,9 +256,10 @@ export default function GerenciarUtilitariosPage() {
               </button>
             </label>
           ) : null}
+          {progress ? <p className="text-sm text-muted">{progress}</p> : null}
           {formError ? <p className="text-sm text-open">{formError}</p> : null}
           <PrimaryButton type="submit" disabled={save.isPending}>
-            {save.isPending ? "Salvando…" : creating ? "Publicar" : "Salvar"}
+            {save.isPending ? progress || "Enviando…" : creating ? "Publicar" : "Salvar"}
           </PrimaryButton>
         </form>
       </Modal>

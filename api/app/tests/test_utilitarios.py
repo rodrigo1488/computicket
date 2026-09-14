@@ -134,6 +134,45 @@ class UtilitariosApiTest(unittest.TestCase):
 	def test_max_file_size_is_one_gb(self):
 		self.assertEqual(MAX_FILE_SIZE, 1024 * 1024 * 1024)
 
+	def test_chunked_upload_assembles_file(self):
+		self.app.config["UTILITARIOS_CHUNK_SIZE"] = 4
+		self._login()
+		content = b"ABCDEFGHIJ"
+		init = self.client.post(
+			"/utilitarios/api/uploads",
+			json={"filename": "pacote.zip", "size": len(content), "title": "Pacote", "mime": "application/zip"},
+		)
+		self.assertEqual(init.status_code, 201, init.get_data(as_text=True))
+		payload = init.get_json()
+		upload_id = payload["upload_id"]
+		self.assertEqual(payload["total_chunks"], 3)
+		self.assertEqual(payload["chunk_size"], 4)
+		for index in range(payload["total_chunks"]):
+			start = index * 4
+			chunk = content[start:start + 4]
+			res = self.client.put(
+				f"/utilitarios/api/uploads/{upload_id}/chunks/{index}",
+				data=chunk,
+				content_type="application/octet-stream",
+			)
+			self.assertEqual(res.status_code, 200, res.get_data(as_text=True))
+		done = self.client.post(f"/utilitarios/api/uploads/{upload_id}/complete")
+		self.assertEqual(done.status_code, 201, done.get_data(as_text=True))
+		item = done.get_json()
+		self.assertEqual(item["title"], "Pacote")
+		self.assertEqual(item["original_filename"], "pacote.zip")
+		self.assertEqual(item["file_size"], len(content))
+		download = self.client.get(f"/utilitarios/api/publico/{item['id']}/download")
+		self.assertEqual(download.status_code, 200)
+		self.assertEqual(download.data, content)
+
+	def test_chunked_upload_requires_login(self):
+		res = self.client.post(
+			"/utilitarios/api/uploads",
+			json={"filename": "manual.pdf", "size": 10},
+		)
+		self.assertEqual(res.status_code, 401)
+
 
 if __name__ == "__main__":
 	unittest.main()

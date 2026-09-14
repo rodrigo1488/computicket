@@ -49,6 +49,9 @@ function _httpErrorMessage(
     if (/\/utilitarios\b/.test(path)) return "Arquivo muito grande. Cada arquivo pode ter no máximo 1 GB.";
     return "Arquivo muito grande. O WhatsApp aceita no máximo 100 MB.";
   }
+  if (status === 524) {
+    return "O envio passou do tempo limite da rede. O arquivo será enviado em partes; tente de novo.";
+  }
   if (status === 502 || status === 503 || status === 504) {
     if (ctx?.isFormData) {
       return "Não foi possível enviar o arquivo. O WhatsApp pode estar lento; tente um vídeo menor ou em MP4.";

@@ -1,7 +1,12 @@
 """Arquivos públicos da rota /utilitarios."""
 from __future__ import annotations
 
+import json
+import math
 import os
+import re
+import shutil
+import time
 import uuid
 from pathlib import Path
 
@@ -25,12 +30,77 @@ ALLOWED_EXTENSIONS = {
 	"exe", "msi", "apk", "dmg", "iso",
 }
 MAX_FILE_SIZE = 1024 * 1024 * 1024  # 1 GB
+DEFAULT_CHUNK_SIZE = 8 * 1024 * 1024  # 8 MB — cabe no timeout de ~100s do Cloudflare
+_UPLOAD_ID_RE = re.compile(r"^[0-9a-f]{32}$")
+_STALE_UPLOAD_SECONDS = 24 * 60 * 60
 
 
 def _upload_folder() -> str:
 	folder = os.path.join(current_app.instance_path, "utilitarios_uploads")
 	os.makedirs(folder, exist_ok=True)
 	return folder
+
+
+def _chunk_size() -> int:
+	try:
+		value = int(current_app.config.get("UTILITARIOS_CHUNK_SIZE") or DEFAULT_CHUNK_SIZE)
+	except (TypeError, ValueError):
+		value = DEFAULT_CHUNK_SIZE
+	return max(1, min(value, 32 * 1024 * 1024))
+
+
+def _incoming_root() -> Path:
+	folder = Path(_upload_folder()) / ".incoming"
+	folder.mkdir(parents=True, exist_ok=True)
+	return folder
+
+
+def _incoming_dir(upload_id: str) -> Path:
+	if not _UPLOAD_ID_RE.match(upload_id or ""):
+		raise ValueError("Envio inválido.")
+	path = (_incoming_root() / upload_id).resolve()
+	root = _incoming_root().resolve()
+	if root not in path.parents and path != root:
+		raise ValueError("Envio inválido.")
+	return path
+
+
+def _cleanup_stale_uploads() -> None:
+	root = _incoming_root()
+	limit = time.time() - _STALE_UPLOAD_SECONDS
+	for child in root.iterdir():
+		if not child.is_dir():
+			continue
+		try:
+			if child.stat().st_mtime < limit:
+				shutil.rmtree(child, ignore_errors=True)
+		except OSError:
+			continue
+
+
+def _read_meta(folder: Path) -> dict:
+	meta_path = folder / "meta.json"
+	if not meta_path.is_file():
+		raise ValueError("Envio não encontrado.")
+	try:
+		return json.loads(meta_path.read_text(encoding="utf-8"))
+	except (OSError, json.JSONDecodeError) as exc:
+		raise ValueError("Envio inválido.") from exc
+
+
+def _write_meta(folder: Path, meta: dict) -> None:
+	(folder / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
+
+
+def _prepare_filename(filename: str) -> tuple[str, str, str]:
+	original = _display_name(filename)
+	ext = original.rsplit(".", 1)[-1].lower() if "." in original else ""
+	if ext not in ALLOWED_EXTENSIONS:
+		raise ValueError(f"Tipo de arquivo não permitido: .{ext or 'sem extensão'}")
+	safe = secure_filename(original) or f"arquivo.{ext}"
+	if "." not in safe:
+		safe = f"{safe}.{ext}"
+	return original, ext, safe
 
 
 def _size_label(size: int) -> str:
@@ -127,13 +197,7 @@ def _save_files() -> list[UtilityFile]:
 	for file in files:
 		if not file or not getattr(file, "filename", None):
 			continue
-		original = _display_name(file.filename)
-		ext = original.rsplit(".", 1)[-1].lower() if "." in original else ""
-		if ext not in ALLOWED_EXTENSIONS:
-			raise ValueError(f"Tipo de arquivo não permitido: .{ext or 'sem extensão'}")
-		safe = secure_filename(original) or f"arquivo.{ext}"
-		if "." not in safe:
-			safe = f"{safe}.{ext}"
+		original, ext, safe = _prepare_filename(file.filename)
 		file.seek(0, os.SEEK_END)
 		size = file.tell()
 		file.seek(0)
@@ -159,6 +223,139 @@ def _save_files() -> list[UtilityFile]:
 	if not saved:
 		raise ValueError("Selecione ao menos um arquivo.")
 	return saved
+
+
+@bp.route("/api/uploads", methods=["POST"])
+@login_required
+def api_upload_init():
+	data = request.get_json(silent=True) or {}
+	try:
+		size = int(data.get("size") or 0)
+	except (TypeError, ValueError):
+		size = 0
+	try:
+		original, _ext, safe = _prepare_filename(str(data.get("filename") or ""))
+	except ValueError as exc:
+		return jsonify({"error": str(exc)}), 400
+	if size <= 0:
+		return jsonify({"error": "Arquivo vazio."}), 400
+	if size > MAX_FILE_SIZE:
+		return jsonify({"error": "Cada arquivo pode ter no máximo 1 GB."}), 400
+	chunk_size = _chunk_size()
+	total_chunks = max(1, math.ceil(size / chunk_size))
+	_cleanup_stale_uploads()
+	upload_id = uuid.uuid4().hex
+	folder = _incoming_dir(upload_id)
+	folder.mkdir(parents=True, exist_ok=True)
+	title = (data.get("title") or "").strip()
+	description = (data.get("description") or "").strip() or None
+	_write_meta(folder, {
+		"user_id": current_user.id,
+		"original_filename": original,
+		"safe_name": safe,
+		"size": size,
+		"title": (title or Path(original).stem or original)[:200],
+		"description": description,
+		"mime": (data.get("mime") or "").strip() or "application/octet-stream",
+		"chunk_size": chunk_size,
+		"total_chunks": total_chunks,
+	})
+	return jsonify({
+		"upload_id": upload_id,
+		"chunk_size": chunk_size,
+		"total_chunks": total_chunks,
+	}), 201
+
+
+@bp.route("/api/uploads/<upload_id>/chunks/<int:index>", methods=["PUT"])
+@login_required
+def api_upload_chunk(upload_id: str, index: int):
+	try:
+		folder = _incoming_dir(upload_id)
+		meta = _read_meta(folder)
+	except ValueError as exc:
+		return jsonify({"error": str(exc)}), 404
+	if int(meta.get("user_id") or 0) != current_user.id:
+		return jsonify({"error": "Envio não encontrado."}), 404
+	total = int(meta.get("total_chunks") or 0)
+	if index < 0 or index >= total:
+		return jsonify({"error": "Parte inválida."}), 400
+	blob = request.files.get("chunk")
+	payload = blob.read() if blob else request.get_data(cache=False)
+	if not payload:
+		return jsonify({"error": "Parte vazia."}), 400
+	chunk_size = int(meta.get("chunk_size") or _chunk_size())
+	expected = int(meta.get("size") or 0) - index * chunk_size
+	expected = min(chunk_size, max(expected, 0))
+	if len(payload) > chunk_size or (expected and len(payload) != expected):
+		return jsonify({"error": "Tamanho da parte não confere."}), 400
+	part = folder / str(index)
+	part.write_bytes(payload)
+	return jsonify({"ok": True, "index": index})
+
+
+@bp.route("/api/uploads/<upload_id>/complete", methods=["POST"])
+@login_required
+def api_upload_complete(upload_id: str):
+	try:
+		folder = _incoming_dir(upload_id)
+		meta = _read_meta(folder)
+	except ValueError as exc:
+		return jsonify({"error": str(exc)}), 404
+	if int(meta.get("user_id") or 0) != current_user.id:
+		return jsonify({"error": "Envio não encontrado."}), 404
+	total = int(meta.get("total_chunks") or 0)
+	expected = int(meta.get("size") or 0)
+	missing = [i for i in range(total) if not (folder / str(i)).is_file()]
+	if missing:
+		return jsonify({"error": "Envio incompleto. Tente novamente."}), 400
+	unique_name = f"{uuid.uuid4().hex}_{meta.get('safe_name') or 'arquivo'}"
+	dest = os.path.join(_upload_folder(), unique_name)
+	written = 0
+	try:
+		with open(dest, "wb") as out:
+			for i in range(total):
+				with open(folder / str(i), "rb") as part:
+					while True:
+						buf = part.read(1024 * 1024)
+						if not buf:
+							break
+						out.write(buf)
+						written += len(buf)
+		if written != expected:
+			raise ValueError("Tamanho final não confere.")
+		row = UtilityFile(
+			title=(meta.get("title") or "arquivo")[:200],
+			description=meta.get("description") or None,
+			filename=unique_name,
+			original_filename=meta.get("original_filename") or "arquivo",
+			file_path=unique_name,
+			file_size=written,
+			file_type=meta.get("mime") or "application/octet-stream",
+			created_by_id=current_user.id,
+		)
+		db.session.add(row)
+		db.session.commit()
+	except ValueError as exc:
+		db.session.rollback()
+		if os.path.isfile(dest):
+			try:
+				os.remove(dest)
+			except OSError:
+				pass
+		return jsonify({"error": str(exc)}), 400
+	except Exception:
+		db.session.rollback()
+		if os.path.isfile(dest):
+			try:
+				os.remove(dest)
+			except OSError:
+				pass
+		current_app.logger.exception("Falha ao concluir envio de utilitários")
+		return jsonify({"error": "Não foi possível concluir o envio."}), 500
+	finally:
+		shutil.rmtree(folder, ignore_errors=True)
+	return jsonify(_serialize(row, include_author=True)), 201
 
 
 @bp.route("/api/publico")
