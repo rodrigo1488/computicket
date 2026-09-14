@@ -1,5 +1,7 @@
 """API de notificações persistentes e assinaturas Web Push."""
 
+import time
+
 from flask import Blueprint, jsonify, request
 from flask_login import current_user, login_required
 
@@ -254,10 +256,16 @@ def engine_internal_chat_message():
 		return jsonify({"error": "unauthorized"}), 401
 
 	data = request.get_json(silent=True) or {}
+	kind = str(data.get("kind") or "message").strip().lower()
 	message_id = str(data.get("id") or data.get("messageId") or "").strip()
 	chat_id = data.get("chatId")
-	if not message_id or not chat_id:
-		return jsonify({"error": "id e chatId são obrigatórios."}), 400
+	if not chat_id:
+		return jsonify({"error": "chatId é obrigatório."}), 400
+	if not message_id:
+		if kind == "nudge":
+			message_id = str(int(time.time() * 1000))
+		else:
+			return jsonify({"error": "id e chatId são obrigatórios."}), 400
 
 	from app.models import HelpDeskAgentMap
 
@@ -299,24 +307,36 @@ def engine_internal_chat_message():
 
 	is_group = bool(data.get("isGroup"))
 	chat_title = (data.get("chatTitle") or "").strip()
-	body = (data.get("body") or "").strip()
-	if not body and data.get("mediaName"):
-		body = f"📎 {data.get('mediaName')}"
-	if not body:
-		body = "Nova mensagem"
-
-	if is_group:
-		group_label = chat_title if chat_title and chat_title.casefold() != "colaborador" else "grupo"
-		title = f"{sender_name} em {group_label}"[:200]
-		message = f"{sender_name}: {body}"[:1000]
+	if kind == "nudge":
+		title = f"{sender_name} chamou sua atenção"[:200]
+		if is_group:
+			group_label = chat_title if chat_title and chat_title.casefold() != "colaborador" else "grupo"
+			message = f"No grupo {group_label}"[:1000]
+		else:
+			message = "Chat interno"
+		entity_id = f"ic-nudge:{chat_id_int}:{message_id}"
+		notification_type = "internal_chat_nudge"
 	else:
-		title = f"Mensagem de {sender_name}"[:200]
-		message = body[:1000]
+		body = (data.get("body") or "").strip()
+		if not body and data.get("mediaName"):
+			body = f"📎 {data.get('mediaName')}"
+		if not body:
+			body = "Nova mensagem"
 
-	entity_id = f"ic:{chat_id_int}:{message_id}"
+		if is_group:
+			group_label = chat_title if chat_title and chat_title.casefold() != "colaborador" else "grupo"
+			title = f"{sender_name} em {group_label}"[:200]
+			message = f"{sender_name}: {body}"[:1000]
+		else:
+			title = f"Mensagem de {sender_name}"[:200]
+			message = body[:1000]
+
+		entity_id = f"ic:{chat_id_int}:{message_id}"
+		notification_type = "internal_chat"
+
 	items = create_notifications(
 		recipients,
-		notification_type="internal_chat",
+		notification_type=notification_type,
 		title=title,
 		message=message,
 		url=f"/chat?c={chat_id_int}",

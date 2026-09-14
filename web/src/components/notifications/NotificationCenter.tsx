@@ -1,7 +1,7 @@
 "use client";
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bell, CalendarDays, Columns3, FileSignature, MessageCircle, Pause, Ticket, X } from "lucide-react";
+import { Bell, CalendarDays, Columns3, FileSignature, MessageCircle, Pause, Ticket, Vibrate, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { io } from "socket.io-client";
@@ -17,6 +17,7 @@ import {
   isEngineSocketSameOrigin,
   resolveEngineSocketUrl,
 } from "@/lib/helpdesk";
+import { shakeApp } from "@/lib/nudge-shake";
 import {
   deliverNotificationOnce,
   helpdeskMessageDeliveryKey,
@@ -33,7 +34,7 @@ import {
 
 type AppNotification = {
   id: number;
-  type: "message" | "ticket" | "appointment" | "internal_chat" | "helpdesk_pending" | "contract_expiry" | string;
+  type: "message" | "ticket" | "appointment" | "internal_chat" | "internal_chat_nudge" | "helpdesk_pending" | "contract_expiry" | string;
   title: string;
   message: string;
   url?: string | null;
@@ -47,7 +48,7 @@ type PushConfig = { enabled: boolean; publicKey?: string | null };
 
 function deliveryKeyFor(notification: AppNotification): string | null {
   const entity = String(notification.entity_id || "").trim();
-  if (entity.startsWith("ic:")) return entity;
+  if (entity.startsWith("ic:") || entity.startsWith("ic-nudge:")) return entity;
   if (isHelpdeskNotification(notification) || notification.type === "message") {
     const hd = helpdeskMessageDeliveryKey(entity);
     if (hd) return hd;
@@ -75,6 +76,7 @@ async function registerPush(publicKey: string) {
 }
 
 function iconFor(type: string) {
+  if (type === "internal_chat_nudge") return Vibrate;
   if (type === "message" || type === "internal_chat" || type === "helpdesk_pending") return MessageCircle;
   if (type === "appointment") return CalendarDays;
   if (type === "contract_expiry") return FileSignature;
@@ -85,7 +87,7 @@ function iconFor(type: string) {
 }
 
 function notificationTone(type: string) {
-  if (type === "internal_chat") return "bg-progress-bg text-brand";
+  if (type === "internal_chat" || type === "internal_chat_nudge") return "bg-progress-bg text-brand";
   if (type === "helpdesk_pending") return "bg-open-bg text-warn-fg";
   if (type === "message") return "bg-progress-bg text-progress";
   if (type === "appointment") return "bg-open-bg text-warn-fg";
@@ -106,8 +108,16 @@ function conversationIdFromUrl(url?: string | null): number | null {
 function isInternalChatNotification(notification: AppNotification) {
   return (
     notification.type === "internal_chat" ||
+    notification.type === "internal_chat_nudge" ||
     notification.entity_type === "internal_chat" ||
     String(notification.url || "").startsWith("/chat")
+  );
+}
+
+function isInternalChatNudge(notification: AppNotification) {
+  return (
+    notification.type === "internal_chat_nudge" ||
+    String(notification.entity_id || "").startsWith("ic-nudge:")
   );
 }
 
@@ -210,9 +220,10 @@ export function NotificationCenter() {
 
       return deliverNotificationOnce(deliveryKey, () => {
         const internal = isInternalChatNotification(notification);
+        const nudge = isInternalChatNudge(notification);
         const targetId = conversationIdFromUrl(notification.url);
-        if (internal) bumpInternalChatBadge();
-        else bumpHelpdeskBadge();
+        if (internal && !nudge) bumpInternalChatBadge();
+        else if (!internal) bumpHelpdeskBadge();
         if (internal) {
           const sound = soundKindForNotification(notification.type);
           if (sound) playNotificationSound(sound, deliveryKey);
@@ -223,9 +234,12 @@ export function NotificationCenter() {
             deliveryKey,
           );
         }
-        const focused = internal
-          ? isInternalChatFocused(targetId)
-          : isHelpdeskConversationFocused(targetId);
+        if (nudge) shakeApp();
+        const focused = nudge
+          ? false
+          : internal
+            ? isInternalChatFocused(targetId)
+            : isHelpdeskConversationFocused(targetId);
         if (!focused) show(notification);
       });
     },
@@ -357,9 +371,28 @@ export function NotificationCenter() {
     };
     const onInternalChat = (payload: {
       action?: string;
+      id?: string | number;
+      from?: { id?: number; name?: string };
       newMessage?: { id?: string | number; chatId?: number; senderId?: number; body?: string; message?: string; mediaName?: string };
       chat?: { id?: number; title?: string; isGroup?: boolean };
     }) => {
+      if (payload.action === "nudge") {
+        const chatId = Number(payload.chat?.id);
+        const fromName = (payload.from?.name || "").trim() || "Colega";
+        const nudgeKey = `ic-nudge:${chatId || 0}:${payload.id || Date.now()}`;
+        showMessageRef.current({
+          id: -Math.abs(hashNotificationId(nudgeKey)),
+          type: "internal_chat_nudge",
+          title: `${fromName} chamou sua atenção`,
+          message: payload.chat?.isGroup
+            ? `No grupo ${payload.chat?.title || "do chat"}`
+            : "Chat interno",
+          url: Number.isFinite(chatId) && chatId > 0 ? `/chat?c=${chatId}` : "/chat",
+          entity_type: "internal_chat",
+          entity_id: nudgeKey,
+        });
+        return;
+      }
       const incoming = payload.newMessage;
       if (!incoming?.id) return;
       if (Number(incoming.senderId) === Number(engine.engineUserId)) return;

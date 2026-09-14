@@ -192,7 +192,7 @@ export function playNotificationSound(kind: string, deliveryKey?: string | null)
 }
 
 export function soundKindForNotification(type?: string | null) {
-  if (type === "internal_chat") return "internal_chat";
+  if (type === "internal_chat" || type === "internal_chat_nudge") return "internal_chat";
   if (type === "helpdesk_pending") return "helpdesk_pending";
   if (type === "message") return "message";
   return null;

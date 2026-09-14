@@ -189,6 +189,7 @@ export const internalChat = {
   removeMessage: (id: number, messageId: number) =>
     flask.delete<InternalChatMessage>(`/internal-chat/api/chats/${id}/messages/${messageId}`),
   read: (id: number) => flask.post<InternalChat>(`/internal-chat/api/chats/${id}/read`),
+  nudge: (id: number) => flask.post<{ ok: boolean; id: number; chatId: number }>(`/internal-chat/api/chats/${id}/nudge`),
   createGroup: (title: string, userIds: number[]) =>
     flask.post<InternalChat>("/internal-chat/api/chats", { title, users: userIds.map((id) => ({ id })) }),
   updateGroup: (id: number, payload: { title?: string; userIds?: number[] }) =>

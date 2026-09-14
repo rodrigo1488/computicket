@@ -13,6 +13,7 @@ import {
   Share2,
   Trash2,
   Users,
+  Vibrate,
 } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -26,6 +27,7 @@ import { Modal } from "@/components/ui/Modal";
 import { UserAvatar } from "@/components/ui/UserAvatar";
 import { cn } from "@/lib/cn";
 import { parseChatShare, chatSharePreview } from "@/lib/chat-share";
+import { shakeApp } from "@/lib/nudge-shake";
 import {
   engineSocketOptions,
   helpdesk,
@@ -52,6 +54,14 @@ type ChatEventPayload = {
   chat?: InternalChat;
   record?: InternalChat;
   id?: number | string;
+  from?: { id?: number; name?: string };
+};
+
+type NudgeNotice = {
+  id: number;
+  chatId: number;
+  name: string;
+  mine: boolean;
 };
 
 function formatClock(value?: string | null) {
@@ -154,6 +164,8 @@ export function InternalChatWorkspace() {
   const [mediaViewer, setMediaViewer] = useState<MediaViewerItem | null>(null);
   const [shareTarget, setShareTarget] = useState<ShareToChatTarget | null>(null);
   const [attachOpen, setAttachOpen] = useState(false);
+  const [nudgeNotices, setNudgeNotices] = useState<NudgeNotice[]>([]);
+  const [nudgeLockedUntil, setNudgeLockedUntil] = useState(0);
 
   const threadRef = useRef<HTMLDivElement | null>(null);
   const fileRef = useRef<HTMLInputElement | null>(null);
@@ -294,11 +306,37 @@ export function InternalChatWorkspace() {
     },
   });
 
+  const nudge = useMutation({
+    mutationFn: (id: number) => internalChat.nudge(id),
+    onSuccess: (res, id) => {
+      setError(null);
+      setNudgeLockedUntil(Date.now() + 10_000);
+      setNudgeNotices((prev) => [
+        ...prev.slice(-19),
+        { id: res.id || Date.now(), chatId: id, name: "Você", mine: true },
+      ]);
+      shakeApp();
+      stickToBottomRef.current = true;
+    },
+    onError: (e: Error) => setError(e.message),
+  });
+
   useEffect(() => {
     if (!activeId) return;
     markRead.mutate(activeId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeId]);
+
+  useEffect(() => {
+    if (!nudgeLockedUntil) return;
+    const wait = nudgeLockedUntil - Date.now();
+    if (wait <= 0) {
+      setNudgeLockedUntil(0);
+      return;
+    }
+    const timer = window.setTimeout(() => setNudgeLockedUntil(0), wait);
+    return () => window.clearTimeout(timer);
+  }, [nudgeLockedUntil]);
 
   const send = useMutation({
     mutationFn: async () => {
@@ -413,6 +451,22 @@ export function InternalChatWorkspace() {
     socket.on("disconnect", () => setConnected(false));
 
     const onChat = (payload: ChatEventPayload) => {
+      if (payload?.action === "nudge") {
+        const chatId = Number(payload.chat?.id);
+        const fromId = Number(payload.from?.id);
+        if (Number.isFinite(chatId) && chatId > 0 && fromId !== engine.engineUserId) {
+          setNudgeNotices((prev) => [
+            ...prev.slice(-19),
+            {
+              id: Number(payload.id) || Date.now(),
+              chatId,
+              name: (payload.from?.name || "").trim() || "Colega",
+              mine: false,
+            },
+          ]);
+        }
+        return;
+      }
       const incoming = payload?.newMessage;
       const chat = chatFromEvent(payload);
       const openId = activeIdRef.current;
@@ -487,7 +541,7 @@ export function InternalChatWorkspace() {
     };
     pin();
     requestAnimationFrame(pin);
-  }, [thread.length, activeId]);
+  }, [thread.length, nudgeNotices.length, activeId]);
 
   async function loadOlder() {
     if (!activeId || loadingOlder || messages.data?.hasMore === false) return;
@@ -513,6 +567,8 @@ export function InternalChatWorkspace() {
 
   const unreadInTab = filtered.reduce((sum, chat) => sum + (chat.unreads || 0), 0);
   const isOwner = !!current && current.ownerId === engineUserId;
+  const nudgeLocked = nudge.isPending || nudgeLockedUntil > Date.now();
+  const threadNudges = nudgeNotices.filter((item) => item.chatId === activeId);
 
   return (
     <div
@@ -688,6 +744,16 @@ export function InternalChatWorkspace() {
                       : current.peer?.name || "Conversa individual"}
                   </p>
                 </div>
+                <button
+                  type="button"
+                  onClick={() => current && nudge.mutate(current.id)}
+                  disabled={engineDown || nudgeLocked}
+                  className="rounded-lg p-1.5 text-muted hover:bg-open-bg hover:text-open disabled:cursor-not-allowed disabled:opacity-40"
+                  title={nudgeLocked ? "Aguarde para chamar a atenção de novo" : "Chamar atenção"}
+                  aria-label="Chamar atenção"
+                >
+                  {nudge.isPending ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Vibrate className="h-4 w-4" />}
+                </button>
                 {current.isGroup && isOwner ? (
                   <div className="flex items-center gap-1">
                     <button
@@ -733,7 +799,7 @@ export function InternalChatWorkspace() {
                     Não foi possível carregar as mensagens. {(messages.error as Error).message}
                   </p>
                 ) : null}
-                {messages.isSuccess && grouped.length === 0 ? (
+                {messages.isSuccess && grouped.length === 0 && threadNudges.length === 0 ? (
                   <p className="py-10 text-center text-sm text-muted">Nenhuma mensagem nesta conversa</p>
                 ) : null}
                 {grouped.map((group) => (
@@ -872,6 +938,11 @@ export function InternalChatWorkspace() {
                       );
                     })}
                   </div>
+                ))}
+                {threadNudges.map((notice) => (
+                  <p key={`${notice.chatId}-${notice.id}`} className="py-1 text-center text-[11px] italic text-muted">
+                    {notice.mine ? "Você chamou a atenção" : `${notice.name} chamou sua atenção`}
+                  </p>
                 ))}
               </div>
 

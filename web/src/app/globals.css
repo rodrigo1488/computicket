@@ -137,3 +137,46 @@ button:focus-visible {
   width: 0;
   height: 0;
 }
+
+@keyframes app-nudge-shake {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0);
+  }
+  10% {
+    transform: translate3d(-14px, -5px, 0);
+  }
+  20% {
+    transform: translate3d(14px, 5px, 0);
+  }
+  30% {
+    transform: translate3d(-12px, 4px, 0);
+  }
+  40% {
+    transform: translate3d(12px, -4px, 0);
+  }
+  50% {
+    transform: translate3d(-8px, 3px, 0);
+  }
+  60% {
+    transform: translate3d(8px, -2px, 0);
+  }
+  75% {
+    transform: translate3d(-4px, 1px, 0);
+  }
+  90% {
+    transform: translate3d(2px, 0, 0);
+  }
+}
+
+html.app-nudge-shake,
+#app-shell.app-nudge-shake {
+  animation: app-nudge-shake 0.65s ease-in-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html.app-nudge-shake,
+  #app-shell.app-nudge-shake {
+    animation: none;
+  }
+}

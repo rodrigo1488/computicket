@@ -11,6 +11,7 @@ export type InternalChatNotifyPayload = {
   isGroup?: boolean | null;
   chatTitle?: string | null;
   recipientEngineUserIds: number[];
+  kind?: "message" | "nudge";
 };
 
 /**
@@ -57,7 +58,8 @@ export async function notifyComputicketInternalChat(
         mediaName: payload.mediaName,
         isGroup: !!payload.isGroup,
         chatTitle: payload.chatTitle,
-        recipientEngineUserIds: recipients
+        recipientEngineUserIds: recipients,
+        kind: payload.kind || "message"
       },
       {
         headers: { "X-Internal-Token": token },

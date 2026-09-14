@@ -18,6 +18,7 @@ import CreateMessageService from "../services/ChatService/CreateMessageService";
 import User from "../models/User";
 import ChatUser from "../models/ChatUser";
 import { notifyComputicketInternalChat } from "../helpers/notifyComputicketInternalChat";
+import { assertNudgeAllowed, nudgeCooldownKey } from "../helpers/nudgeCooldown";
 
 const chatWithUsersInclude = [
   { model: User, as: "owner", attributes: ["id", "name", "avatar"] },
@@ -383,6 +384,61 @@ export const checkAsRead = async (
   });
 
   return res.json(chat);
+};
+
+export const nudge = async (req: Request, res: Response): Promise<Response> => {
+  const { companyId } = req.user;
+  const senderId = +req.user.id;
+  const chatId = +req.params.id;
+
+  await assertUserInChat(chatId, senderId);
+
+  const chat = await Chat.findByPk(chatId, {
+    include: chatWithUsersInclude
+  });
+  if (!chat) {
+    throw new AppError("Chat not found", 404);
+  }
+
+  assertNudgeAllowed(nudgeCooldownKey(senderId, chatId));
+
+  const sender =
+    (chat.users || []).find(user => user.userId === senderId)?.user ||
+    (await User.findByPk(senderId, { attributes: ["id", "name", "avatar"] }));
+  const senderName = (sender?.name || "").trim() || "Colega";
+  const nudgeId = Date.now();
+  const payload = {
+    action: "nudge" as const,
+    id: nudgeId,
+    chat,
+    from: { id: senderId, name: senderName }
+  };
+
+  const io = getIO();
+  io.to(`company-${companyId}-mainchannel`).emit(
+    `company-${companyId}-chat-${chatId}`,
+    payload
+  );
+  (chat.users || []).forEach(user => {
+    if (user.userId === senderId) return;
+    io.to(`user-${user.userId}`).emit(
+      `company-${companyId}-chat-user-${user.userId}`,
+      payload
+    );
+  });
+
+  void notifyComputicketInternalChat({
+    id: nudgeId,
+    chatId,
+    senderEngineUserId: senderId,
+    senderName,
+    isGroup: !!chat.isGroup,
+    chatTitle: chat.title,
+    recipientEngineUserIds: (chat.users || []).map(user => user.userId),
+    kind: "nudge"
+  });
+
+  return res.json({ ok: true, id: nudgeId, chatId });
 };
 
 export const messages = async (

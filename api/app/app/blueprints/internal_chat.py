@@ -589,6 +589,21 @@ def delete_message(chat_id: int, message_id: int):
         return jsonify({"error": "Não foi possível excluir a mensagem. Tente novamente."}), 500
 
 
+@bp.route("/api/chats/<int:chat_id>/nudge", methods=["POST"])
+@login_required
+def nudge_chat(chat_id: int):
+    try:
+        result = agent_request("POST", f"/chats/{chat_id}/nudge", json={})
+        if isinstance(result, dict):
+            return jsonify(result)
+        return jsonify({"ok": True, "chatId": chat_id})
+    except EngineError as exc:
+        return _fail(exc)
+    except Exception:
+        current_app.logger.exception("Falha ao chamar atenção no chat interno")
+        return jsonify({"error": "Não foi possível chamar a atenção. Tente novamente."}), 500
+
+
 @bp.route("/api/chats/<int:chat_id>/read", methods=["POST"])
 @login_required
 def mark_read(chat_id: int):

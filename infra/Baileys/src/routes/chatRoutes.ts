@@ -24,6 +24,8 @@ routes.delete("/chats/:id/messages/:messageId", isAuth, ChatController.deleteMes
 
 routes.post("/chats/:id/read", isAuth, ChatController.checkAsRead);
 
+routes.post("/chats/:id/nudge", isAuth, ChatController.nudge);
+
 routes.post("/chats", isAuth, ChatController.store);
 
 routes.put("/chats/:id", isAuth, ChatController.update);

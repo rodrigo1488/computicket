@@ -9,7 +9,7 @@ self.addEventListener("push", (event) => {
   event.waitUntil(
     (async () => {
       const targetUrl = payload.url || "/";
-      if (await isInternalChatFocused(targetUrl)) {
+      if (payload.type !== "internal_chat_nudge" && (await isInternalChatFocused(targetUrl))) {
         const silent = await self.registration.showNotification(payload.title || "Computicket", {
           silent: true,
           tag: "ic-focused-skip",
@@ -20,7 +20,10 @@ self.addEventListener("push", (event) => {
         return silent;
       }
 
-      const internal = payload.type === "internal_chat" || payload.entity_type === "internal_chat";
+      const internal =
+        payload.type === "internal_chat" ||
+        payload.type === "internal_chat_nudge" ||
+        payload.entity_type === "internal_chat";
       const pending = payload.type === "helpdesk_pending";
       const sound = internal
         ? "/sounds/notificacao_chat.mp3"
