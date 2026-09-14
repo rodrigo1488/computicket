@@ -512,9 +512,15 @@ export const ActionsWebhookService = async (
           lastFlowId: nodeSelected.id,
           status: "pending",
           userId: null,
+          chatbot: false,
+          useIntegration: true,
+          flowWebhook: false,
           ...(queueId ? { queueId: Number(queueId) } : {})
         });
         ticket.dataWebhook = nextVars;
+        ticket.chatbot = false;
+        ticket.useIntegration = true;
+        ticket.flowWebhook = false;
 
         const confirmBody = replaceMessages(
           nextVars,

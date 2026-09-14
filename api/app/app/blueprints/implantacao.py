@@ -368,6 +368,11 @@ def _ensure_step_ticket(item: Implantation, step: ImplantationStep) -> Ticket | 
 		)
 	except Exception:
 		pass
+	try:
+		from ..ticket_notify import notify_assigned_technician
+		notify_assigned_technician(ticket)
+	except Exception:
+		pass
 	return ticket
 
 

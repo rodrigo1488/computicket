@@ -301,6 +301,7 @@ class Ticket(db.Model):
 	visto = db.Column(db.Boolean, default=False)  # Marca se o ticket foi visualizado pelo usuário
 	dav_id = db.Column(db.Integer, nullable=True)
 	dav_codigo = db.Column(db.Integer, nullable=True)
+	public_token = db.Column(db.String(64), unique=True, nullable=True, index=True)
 	
 	# Relacionamento pai/filho para continuação de atendimento
 	parent_id = db.Column(db.Integer, db.ForeignKey("ticket.id"), nullable=True)

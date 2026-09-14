@@ -722,13 +722,18 @@ def create_app() -> Flask:
 				print("✅ Coluna 'support_included' adicionada à tabela plan")
 			ensure_column("user", "phone", "VARCHAR(30)")
 			ensure_column("user", "avatar_path", "VARCHAR(500)")
+			ensure_column("ticket", "public_token", "VARCHAR(64)")
+			from sqlalchemy import text
+			db.session.execute(text(
+				"CREATE UNIQUE INDEX IF NOT EXISTS ix_ticket_public_token ON ticket (public_token)"
+			))
+			db.session.commit()
 			ensure_column("budget_item", "option_key", "VARCHAR(40)")
 			ensure_column("budget_item", "option_label", "VARCHAR(200)")
 			ensure_column("budget", "selected_option_key", "VARCHAR(40)")
 			from .models import PlanAdditional, CustomPlan, CustomPlanItem  # noqa: F401
 			ensure_tables_from_metadata(["plan_additional", "custom_plan", "custom_plan_item"])
 			# Corrige tickets cancelados que foram reabertos por corrida stop×cancel
-			from sqlalchemy import text
 			repaired = db.session.execute(text(
 				"UPDATE ticket SET status = 'cancelado', in_progress_started_at = NULL "
 				"WHERE cancelled_at IS NOT NULL AND status <> 'cancelado'"

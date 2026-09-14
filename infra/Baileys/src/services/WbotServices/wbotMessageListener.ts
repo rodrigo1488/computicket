@@ -57,6 +57,7 @@ import {
   shouldSendOutOfHoursMessage,
   tryClaimConnectionGreeting
 } from "../../helpers/connectionGreetingLimit";
+import { hasOpenedComputicketChamado } from "../../helpers/flowTicketGuard";
 import { runWithFfmpegConcurrency } from "../../utils/ffmpegConcurrency";
 import CreateOrUpdateContactService from "../ContactServices/CreateOrUpdateContactService";
 import FindOrCreateTicketService from "../TicketServices/FindOrCreateTicketService";
@@ -2249,6 +2250,14 @@ const verifyQueue = async (
   const { queues, greetingMessage, maxUseBotQueues, timeUseBotQueues } =
     whatsappConn;
 
+  if (hasOpenedComputicketChamado(ticket)) {
+    logger.info({
+      msg: "verifyQueue: chamado já aberto neste ticket — menu de setor não enviado",
+      ticketId: ticket.id
+    });
+    return;
+  }
+
   if (hasWelcomeFlow(whatsappConn)) {
     logger.info({
       msg: "verifyQueue: fluxo de boas-vindas na conexão — menu de setor não enviado",
@@ -2714,6 +2723,14 @@ const handleChartbot = async (
   wbot: Session,
   dontReadTheFirstQuestion: boolean = false
 ) => {
+  if (hasOpenedComputicketChamado(ticket)) {
+    logger.info({
+      msg: "handleChartbot: chamado já aberto — menu do bot não enviado",
+      ticketId: ticket.id
+    });
+    return;
+  }
+
   const queue = await Queue.findByPk(ticket.queueId, {
     include: [
       {
@@ -3276,6 +3293,14 @@ const flowbuilderIntegration = async (
         return true;
       }
     }
+  }
+
+  if (hasOpenedComputicketChamado(ticket)) {
+    logger.info({
+      msg: "FlowBuilder: chamado já aberto neste ticket — fluxo não reiniciado",
+      ticketId: ticket.id
+    });
+    return true;
   }
 
   // Contato novo (sem ticket anterior além do atual) → preferir boas-vindas
@@ -4292,7 +4317,7 @@ const handleMessage = async (
         order: [["id", "DESC"]]
       });
 
-      await handleMessageIntegration(
+      const integrationHandled = await handleMessageIntegration(
         msg,
         wbot,
         integrations,
@@ -4303,6 +4328,19 @@ const handleMessage = async (
         contact,
         isFirstMsg
       );
+      if (integrationHandled || hasOpenedComputicketChamado(ticket)) {
+        return;
+      }
+    }
+
+    await ticket.reload();
+
+    if (hasOpenedComputicketChamado(ticket)) {
+      logger.info({
+        msg: "handleMessage: chamado já aberto — menu de setor e chatbot não disparados",
+        ticketId: ticket.id
+      });
+      return;
     }
 
     if (

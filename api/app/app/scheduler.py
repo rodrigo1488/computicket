@@ -613,6 +613,11 @@ def criar_ticket_automatico_scheduler(appointment):
             entity_type="ticket",
             entity_id=ticket.id,
         )
+        try:
+            from app.ticket_notify import notify_assigned_technician
+            notify_assigned_technician(ticket)
+        except Exception:
+            pass
         
         print(f"✅ Ticket criado com sucesso: ID {ticket.id}")
         return True

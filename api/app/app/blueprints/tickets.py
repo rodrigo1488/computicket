@@ -549,41 +549,7 @@ def create_ticket():
 		
 		import logging
 		logging.warning(f"✅ TICKET CRIADO - ID: {ticket.id}, Título: {ticket.title}, User: {current_user.name}")
-		from ..notification_service import create_notifications, ticket_recipient_ids
-		create_notifications(
-			ticket_recipient_ids(ticket.assigned_to_id),
-			notification_type="ticket",
-			title=f"Novo ticket #{ticket.id}",
-			message=f"{ticket.title} · {ticket.display_client_name() or 'Cliente não informado'}",
-			url=f"/tickets/{ticket.id}",
-			entity_type="ticket",
-			entity_id=ticket.id,
-		)
-		
-		# Enviar email de notificação para o técnico se atribuído
-		if assigned_to_id:
-			assigned_user = User.query.get(assigned_to_id)
-			if assigned_user and assigned_user.email:
-				from ..blueprints.utils import send_ticket_notification_email
-				
-				# Preparar dados do ticket para o email
-				service = Service.query.get(service_id) if service_id else None
-				ticket_data = {
-					'id': ticket.id,
-					'title': ticket.title,
-					'description': ticket.description,
-					'client_name': selected_ext.get("name"),
-					'priority': 'media',  # Prioridade padrão, pode ser configurável
-					'service_name': service.name if service else None,
-					'created_at': ticket.created_at
-				}
-				
-				# Enviar email de notificação
-				send_ticket_notification_email(
-					technician_email=assigned_user.email,
-					technician_name=assigned_user.name,
-					ticket_data=ticket_data
-				)
+		_notify_new_ticket(ticket)
 		
 		flash("Ticket aberto.")
 		return redirect(url_for("tickets.list_tickets"))
@@ -2876,6 +2842,23 @@ def _notify_new_ticket(ticket: Ticket) -> None:
 		)
 	except Exception:
 		pass
+	try:
+		from ..ticket_notify import notify_assigned_technician
+		notify_assigned_technician(ticket)
+	except Exception:
+		current_app.logger.exception("Falha ao avisar o técnico do chamado %s", ticket.id)
+
+
+@bp.route("/api/publico/<token>")
+def api_public_ticket(token: str):
+	clean = (token or "").strip()
+	if not clean:
+		return jsonify({"error": "Link inválido."}), 404
+	ticket = Ticket.query.filter_by(public_token=clean).first()
+	if not ticket:
+		return jsonify({"error": "Chamado não encontrado."}), 404
+	from ..ticket_notify import serialize_public_ticket
+	return jsonify(serialize_public_ticket(ticket))
 
 
 def _resolve_external_client(external_client_id, fallback_name: str):
