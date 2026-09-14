@@ -53,8 +53,8 @@ import {
   isDuplicateAutomatedEcho
 } from "../../helpers/automatedMessage";
 import {
-  isConnectionGreetingLimitEnabled,
   shouldSendConnectionGreeting,
+  shouldSendOutOfHoursMessage,
   tryClaimConnectionGreeting
 } from "../../helpers/connectionGreetingLimit";
 import { runWithFfmpegConcurrency } from "../../utils/ffmpegConcurrency";
@@ -2446,7 +2446,11 @@ const verifyQueue = async (
             ticket.contact
           );
 
-          if (queue.outOfHoursMessage && queue.outOfHoursMessage.trim().length > 0) {
+          if (
+            queue.outOfHoursMessage &&
+            queue.outOfHoursMessage.trim().length > 0 &&
+            (await shouldSendOutOfHoursMessage(ticket))
+          ) {
             // CORREÇÃO: Usar getChatJid para obter o destino correto do chat
             const chatJid = getChatJid(ticket);
             const sentMessage = await wbot.sendMessage(
@@ -2593,10 +2597,9 @@ const verifyQueue = async (
       chatbotAt: null
     });
 
-    if (await isConnectionGreetingLimitEnabled(companyId)) {
-      if (!(await tryClaimConnectionGreeting(ticket))) {
-        return;
-      }
+    // "#" pede o menu de propósito — não bloquear pelo claim da saudação automática
+    if (selectedOption !== "#" && !(await tryClaimConnectionGreeting(ticket))) {
+      return;
     }
 
     if (buttonActive.value === "text") {
@@ -3742,9 +3745,12 @@ const handleMessage = async (
             String(whatsapp.outOfHoursMessage || "").trim();
           const body = `\u200e ${outOfHoursText}`;
 
-          const debouncedSentMessage = debounce(
-            async () => {
-              if (outOfHoursText.length > 0) {
+          if (
+            outOfHoursText.length > 0 &&
+            (await shouldSendOutOfHoursMessage(ticket))
+          ) {
+            const debouncedSentMessage = debounce(
+              async () => {
                 const chatJid = getChatJid(ticket);
                 const sentMsg = await wbot.sendMessage(
                   chatJid,
@@ -3753,12 +3759,12 @@ const handleMessage = async (
                   }
                 );
                 if (sentMsg) await verifyMessage(sentMsg, ticket, contact);
-              }
-            },
-            3000,
-            ticket.id
-          );
-          debouncedSentMessage();
+              },
+              3000,
+              ticket.id
+            );
+            debouncedSentMessage();
+          }
           return;
         }
 
@@ -3798,9 +3804,13 @@ const handleMessage = async (
 
             if (now.isBefore(startTime) || now.isAfter(endTime)) {
               const body = `${queue.outOfHoursMessage}`;
-              const debouncedSentMessage = debounce(
-                async () => {
-                  if (queue.outOfHoursMessage && queue.outOfHoursMessage.trim().length > 0) {
+              if (
+                queue.outOfHoursMessage &&
+                queue.outOfHoursMessage.trim().length > 0 &&
+                (await shouldSendOutOfHoursMessage(ticket))
+              ) {
+                const debouncedSentMessage = debounce(
+                  async () => {
                     // Usar getChatJid para obter destino correto
                     const chatJid = getChatJid(ticket);
                     const sentMsg = await wbot.sendMessage(
@@ -3810,12 +3820,12 @@ const handleMessage = async (
                       }
                     );
                     if (sentMsg) await verifyMessage(sentMsg, ticket, contact);
-                  }
-                },
-                3000,
-                ticket.id
-              );
-              debouncedSentMessage();
+                  },
+                  3000,
+                  ticket.id
+                );
+                debouncedSentMessage();
+              }
               return;
             }
           }
@@ -4448,22 +4458,24 @@ const handleMessage = async (
 
           if (now.isBefore(startTime) || now.isAfter(endTime)) {
             const body = queue.outOfHoursMessage;
-            const debouncedSentMessage = debounce(
-              async () => {
-                // Usar getChatJid para obter destino correto
-                const chatJid = getChatJid(ticket);
-                const sentMsg = await wbot.sendMessage(
-                  chatJid,
-                  {
-                    text: body
-                  }
-                );
-                if (sentMsg) await verifyMessage(sentMsg, ticket, contact);
-              },
-              3000,
-              ticket.id
-            );
-            debouncedSentMessage();
+            if (await shouldSendOutOfHoursMessage(ticket)) {
+              const debouncedSentMessage = debounce(
+                async () => {
+                  // Usar getChatJid para obter destino correto
+                  const chatJid = getChatJid(ticket);
+                  const sentMsg = await wbot.sendMessage(
+                    chatJid,
+                    {
+                      text: body
+                    }
+                  );
+                  if (sentMsg) await verifyMessage(sentMsg, ticket, contact);
+                },
+                3000,
+                ticket.id
+              );
+              debouncedSentMessage();
+            }
             return;
           }
         }
@@ -4479,11 +4491,12 @@ const handleMessage = async (
       !whatsapp?.queues?.length &&
       !ticket.userId &&
       !isGroup &&
-      !isFromMe
+      !isFromMe &&
+      whatsapp.greetingMessage
     ) {
       const canSendGreeting = await shouldSendConnectionGreeting(ticket);
 
-      if (canSendGreeting && whatsapp.greetingMessage) {
+      if (canSendGreeting) {
         const debouncedSentMessage = debounce(
           async () => {
             // Usar getChatJid para obter destino correto

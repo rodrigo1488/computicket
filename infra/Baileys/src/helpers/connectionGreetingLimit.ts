@@ -1,56 +1,41 @@
 import { subHours } from "date-fns";
 import { Op, col, where as sqlWhere } from "sequelize";
-import Message from "../models/Message";
 import Ticket from "../models/Ticket";
-import ListSettingsServiceOne from "../services/SettingServices/ListSettingsServiceOne";
 
-export const isFirstCustomerMessageInTicket = async (
-  ticket: Pick<Ticket, "id" | "sessionStartedAt">
-): Promise<boolean> => {
-  const where: Record<string, unknown> = {
-    ticketId: ticket.id,
-    fromMe: false
-  };
+export type AutoMessageKind = "greeting" | "outOfHours";
 
-  if (ticket.sessionStartedAt) {
-    where.createdAt = { [Op.gte]: ticket.sessionStartedAt };
-  }
-
-  const customerMessageCount = await Message.count({ where });
-
-  return customerMessageCount <= 1;
-};
-
-export const isConnectionGreetingLimitEnabled = async (
-  companyId: number
-): Promise<boolean> => {
-  const setting = await ListSettingsServiceOne({
-    companyId,
-    key: "limitConnectionGreeting"
-  });
-
-  return setting?.value === "enabled";
+const FIELD_BY_KIND: Record<
+  AutoMessageKind,
+  "lastGreetingSentAt" | "lastOutOfHoursSentAt"
+> = {
+  greeting: "lastGreetingSentAt",
+  outOfHours: "lastOutOfHoursSentAt"
 };
 
 /**
- * Claim atômico do direito de enviar saudação da conexão.
- * Só um processo concorrente consegue atualizar lastGreetingSentAt.
+ * Claim atômico do direito de enviar uma mensagem automática (saudação ou fora
+ * do expediente). Só um processo concorrente consegue gravar o timestamp.
+ *
+ * Libera de novo após 24h ou quando o ticket reabre (sessionStartedAt mais
+ * recente que o último envio).
  */
-export const tryClaimConnectionGreeting = async (
-  ticket: Pick<Ticket, "id" | "sessionStartedAt" | "lastGreetingSentAt">
+export const tryClaimAutoMessageOnce = async (
+  ticket: Pick<Ticket, "id">,
+  kind: AutoMessageKind
 ): Promise<boolean> => {
+  const field = FIELD_BY_KIND[kind];
   const cutoff24h = subHours(new Date(), 24);
   const now = new Date();
 
   const [affected] = await Ticket.update(
-    { lastGreetingSentAt: now },
+    { [field]: now },
     {
       where: {
         id: ticket.id,
         [Op.or]: [
-          { lastGreetingSentAt: null },
-          { lastGreetingSentAt: { [Op.lt]: cutoff24h } },
-          sqlWhere(col("lastGreetingSentAt"), "<", col("sessionStartedAt"))
+          { [field]: null },
+          { [field]: { [Op.lt]: cutoff24h } },
+          sqlWhere(col(field), "<", col("sessionStartedAt"))
         ]
       }
     }
@@ -59,20 +44,18 @@ export const tryClaimConnectionGreeting = async (
   return affected > 0;
 };
 
-/**
- * Decide se a saudação da conexão deve ser enviada.
- * - Setting desativado: comportamento legado (primeira msg do cliente na sessão).
- * - Setting ativado: claim atômico (1x / 24h ou após reabertura).
- */
-export const shouldSendConnectionGreeting = async (
-  ticket: Pick<
-    Ticket,
-    "id" | "companyId" | "sessionStartedAt" | "lastGreetingSentAt"
-  >
-): Promise<boolean> => {
-  if (!(await isConnectionGreetingLimitEnabled(ticket.companyId))) {
-    return isFirstCustomerMessageInTicket(ticket);
-  }
+export const tryClaimConnectionGreeting = async (
+  ticket: Pick<Ticket, "id">
+): Promise<boolean> => tryClaimAutoMessageOnce(ticket, "greeting");
 
-  return tryClaimConnectionGreeting(ticket);
-};
+export const tryClaimOutOfHours = async (
+  ticket: Pick<Ticket, "id">
+): Promise<boolean> => tryClaimAutoMessageOnce(ticket, "outOfHours");
+
+export const shouldSendConnectionGreeting = async (
+  ticket: Pick<Ticket, "id">
+): Promise<boolean> => tryClaimConnectionGreeting(ticket);
+
+export const shouldSendOutOfHoursMessage = async (
+  ticket: Pick<Ticket, "id">
+): Promise<boolean> => tryClaimOutOfHours(ticket);

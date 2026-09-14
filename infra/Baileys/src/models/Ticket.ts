@@ -187,6 +187,10 @@ class Ticket extends Model<Ticket> {
   @AllowNull(true)
   @Column(DataType.DATE)
   lastGreetingSentAt: Date;
+
+  @AllowNull(true)
+  @Column(DataType.DATE)
+  lastOutOfHoursSentAt: Date;
 }
 
 export default Ticket;
