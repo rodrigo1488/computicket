@@ -7,9 +7,9 @@ const engineOrigin = process.env.WHATSAPP_ENGINE_URL || "http://127.0.0.1:4000";
 const nextConfig: NextConfig = {
   outputFileTracingRoot: path.join(__dirname),
   allowedDevOrigins: ["192.168.2.122", "localhost", "127.0.0.1"],
-  // Rewrite /flask/* → API: vídeos do Help Desk podem levar minutos (upload + WhatsApp).
+  // Rewrite /flask/* → API: utilitários até 1 GB e vídeos do Help Desk podem levar vários minutos.
   experimental: {
-    proxyTimeout: 300_000,
+    proxyTimeout: 1_200_000,
   },
   async rewrites() {
     return {
@@ -17,6 +17,7 @@ const nextConfig: NextConfig = {
         { source: "/orcamentos/publico/:token", destination: `${flaskOrigin}/orcamentos/publico/:token` },
         { source: "/orcamentos/publico/:token/:path*", destination: `${flaskOrigin}/orcamentos/publico/:token/:path*` },
         { source: "/orcamentos/logo", destination: `${flaskOrigin}/orcamentos/logo` },
+        { source: "/utilitarios/arquivo/:id", destination: `${flaskOrigin}/utilitarios/api/publico/:id/download` },
         // Fallback: o cliente usa `/flask-sio` e `/engine-sio` (rotas App Router).
         // Paths com `.io` o Next trata como arquivo estático → 404; middleware reescreve.
         { source: "/socket.io", destination: `${engineOrigin}/socket.io/` },

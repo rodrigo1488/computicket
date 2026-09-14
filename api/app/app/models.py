@@ -2549,3 +2549,57 @@ class ImplantationStepLog(db.Model):
 
 	def __repr__(self) -> str:
 		return f"<ImplantationStepLog imp={self.implantation_id} step={self.step_id}>"
+
+
+class UtilityFile(db.Model):
+	"""Arquivo público da rota /utilitarios (upload interno, download sem login)."""
+
+	__tablename__ = "utility_file"
+
+	id = db.Column(db.Integer, primary_key=True)
+	title = db.Column(db.String(200), nullable=False)
+	description = db.Column(db.Text, nullable=True)
+	filename = db.Column(db.String(255), nullable=False)
+	original_filename = db.Column(db.String(255), nullable=False)
+	file_path = db.Column(db.String(500), nullable=False)
+	file_size = db.Column(db.Integer, nullable=False, default=0)
+	file_type = db.Column(db.String(100), nullable=False, default="application/octet-stream")
+	download_count = db.Column(db.Integer, nullable=False, default=0)
+	created_at = db.Column(db.DateTime, default=get_brasilia_now, nullable=False, index=True)
+	created_by_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False, index=True)
+
+	created_by = db.relationship("User", foreign_keys=[created_by_id])
+
+	def increment_downloads(self) -> None:
+		self.download_count = int(self.download_count or 0) + 1
+		db.session.commit()
+
+	def __repr__(self) -> str:
+		return f"<UtilityFile {self.original_filename}>"
+
+
+@event.listens_for(UtilityFile, "after_delete")
+def _remove_utility_file(mapper, connection, target):
+	candidates = []
+	raw = (getattr(target, "file_path", None) or "").strip()
+	name = (getattr(target, "filename", None) or "").strip()
+	if raw:
+		candidates.append(raw)
+	if name:
+		candidates.append(os.path.join("instance", "utilitarios_uploads", name))
+		try:
+			from flask import current_app
+			folder = os.path.join(current_app.instance_path, "utilitarios_uploads")
+			candidates.append(os.path.join(folder, name))
+		except Exception:
+			pass
+	seen = set()
+	for path in candidates:
+		if not path or path in seen:
+			continue
+		seen.add(path)
+		if os.path.isfile(path):
+			try:
+				os.remove(path)
+			except OSError:
+				pass

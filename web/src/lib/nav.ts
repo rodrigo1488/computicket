@@ -22,6 +22,7 @@ import {
   Ticket,
   Monitor,
   Columns3,
+  Wrench,
 } from "lucide-react";
 
 export type NavItem = {
@@ -51,6 +52,7 @@ export const NAV_ITEMS: NavItem[] = [
   { href: "/venda-avulsa", label: "Venda Avulsa", icon: ShoppingCart },
   { href: "/cofre", label: "Cofre de Senhas", icon: Lock },
   { href: "/conhecimento", label: "Conhecimento", icon: GraduationCap },
+  { href: "/utilitarios/gerenciar", label: "Utilitários", icon: Wrench },
   { href: "/inventario", label: "Inventário", icon: Boxes },
   { href: "/orcamentos", label: "Orçamentos", icon: FileSpreadsheet },
   { href: "/usuarios", label: "Usuários", icon: UserCog },

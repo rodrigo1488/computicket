@@ -45,7 +45,10 @@ function _httpErrorMessage(
   }
   if (status === 404) return "Recurso não encontrado.";
   if (status === 500) return generic500;
-  if (status === 413) return "Arquivo muito grande. O WhatsApp aceita no máximo 100 MB.";
+  if (status === 413) {
+    if (/\/utilitarios\b/.test(path)) return "Arquivo muito grande. Cada arquivo pode ter no máximo 1 GB.";
+    return "Arquivo muito grande. O WhatsApp aceita no máximo 100 MB.";
+  }
   if (status === 502 || status === 503 || status === 504) {
     if (ctx?.isFormData) {
       return "Não foi possível enviar o arquivo. O WhatsApp pode estar lento; tente um vídeo menor ou em MP4.";

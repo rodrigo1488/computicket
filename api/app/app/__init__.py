@@ -9,7 +9,7 @@ if hasattr(sys.stdout, 'reconfigure'):
         pass
 
 import os
-from flask import Flask, redirect, url_for, request, jsonify
+from flask import Flask, Request, current_app, redirect, url_for, request, jsonify
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager
 from flask_mail import Mail
@@ -26,6 +26,20 @@ login_manager.login_view = "auth.login"
 mail = Mail()
 socketio = SocketIO()
 
+UTILITARIOS_MAX_CONTENT_LENGTH = 1024 * 1024 * 1024  # 1 GB na rota pública de arquivos
+
+
+class ComputicketRequest(Request):
+	"""Help Desk continua em 100 MB; /utilitarios aceita até 1 GB."""
+
+	@property
+	def max_content_length(self):  # type: ignore[override]
+		if (self.path or "").startswith("/utilitarios/"):
+			return UTILITARIOS_MAX_CONTENT_LENGTH
+		if current_app:
+			return current_app.config.get("MAX_CONTENT_LENGTH")
+		return None
+
 
 def create_app() -> Flask:
 	# Carrega .env na raiz do projeto (ex.: GEMINI_API_KEY)
@@ -33,6 +47,7 @@ def create_app() -> Flask:
 	load_dotenv(env_path)
 
 	app = Flask(__name__, instance_relative_config=True, template_folder="../templates", static_folder="../static")
+	app.request_class = ComputicketRequest
 
 	# Configurações básicas
 	if not app.config.get("SECRET_KEY"):
@@ -682,6 +697,7 @@ def create_app() -> Flask:
 	from .blueprints.uniplus_api import bp as uniplus_api_bp
 	from .blueprints.remote_monitor import bp as remote_monitor_bp
 	from .blueprints.implantacao import bp as implantacao_bp
+	from .blueprints.utilitarios import bp as utilitarios_bp
 	from .blueprints import remote_monitor_agent_ws  # noqa: F401
 
 	app.register_blueprint(auth_bp)
@@ -689,6 +705,7 @@ def create_app() -> Flask:
 	app.register_blueprint(uniplus_api_bp)
 	app.register_blueprint(remote_monitor_bp)
 	app.register_blueprint(implantacao_bp)
+	app.register_blueprint(utilitarios_bp)
 	app.register_blueprint(utils_bp)
 	app.register_blueprint(clients_bp, url_prefix="/clientes")
 	app.register_blueprint(users_bp, url_prefix="/usuarios")
@@ -731,8 +748,8 @@ def create_app() -> Flask:
 			ensure_column("budget_item", "option_key", "VARCHAR(40)")
 			ensure_column("budget_item", "option_label", "VARCHAR(200)")
 			ensure_column("budget", "selected_option_key", "VARCHAR(40)")
-			from .models import PlanAdditional, CustomPlan, CustomPlanItem  # noqa: F401
-			ensure_tables_from_metadata(["plan_additional", "custom_plan", "custom_plan_item"])
+			from .models import PlanAdditional, CustomPlan, CustomPlanItem, UtilityFile  # noqa: F401
+			ensure_tables_from_metadata(["plan_additional", "custom_plan", "custom_plan_item", "utility_file"])
 			# Corrige tickets cancelados que foram reabertos por corrida stop×cancel
 			repaired = db.session.execute(text(
 				"UPDATE ticket SET status = 'cancelado', in_progress_started_at = NULL "
@@ -889,6 +906,8 @@ def create_app() -> Flask:
 
 	@app.errorhandler(413)
 	def _json_api_413(_error):
+		if (request.path or "").startswith("/utilitarios/"):
+			return jsonify({"error": "Arquivo muito grande. Cada arquivo pode ter no máximo 1 GB."}), 413
 		return jsonify({"error": "Arquivo muito grande. O WhatsApp aceita no máximo 100 MB."}), 413
 
 	@app.errorhandler(500)
