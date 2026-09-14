@@ -51,6 +51,7 @@ def handle(job_type: str, payload: dict[str, Any]) -> dict[str, Any]:
 		"insert_finance_avulso": _insert_finance_avulso,
 		"cancel_finance_avulso": _cancel_finance_avulso,
 		"finalize_ordemservico": _finalize_ordemservico,
+		"open_ordemservico": _open_ordemservico,
 	}
 	fn = handlers.get(job_type)
 	if not fn:
@@ -583,5 +584,185 @@ def _finalize_ordemservico(p: dict) -> dict:
 				result["finance"] = fin
 
 			return result
+	finally:
+		conn.close()
+
+
+# Defaults observados nas OS abertas recentes do Unico (dump ordemservico).
+_OS_STATUS_ABERTA = 2
+_OS_FILIAL_ID = 1
+_OS_PRIORIDADE_ID = 9
+_OS_ATENDENTE_PADRAO = 1489
+_OS_CNPJ_FILIAL = "10.579.611/0001-90"
+_OS_TITULO_DAV = "ORDEM SERVICO"
+
+
+def _txt(value: Any) -> str:
+	if value is None:
+		return ""
+	return str(value).strip()
+
+
+def _open_ordemservico(p: dict) -> dict:
+	"""Abre OS no Unico: INSERT em ordemservico (inverso da finalização)."""
+	try:
+		client_id = int(p.get("client_id") or 0)
+	except (TypeError, ValueError) as exc:
+		raise UniplusPermanentError("Cliente inválido") from exc
+	descricaoitem = _txt(p.get("descricaoitem") or p.get("equipamento"))
+	problemadescrito = _txt(p.get("problemadescrito") or p.get("problema"))
+	if not client_id:
+		raise UniplusPermanentError("Cliente é obrigatório")
+	if not descricaoitem:
+		raise UniplusPermanentError("Equipamento é obrigatório")
+	if not problemadescrito:
+		raise UniplusPermanentError("Problema descrito é obrigatório")
+
+	solicitante = _txt(p.get("solicitante") or p.get("extra6"))
+	serial = _txt(p.get("numerofabricacao") or p.get("serial"))
+	caracteristicas = _txt(p.get("caracteristicas"))
+	observacao = _txt(p.get("observacao"))
+	now = p.get("now") or datetime.now()
+	if not isinstance(now, datetime):
+		now = datetime.now()
+	now = now.replace(tzinfo=None) if now.tzinfo else now
+	millis = int(p.get("currenttimemillis") or (now.timestamp() * 1000))
+
+	conn = _connect()
+	try:
+		with conn.cursor() as cur:
+			cur.execute(
+				"SELECT id, nome, cnpjcpf FROM entidade WHERE id = %s",
+				(client_id,),
+			)
+			client = cur.fetchone()
+			if not client:
+				raise UniplusPermanentError("Cliente não encontrado no Uniplus")
+			nomecliente = _txt(client[1])
+			cnpjcpfcliente = _txt(client[2])
+
+			idusuario = p.get("external_user_id")
+			idatendente = p.get("external_rep_id")
+			if idusuario is None or idatendente is None:
+				tech_name = _txt(p.get("technician_name")).upper()
+				if tech_name:
+					cur.execute(
+						"""
+						SELECT id, identidade FROM usuario
+						WHERE (UPPER(nome) = %s OR UPPER(codigo) = %s) AND inativo = '0'
+						LIMIT 1
+						""",
+						(tech_name, tech_name),
+					)
+					urow = cur.fetchone()
+					if urow:
+						if idusuario is None:
+							idusuario = urow[0]
+						if idatendente is None:
+							idatendente = urow[1]
+			try:
+				idusuario = int(idusuario) if idusuario is not None else None
+			except (TypeError, ValueError):
+				idusuario = None
+			try:
+				idatendente = int(idatendente) if idatendente is not None else _OS_ATENDENTE_PADRAO
+			except (TypeError, ValueError):
+				idatendente = _OS_ATENDENTE_PADRAO
+			if not idatendente:
+				idatendente = _OS_ATENDENTE_PADRAO
+
+			last_err: Exception | None = None
+			for _attempt in range(3):
+				cur.execute(
+					"SELECT COALESCE(MAX(id), 0) + 1, COALESCE(MAX(codigo), 0) + 1 FROM ordemservico"
+				)
+				new_id, new_codigo = cur.fetchone()
+				new_id = int(new_id)
+				new_codigo = int(new_codigo)
+				evento = f"Ordem de serviço {new_codigo} iniciada"
+				try:
+					cur.execute(
+						"""
+						INSERT INTO ordemservico (
+							id, idcliente, data, descricaoitem, problemadescrito,
+							servicoexecutado, serviconaoexecutado, idatendente, caracteristicas,
+							entradaitem, status, valor, codigo, inicioservico, idfilial, garantia,
+							numeronotafiscal, deslocamento,
+							extra1, extra2, extra3, extra4, extra5, extra6, extra7, extra8, extra9, extra10,
+							idprioridade, ecfserie, ecfmfadicional, ecftipo, ecfmarca, ecfmodelo,
+							coo, numerofabricacao, dataos, ccf, hash, existeevento, idultimotecnico,
+							currenttimemillis, valorprodutos, valorservicos, valorbrinde,
+							descontosubtotal, percentualdescontosubtotal,
+							extra11, extra12, extra13, extra14, extra15, extra16,
+							cooger, pdv, geroufinanceiro, observacao, laudotecnico, titulodav,
+							cnpjcpfcliente, nomecliente, cnpjfilial, marca, modelo, anofabricacao,
+							placa, renavam, faturouparacupom, faturouparanota, orcamento, orcamentoaprovado,
+							idusuarioaprovacaoorcamento, descsubtotalproduto, percdescsubtotalproduto,
+							descsubtotalservico, percdescsubtotalservico, observacaogarantia, impresso,
+							nomeresponsavelretirada, descricaotipoultimoevento, dataultimoevento,
+							descricaoultimoevento, hashpafnfce, idusuario
+						) VALUES (
+							%s, %s, %s, %s, %s,
+							%s, %s, %s, %s,
+							%s, %s, %s, %s, %s, %s, %s,
+							%s, %s,
+							%s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+							%s, %s, %s, %s, %s, %s,
+							%s, %s, %s, %s, %s, %s, %s,
+							%s, %s, %s, %s,
+							%s, %s,
+							%s, %s, %s, %s, %s, %s,
+							%s, %s, %s, %s, %s, %s,
+							%s, %s, %s, %s, %s, %s,
+							%s, %s, %s, %s, %s, %s,
+							%s, %s, %s,
+							%s, %s, %s, %s,
+							%s, %s, %s,
+							%s, %s, %s
+						)
+						RETURNING id, codigo
+						""",
+						(
+							new_id, client_id, now, descricaoitem, problemadescrito,
+							"", "", idatendente, caracteristicas,
+							now, _OS_STATUS_ABERTA, 0.0, new_codigo, now, _OS_FILIAL_ID, 0,
+							"", "",
+							serial, "", "", "", "- ", solicitante, "", "", "", "",
+							_OS_PRIORIDADE_ID, "", "", "", "", "",
+							0, serial, now.date(), 0, 0, 1, idatendente,
+							millis, 0.0, 0.0, 0.0,
+							0.0, 0.0,
+							"", "", "", "", "", "",
+							0, 0, 0, observacao, "", _OS_TITULO_DAV,
+							cnpjcpfcliente, nomecliente, _OS_CNPJ_FILIAL, "", "", 0,
+							"", "", 0, 0, 0, -1,
+							idusuario, 0.0, 0.0,
+							0.0, 0.0, "", 0,
+							"", "Inicialização", now,
+							evento, 0, idusuario,
+						),
+					)
+					row = cur.fetchone()
+					conn.commit()
+					oid = int(row[0]) if row else new_id
+					ocode = int(row[1]) if row else new_codigo
+					return {
+						"ok": True,
+						"id": oid,
+						"codigo": ocode,
+						"status": _OS_STATUS_ABERTA,
+						"idcliente": client_id,
+						"nomecliente": nomecliente,
+					}
+				except Exception as exc:
+					conn.rollback()
+					msg = str(exc).lower()
+					if "unique" in msg or "duplicate" in msg:
+						last_err = exc
+						continue
+					raise UniplusPermanentError(str(exc)) from exc
+			raise UniplusPermanentError(
+				f"Não foi possível gerar o código da OS: {last_err}"
+			)
 	finally:
 		conn.close()

@@ -101,7 +101,7 @@ Com o agente desabilitado a API volta ao modo legado (`connect_postgres` direto)
 
 ## Job types
 
-`create_client`, `update_client`, `assign_contract`, `add_client_to_contract`, `remove_client_from_contract`, `update_contract_type`, `remove_contract_from_all`, `add_clients_to_contract`, `insert_finance_ps`, `delete_finance_ps`, `create_dav`, `insert_finance_avulso`, `cancel_finance_avulso`, `finalize_ordemservico`
+`create_client`, `update_client`, `assign_contract`, `add_client_to_contract`, `remove_client_from_contract`, `update_contract_type`, `remove_contract_from_all`, `add_clients_to_contract`, `insert_finance_ps`, `delete_finance_ps`, `create_dav`, `insert_finance_avulso`, `cancel_finance_avulso`, `finalize_ordemservico`, `open_ordemservico`
 
 Ver também `docs/BANCO_UNICO.md`.
 

@@ -23,6 +23,12 @@ from pathlib import Path
 bp = Blueprint("service_orders", __name__)
 
 FINALIZED_UNICO_STATUSES = {3, 5}
+OS_STATUS_ABERTA = 2
+OS_FILIAL_ID = 1
+OS_PRIORIDADE_ID = 9
+OS_ATENDENTE_PADRAO = 1489
+OS_CNPJ_FILIAL = "10.579.611/0001-90"
+OS_TITULO_DAV = "ORDEM SERVICO"
 
 _OS_SEARCH_SELECT = """
 			os.codigo,
@@ -342,6 +348,218 @@ def search_service_orders():
 		return jsonify({"results": results, "already_in_computicket": already})
 	except Exception as e:
 		return jsonify({"error": f"Erro ao buscar ordem de serviço: {str(e)}"}), 500
+
+
+def _txt(value) -> str:
+	if value is None:
+		return ""
+	return str(value).strip()
+
+
+def _insert_open_ordemservico(cursor, payload: dict) -> dict:
+	"""INSERT legado em ordemservico no Postgres Unico (mesmo payload do agente)."""
+	client_id = int(payload["client_id"])
+	descricaoitem = _txt(payload.get("descricaoitem"))
+	problemadescrito = _txt(payload.get("problemadescrito"))
+	solicitante = _txt(payload.get("solicitante"))
+	serial = _txt(payload.get("numerofabricacao"))
+	caracteristicas = _txt(payload.get("caracteristicas"))
+	observacao = _txt(payload.get("observacao"))
+	now = datetime.now()
+	millis = int(now.timestamp() * 1000)
+
+	cursor.execute(
+		"SELECT id, nome, cnpjcpf FROM entidade WHERE id = %s",
+		(client_id,),
+	)
+	client = cursor.fetchone()
+	if not client:
+		raise ValueError("Cliente não encontrado no Uniplus")
+	nomecliente = _txt(client[1])
+	cnpjcpfcliente = _txt(client[2])
+
+	idusuario = payload.get("external_user_id")
+	idatendente = payload.get("external_rep_id") or OS_ATENDENTE_PADRAO
+	try:
+		idusuario = int(idusuario) if idusuario is not None else None
+	except (TypeError, ValueError):
+		idusuario = None
+	try:
+		idatendente = int(idatendente) if idatendente else OS_ATENDENTE_PADRAO
+	except (TypeError, ValueError):
+		idatendente = OS_ATENDENTE_PADRAO
+
+	cursor.execute(
+		"SELECT COALESCE(MAX(id), 0) + 1, COALESCE(MAX(codigo), 0) + 1 FROM ordemservico"
+	)
+	new_id, new_codigo = cursor.fetchone()
+	new_id = int(new_id)
+	new_codigo = int(new_codigo)
+	evento = f"Ordem de serviço {new_codigo} iniciada"
+
+	cursor.execute(
+		"""
+		INSERT INTO ordemservico (
+			id, idcliente, data, descricaoitem, problemadescrito,
+			servicoexecutado, serviconaoexecutado, idatendente, caracteristicas,
+			entradaitem, status, valor, codigo, inicioservico, idfilial, garantia,
+			numeronotafiscal, deslocamento,
+			extra1, extra2, extra3, extra4, extra5, extra6, extra7, extra8, extra9, extra10,
+			idprioridade, ecfserie, ecfmfadicional, ecftipo, ecfmarca, ecfmodelo,
+			coo, numerofabricacao, dataos, ccf, hash, existeevento, idultimotecnico,
+			currenttimemillis, valorprodutos, valorservicos, valorbrinde,
+			descontosubtotal, percentualdescontosubtotal,
+			extra11, extra12, extra13, extra14, extra15, extra16,
+			cooger, pdv, geroufinanceiro, observacao, laudotecnico, titulodav,
+			cnpjcpfcliente, nomecliente, cnpjfilial, marca, modelo, anofabricacao,
+			placa, renavam, faturouparacupom, faturouparanota, orcamento, orcamentoaprovado,
+			idusuarioaprovacaoorcamento, descsubtotalproduto, percdescsubtotalproduto,
+			descsubtotalservico, percdescsubtotalservico, observacaogarantia, impresso,
+			nomeresponsavelretirada, descricaotipoultimoevento, dataultimoevento,
+			descricaoultimoevento, hashpafnfce, idusuario
+		) VALUES (
+			%s, %s, %s, %s, %s,
+			%s, %s, %s, %s,
+			%s, %s, %s, %s, %s, %s, %s,
+			%s, %s,
+			%s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+			%s, %s, %s, %s, %s, %s,
+			%s, %s, %s, %s, %s, %s, %s,
+			%s, %s, %s, %s,
+			%s, %s,
+			%s, %s, %s, %s, %s, %s,
+			%s, %s, %s, %s, %s, %s,
+			%s, %s, %s, %s, %s, %s,
+			%s, %s, %s, %s, %s, %s,
+			%s, %s, %s,
+			%s, %s, %s, %s,
+			%s, %s, %s,
+			%s, %s, %s
+		)
+		RETURNING id, codigo
+		""",
+		(
+			new_id, client_id, now, descricaoitem, problemadescrito,
+			"", "", idatendente, caracteristicas,
+			now, OS_STATUS_ABERTA, 0.0, new_codigo, now, OS_FILIAL_ID, 0,
+			"", "",
+			serial, "", "", "", "- ", solicitante, "", "", "", "",
+			OS_PRIORIDADE_ID, "", "", "", "", "",
+			0, serial, now.date(), 0, 0, 1, idatendente,
+			millis, 0.0, 0.0, 0.0,
+			0.0, 0.0,
+			"", "", "", "", "", "",
+			0, 0, 0, observacao, "", OS_TITULO_DAV,
+			cnpjcpfcliente, nomecliente, OS_CNPJ_FILIAL, "", "", 0,
+			"", "", 0, 0, 0, -1,
+			idusuario, 0.0, 0.0,
+			0.0, 0.0, "", 0,
+			"", "Inicialização", now,
+			evento, 0, idusuario,
+		),
+	)
+	row = cursor.fetchone()
+	oid = int(row[0]) if row else new_id
+	ocode = int(row[1]) if row else new_codigo
+	return {
+		"ok": True,
+		"id": oid,
+		"codigo": ocode,
+		"status": OS_STATUS_ABERTA,
+		"idcliente": client_id,
+		"nomecliente": nomecliente,
+	}
+
+
+@bp.route("/abrir", methods=["POST"])
+@login_required
+def open_service_order():
+	"""Abre uma ordem de serviço diretamente no Uniplus."""
+	data = request.get_json(silent=True) or {}
+	try:
+		client_id = int(data.get("client_id") or 0)
+	except (TypeError, ValueError):
+		client_id = 0
+	descricaoitem = _txt(data.get("descricaoitem") or data.get("equipamento"))
+	problemadescrito = _txt(data.get("problemadescrito") or data.get("problema"))
+	if not client_id:
+		return jsonify({"error": "Cliente é obrigatório"}), 400
+	if not descricaoitem:
+		return jsonify({"error": "Equipamento é obrigatório"}), 400
+	if not problemadescrito:
+		return jsonify({"error": "Problema descrito é obrigatório"}), 400
+
+	payload = {
+		"client_id": client_id,
+		"descricaoitem": descricaoitem,
+		"problemadescrito": problemadescrito,
+		"solicitante": _txt(data.get("solicitante") or data.get("extra6")),
+		"numerofabricacao": _txt(data.get("numerofabricacao") or data.get("serial")),
+		"caracteristicas": _txt(data.get("caracteristicas")),
+		"observacao": _txt(data.get("observacao")),
+		"technician_name": getattr(current_user, "name", None) or "",
+	}
+
+	from ..uniplus_jobs import UniplusJobError, agent_enabled, enqueue_and_wait
+	from ..services.faturamento_products import get_external_user_data
+
+	conn = connect_postgres()
+	cursor = None
+	try:
+		if conn:
+			cursor = conn.cursor()
+			try:
+				ext_uid, ext_rid = get_external_user_data(cursor, current_user)
+				payload["external_user_id"] = ext_uid
+				payload["external_rep_id"] = ext_rid
+			except Exception:
+				pass
+
+		if agent_enabled():
+			result = enqueue_and_wait("open_ordemservico", payload, timeout=90.0)
+		else:
+			if not conn or not cursor:
+				return jsonify({"error": "Erro ao conectar com banco PostgreSQL"}), 500
+			try:
+				conn.rollback()
+				original_autocommit = conn.autocommit
+				conn.autocommit = False
+				result = _insert_open_ordemservico(cursor, payload)
+				conn.commit()
+			except Exception:
+				conn.rollback()
+				raise
+			finally:
+				if conn and not conn.closed:
+					conn.autocommit = original_autocommit
+	except UniplusJobError as e:
+		return jsonify({"error": str(e)}), 502
+	except ValueError as e:
+		return jsonify({"error": str(e)}), 400
+	except Exception as e:
+		return jsonify({"error": f"Erro ao abrir ordem de serviço: {e}"}), 500
+	finally:
+		if cursor:
+			try:
+				cursor.close()
+			except Exception:
+				pass
+		if conn:
+			try:
+				conn.close()
+			except Exception:
+				pass
+
+	codigo = result.get("codigo")
+	nome = result.get("nomecliente") or "cliente"
+	return jsonify({
+		"message": f"Ordem de serviço {codigo} aberta no Uniplus para {nome}",
+		"codigo": codigo,
+		"id": result.get("id"),
+		"status": result.get("status", OS_STATUS_ABERTA),
+		"idcliente": result.get("idcliente", client_id),
+		"nomecliente": result.get("nomecliente"),
+	})
 
 
 @bp.route("/produtos")

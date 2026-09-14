@@ -1,7 +1,7 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CheckCircle } from "lucide-react";
+import { CheckCircle, Plus } from "lucide-react";
 import { useEffect, useState } from "react";
 import { PageTitle } from "@/components/layout/AppShell";
 import { ProductPicker, type PickedProduct } from "@/components/tickets/ProductPicker";
@@ -82,6 +82,23 @@ export default function OSPage() {
   const [successMsg, setSuccessMsg] = useState("");
   const [searching, setSearching] = useState(false);
   const [picked, setPicked] = useState<Picked[]>([]);
+  const [openCreate, setOpenCreate] = useState(false);
+  const [clientQ, setClientQ] = useState("");
+  const [clientId, setClientId] = useState("");
+  const [equipamento, setEquipamento] = useState("");
+  const [problema, setProblema] = useState("");
+  const [solicitante, setSolicitante] = useState("");
+  const [serial, setSerial] = useState("");
+  const [caracteristicas, setCaracteristicas] = useState("");
+  const [observacao, setObservacao] = useState("");
+  const [createError, setCreateError] = useState("");
+
+  type ClientOpt = { id: number; name: string };
+  const clients = useQuery({
+    queryKey: ["os-clients", clientQ],
+    queryFn: () => flask.get<{ items: ClientOpt[] }>(`/api/web/clients?q=${encodeURIComponent(clientQ)}&per_page=30`),
+    enabled: openCreate,
+  });
 
   const resetForm = () => {
     setTerm("");
@@ -160,6 +177,45 @@ export default function OSPage() {
     }
   };
 
+  const resetCreateForm = () => {
+    setClientQ("");
+    setClientId("");
+    setEquipamento("");
+    setProblema("");
+    setSolicitante("");
+    setSerial("");
+    setCaracteristicas("");
+    setObservacao("");
+    setCreateError("");
+  };
+
+  const abrirOs = useMutation({
+    mutationFn: async () => {
+      if (!clientId) throw new Error("Selecione o cliente");
+      if (!equipamento.trim()) throw new Error("Equipamento é obrigatório");
+      if (!problema.trim()) throw new Error("Problema descrito é obrigatório");
+      return flask.post<{
+        message?: string;
+        codigo?: number | string;
+        nomecliente?: string;
+      }>("/ordens-servico/abrir", {
+        client_id: Number(clientId),
+        descricaoitem: equipamento.trim(),
+        problemadescrito: problema.trim(),
+        solicitante: solicitante.trim(),
+        numerofabricacao: serial.trim(),
+        caracteristicas: caracteristicas.trim(),
+        observacao: observacao.trim(),
+      });
+    },
+    onSuccess: (res) => {
+      setSuccessMsg(res.message || `Ordem de serviço ${res.codigo} aberta no Uniplus`);
+      resetCreateForm();
+      setOpenCreate(false);
+    },
+    onError: (e) => setCreateError(e instanceof Error ? e.message : "Erro ao abrir ordem"),
+  });
+
   const finalizar = useMutation({
     mutationFn: async () => {
       if (!selected) throw new Error("Nenhuma ordem selecionada");
@@ -197,14 +253,28 @@ export default function OSPage() {
     <div>
       <div className="mb-8 flex flex-wrap items-center justify-between gap-4">
         <PageTitle className="mb-0">Ordens de Serviço</PageTitle>
-        <button
-          type="button"
-          onClick={() => void openFinalize()}
-          className="inline-flex h-10 items-center gap-2 rounded-xl bg-inverse px-4 text-sm font-medium text-on-inverse"
-        >
-          <CheckCircle className="h-4 w-4" />
-          Finalizar ordem
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              resetCreateForm();
+              setSuccessMsg("");
+              setOpenCreate(true);
+            }}
+            className="inline-flex h-10 items-center gap-2 rounded-xl border border-line bg-surface px-4 text-sm font-medium text-ink"
+          >
+            <Plus className="h-4 w-4" />
+            Abrir ordem
+          </button>
+          <button
+            type="button"
+            onClick={() => void openFinalize()}
+            className="inline-flex h-10 items-center gap-2 rounded-xl bg-inverse px-4 text-sm font-medium text-on-inverse"
+          >
+            <CheckCircle className="h-4 w-4" />
+            Finalizar ordem
+          </button>
+        </div>
       </div>
       {error ? <p className="mb-4 text-sm text-open">{(error as Error).message}</p> : null}
       {successMsg ? <p className="mb-4 text-sm text-done">{successMsg}</p> : null}
@@ -463,6 +533,76 @@ export default function OSPage() {
             </PrimaryButton>
           </form>
         )}
+      </Modal>
+
+      <Modal
+        open={openCreate}
+        onClose={() => setOpenCreate(false)}
+        title="Abrir ordem de serviço"
+        wide
+      >
+        <form
+          className="space-y-5"
+          onSubmit={(e) => {
+            e.preventDefault();
+            abrirOs.mutate();
+          }}
+        >
+          <p className="text-sm text-muted">
+            A OS é gravada direto no Uniplus, em aberto, para aparecer na tela de ordens do ERP.
+          </p>
+          <UnderlineField label="Buscar cliente" value={clientQ} onChange={setClientQ} placeholder="Nome do cliente" />
+          <label className="block">
+            <span className="text-[11px] font-medium tracking-[0.08em] text-muted uppercase">Cliente</span>
+            <select
+              value={clientId}
+              onChange={(e) => setClientId(e.target.value)}
+              required
+              className="mt-1 w-full border-0 border-b border-line bg-transparent py-2 text-[15px] text-ink"
+            >
+              <option value="">Selecione</option>
+              {(clients.data?.items || []).map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <UnderlineField
+            label="Equipamento"
+            value={equipamento}
+            onChange={setEquipamento}
+            placeholder="Ex.: notebook acer aspire"
+          />
+          <label className="block">
+            <span className="text-[11px] font-medium tracking-[0.08em] text-muted uppercase">Problema descrito</span>
+            <textarea
+              value={problema}
+              onChange={(e) => setProblema(e.target.value)}
+              rows={3}
+              required
+              placeholder="Descreva o problema relatado…"
+              className="mt-1 w-full border-0 border-b border-line bg-transparent py-2 text-[15px] text-ink"
+            />
+          </label>
+          <UnderlineField label="Solicitante" value={solicitante} onChange={setSolicitante} placeholder="Quem deixou o equipamento" />
+          <UnderlineField label="Número de série" value={serial} onChange={setSerial} placeholder="Opcional" />
+          <UnderlineField label="Características" value={caracteristicas} onChange={setCaracteristicas} placeholder="Opcional" />
+          <label className="block">
+            <span className="text-[11px] font-medium tracking-[0.08em] text-muted uppercase">Observação</span>
+            <textarea
+              value={observacao}
+              onChange={(e) => setObservacao(e.target.value)}
+              rows={2}
+              placeholder="Opcional"
+              className="mt-1 w-full border-0 border-b border-line bg-transparent py-2 text-[15px] text-ink"
+            />
+          </label>
+          {createError ? <p className="text-sm text-open">{createError}</p> : null}
+          <PrimaryButton type="submit" disabled={abrirOs.isPending}>
+            {abrirOs.isPending ? "Abrindo…" : "Abrir no Uniplus"}
+          </PrimaryButton>
+        </form>
       </Modal>
     </div>
   );
