@@ -165,6 +165,84 @@ class ServiceOrderOpenTest(unittest.TestCase):
 		self.assertEqual(params[35], "SN")
 		conn.commit.assert_called()
 
+	def test_print_abertura_requires_codigo(self):
+		with (
+			self.app.test_request_context(
+				"/ordens-servico/imprimir-abertura",
+				method="POST",
+				json={"formato": "a4"},
+			),
+			patch("flask_login.utils._get_user", return_value=self.user),
+		):
+			from app.blueprints.service_orders import print_open_service_order
+
+			response = print_open_service_order()
+		if isinstance(response, tuple):
+			response, status = response
+		else:
+			status = response.status_code
+		self.assertEqual(status, 400)
+
+	def test_print_abertura_generates_thermal_and_a4_pdf(self):
+		import tempfile
+		from pathlib import Path
+
+		from app.blueprints.printer import generateOpenServiceOrderPDF
+
+		with tempfile.TemporaryDirectory() as tmp:
+			with patch("app.blueprints.printer._ps_output_dir", return_value=tmp):
+				ok_t, thermal = generateOpenServiceOrderPDF(
+					os_number="17390",
+					client_name="Cliente Z",
+					equipment="Notebook Acer",
+					problem="Não liga",
+					responsible_name="Técnico Teste",
+					solicitante="Willian",
+					formato="termica",
+				)
+				ok_a, a4 = generateOpenServiceOrderPDF(
+					os_number="17390",
+					client_name="Cliente Z",
+					equipment="Notebook Acer",
+					problem="Não liga",
+					responsible_name="Técnico Teste",
+					formato="a4",
+				)
+			self.assertTrue(ok_t)
+			self.assertTrue(ok_a)
+			self.assertEqual(thermal, "os-abertura-17390-termica.pdf")
+			self.assertEqual(a4, "os-abertura-17390-a4.pdf")
+			thermal_path = Path(tmp) / thermal
+			a4_path = Path(tmp) / a4
+			self.assertTrue(thermal_path.is_file())
+			self.assertTrue(a4_path.is_file())
+			self.assertTrue(thermal_path.read_bytes().startswith(b"%PDF"))
+			self.assertTrue(a4_path.read_bytes().startswith(b"%PDF"))
+
+		with tempfile.TemporaryDirectory() as tmp:
+			with (
+				self.app.test_request_context(
+					"/ordens-servico/imprimir-abertura",
+					method="POST",
+					json={
+						"codigo": "17390",
+						"formato": "termica",
+						"client_name": "Cliente Z",
+						"descricaoitem": "Notebook",
+						"problemadescrito": "Não liga",
+					},
+				),
+				patch("app.blueprints.printer._ps_output_dir", return_value=tmp),
+				patch("flask_login.utils._get_user", return_value=self.user),
+			):
+				from app.blueprints.service_orders import print_open_service_order
+
+				response = print_open_service_order()
+			self.assertEqual(response.status_code, 200)
+			payload = response.get_json()
+			self.assertEqual(payload["formato"], "termica")
+			self.assertEqual(payload["pdf_file"], "os-abertura-17390-termica.pdf")
+
 
 if __name__ == "__main__":
 	unittest.main()

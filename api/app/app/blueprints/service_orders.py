@@ -6,6 +6,7 @@ from .utils import connect_postgres
 from .printer import (
 	generateDeliveryReceipt,
 	generateCombinedPSAndDeliveryReceipt,
+	generateOpenServiceOrderPDF,
 	insert_ps_with_transaction_control,
 	PS_DOCUMENT_CONFLICT,
 )
@@ -559,6 +560,45 @@ def open_service_order():
 		"status": result.get("status", OS_STATUS_ABERTA),
 		"idcliente": result.get("idcliente", client_id),
 		"nomecliente": result.get("nomecliente"),
+		"technician_name": getattr(current_user, "name", None) or "",
+		"descricaoitem": descricaoitem,
+		"problemadescrito": problemadescrito,
+		"solicitante": payload.get("solicitante") or "",
+		"numerofabricacao": payload.get("numerofabricacao") or "",
+		"caracteristicas": payload.get("caracteristicas") or "",
+		"observacao": payload.get("observacao") or "",
+	})
+
+
+@bp.route("/imprimir-abertura", methods=["POST"])
+@login_required
+def print_open_service_order():
+	"""Gera o comprovante de abertura da OS em A4 ou térmica 80mm."""
+	data = request.get_json(silent=True) or {}
+	codigo = _txt(data.get("codigo"))
+	if not codigo:
+		return jsonify({"error": "Código da OS é obrigatório"}), 400
+	formato = _txt(data.get("formato") or data.get("format") or "a4").lower()
+	success, result = generateOpenServiceOrderPDF(
+		os_number=codigo,
+		client_name=_txt(data.get("client_name") or data.get("nomecliente")) or "Cliente",
+		equipment=_txt(data.get("descricaoitem") or data.get("equipamento")),
+		problem=_txt(data.get("problemadescrito") or data.get("problema")),
+		responsible_name=_txt(data.get("technician_name")) or (getattr(current_user, "name", None) or "Técnico"),
+		opened_at=_txt(data.get("opened_at")) or datetime.now().strftime("%d/%m/%Y %H:%M"),
+		solicitante=_txt(data.get("solicitante")),
+		serial=_txt(data.get("numerofabricacao") or data.get("serial")),
+		caracteristicas=_txt(data.get("caracteristicas")),
+		observacao=_txt(data.get("observacao")),
+		formato=formato,
+	)
+	if not success:
+		return jsonify({"error": f"Erro ao gerar impressão: {result}"}), 500
+	kind = "termica" if formato in {"termica", "térmica", "thermal", "80mm"} else "a4"
+	return jsonify({
+		"message": f"Comprovante da OS {codigo} gerado ({'térmica 80mm' if kind == 'termica' else 'A4'})",
+		"pdf_file": result,
+		"formato": kind,
 	})
 
 

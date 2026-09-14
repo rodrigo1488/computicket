@@ -1296,6 +1296,126 @@ def generateDeliveryReceipt(
         logging.exception("Erro ao gerar recibo de entrega")
         return False, str(e)
 
+
+_OS_COMPANY = (
+    "Compumais Informática",
+    "Av. Coronel José Afonso de Almeida, 143 - B",
+    "Centro - Sacramento, MG",
+    "Tel: (34) 3351-1861 | WhatsApp: (34) 98863-1861",
+)
+THERMAL_PAGE = (80 * mm, 297 * mm)
+
+
+def generateOpenServiceOrderPDF(
+    os_number,
+    client_name,
+    equipment,
+    problem,
+    responsible_name,
+    opened_at=None,
+    solicitante=None,
+    serial=None,
+    caracteristicas=None,
+    observacao=None,
+    formato="a4",
+):
+    """Comprovante de abertura da OS em A4 ou bobina térmica 80mm."""
+    try:
+        kind = "termica" if str(formato or "").strip().lower() in {"termica", "térmica", "thermal", "80mm"} else "a4"
+        safe_os = re.sub(r"[^0-9A-Za-z_-]", "", str(os_number or "os"))[:40] or "os"
+        output_dir = _ps_output_dir()
+        output_path = os.path.join(output_dir, f"os-abertura-{safe_os}-{kind}.pdf")
+        pagesize = THERMAL_PAGE if kind == "termica" else A4
+        c = canvas.Canvas(output_path, pagesize=pagesize)
+        width, height = pagesize
+        margin = 5 * mm if kind == "termica" else 20 * mm
+        body_size = 8 if kind == "termica" else 10
+        title_size = 11 if kind == "termica" else 14
+        wrap_cols = 32 if kind == "termica" else 90
+        y = height - (12 * mm if kind == "termica" else 30 * mm)
+
+        def draw_line():
+            nonlocal y
+            c.line(margin, y, width - margin, y)
+            y -= 4 * mm if kind == "termica" else 5 * mm
+
+        def ensure(space=14):
+            nonlocal y
+            if y < space:
+                c.showPage()
+                y = height - (12 * mm if kind == "termica" else 30 * mm)
+
+        def draw_text(text, size=None, bold=False, align="left"):
+            nonlocal y
+            size = body_size if size is None else size
+            ensure(size + 8)
+            font_name = "Helvetica-Bold" if bold else "Helvetica"
+            c.setFont(font_name, size)
+            if align == "center":
+                c.drawCentredString(width / 2, y, text)
+            elif align == "right":
+                c.drawRightString(width - margin, y, text)
+            else:
+                c.drawString(margin, y, text)
+            y -= size + (3 if kind == "termica" else 2)
+
+        def draw_block(label, value, bold_value=False):
+            if value is None or str(value).strip() == "":
+                return
+            draw_text(label, bold=True)
+            for paragraph in str(value).split("\n"):
+                if not paragraph.strip():
+                    y -= 3
+                    continue
+                for line in wrap(paragraph, width=wrap_cols):
+                    draw_text(line, bold=bold_value)
+
+        opened = opened_at or datetime.now().strftime("%d/%m/%Y %H:%M")
+        for i, line in enumerate(_OS_COMPANY):
+            draw_text(line, size=(12 if i == 0 else body_size), bold=i == 0, align="center")
+        draw_line()
+        draw_text("ORDEM DE SERVIÇO", size=title_size, bold=True, align="center")
+        draw_text(f"Nº {os_number}", size=title_size, bold=True, align="center")
+        draw_line()
+        draw_text(f"Abertura: {opened}")
+        draw_block("Cliente:", client_name)
+        if solicitante:
+            draw_block("Solicitante:", solicitante)
+        draw_block("Equipamento:", equipment)
+        if serial:
+            draw_block("Nº de série:", serial)
+        if caracteristicas:
+            draw_block("Características:", caracteristicas)
+        draw_line()
+        draw_block("Problema descrito:", problem)
+        if observacao:
+            draw_block("Observação:", observacao)
+        draw_text(f"Técnico: {responsible_name or '—'}")
+        draw_line()
+        draw_text("Declaro ter deixado o equipamento acima", bold=True)
+        draw_text("nas condições descritas nesta ordem.", bold=True)
+        y -= 12 * mm if kind == "termica" else 18 * mm
+        draw_text("Assinatura do cliente:", align="center")
+        y -= 8 * mm if kind == "termica" else 12 * mm
+        c.line(margin + (8 * mm if kind == "termica" else 20 * mm), y, width - margin - (8 * mm if kind == "termica" else 20 * mm), y)
+        y -= 10 * mm
+        draw_text(f"Data: {opened}", align="center")
+        y -= 10 * mm if kind == "termica" else 16 * mm
+        draw_text("Recebido por:", align="center")
+        y -= 8 * mm if kind == "termica" else 12 * mm
+        c.line(margin + (8 * mm if kind == "termica" else 20 * mm), y, width - margin - (8 * mm if kind == "termica" else 20 * mm), y)
+        y -= 8 * mm
+        draw_text(responsible_name or "", align="center")
+
+        c.showPage()
+        c.save()
+        return True, os.path.basename(output_path)
+    except Exception as e:
+        import logging
+        logging.exception("Erro ao gerar comprovante de abertura da OS")
+        return False, str(e)
+
+
 def printGenerateOrderService(
     client_name,
     responsible_name,

@@ -1,7 +1,7 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CheckCircle, Plus } from "lucide-react";
+import { CheckCircle, FileText, Plus, Printer } from "lucide-react";
 import { useEffect, useState } from "react";
 import { PageTitle } from "@/components/layout/AppShell";
 import { ProductPicker, type PickedProduct } from "@/components/tickets/ProductPicker";
@@ -11,6 +11,7 @@ import { Pagination } from "@/components/ui/Pagination";
 import { ViewAction, PrimaryRowAction, RowActions } from "@/components/ui/RowActions";
 import { PrimaryButton, UnderlineField } from "@/components/ui/UnderlineField";
 import { flask } from "@/lib/api";
+import { cn } from "@/lib/cn";
 import { formatBRL, parseMoney } from "@/lib/format";
 import { useColFilters } from "@/lib/use-col-filters";
 
@@ -92,6 +93,20 @@ export default function OSPage() {
   const [caracteristicas, setCaracteristicas] = useState("");
   const [observacao, setObservacao] = useState("");
   const [createError, setCreateError] = useState("");
+  const [printOpen, setPrintOpen] = useState(false);
+  const [printFormat, setPrintFormat] = useState<"termica" | "a4">("termica");
+  const [printError, setPrintError] = useState("");
+  const [printJob, setPrintJob] = useState<{
+    codigo: string;
+    nomecliente: string;
+    equipamento: string;
+    problema: string;
+    solicitante: string;
+    serial: string;
+    caracteristicas: string;
+    observacao: string;
+    technician_name?: string;
+  } | null>(null);
 
   type ClientOpt = { id: number; name: string };
   const clients = useQuery({
@@ -198,6 +213,7 @@ export default function OSPage() {
         message?: string;
         codigo?: number | string;
         nomecliente?: string;
+        technician_name?: string;
       }>("/ordens-servico/abrir", {
         client_id: Number(clientId),
         descricaoitem: equipamento.trim(),
@@ -210,10 +226,53 @@ export default function OSPage() {
     },
     onSuccess: (res) => {
       setSuccessMsg(res.message || `Ordem de serviço ${res.codigo} aberta no Uniplus`);
+      setPrintJob({
+        codigo: String(res.codigo || ""),
+        nomecliente: res.nomecliente || "",
+        equipamento: equipamento.trim(),
+        problema: problema.trim(),
+        solicitante: solicitante.trim(),
+        serial: serial.trim(),
+        caracteristicas: caracteristicas.trim(),
+        observacao: observacao.trim(),
+        technician_name: res.technician_name,
+      });
+      setPrintFormat("termica");
+      setPrintError("");
       resetCreateForm();
       setOpenCreate(false);
+      setPrintOpen(true);
     },
     onError: (e) => setCreateError(e instanceof Error ? e.message : "Erro ao abrir ordem"),
+  });
+
+  const imprimirAbertura = useMutation({
+    mutationFn: async () => {
+      if (!printJob?.codigo) throw new Error("Nenhuma OS para imprimir");
+      return flask.post<{ pdf_file?: string; message?: string }>("/ordens-servico/imprimir-abertura", {
+        codigo: printJob.codigo,
+        formato: printFormat,
+        client_name: printJob.nomecliente,
+        descricaoitem: printJob.equipamento,
+        problemadescrito: printJob.problema,
+        solicitante: printJob.solicitante,
+        numerofabricacao: printJob.serial,
+        caracteristicas: printJob.caracteristicas,
+        observacao: printJob.observacao,
+        technician_name: printJob.technician_name,
+      });
+    },
+    onSuccess: async (res) => {
+      setPrintError("");
+      if (res.pdf_file) {
+        try {
+          await flask.open(`/ordens-servico/pdf/${encodeURIComponent(res.pdf_file)}`);
+        } catch (e) {
+          setPrintError(e instanceof Error ? e.message : "PDF gerado, mas não foi possível abrir");
+        }
+      }
+    },
+    onError: (e) => setPrintError(e instanceof Error ? e.message : "Erro ao imprimir"),
   });
 
   const finalizar = useMutation({
@@ -603,6 +662,59 @@ export default function OSPage() {
             {abrirOs.isPending ? "Abrindo…" : "Abrir no Uniplus"}
           </PrimaryButton>
         </form>
+      </Modal>
+
+      <Modal
+        open={printOpen}
+        onClose={() => setPrintOpen(false)}
+        title={printJob ? `Imprimir OS ${printJob.codigo}` : "Imprimir ordem"}
+      >
+        <div className="space-y-5">
+          <p className="text-sm text-muted">
+            A ordem {printJob?.codigo} foi aberta para {printJob?.nomecliente || "o cliente"}. Escolha o formato do comprovante.
+          </p>
+          <div className="grid grid-cols-2 gap-3">
+            <button
+              type="button"
+              onClick={() => setPrintFormat("termica")}
+              className={cn(
+                "rounded-xl border px-4 py-4 text-left",
+                printFormat === "termica" ? "border-ink bg-wash" : "border-line",
+              )}
+            >
+              <Printer className="mb-2 h-5 w-5 text-ink" />
+              <p className="text-sm font-medium text-ink">Térmica</p>
+              <p className="mt-1 text-xs text-muted">Bobina 80 mm</p>
+            </button>
+            <button
+              type="button"
+              onClick={() => setPrintFormat("a4")}
+              className={cn(
+                "rounded-xl border px-4 py-4 text-left",
+                printFormat === "a4" ? "border-ink bg-wash" : "border-line",
+              )}
+            >
+              <FileText className="mb-2 h-5 w-5 text-ink" />
+              <p className="text-sm font-medium text-ink">A4</p>
+              <p className="mt-1 text-xs text-muted">Folha normal</p>
+            </button>
+          </div>
+          {printError ? <p className="text-sm text-open">{printError}</p> : null}
+          <PrimaryButton
+            type="button"
+            disabled={imprimirAbertura.isPending || !printJob}
+            onClick={() => imprimirAbertura.mutate()}
+          >
+            {imprimirAbertura.isPending ? "Gerando…" : "Imprimir"}
+          </PrimaryButton>
+          <button
+            type="button"
+            onClick={() => setPrintOpen(false)}
+            className="w-full rounded-xl border border-line py-3.5 text-[15px] font-medium text-ink"
+          >
+            Agora não
+          </button>
+        </div>
       </Modal>
     </div>
   );
