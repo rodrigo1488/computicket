@@ -12,11 +12,11 @@ from pathlib import Path
 
 from flask import Blueprint, current_app, jsonify, request, send_file
 from flask_login import current_user, login_required
-from sqlalchemy import or_
+from sqlalchemy import func, or_
 from werkzeug.utils import secure_filename
 
 from .. import db
-from ..models import UtilityFile
+from ..models import UtilityCategory, UtilityFile
 from ..timezone_utils import utc_to_brasilia
 
 bp = Blueprint("utilitarios", __name__, url_prefix="/utilitarios")
@@ -142,12 +142,79 @@ def _serialize(row: UtilityFile, *, include_author: bool = False) -> dict:
 		"file_size_label": _size_label(row.file_size or 0),
 		"file_type": row.file_type or "",
 		"download_count": int(row.download_count or 0),
+		"category_id": row.category_id,
+		"category_name": row.category.name if row.category else "",
 		"created_at": _created_at_iso(row.created_at),
 		"download_url": f"/utilitarios/api/publico/{row.id}/download",
 	}
 	if include_author:
 		payload["created_by_name"] = row.created_by.name if row.created_by else ""
 	return payload
+
+
+def _parse_category_id(raw) -> int | None:
+	if raw is None or raw == "":
+		return None
+	if isinstance(raw, str) and raw.strip().lower() in {"", "none", "null", "0"}:
+		return None
+	try:
+		value = int(raw)
+	except (TypeError, ValueError):
+		return None
+	return value if value > 0 else None
+
+
+def _get_category(category_id: int | None) -> UtilityCategory | None:
+	if not category_id:
+		return None
+	row = db.session.get(UtilityCategory, category_id)
+	if not row:
+		raise ValueError("Categoria não encontrada.")
+	return row
+
+
+def _normalize_category_name(name: str) -> str:
+	return " ".join((name or "").split()).strip()[:100]
+
+
+def _category_taken(name: str, *, exclude_id: int | None = None) -> bool:
+	query = UtilityCategory.query.filter(func.lower(UtilityCategory.name) == name.lower())
+	if exclude_id:
+		query = query.filter(UtilityCategory.id != exclude_id)
+	return query.first() is not None
+
+
+def _serialize_category(row: UtilityCategory, files_count: int = 0) -> dict:
+	return {
+		"id": row.id,
+		"name": row.name,
+		"position": int(row.position or 0),
+		"files_count": int(files_count or 0),
+	}
+
+
+def _category_counts() -> dict[int, int]:
+	rows = (
+		db.session.query(UtilityFile.category_id, func.count(UtilityFile.id))
+		.filter(UtilityFile.category_id.isnot(None))
+		.group_by(UtilityFile.category_id)
+		.all()
+	)
+	return {int(cid): int(count) for cid, count in rows if cid}
+
+
+def _list_categories() -> list[dict]:
+	counts = _category_counts()
+	rows = UtilityCategory.query.order_by(UtilityCategory.position.asc(), UtilityCategory.name.asc()).all()
+	return [_serialize_category(row, counts.get(row.id, 0)) for row in rows]
+
+
+def _list_payload(rows: list[UtilityFile], *, include_author: bool = False) -> dict:
+	return {
+		"items": [_serialize(row, include_author=include_author) for row in rows],
+		"total": len(rows),
+		"categories": _list_categories(),
+	}
 
 
 def _disk_path(row: UtilityFile) -> str | None:
@@ -186,6 +253,13 @@ def _list_query():
 				UtilityFile.original_filename.ilike(like),
 			)
 		)
+	raw_cat = (request.args.get("category_id") or "").strip()
+	if raw_cat.lower() in {"none", "uncategorized", "sem"}:
+		query = query.filter(UtilityFile.category_id.is_(None))
+	elif raw_cat:
+		category_id = _parse_category_id(raw_cat)
+		if category_id:
+			query = query.filter(UtilityFile.category_id == category_id)
 	return query.order_by(UtilityFile.created_at.desc())
 
 
@@ -193,6 +267,11 @@ def _save_files() -> list[UtilityFile]:
 	files = list(request.files.getlist("files")) + list(request.files.getlist("file"))
 	title = (request.form.get("title") or "").strip()
 	description = (request.form.get("description") or "").strip() or None
+	try:
+		category = _get_category(_parse_category_id(request.form.get("category_id")))
+	except ValueError:
+		raise
+	category_id = category.id if category else None
 	saved: list[UtilityFile] = []
 	for file in files:
 		if not file or not getattr(file, "filename", None):
@@ -216,6 +295,7 @@ def _save_files() -> list[UtilityFile]:
 			file_path=unique_name,
 			file_size=size,
 			file_type=file.mimetype or "application/octet-stream",
+			category_id=category_id,
 			created_by_id=current_user.id,
 		)
 		db.session.add(row)
@@ -249,6 +329,10 @@ def api_upload_init():
 	folder.mkdir(parents=True, exist_ok=True)
 	title = (data.get("title") or "").strip()
 	description = (data.get("description") or "").strip() or None
+	try:
+		category = _get_category(_parse_category_id(data.get("category_id")))
+	except ValueError as exc:
+		return jsonify({"error": str(exc)}), 400
 	_write_meta(folder, {
 		"user_id": current_user.id,
 		"original_filename": original,
@@ -256,6 +340,7 @@ def api_upload_init():
 		"size": size,
 		"title": (title or Path(original).stem or original)[:200],
 		"description": description,
+		"category_id": category.id if category else None,
 		"mime": (data.get("mime") or "").strip() or "application/octet-stream",
 		"chunk_size": chunk_size,
 		"total_chunks": total_chunks,
@@ -332,6 +417,7 @@ def api_upload_complete(upload_id: str):
 			file_path=unique_name,
 			file_size=written,
 			file_type=meta.get("mime") or "application/octet-stream",
+			category_id=_parse_category_id(meta.get("category_id")),
 			created_by_id=current_user.id,
 		)
 		db.session.add(row)
@@ -361,7 +447,7 @@ def api_upload_complete(upload_id: str):
 @bp.route("/api/publico")
 def api_public_list():
 	rows = _list_query().all()
-	return jsonify({"items": [_serialize(row) for row in rows], "total": len(rows)})
+	return jsonify(_list_payload(rows))
 
 
 @bp.route("/api/publico/<int:file_id>/download")
@@ -383,10 +469,65 @@ def api_public_download(file_id: int):
 @login_required
 def api_list():
 	rows = _list_query().all()
-	return jsonify({
-		"items": [_serialize(row, include_author=True) for row in rows],
-		"total": len(rows),
-	})
+	return jsonify(_list_payload(rows, include_author=True))
+
+
+@bp.route("/api/categorias")
+@login_required
+def api_categories():
+	return jsonify({"items": _list_categories(), "total": UtilityCategory.query.count()})
+
+
+@bp.route("/api/categorias", methods=["POST"])
+@login_required
+def api_create_category():
+	data = request.get_json(silent=True) or {}
+	name = _normalize_category_name(data.get("name") or "")
+	if not name:
+		return jsonify({"error": "Nome da categoria é obrigatório."}), 400
+	if _category_taken(name):
+		return jsonify({"error": "Já existe uma categoria com esse nome."}), 409
+	max_pos = db.session.query(func.max(UtilityCategory.position)).scalar() or 0
+	row = UtilityCategory(
+		name=name,
+		position=int(max_pos) + 1,
+		created_by_id=current_user.id,
+	)
+	db.session.add(row)
+	db.session.commit()
+	return jsonify(_serialize_category(row, 0)), 201
+
+
+@bp.route("/api/categorias/<int:category_id>", methods=["PATCH"])
+@login_required
+def api_update_category(category_id: int):
+	row = UtilityCategory.query.get_or_404(category_id)
+	data = request.get_json(silent=True) or {}
+	if "name" in data:
+		name = _normalize_category_name(data.get("name") or "")
+		if not name:
+			return jsonify({"error": "Nome da categoria é obrigatório."}), 400
+		if _category_taken(name, exclude_id=row.id):
+			return jsonify({"error": "Já existe uma categoria com esse nome."}), 409
+		row.name = name
+	if "position" in data:
+		try:
+			row.position = int(data.get("position") or 0)
+		except (TypeError, ValueError):
+			return jsonify({"error": "Posição inválida."}), 400
+	db.session.commit()
+	counts = _category_counts()
+	return jsonify(_serialize_category(row, counts.get(row.id, 0)))
+
+
+@bp.route("/api/categorias/<int:category_id>", methods=["DELETE"])
+@login_required
+def api_delete_category(category_id: int):
+	row = UtilityCategory.query.get_or_404(category_id)
+	UtilityFile.query.filter_by(category_id=row.id).update({"category_id": None})
+	db.session.delete(row)
+	db.session.commit()
+	return jsonify({"ok": True})
 
 
 @bp.route("/api", methods=["POST"])
@@ -421,6 +562,12 @@ def api_update(file_id: int):
 	if "description" in data:
 		description = (data.get("description") or "").strip()
 		row.description = description or None
+	if "category_id" in data:
+		try:
+			category = _get_category(_parse_category_id(data.get("category_id")))
+		except ValueError as exc:
+			return jsonify({"error": str(exc)}), 400
+		row.category_id = category.id if category else None
 	db.session.commit()
 	return jsonify(_serialize(row, include_author=True))
 

@@ -748,8 +748,9 @@ def create_app() -> Flask:
 			ensure_column("budget_item", "option_key", "VARCHAR(40)")
 			ensure_column("budget_item", "option_label", "VARCHAR(200)")
 			ensure_column("budget", "selected_option_key", "VARCHAR(40)")
-			from .models import PlanAdditional, CustomPlan, CustomPlanItem, UtilityFile  # noqa: F401
-			ensure_tables_from_metadata(["plan_additional", "custom_plan", "custom_plan_item", "utility_file"])
+			from .models import PlanAdditional, CustomPlan, CustomPlanItem, UtilityFile, UtilityCategory  # noqa: F401
+			ensure_tables_from_metadata(["plan_additional", "custom_plan", "custom_plan_item", "utility_category", "utility_file"])
+			ensure_column("utility_file", "category_id", "INTEGER")
 			# Corrige tickets cancelados que foram reabertos por corrida stop×cancel
 			repaired = db.session.execute(text(
 				"UPDATE ticket SET status = 'cancelado', in_progress_started_at = NULL "

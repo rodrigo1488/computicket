@@ -2551,6 +2551,24 @@ class ImplantationStepLog(db.Model):
 		return f"<ImplantationStepLog imp={self.implantation_id} step={self.step_id}>"
 
 
+class UtilityCategory(db.Model):
+	"""Categoria para agrupar arquivos da rota /utilitarios."""
+
+	__tablename__ = "utility_category"
+
+	id = db.Column(db.Integer, primary_key=True)
+	name = db.Column(db.String(100), nullable=False)
+	position = db.Column(db.Integer, nullable=False, default=0)
+	created_at = db.Column(db.DateTime, default=get_brasilia_now, nullable=False)
+	created_by_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=True)
+
+	created_by = db.relationship("User", foreign_keys=[created_by_id])
+	files = db.relationship("UtilityFile", backref="category", lazy="dynamic")
+
+	def __repr__(self) -> str:
+		return f"<UtilityCategory {self.name}>"
+
+
 class UtilityFile(db.Model):
 	"""Arquivo público da rota /utilitarios (upload interno, download sem login)."""
 
@@ -2565,6 +2583,7 @@ class UtilityFile(db.Model):
 	file_size = db.Column(db.Integer, nullable=False, default=0)
 	file_type = db.Column(db.String(100), nullable=False, default="application/octet-stream")
 	download_count = db.Column(db.Integer, nullable=False, default=0)
+	category_id = db.Column(db.Integer, db.ForeignKey("utility_category.id"), nullable=True, index=True)
 	created_at = db.Column(db.DateTime, default=get_brasilia_now, nullable=False, index=True)
 	created_by_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False, index=True)
 

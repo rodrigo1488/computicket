@@ -1,5 +1,12 @@
 import { flask } from "@/lib/api";
 
+export type UtilityCategory = {
+  id: number;
+  name: string;
+  position?: number;
+  files_count?: number;
+};
+
 export type UtilityFile = {
   id: number;
   title: string;
@@ -9,6 +16,8 @@ export type UtilityFile = {
   file_size_label: string;
   file_type: string;
   download_count: number;
+  category_id?: number | null;
+  category_name?: string;
   created_at: string | null;
   download_url: string;
   created_by_name?: string;
@@ -47,7 +56,7 @@ async function putChunk(url: string, body: Blob, attempt = 0): Promise<void> {
 
 export async function uploadUtilityFile(
   file: File,
-  meta: { title?: string; description?: string },
+  meta: { title?: string; description?: string; category_id?: number | null },
   onProgress?: (percent: number) => void,
 ): Promise<UtilityFile> {
   if (file.size > UTILITY_MAX_FILE_BYTES) {
@@ -59,6 +68,7 @@ export async function uploadUtilityFile(
     mime: file.type,
     title: meta.title || "",
     description: meta.description || "",
+    category_id: meta.category_id ?? null,
   });
   const total = Math.max(1, started.total_chunks);
   const chunkSize = started.chunk_size;
@@ -82,4 +92,26 @@ export function formatUtilityDate(iso: string | null) {
     dateStyle: "short",
     timeStyle: "short",
   }).format(date);
+}
+
+export type UtilityGroup = {
+  id: number | "none";
+  name: string;
+  files: UtilityFile[];
+};
+
+export function groupUtilityFiles(items: UtilityFile[], categories: UtilityCategory[]): UtilityGroup[] {
+  const byId = new Map<number, UtilityFile[]>();
+  for (const category of categories) byId.set(category.id, []);
+  const uncategorized: UtilityFile[] = [];
+  for (const file of items) {
+    const id = file.category_id || 0;
+    if (id && byId.has(id)) byId.get(id)!.push(file);
+    else uncategorized.push(file);
+  }
+  const groups: UtilityGroup[] = categories
+    .map((category) => ({ id: category.id, name: category.name, files: byId.get(category.id) || [] }))
+    .filter((group) => group.files.length > 0);
+  if (uncategorized.length) groups.push({ id: "none", name: "Sem categoria", files: uncategorized });
+  return groups;
 }

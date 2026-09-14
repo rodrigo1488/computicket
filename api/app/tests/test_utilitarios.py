@@ -9,7 +9,7 @@ from werkzeug.security import generate_password_hash
 from app import db, login_manager
 from app.blueprints.auth import bp as auth_bp
 from app.blueprints.utilitarios import MAX_FILE_SIZE, bp as utilitarios_bp
-from app.models import User, UtilityFile
+from app.models import User, UtilityCategory, UtilityFile
 
 
 class UtilitariosApiTest(unittest.TestCase):
@@ -172,6 +172,69 @@ class UtilitariosApiTest(unittest.TestCase):
 			json={"filename": "manual.pdf", "size": 10},
 		)
 		self.assertEqual(res.status_code, 401)
+
+	def test_categories_organize_public_listing(self):
+		self._login()
+		created = self.client.post("/utilitarios/api/categorias", json={"name": "Instaladores"})
+		self.assertEqual(created.status_code, 201, created.get_data(as_text=True))
+		category = created.get_json()
+		self.assertEqual(category["name"], "Instaladores")
+
+		dup = self.client.post("/utilitarios/api/categorias", json={"name": "instaladores"})
+		self.assertEqual(dup.status_code, 409)
+
+		upload = self._upload(title="AnyDesk", description="Acesso remoto")
+		file_id = upload.get_json()["items"][0]["id"]
+		patched = self.client.patch(
+			f"/utilitarios/api/{file_id}",
+			json={"category_id": category["id"]},
+		)
+		self.assertEqual(patched.status_code, 200)
+		self.assertEqual(patched.get_json()["category_id"], category["id"])
+		self.assertEqual(patched.get_json()["category_name"], "Instaladores")
+
+		public = self.client.get(f"/utilitarios/api/publico?category_id={category['id']}")
+		self.assertEqual(public.status_code, 200)
+		payload = public.get_json()
+		self.assertEqual(len(payload["items"]), 1)
+		self.assertEqual(payload["categories"][0]["files_count"], 1)
+
+		empty = self.client.get("/utilitarios/api/publico?category_id=none")
+		self.assertEqual(empty.get_json()["items"], [])
+
+		removed = self.client.delete(f"/utilitarios/api/categorias/{category['id']}")
+		self.assertEqual(removed.status_code, 200)
+		self.assertEqual(UtilityCategory.query.count(), 0)
+		row = UtilityFile.query.get(file_id)
+		self.assertIsNone(row.category_id)
+
+	def test_chunked_upload_keeps_category(self):
+		self.app.config["UTILITARIOS_CHUNK_SIZE"] = 4
+		self._login()
+		cat = self.client.post("/utilitarios/api/categorias", json={"name": "Manuais"}).get_json()
+		content = b"ABCDEFGHIJ"
+		init = self.client.post(
+			"/utilitarios/api/uploads",
+			json={
+				"filename": "manual.pdf",
+				"size": len(content),
+				"title": "Manual",
+				"mime": "application/pdf",
+				"category_id": cat["id"],
+			},
+		)
+		upload_id = init.get_json()["upload_id"]
+		for index in range(init.get_json()["total_chunks"]):
+			start = index * 4
+			self.client.put(
+				f"/utilitarios/api/uploads/{upload_id}/chunks/{index}",
+				data=content[start:start + 4],
+				content_type="application/octet-stream",
+			)
+		done = self.client.post(f"/utilitarios/api/uploads/{upload_id}/complete")
+		self.assertEqual(done.status_code, 201, done.get_data(as_text=True))
+		self.assertEqual(done.get_json()["category_id"], cat["id"])
+		self.assertEqual(done.get_json()["category_name"], "Manuais")
 
 
 if __name__ == "__main__":
