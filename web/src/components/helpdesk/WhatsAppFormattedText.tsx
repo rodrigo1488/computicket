@@ -1,9 +1,10 @@
 import { Fragment, type ReactNode } from "react";
+import { anydeskHref, splitAnyDeskParts } from "@/lib/anydesk";
 
 /** Negrito estilo WhatsApp: *texto* → texto em bold (sem os asteriscos). */
 const BOLD_RE = /\*(?!\s)([^*\n]+?)(?<!\s)\*/g;
 
-export function WhatsAppFormattedText({ text }: { text: string }) {
+function renderBold(text: string): ReactNode[] {
   const nodes: ReactNode[] = [];
   let last = 0;
   let key = 0;
@@ -24,5 +25,32 @@ export function WhatsAppFormattedText({ text }: { text: string }) {
   if (last < text.length) {
     nodes.push(<Fragment key={`t${key}`}>{text.slice(last)}</Fragment>);
   }
-  return nodes.length ? <>{nodes}</> : <>{text}</>;
+  return nodes.length ? nodes : [text];
+}
+
+export function WhatsAppFormattedText({
+  text,
+  plain = false,
+}: {
+  text: string;
+  plain?: boolean;
+}) {
+  return (
+    <>
+      {splitAnyDeskParts(text).map((part, i) =>
+        part.kind === "anydesk" ? (
+          <a
+            key={`ad${i}`}
+            href={anydeskHref(part.digits)}
+            title="Abrir no AnyDesk"
+            className="font-medium underline decoration-dotted underline-offset-2"
+          >
+            {part.raw}
+          </a>
+        ) : (
+          <Fragment key={`t${i}`}>{plain ? part.raw : renderBold(part.raw)}</Fragment>
+        ),
+      )}
+    </>
+  );
 }

@@ -18,6 +18,7 @@ import {
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ComposerContextBanner, MessageActions } from "@/components/chat/MessageActions";
+import { WhatsAppFormattedText } from "@/components/helpdesk/WhatsAppFormattedText";
 import { SharedEntityCard } from "@/components/chat/SharedEntityCard";
 import { ShareToChatDialog, type ShareToChatTarget } from "@/components/chat/ShareToChatDialog";
 import { AttachEntityToChatDialog } from "@/components/chat/AttachEntityToChatDialog";
@@ -25,6 +26,7 @@ import { ComposerAttachZone, ComposerFilePreview } from "@/components/ui/Compose
 import { MediaViewer, type MediaViewerItem } from "@/components/media/MediaViewer";
 import { Modal } from "@/components/ui/Modal";
 import { UserAvatar } from "@/components/ui/UserAvatar";
+import { findAnyDeskIds, openAnyDesk } from "@/lib/anydesk";
 import { cn } from "@/lib/cn";
 import { parseChatShare, chatSharePreview } from "@/lib/chat-share";
 import { shakeApp } from "@/lib/nudge-shake";
@@ -817,6 +819,7 @@ export function InternalChatWorkspace() {
                       const kind = mediaKind(src, m.mediaName);
                       const canAct = !m.isDeleted;
                       const shared = m.isDeleted ? null : parseChatShare(m.message);
+                      const anydeskId = !m.isDeleted && !mine ? findAnyDeskIds(m.message || "")[0] : undefined;
                       return (
                         <div key={m.id} className={cn("mb-2 flex", mine ? "justify-end" : "justify-start")}>
                           <div
@@ -832,6 +835,7 @@ export function InternalChatWorkspace() {
                                 tone={mine ? "onBrand" : "default"}
                                 canReply
                                 canForward
+                                canOpenAnyDesk={!!anydeskId}
                                 canEdit={mine && !src}
                                 canDelete={mine}
                                 onReply={() => {
@@ -847,6 +851,7 @@ export function InternalChatWorkspace() {
                                     mediaName: m.mediaName,
                                   });
                                 }}
+                                onOpenAnyDesk={() => anydeskId && openAnyDesk(anydeskId)}
                                 onEdit={() => {
                                   setEditingMessage(m);
                                   setReplyTo(null);
@@ -925,7 +930,9 @@ export function InternalChatWorkspace() {
                                     <SharedEntityCard payload={shared.payload} note={shared.note} />
                                   </div>
                                 ) : m.message ? (
-                                  <p className="whitespace-pre-wrap break-words">{m.message}</p>
+                                  <p className="whitespace-pre-wrap break-words">
+                                    <WhatsAppFormattedText text={m.message} plain />
+                                  </p>
                                 ) : null}
                               </>
                             )}

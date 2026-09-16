@@ -1,6 +1,6 @@
 "use client";
 
-import { Forward, Pencil, Reply, Trash2 } from "lucide-react";
+import { Forward, Monitor, Pencil, Reply, Trash2 } from "lucide-react";
 import { cn } from "@/lib/cn";
 
 export function MessageActions({
@@ -8,10 +8,12 @@ export function MessageActions({
   tone = "default",
   canReply,
   canForward,
+  canOpenAnyDesk,
   canEdit,
   canDelete,
   onReply,
   onForward,
+  onOpenAnyDesk,
   onEdit,
   onDelete,
 }: {
@@ -19,14 +21,16 @@ export function MessageActions({
   tone?: "default" | "onBrand";
   canReply?: boolean;
   canForward?: boolean;
+  canOpenAnyDesk?: boolean;
   canEdit?: boolean;
   canDelete?: boolean;
   onReply?: () => void;
   onForward?: () => void;
+  onOpenAnyDesk?: () => void;
   onEdit?: () => void;
   onDelete?: () => void;
 }) {
-  if (!canReply && !canForward && !canEdit && !canDelete) return null;
+  if (!canReply && !canForward && !canOpenAnyDesk && !canEdit && !canDelete) return null;
   const btn =
     tone === "onBrand"
       ? "text-white/80 hover:bg-white/15 hover:text-white"
@@ -47,6 +51,11 @@ export function MessageActions({
       {canForward ? (
         <button type="button" className={cn("rounded p-1", btn)} title="Encaminhar no chat interno" onClick={onForward}>
           <Forward className="h-3.5 w-3.5" />
+        </button>
+      ) : null}
+      {canOpenAnyDesk ? (
+        <button type="button" className={cn("rounded p-1", btn)} title="Abrir no AnyDesk" onClick={onOpenAnyDesk}>
+          <Monitor className="h-3.5 w-3.5" />
         </button>
       ) : null}
       {canEdit ? (

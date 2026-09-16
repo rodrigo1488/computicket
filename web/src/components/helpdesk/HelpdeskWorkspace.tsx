@@ -50,6 +50,7 @@ import { FloatingMenu } from "@/components/ui/FloatingMenu";
 import { Modal } from "@/components/ui/Modal";
 import { UserAvatar } from "@/components/ui/UserAvatar";
 import { flask } from "@/lib/api";
+import { findAnyDeskIds, openAnyDesk } from "@/lib/anydesk";
 import { cn } from "@/lib/cn";
 import { useAuth } from "@/lib/auth-context";
 import type { TicketDetail } from "@/lib/format";
@@ -2407,6 +2408,10 @@ export function HelpdeskWorkspace() {
                       const persisted = !isTempMessageId(m.id);
                       const canAct = canReply && persisted && !m.isDeleted;
                       const canForward = persisted && !m.isDeleted && !!current;
+                      const anydeskId =
+                        !m.isDeleted && !isContactShareMessage(m.mediaType, m.body)
+                          ? findAnyDeskIds(m.body || "")[0]
+                          : undefined;
                       return (
                         <div key={`${m.id}-${idx}`} className={cn("mb-2 flex", system ? "justify-center" : mine ? "justify-end" : "justify-start")}>
                           <div
@@ -2421,11 +2426,12 @@ export function HelpdeskWorkspace() {
                                   : "rounded-tl-none bg-bubble-in text-ink",
                             )}
                           >
-                            {canAct || canForward ? (
+                            {canAct || canForward || anydeskId ? (
                               <MessageActions
                                 align={mine || system ? "start" : "end"}
                                 canReply={canAct}
                                 canForward={canForward}
+                                canOpenAnyDesk={!!anydeskId}
                                 canEdit={
                                   canAct &&
                                   !!m.fromMe &&
@@ -2449,6 +2455,7 @@ export function HelpdeskWorkspace() {
                                     mediaName: m.mediaUrl?.split("/").pop()?.split("?")[0] || "midia",
                                   });
                                 }}
+                                onOpenAnyDesk={() => anydeskId && openAnyDesk(anydeskId)}
                                 onEdit={() => startEdit(m)}
                                 onDelete={() => confirmDeleteMessage(m)}
                               />
