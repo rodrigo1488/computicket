@@ -23,6 +23,7 @@ import { SharedEntityCard } from "@/components/chat/SharedEntityCard";
 import { ShareToChatDialog, type ShareToChatTarget } from "@/components/chat/ShareToChatDialog";
 import { AttachEntityToChatDialog } from "@/components/chat/AttachEntityToChatDialog";
 import { ComposerAttachZone, ComposerFilePreview } from "@/components/ui/ComposerAttachZone";
+import { audioRecorderErrorMessage, ComposerMicButton, ComposerRecordingBar, useAudioRecorder } from "@/components/ui/ComposerAudioRecorder";
 import { MediaViewer, type MediaViewerItem } from "@/components/media/MediaViewer";
 import { Modal } from "@/components/ui/Modal";
 import { UserAvatar } from "@/components/ui/UserAvatar";
@@ -96,7 +97,7 @@ function formatMessageTime(value?: string | null) {
 function mediaKind(url?: string | null, name?: string | null): "image" | "audio" | "video" | "file" {
   const raw = `${url || ""} ${name || ""}`.toLowerCase();
   if (/\.(png|jpe?g|gif|webp|bmp|svg)(\?|$)/.test(raw) || raw.includes("image/")) return "image";
-  if (/\.(mp3|wav|ogg|oga|m4a|aac|webm|opus)(\?|$)/.test(raw) || raw.includes("audio/")) return "audio";
+  if (/\.(mp3|wav|ogg|oga|m4a|aac|weba|webm|opus)(\?|$)/.test(raw) || raw.includes("audio/")) return "audio";
   if (/\.(mp4|webm|mov|m4v|3gp)(\?|$)/.test(raw) || raw.includes("video/")) return "video";
   return "file";
 }
@@ -341,7 +342,7 @@ export function InternalChatWorkspace() {
   }, [nudgeLockedUntil]);
 
   const send = useMutation({
-    mutationFn: async () => {
+    mutationFn: async (voice?: File) => {
       if (!activeId) throw new Error("Selecione uma conversa.");
       if (editingMessage) {
         const body = text.trim();
@@ -349,10 +350,11 @@ export function InternalChatWorkspace() {
         return internalChat.edit(activeId, editingMessage.id, body);
       }
       const quotedId = replyTo && !replyTo.isDeleted ? replyTo.id : undefined;
-      if (file) {
-        const tooBig = internalChatMediaSizeError(file);
+      const media = voice || file;
+      if (media) {
+        const tooBig = internalChatMediaSizeError(media);
         if (tooBig) throw new Error(tooBig);
-        return internalChat.sendMedia(activeId, file, text.trim(), quotedId);
+        return internalChat.sendMedia(activeId, media, voice ? "" : text.trim(), quotedId);
       }
       if (!text.trim()) throw new Error("Digite uma mensagem.");
       return internalChat.send(activeId, text.trim(), quotedId);
@@ -372,6 +374,33 @@ export function InternalChatWorkspace() {
     },
     onError: (e: Error) => setError(e.message),
   });
+
+  const sendVoiceRef = useRef<(file: File) => void>(() => {});
+  sendVoiceRef.current = (voice) => send.mutate(voice);
+  const recorder = useAudioRecorder({
+    onAutoStop: (voice) => sendVoiceRef.current(voice),
+  });
+
+  useEffect(() => () => recorder.cancel(), [activeId, recorder.cancel]);
+
+  async function startRecording() {
+    if (!activeId || editingMessage) return;
+    setError(null);
+    try {
+      await recorder.start();
+    } catch (err) {
+      setError(audioRecorderErrorMessage(err));
+    }
+  }
+
+  async function sendRecording() {
+    const voice = await recorder.stop();
+    if (!voice) {
+      setError("Gravação muito curta.");
+      return;
+    }
+    send.mutate(voice);
+  }
 
   const deleteMessage = useMutation({
     mutationFn: (message: InternalChatMessage) => {
@@ -726,7 +755,7 @@ export function InternalChatWorkspace() {
         <section className="flex min-h-0 min-w-0 flex-1 basis-0 flex-col overflow-hidden bg-chat">
           {current ? (
             <ComposerAttachZone
-              enabled={!editingMessage}
+              enabled={!editingMessage && !recorder.recording}
               onFiles={(files) => {
                 const next = files[0];
                 if (next) attachComposerFile(next);
@@ -957,6 +986,7 @@ export function InternalChatWorkspace() {
                 className="shrink-0 border-t border-chat-border bg-surface px-4 py-3"
                 onSubmit={(e) => {
                   e.preventDefault();
+                  if (recorder.recording) return;
                   if (editingMessage) {
                     if (!text.trim()) return;
                     send.mutate();
@@ -991,6 +1021,14 @@ export function InternalChatWorkspace() {
                     }}
                   />
                 ) : null}
+                {recorder.recording ? (
+                  <ComposerRecordingBar
+                    elapsedMs={recorder.elapsedMs}
+                    sending={send.isPending || recorder.status === "stopping"}
+                    onCancel={() => recorder.cancel()}
+                    onSend={() => void sendRecording()}
+                  />
+                ) : (
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
@@ -1036,15 +1074,23 @@ export function InternalChatWorkspace() {
                     autoComplete="off"
                     title="Cole uma imagem (Ctrl+V) ou arraste um arquivo"
                   />
-                  <button
-                    type="submit"
-                    disabled={send.isPending || (!text.trim() && !file)}
-                    className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-brand text-white disabled:opacity-40"
-                    aria-label="Enviar"
-                  >
-                    {send.isPending ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-                  </button>
+                  {text.trim() || file || editingMessage ? (
+                    <button
+                      type="submit"
+                      disabled={send.isPending || (!text.trim() && !file)}
+                      className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-brand text-white disabled:opacity-40"
+                      aria-label="Enviar"
+                    >
+                      {send.isPending ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                    </button>
+                  ) : (
+                    <ComposerMicButton
+                      disabled={send.isPending}
+                      onClick={() => void startRecording()}
+                    />
+                  )}
                 </div>
+                )}
               </form>
             </ComposerAttachZone>
           ) : (

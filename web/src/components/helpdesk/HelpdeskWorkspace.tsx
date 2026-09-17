@@ -46,6 +46,7 @@ import { WhatsAppFormattedText } from "@/components/helpdesk/WhatsAppFormattedTe
 import { ContactShareCard } from "@/components/helpdesk/ContactShareCard";
 import { MediaViewer, type MediaViewerItem } from "@/components/media/MediaViewer";
 import { ComposerAttachZone, ComposerFilePreview } from "@/components/ui/ComposerAttachZone";
+import { audioRecorderErrorMessage, ComposerMicButton, ComposerRecordingBar, useAudioRecorder } from "@/components/ui/ComposerAudioRecorder";
 import { FloatingMenu } from "@/components/ui/FloatingMenu";
 import { Modal } from "@/components/ui/Modal";
 import { UserAvatar } from "@/components/ui/UserAvatar";
@@ -1495,7 +1496,7 @@ export function HelpdeskWorkspace() {
         : null;
       const optimistic: HelpdeskMessage = {
         id: tempId,
-        body: vars.body || vars.file.name,
+        body: vars.body || (vars.file.type.startsWith("audio/") ? "Áudio" : vars.file.name),
         fromMe: true,
         createdAt: new Date().toISOString(),
         ack: 0,
@@ -1545,6 +1546,42 @@ export function HelpdeskWorkspace() {
     }
     setError(null);
     setPendingFile(file);
+  }
+
+  const sendVoiceRef = useRef<(file: File) => void>(() => {});
+  sendVoiceRef.current = (voice) => {
+    if (!activeId || current?.status !== "open") return;
+    sendFile.mutate({
+      ticketId: activeId,
+      file: voice,
+      body: "",
+      rawText: "",
+      quotedMsg: replyTo,
+    });
+  };
+  const recorder = useAudioRecorder({
+    onAutoStop: (voice) => sendVoiceRef.current(voice),
+  });
+
+  useEffect(() => () => recorder.cancel(), [activeId, recorder.cancel]);
+
+  async function startRecording() {
+    if (!activeId || current?.status !== "open" || editingMessage) return;
+    setError(null);
+    try {
+      await recorder.start();
+    } catch (err) {
+      setError(audioRecorderErrorMessage(err));
+    }
+  }
+
+  async function sendRecording() {
+    const voice = await recorder.stop();
+    if (!voice) {
+      setError("Gravação muito curta.");
+      return;
+    }
+    sendVoiceRef.current(voice);
   }
 
   function startReply(m: HelpdeskMessage) {
@@ -2174,7 +2211,7 @@ export function HelpdeskWorkspace() {
         <section className="flex min-h-0 min-w-0 flex-1 basis-0 flex-col overflow-hidden bg-chat">
           {current ? (
             <ComposerAttachZone
-              enabled={canReply && !editingMessage}
+              enabled={canReply && !editingMessage && !recorder.recording}
               onFiles={(files) => {
                 const file = files[0];
                 if (file) attachComposerFile(file);
@@ -2528,6 +2565,7 @@ export function HelpdeskWorkspace() {
                   className="relative shrink-0 border-t border-chat-border bg-chat-composer px-3 py-2"
                   onSubmit={(e) => {
                     e.preventDefault();
+                    if (recorder.recording) return;
                     if (send.isPending || sendFile.isPending || editMessage.isPending || !activeId) return;
                     const rawText = text;
                     if (editingMessage && !isTempMessageId(editingMessage.id)) {
@@ -2641,6 +2679,14 @@ export function HelpdeskWorkspace() {
                       </button>
                     </div>
                   ) : null}
+                  {recorder.recording ? (
+                    <ComposerRecordingBar
+                      elapsedMs={recorder.elapsedMs}
+                      sending={sendFile.isPending || recorder.status === "stopping"}
+                      onCancel={() => recorder.cancel()}
+                      onSend={() => void sendRecording()}
+                    />
+                  ) : (
                   <div className="flex items-center gap-2">
                     <Smile className="h-5 w-5 text-muted" />
                     <button
@@ -2766,20 +2812,28 @@ export function HelpdeskWorkspace() {
                     >
                       <PenLine className="h-4 w-4" />
                     </button>
-                    <button
-                      type="submit"
-                      disabled={
-                        send.isPending ||
-                        sendFile.isPending ||
-                        editMessage.isPending ||
-                        (!text.trim() && !pendingFile)
-                      }
-                      className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-brand text-white disabled:opacity-40"
-                      aria-label="Enviar"
-                    >
-                      <Send className="h-4 w-4" />
-                    </button>
+                    {text.trim() || pendingFile || editingMessage ? (
+                      <button
+                        type="submit"
+                        disabled={
+                          send.isPending ||
+                          sendFile.isPending ||
+                          editMessage.isPending ||
+                          (!text.trim() && !pendingFile)
+                        }
+                        className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-brand text-white disabled:opacity-40"
+                        aria-label="Enviar"
+                      >
+                        <Send className="h-4 w-4" />
+                      </button>
+                    ) : (
+                      <ComposerMicButton
+                        disabled={sendFile.isPending}
+                        onClick={() => void startRecording()}
+                      />
+                    )}
                   </div>
+                  )}
                 </form>
               ) : (
                 <div className="flex shrink-0 items-center justify-center gap-3 border-t border-chat-border bg-surface px-4 py-3 text-xs text-muted">

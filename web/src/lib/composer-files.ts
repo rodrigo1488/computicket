@@ -12,6 +12,8 @@ const MIME_EXT: Record<string, string> = {
   "video/quicktime": "mov",
   "audio/mpeg": "mp3",
   "audio/ogg": "ogg",
+  "audio/webm": "weba",
+  "audio/mp4": "m4a",
   "audio/wav": "wav",
   "application/pdf": "pdf",
 };
