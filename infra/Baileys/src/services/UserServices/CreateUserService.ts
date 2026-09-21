@@ -12,6 +12,7 @@ import User from "../../models/User";
 import Plan from "../../models/Plan";
 import Company from "../../models/Company";
 import CacheInvalidationService from "../CacheServices/CacheInvalidationService";
+import { resolvePlanLimit } from "../../helpers/resolvePlanLimit";
 
 interface Request {
   email: string;
@@ -61,9 +62,10 @@ const CreateUserService = async ({
         },
       });
 
-      if (usersCount >= company.plan.users) {
+      const usersLimit = resolvePlanLimit(company.plan?.users, "USER_LIMIT");
+      if (usersLimit > 0 && usersCount >= usersLimit) {
         throw new AppError(
-          `Número máximo de usuários já alcançado: ${usersCount}`
+          `Número máximo de usuários já alcançado: ${usersLimit}`
         );
       }
     }

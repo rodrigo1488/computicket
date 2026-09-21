@@ -9,9 +9,9 @@ module.exports = {
           [
             {
               name: "Plano 1",
-              users: 10,
-              connections: 10,
-              queues: 10,
+              users: 9999,
+              connections: 9999,
+              queues: 9999,
               value: 30,
               createdAt: new Date(),
               updatedAt: new Date()

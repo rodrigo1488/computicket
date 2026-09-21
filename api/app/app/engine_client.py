@@ -15,6 +15,8 @@ from . import db
 from .models import HelpDeskAgentMap, User
 
 DEFAULT_QUEUE = {"name": "SUPORTE", "color": "#3B82F6"}
+EMBEDDED_PLAN_LIMIT = 9999
+_plan_capacity_ensured = False
 
 _admin_lock = threading.Lock()
 _admin_token: Optional[str] = None
@@ -277,6 +279,69 @@ def _engine_email_for(user: User) -> str:
     return f"user{user.id}@computicket.local"
 
 
+def _plan_limit_value(plan: dict, key: str) -> int:
+    try:
+        return int(plan.get(key) or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _as_plan_list(data: Any) -> list[dict]:
+    if isinstance(data, list):
+        return [item for item in data if isinstance(item, dict)]
+    if isinstance(data, dict):
+        nested = data.get("plans") or data.get("rows") or []
+        if isinstance(nested, list):
+            return [item for item in nested if isinstance(item, dict)]
+    return []
+
+
+def ensure_engine_plan_capacity() -> None:
+    """Sobe o teto do plano embutido para caber a equipe do Computicket.
+
+    O seed do motor ainda nasce com 10 usuários. Atribuir filas a um agente
+    ainda não sincronizado tenta criar o usuário no WhatsApp e estoura esse teto.
+    """
+    global _plan_capacity_ensured
+    if _plan_capacity_ensured:
+        return
+    try:
+        plans = _as_plan_list(admin_request("GET", "/plans/list"))
+    except EngineError:
+        return
+    raised = True
+    for plan in plans:
+        plan_id = plan.get("id")
+        if plan_id is None:
+            continue
+        users = _plan_limit_value(plan, "users")
+        connections = _plan_limit_value(plan, "connections")
+        queues = _plan_limit_value(plan, "queues")
+        if (
+            users >= EMBEDDED_PLAN_LIMIT
+            and connections >= EMBEDDED_PLAN_LIMIT
+            and queues >= EMBEDDED_PLAN_LIMIT
+        ):
+            continue
+        try:
+            admin_request(
+                "PUT",
+                f"/plans/{plan_id}",
+                json={
+                    "id": plan_id,
+                    "name": plan.get("name") or "Plano 1",
+                    "users": max(users, EMBEDDED_PLAN_LIMIT),
+                    "connections": max(connections, EMBEDDED_PLAN_LIMIT),
+                    "queues": max(queues, EMBEDDED_PLAN_LIMIT),
+                    "value": plan.get("value") or 0,
+                },
+            )
+        except EngineError:
+            raised = False
+    if plans and raised:
+        _plan_capacity_ensured = True
+
+
 def list_engine_users(search: str = "") -> list[dict]:
     data = admin_request("GET", "/users", params={"pageNumber": "1", "searchParam": search})
     if isinstance(data, dict):
@@ -285,6 +350,7 @@ def list_engine_users(search: str = "") -> list[dict]:
 
 
 def ensure_default_queue() -> list[dict]:
+    ensure_engine_plan_capacity()
     queues = admin_request("GET", "/queue") or []
     if not isinstance(queues, list):
         queues = []
@@ -299,6 +365,7 @@ def _is_admin_role(user: User) -> bool:
 
 
 def _create_engine_user(user: User, password: str, queues: list[dict] | None = None) -> dict:
+    ensure_engine_plan_capacity()
     # Filas vazias de propósito: o admin atribui em Configurações → WhatsApp.
     queue_ids = [q.get("id") for q in (queues or []) if q.get("id") is not None]
     profile = "admin" if _is_admin_role(user) else "user"

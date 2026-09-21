@@ -5,6 +5,7 @@ import Whatsapp from "../../models/Whatsapp";
 import Company from "../../models/Company";
 import Plan from "../../models/Plan";
 import AssociateWhatsappQueue from "./AssociateWhatsappQueue";
+import { resolvePlanLimit } from "../../helpers/resolvePlanLimit";
 
 interface Request {
   name: string;
@@ -100,9 +101,13 @@ const CreateWhatsAppService = async ({
       }
     });
 
-    if (whatsappCount >= company.plan.connections) {
+    const connectionsLimit = resolvePlanLimit(
+      company.plan?.connections,
+      "CONNECTIONS_LIMIT"
+    );
+    if (connectionsLimit > 0 && whatsappCount >= connectionsLimit) {
       throw new AppError(
-        `Número máximo de conexões já alcançado: ${whatsappCount}`
+        `Número máximo de conexões já alcançado: ${connectionsLimit}`
       );
     }
   }

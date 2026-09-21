@@ -3,6 +3,7 @@ import AppError from "../../errors/AppError";
 import Queue from "../../models/Queue";
 import Company from "../../models/Company";
 import Plan from "../../models/Plan";
+import { resolvePlanLimit } from "../../helpers/resolvePlanLimit";
 
 interface QueueData {
   name: string;
@@ -33,8 +34,9 @@ const CreateQueueService = async (queueData: QueueData): Promise<Queue> => {
       }
     });
 
-    if (queuesCount >= company.plan.queues) {
-      throw new AppError(`Número máximo de filas já alcançado: ${queuesCount}`);
+    const queuesLimit = resolvePlanLimit(company.plan?.queues, "QUEUES_LIMIT");
+    if (queuesLimit > 0 && queuesCount >= queuesLimit) {
+      throw new AppError(`Número máximo de filas já alcançado: ${queuesLimit}`);
     }
   }
 

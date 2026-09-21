@@ -102,6 +102,7 @@ services:
       JWT_REFRESH_SECRET: ${WHATSAPP_JWT_REFRESH_SECRET:-computicket-whatsapp-refresh-dev-secret}
       USER_LIMIT: "9999"
       CONNECTIONS_LIMIT: "9999"
+      QUEUES_LIMIT: "9999"
       CLOSED_SEND_BY_ME: "true"
       WBOT_ENABLE_DISTRIBUTED_LOCK: "false"
       CACHE_ENABLED: "true"
