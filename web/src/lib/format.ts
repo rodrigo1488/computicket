@@ -70,6 +70,7 @@ export type TicketCard = {
   total_cost?: number;
   ps_printed?: boolean;
   ps_number?: string | null;
+  closed_at?: string | null;
 };
 
 export type TicketAddon = {
@@ -98,6 +99,8 @@ export type TimeEntry = {
   comment?: string;
   start_time?: string | null;
   end_time?: string | null;
+  start_time_input?: string | null;
+  end_time_input?: string | null;
   no_charge?: boolean;
   created_at?: string | null;
   images?: TicketImage[];

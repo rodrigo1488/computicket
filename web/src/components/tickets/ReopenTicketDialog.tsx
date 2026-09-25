@@ -5,6 +5,7 @@ import { Modal } from "@/components/ui/Modal";
 type ReopenTarget = {
   id: number;
   title: string;
+  closed_at?: string | null;
 };
 
 export function ReopenTicketDialog({
@@ -37,7 +38,8 @@ export function ReopenTicketDialog({
               Ticket #{ticket.id} · {ticket.title}
             </p>
             <p className="mt-1 text-ink">
-              O ticket voltará para o status aberto. Só é possível reabrir tickets fechados há menos de 7 dias.
+              O ticket voltará para o status aberto. O motivo fica registrado na descrição.
+              {ticket.closed_at ? ` Fechado em ${ticket.closed_at}.` : ""}
             </p>
           </div>
           <label className="mt-4 block text-sm">

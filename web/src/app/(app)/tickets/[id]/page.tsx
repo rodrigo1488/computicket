@@ -1,7 +1,7 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Ban, Check, Clock, Hand, MessageCircle, Plus, Printer, RotateCcw, Share2, Trash2 } from "lucide-react";
+import { Ban, Check, Clock, Hand, MessageCircle, Pencil, Plus, Printer, RotateCcw, Share2, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useState } from "react";
@@ -16,7 +16,7 @@ import { StatusBadge } from "@/components/ui/StatusBadge";
 import { UserAvatar } from "@/components/ui/UserAvatar";
 import { flask } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
-import { formatBRL, formatHours, type TicketDetail } from "@/lib/format";
+import { formatBRL, formatHours, type TimeEntry, type TicketDetail } from "@/lib/format";
 
 export default function TicketDetailPage() {
   const params = useParams<{ id: string }>();
@@ -25,7 +25,8 @@ export default function TicketDetailPage() {
   const qc = useQueryClient();
   const { user } = useAuth();
   const [addonOpen, setAddonOpen] = useState(false);
-  const [entryMode, setEntryMode] = useState<"stop" | "add" | null>(null);
+  const [entryMode, setEntryMode] = useState<"stop" | "add" | "edit" | null>(null);
+  const [editingEntry, setEditingEntry] = useState<TimeEntry | null>(null);
   const [closeOpen, setCloseOpen] = useState(false);
   const [cancelOpen, setCancelOpen] = useState(false);
   const [cancelReason, setCancelReason] = useState("");
@@ -109,6 +110,17 @@ export default function TicketDetailPage() {
     }
   };
 
+  const removeEntry = async (entryId: number) => {
+    if (!window.confirm("Excluir este apontamento?")) return;
+    setErr("");
+    try {
+      await flask.delete(`/tickets/api/${id}/time-entries/${entryId}`);
+      invalidate();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Erro ao excluir apontamento");
+    }
+  };
+
   const printPs = async () => {
     if (!data) return;
     setErr("");
@@ -188,7 +200,10 @@ export default function TicketDetailPage() {
           {data.status === "em_andamento" && mine ? (
             <button
               type="button"
-              onClick={() => setEntryMode("stop")}
+              onClick={() => {
+                setEditingEntry(null);
+                setEntryMode("stop");
+              }}
               className="inline-flex items-center gap-2 rounded-xl border border-line bg-surface px-4 py-2.5 text-sm font-medium text-ink"
             >
               Encerrar sessão
@@ -197,7 +212,10 @@ export default function TicketDetailPage() {
           {openTicket ? (
             <button
               type="button"
-              onClick={() => setEntryMode("add")}
+              onClick={() => {
+                setEditingEntry(null);
+                setEntryMode("add");
+              }}
               className="inline-flex items-center gap-2 rounded-xl border border-line bg-surface px-4 py-2.5 text-sm font-medium text-ink"
             >
               Incluir apontamento
@@ -355,7 +373,10 @@ export default function TicketDetailPage() {
               {openTicket ? (
                 <button
                   type="button"
-                  onClick={() => setEntryMode("add")}
+                  onClick={() => {
+                    setEditingEntry(null);
+                    setEntryMode("add");
+                  }}
                   className="flex h-8 w-8 items-center justify-center rounded-lg bg-inverse text-on-inverse"
                   aria-label="Incluir apontamento"
                 >
@@ -367,7 +388,7 @@ export default function TicketDetailPage() {
               {entries.map((e) => (
                 <li key={e.id} className="py-3 text-sm">
                   <div className="flex items-start justify-between gap-3">
-                    <div>
+                    <div className="min-w-0">
                       <p className="font-medium text-ink">{e.user_name || "Usuário"}</p>
                       <p className="text-muted">
                         {e.start_time || "—"} → {e.end_time || "—"}
@@ -375,9 +396,34 @@ export default function TicketDetailPage() {
                       {e.comment ? <p className="mt-1 text-ink">{e.comment}</p> : null}
                       <TicketImageGallery images={e.images || []} />
                     </div>
-                    <div className="text-right">
-                      <p className="font-medium">{e.hours_label || formatHours(e.hours)}</p>
-                      {e.no_charge ? <p className="text-xs text-muted">sem cobrança</p> : null}
+                    <div className="flex shrink-0 items-start gap-2">
+                      <div className="text-right">
+                        <p className="font-medium">{e.hours_label || formatHours(e.hours)}</p>
+                        {e.no_charge ? <p className="text-xs text-muted">sem cobrança</p> : null}
+                      </div>
+                      {openTicket ? (
+                        <div className="flex gap-1">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditingEntry(e);
+                              setEntryMode("edit");
+                            }}
+                            className="flex h-8 w-8 items-center justify-center rounded-lg border border-line text-ink hover:bg-surface"
+                            aria-label="Editar apontamento"
+                          >
+                            <Pencil className="h-3.5 w-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void removeEntry(e.id)}
+                            className="flex h-8 w-8 items-center justify-center rounded-lg bg-open-bg text-open"
+                            aria-label="Excluir apontamento"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      ) : null}
                     </div>
                   </div>
                 </li>
@@ -481,9 +527,13 @@ export default function TicketDetailPage() {
       />
       <TimeEntryDialog
         open={!!entryMode}
-        onClose={() => setEntryMode(null)}
+        onClose={() => {
+          setEntryMode(null);
+          setEditingEntry(null);
+        }}
         ticketId={id}
         mode={entryMode || "add"}
+        entry={editingEntry}
         onSaved={invalidate}
       />
       <CloseTicketDialog open={closeOpen} onClose={() => setCloseOpen(false)} ticket={data} onClosed={invalidate} />

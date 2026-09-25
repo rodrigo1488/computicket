@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { Modal } from "@/components/ui/Modal";
 import { PrimaryButton, UnderlineField } from "@/components/ui/UnderlineField";
 import { flask } from "@/lib/api";
+import type { TimeEntry } from "@/lib/format";
 import { TicketImagePicker } from "@/components/tickets/TicketImages";
 
 function pad(n: number) {
@@ -38,12 +39,14 @@ export function TimeEntryDialog({
   onClose,
   ticketId,
   mode,
+  entry,
   onSaved,
 }: {
   open: boolean;
   onClose: () => void;
   ticketId: number;
-  mode: "stop" | "add";
+  mode: "stop" | "add" | "edit";
+  entry?: TimeEntry | null;
   onSaved: () => void;
 }) {
   const [start, setStart] = useState("");
@@ -61,11 +64,23 @@ export function TimeEntryDialog({
     const generation = ++loadGeneration.current;
     const requestedTicketId = ticketId;
     const now = localDatetime(new Date());
+    setError("");
+
+    if (mode === "edit" && entry) {
+      setStart(toDatetimeLocal(entry.start_time_input || "") || now);
+      setEnd(toDatetimeLocal(entry.end_time_input || "") || now);
+      setComment(entry.comment || "");
+      setImages([]);
+      setLoadingTimes(false);
+      return () => {
+        cancelled = true;
+      };
+    }
+
     setEnd(now);
     setStart(now);
     setComment(mode === "stop" ? "Encerrado pelo botão" : "");
     setImages([]);
-    setError("");
     setLoadingTimes(true);
 
     const isCurrent = () =>
@@ -98,7 +113,7 @@ export function TimeEntryDialog({
     return () => {
       cancelled = true;
     };
-  }, [open, mode, ticketId]);
+  }, [open, mode, ticketId, entry]);
 
   const save = async () => {
     setError("");
@@ -112,15 +127,23 @@ export function TimeEntryDialog({
     }
     setSaving(true);
     try {
-      const body = new FormData();
-      body.append("start_time", start);
-      body.append("end_time", end);
-      body.append("comment", comment.trim() || (mode === "stop" ? "Encerrado pelo botão" : ""));
-      images.forEach((file) => body.append("images", file));
-      if (mode === "stop") {
-        await flask.post(`/tickets/api/${ticketId}/stop`, body);
+      if (mode === "edit" && entry) {
+        await flask.patch(`/tickets/api/${ticketId}/time-entries/${entry.id}`, {
+          start_time: start,
+          end_time: end,
+          comment: comment.trim(),
+        });
       } else {
-        await flask.post(`/tickets/${ticketId}/apontar`, body);
+        const body = new FormData();
+        body.append("start_time", start);
+        body.append("end_time", end);
+        body.append("comment", comment.trim() || (mode === "stop" ? "Encerrado pelo botão" : ""));
+        images.forEach((file) => body.append("images", file));
+        if (mode === "stop") {
+          await flask.post(`/tickets/api/${ticketId}/stop`, body);
+        } else {
+          await flask.post(`/tickets/${ticketId}/apontar`, body);
+        }
       }
       onSaved();
       onClose();
@@ -131,8 +154,19 @@ export function TimeEntryDialog({
     }
   };
 
+  const title =
+    mode === "stop" ? "Encerrar sessão" : mode === "edit" ? "Editar apontamento" : "Incluir apontamento";
+  const saveLabel =
+    saving
+      ? "Salvando…"
+      : mode === "stop"
+        ? "Encerrar e apontar"
+        : mode === "edit"
+          ? "Salvar alterações"
+          : "Registrar apontamento";
+
   return (
-    <Modal open={open} onClose={onClose} title={mode === "stop" ? "Encerrar sessão" : "Incluir apontamento"}>
+    <Modal open={open} onClose={onClose} title={title}>
       <div className="space-y-5">
         <UnderlineField label="Início" type="datetime-local" value={start} onChange={setStart} />
         <UnderlineField label="Fim" type="datetime-local" value={end} onChange={setEnd} />
@@ -146,11 +180,11 @@ export function TimeEntryDialog({
             className="mt-1 w-full border-0 border-b border-line bg-transparent py-2 text-[15px] text-ink"
           />
         </label>
-        <TicketImagePicker files={images} onChange={setImages} disabled={saving} />
+        {mode !== "edit" ? <TicketImagePicker files={images} onChange={setImages} disabled={saving} /> : null}
         {loadingTimes ? <p className="text-xs text-muted">Carregando horários…</p> : null}
         {error ? <p className="text-sm text-open">{error}</p> : null}
         <PrimaryButton onClick={() => void save()} disabled={saving || loadingTimes}>
-          {saving ? "Salvando…" : mode === "stop" ? "Encerrar e apontar" : "Registrar apontamento"}
+          {saveLabel}
         </PrimaryButton>
       </div>
     </Modal>

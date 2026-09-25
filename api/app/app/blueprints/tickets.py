@@ -1432,7 +1432,7 @@ def cancel_ticket(ticket_id: int):
 @bp.route("/<int:ticket_id>/reabrir", methods=["POST"])
 @login_required
 def reopen_ticket(ticket_id: int):
-	"""Reabre um ticket fechado (apenas se fechado há menos de 7 dias)"""
+	"""Reabre um ticket fechado (admin; sem limite de dias)."""
 	ticket = Ticket.query.get_or_404(ticket_id)
 	reopen_reason = (request.form.get("reopen_reason") or "").strip()
 	ok, message, _status = _reopen_closed_ticket(ticket, reopen_reason)
@@ -1441,25 +1441,25 @@ def reopen_ticket(ticket_id: int):
 
 
 def _reopen_closed_ticket(ticket: Ticket, reopen_reason: str = "") -> tuple[bool, str, int]:
-	"""Reabre ticket fechado há menos de 7 dias (somente admin)."""
+	"""Reabre ticket fechado (somente admin; sem limite de dias)."""
 	if ticket.status == "cancelado" or ticket.cancelled_at:
 		return False, "Tickets cancelados não podem ser reabertos por este fluxo.", 400
 	if ticket.status != "fechado":
 		return False, "Apenas tickets fechados podem ser reabertos.", 400
 	if not current_user.has_role("admin"):
 		return False, "Apenas administradores podem reabrir tickets.", 403
-	if not ticket.closed_at:
-		return False, "Não foi possível determinar quando o ticket foi fechado.", 400
 
-	now = get_brasilia_now()
-	closed_at_brasilia = utc_to_brasilia(ticket.closed_at)
-	time_diff = now - closed_at_brasilia
-	if time_diff.days >= 7:
-		return (
-			False,
-			f"Ticket não pode ser reaberto. Foi fechado há {time_diff.days} dias. Máximo permitido: 7 dias.",
-			400,
-		)
+	time_str = None
+	if ticket.closed_at:
+		now = get_brasilia_now()
+		closed_at_brasilia = utc_to_brasilia(ticket.closed_at)
+		time_diff = now - closed_at_brasilia
+		days_ago = time_diff.days
+		hours_ago = time_diff.seconds // 3600
+		if days_ago > 0:
+			time_str = f"{days_ago} dia{'s' if days_ago > 1 else ''}"
+		else:
+			time_str = f"{hours_ago} hora{'s' if hours_ago > 1 else ''}"
 
 	reason = (reopen_reason or "").strip()
 	ticket.status = "aberto"
@@ -1475,13 +1475,9 @@ def _reopen_closed_ticket(ticket: Ticket, reopen_reason: str = "") -> tuple[bool
 
 	db.session.commit()
 
-	days_ago = time_diff.days
-	hours_ago = time_diff.seconds // 3600
-	if days_ago > 0:
-		time_str = f"{days_ago} dia{'s' if days_ago > 1 else ''}"
-	else:
-		time_str = f"{hours_ago} hora{'s' if hours_ago > 1 else ''}"
-	return True, f"Ticket reaberto com sucesso! Foi fechado há {time_str}.", 200
+	if time_str:
+		return True, f"Ticket reaberto com sucesso! Foi fechado há {time_str}.", 200
+	return True, "Ticket reaberto com sucesso!", 200
 
 
 def _ticket_is_cancelled(ticket: Ticket) -> bool:
@@ -2644,6 +2640,7 @@ def _serialize_ticket_card(ticket: Ticket) -> dict:
 		"total_cost": float(ticket.total_cost or 0),
 		"ps_printed": bool(ticket.ps_printed),
 		"ps_number": ticket.ps_number,
+		"closed_at": _fmt_ticket_dt(ticket.closed_at),
 	}
 
 
@@ -2658,6 +2655,8 @@ def _serialize_time_entry(entry: TimeEntry) -> dict:
 		"comment": entry.comment or "",
 		"start_time": _fmt_ticket_dt(entry.start_time),
 		"end_time": _fmt_ticket_dt(entry.end_time),
+		"start_time_input": _fmt_ticket_dt_local_input(entry.start_time),
+		"end_time_input": _fmt_ticket_dt_local_input(entry.end_time),
 		"no_charge": bool(entry.no_charge),
 		"created_at": _fmt_ticket_dt(entry.created_at),
 		"images": _ticket_images(entry.ticket_id, time_entry_id=entry.id),
@@ -3651,5 +3650,39 @@ def api_ticket_addon_item(ticket_id: int, addon_id: int):
 			addon.value = float(data.get("value") or 0)
 		except (TypeError, ValueError):
 			addon.value = 0.0
+	db.session.commit()
+	return jsonify(_serialize_ticket_detail(ticket))
+
+
+@bp.route("/api/<int:ticket_id>/time-entries/<int:entry_id>", methods=["PATCH", "DELETE"])
+@login_required
+def api_time_entry(ticket_id: int, entry_id: int):
+	ticket = Ticket.query.get_or_404(ticket_id)
+	entry = TimeEntry.query.filter_by(id=entry_id, ticket_id=ticket_id).first_or_404()
+	if ticket.status in ("fechado", "cancelado") or _ticket_is_cancelled(ticket):
+		return jsonify({"error": "Apontamentos de tickets encerrados não podem ser alterados."}), 400
+
+	if request.method == "DELETE":
+		db.session.delete(entry)
+		db.session.commit()
+		return jsonify(_serialize_ticket_detail(ticket))
+
+	data = request.get_json(silent=True) or {}
+	if "comment" in data:
+		entry.comment = str(data.get("comment") or "").strip()
+
+	start_raw = data.get("start_time")
+	end_raw = data.get("end_time")
+	if start_raw is not None or end_raw is not None:
+		start_dt = _parse_local_datetime_payload(start_raw) if start_raw else entry.start_time
+		end_dt = _parse_local_datetime_payload(end_raw) if end_raw else entry.end_time
+		if not start_dt or not end_dt:
+			return jsonify({"error": "Informe horário inicial e final válidos."}), 400
+		if end_dt <= start_dt:
+			return jsonify({"error": "Horário final deve ser após o início."}), 400
+		entry.start_time = start_dt
+		entry.end_time = end_dt
+		entry.hours = (end_dt - start_dt).total_seconds() / 3600.0
+
 	db.session.commit()
 	return jsonify(_serialize_ticket_detail(ticket))
