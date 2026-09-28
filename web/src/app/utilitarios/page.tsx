@@ -29,7 +29,8 @@ function FileCard({ file }: { file: UtilityFile }) {
           <p className="mt-0.5 truncate text-sm text-muted">{file.original_filename}</p>
           {file.description ? <p className="mt-2 text-sm text-ink">{file.description}</p> : null}
           <p className="mt-2 text-xs text-muted">
-            {file.file_size_label} · {formatUtilityDate(file.created_at)}
+            {file.file_size_label}
+            {file.version ? ` · v${file.version}` : ""} · {formatUtilityDate(file.created_at)}
           </p>
         </div>
         <a

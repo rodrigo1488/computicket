@@ -751,6 +751,16 @@ def create_app() -> Flask:
 			from .models import PlanAdditional, CustomPlan, CustomPlanItem, UtilityFile, UtilityCategory  # noqa: F401
 			ensure_tables_from_metadata(["plan_additional", "custom_plan", "custom_plan_item", "utility_category", "utility_file"])
 			ensure_column("utility_file", "category_id", "INTEGER")
+			ensure_column("utility_file", "update_hash", "VARCHAR(32)")
+			ensure_column("utility_file", "version", "INTEGER DEFAULT 1")
+			ensure_column("utility_file", "sha256", "VARCHAR(64)")
+			ensure_column("utility_file", "updated_at", "TIMESTAMP")
+			db.session.execute(text(
+				"CREATE UNIQUE INDEX IF NOT EXISTS ix_utility_file_update_hash ON utility_file (update_hash)"
+			))
+			db.session.commit()
+			from .blueprints.utilitarios import backfill_utility_versioning
+			backfill_utility_versioning()
 			# Corrige tickets cancelados que foram reabertos por corrida stop×cancel
 			repaired = db.session.execute(text(
 				"UPDATE ticket SET status = 'cancelado', in_progress_started_at = NULL "

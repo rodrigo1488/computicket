@@ -17,6 +17,8 @@ const nextConfig: NextConfig = {
         { source: "/orcamentos/publico/:token", destination: `${flaskOrigin}/orcamentos/publico/:token` },
         { source: "/orcamentos/publico/:token/:path*", destination: `${flaskOrigin}/orcamentos/publico/:token/:path*` },
         { source: "/orcamentos/logo", destination: `${flaskOrigin}/orcamentos/logo` },
+        { source: "/utilitarios/atualizacao/:hash", destination: `${flaskOrigin}/utilitarios/api/publico/hash/:hash` },
+        { source: "/utilitarios/arquivo/hash/:hash", destination: `${flaskOrigin}/utilitarios/api/publico/hash/:hash/download` },
         { source: "/utilitarios/arquivo/:id", destination: `${flaskOrigin}/utilitarios/api/publico/:id/download` },
         // Fallback: o cliente usa `/flask-sio` e `/engine-sio` (rotas App Router).
         // Paths com `.io` o Next trata como arquivo estático → 404; middleware reescreve.

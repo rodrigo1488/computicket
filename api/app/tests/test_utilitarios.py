@@ -260,6 +260,9 @@ class UtilitariosApiTest(unittest.TestCase):
 		self.assertEqual(payload["title"], "Manual atualizado")
 		self.assertEqual(payload["original_filename"], "manual-v2.pdf")
 		self.assertEqual(payload["download_count"], 1)
+		self.assertEqual(payload["hash"], item["hash"])
+		self.assertEqual(payload["version"], 2)
+		self.assertNotEqual(payload["sha256"], item.get("sha256"))
 		self.assertFalse(os.path.isfile(old_path))
 
 		download = self.client.get(f"/utilitarios/api/publico/{file_id}/download")
@@ -324,6 +327,8 @@ class UtilitariosApiTest(unittest.TestCase):
 		self.assertEqual(item["id"], file_id)
 		self.assertEqual(item["original_filename"], "pacote-novo.zip")
 		self.assertEqual(item["title"], "Pacote novo")
+		self.assertEqual(item["version"], 2)
+		self.assertEqual(item["hash"], created.get_json()["items"][0]["hash"])
 		self.assertEqual(UtilityFile.query.count(), 1)
 		self.assertFalse(os.path.isfile(old_path))
 		download = self.client.get(f"/utilitarios/api/publico/{file_id}/download")
@@ -336,6 +341,58 @@ class UtilitariosApiTest(unittest.TestCase):
 			json={"filename": "manual.pdf", "size": 10, "replace_file_id": 999},
 		)
 		self.assertEqual(res.status_code, 404)
+
+
+	def test_upload_creates_hash_and_version(self):
+		import hashlib
+
+		content = b"%PDF-1.4 teste"
+		created = self._upload(content=content)
+		item = created.get_json()["items"][0]
+		self.assertEqual(item["version"], 1)
+		self.assertEqual(len(item["hash"]), 32)
+		self.assertEqual(item["sha256"], hashlib.sha256(content).hexdigest())
+		self.assertTrue(item["update_url"].endswith(item["hash"]))
+
+	def test_title_patch_does_not_bump_version(self):
+		created = self._upload()
+		item = created.get_json()["items"][0]
+		res = self.client.patch(f"/utilitarios/api/{item['id']}", json={"title": "Outro nome"})
+		self.assertEqual(res.status_code, 200)
+		self.assertEqual(res.get_json()["version"], 1)
+		self.assertEqual(res.get_json()["hash"], item["hash"])
+
+	def test_public_update_check_by_hash(self):
+		created = self._upload()
+		item = created.get_json()["items"][0]
+		token = item["hash"]
+		res = self.client.get(f"/utilitarios/api/publico/hash/{token}")
+		self.assertEqual(res.status_code, 200)
+		payload = res.get_json()
+		self.assertEqual(payload["hash"], token)
+		self.assertEqual(payload["version"], 1)
+		self.assertEqual(payload["update_available"], None)
+		self.assertEqual(res.headers.get("Access-Control-Allow-Origin"), "*")
+		self.assertIn(f"/utilitarios/arquivo/hash/{token}", payload["download_url"])
+
+		same = self.client.get(f"/utilitarios/atualizacao/{token}?version=1")
+		self.assertEqual(same.status_code, 200)
+		self.assertFalse(same.get_json()["update_available"])
+
+		newer = self.client.get(f"/utilitarios/atualizacao/{token}?v=0")
+		self.assertTrue(newer.get_json()["update_available"])
+
+		missing = self.client.get("/utilitarios/api/publico/hash/" + ("a" * 32))
+		self.assertEqual(missing.status_code, 404)
+
+	def test_public_download_by_hash(self):
+		created = self._upload(content=b"%PDF-1.4 hash-dl")
+		item = created.get_json()["items"][0]
+		res = self.client.get(f"/utilitarios/api/publico/hash/{item['hash']}/download")
+		self.assertEqual(res.status_code, 200)
+		self.assertEqual(res.data, b"%PDF-1.4 hash-dl")
+		self.assertEqual(res.headers.get("X-Utility-Hash"), item["hash"])
+		self.assertEqual(res.headers.get("X-Utility-Version"), "1")
 
 
 if __name__ == "__main__":

@@ -1,6 +1,7 @@
 """Arquivos públicos da rota /utilitarios."""
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 import os
@@ -17,7 +18,7 @@ from werkzeug.utils import secure_filename
 
 from .. import db
 from ..models import UtilityCategory, UtilityFile
-from ..timezone_utils import utc_to_brasilia
+from ..timezone_utils import get_brasilia_now, utc_to_brasilia
 
 bp = Blueprint("utilitarios", __name__, url_prefix="/utilitarios")
 
@@ -32,6 +33,7 @@ ALLOWED_EXTENSIONS = {
 MAX_FILE_SIZE = 1024 * 1024 * 1024  # 1 GB
 DEFAULT_CHUNK_SIZE = 8 * 1024 * 1024  # 8 MB — cabe no timeout de ~100s do Cloudflare
 _UPLOAD_ID_RE = re.compile(r"^[0-9a-f]{32}$")
+_UPDATE_HASH_RE = re.compile(r"^[0-9a-f]{32}$")
 _STALE_UPLOAD_SECONDS = 24 * 60 * 60
 
 
@@ -133,6 +135,7 @@ def _created_at_iso(dt) -> str | None:
 
 
 def _serialize(row: UtilityFile, *, include_author: bool = False) -> dict:
+	update_hash = row.update_hash or ""
 	payload = {
 		"id": row.id,
 		"title": row.title,
@@ -144,8 +147,13 @@ def _serialize(row: UtilityFile, *, include_author: bool = False) -> dict:
 		"download_count": int(row.download_count or 0),
 		"category_id": row.category_id,
 		"category_name": row.category.name if row.category else "",
+		"hash": update_hash,
+		"version": int(row.version or 1),
+		"sha256": row.sha256 or "",
 		"created_at": _created_at_iso(row.created_at),
+		"updated_at": _created_at_iso(row.updated_at),
 		"download_url": f"/utilitarios/api/publico/{row.id}/download",
+		"update_url": f"/utilitarios/api/publico/hash/{update_hash}" if update_hash else "",
 	}
 	if include_author:
 		payload["created_by_name"] = row.created_by.name if row.created_by else ""
@@ -279,6 +287,121 @@ def _remove_old_file(old_path: str | None, new_path: str | None) -> None:
 		pass
 
 
+def _new_update_hash() -> str:
+	for _ in range(8):
+		token = uuid.uuid4().hex
+		if not UtilityFile.query.filter_by(update_hash=token).first():
+			return token
+	return uuid.uuid4().hex
+
+
+def _file_sha256(path: str) -> str:
+	digest = hashlib.sha256()
+	with open(path, "rb") as fh:
+		while True:
+			chunk = fh.read(1024 * 1024)
+			if not chunk:
+				break
+			digest.update(chunk)
+	return digest.hexdigest()
+
+
+def _after_file_written(row: UtilityFile, dest: str, *, is_replace: bool) -> None:
+	if not row.update_hash:
+		row.update_hash = _new_update_hash()
+	if is_replace:
+		row.version = int(row.version or 1) + 1
+	else:
+		row.version = int(row.version or 0) or 1
+	row.sha256 = _file_sha256(dest)
+	row.updated_at = get_brasilia_now()
+
+
+def backfill_utility_versioning() -> None:
+	rows = UtilityFile.query.filter(
+		or_(UtilityFile.update_hash.is_(None), UtilityFile.update_hash == "")
+	).all()
+	changed = False
+	for row in rows:
+		row.update_hash = _new_update_hash()
+		if not row.version:
+			row.version = 1
+		if not row.updated_at:
+			row.updated_at = row.created_at
+		changed = True
+	if changed:
+		db.session.commit()
+
+
+def _ensure_sha256(row: UtilityFile) -> str:
+	if row.sha256:
+		return row.sha256
+	path = _disk_path(row)
+	if not path:
+		return ""
+	row.sha256 = _file_sha256(path)
+	try:
+		db.session.commit()
+	except Exception:
+		db.session.rollback()
+	return row.sha256 or ""
+
+
+def _public_origin() -> str:
+	explicit = (os.environ.get("COMPUTICKET_PUBLIC_URL") or "").strip().rstrip("/")
+	if explicit:
+		return explicit
+	return (request.url_root or "").rstrip("/")
+
+
+def _cors_json(payload: dict, status: int = 200):
+	resp = jsonify(payload)
+	resp.status_code = status
+	resp.headers["Access-Control-Allow-Origin"] = "*"
+	resp.headers["Access-Control-Allow-Methods"] = "GET, OPTIONS"
+	resp.headers["Access-Control-Allow-Headers"] = "Accept"
+	resp.headers["Cache-Control"] = "no-store"
+	return resp
+
+
+def _find_by_update_hash(hash_value: str) -> UtilityFile | None:
+	token = (hash_value or "").strip().lower()
+	if not _UPDATE_HASH_RE.match(token):
+		return None
+	return UtilityFile.query.filter_by(update_hash=token).first()
+
+
+def _client_version() -> int | None:
+	raw = request.args.get("version")
+	if raw is None or raw == "":
+		raw = request.args.get("v")
+	if raw is None or str(raw).strip() == "":
+		return None
+	if str(raw).strip() == "0":
+		return 0
+	return _parse_positive_int(raw)
+
+
+def _update_payload(row: UtilityFile) -> dict:
+	origin = _public_origin()
+	update_hash = row.update_hash or ""
+	current = int(row.version or 1)
+	client = _client_version()
+	return {
+		"hash": update_hash,
+		"version": current,
+		"sha256": _ensure_sha256(row),
+		"title": row.title,
+		"original_filename": row.original_filename,
+		"file_size": int(row.file_size or 0),
+		"file_type": row.file_type or "application/octet-stream",
+		"updated_at": _created_at_iso(row.updated_at or row.created_at),
+		"download_url": f"{origin}/utilitarios/arquivo/hash/{update_hash}" if update_hash else "",
+		"update_url": f"{origin}/utilitarios/atualizacao/{update_hash}" if update_hash else "",
+		"update_available": current > client if client is not None else None,
+	}
+
+
 def _list_query():
 	query = UtilityFile.query
 	term = (request.args.get("q") or "").strip()
@@ -335,7 +458,10 @@ def _save_files() -> list[UtilityFile]:
 			file_type=file.mimetype or "application/octet-stream",
 			category_id=category_id,
 			created_by_id=current_user.id,
+			update_hash=_new_update_hash(),
+			version=1,
 		)
+		_after_file_written(row, path, is_replace=False)
 		db.session.add(row)
 		saved.append(row)
 	if not saved:
@@ -472,6 +598,7 @@ def api_upload_complete(upload_id: str):
 				row.title = title[:200]
 			row.description = (meta.get("description") or "").strip() or None
 			row.category_id = _parse_category_id(meta.get("category_id"))
+			_after_file_written(row, dest, is_replace=True)
 			status = 200
 		else:
 			row = UtilityFile(
@@ -484,7 +611,10 @@ def api_upload_complete(upload_id: str):
 				file_type=meta.get("mime") or "application/octet-stream",
 				category_id=_parse_category_id(meta.get("category_id")),
 				created_by_id=current_user.id,
+				update_hash=_new_update_hash(),
+				version=1,
 			)
+			_after_file_written(row, dest, is_replace=False)
 			db.session.add(row)
 		db.session.commit()
 		_remove_old_file(old_path, dest)
@@ -522,6 +652,48 @@ def api_upload_complete(upload_id: str):
 def api_public_list():
 	rows = _list_query().all()
 	return jsonify(_list_payload(rows))
+
+
+@bp.route("/api/publico/hash/<hash_value>", methods=["GET", "OPTIONS"])
+@bp.route("/atualizacao/<hash_value>", methods=["GET", "OPTIONS"])
+def api_public_update_check(hash_value: str):
+	if request.method == "OPTIONS":
+		return _cors_json({"ok": True})
+	row = _find_by_update_hash(hash_value)
+	if not row:
+		return _cors_json({"error": "Utilitário não encontrado."}, 404)
+	return _cors_json(_update_payload(row))
+
+
+@bp.route("/api/publico/hash/<hash_value>/download")
+@bp.route("/atualizacao/<hash_value>/download")
+def api_public_hash_download(hash_value: str):
+	row = _find_by_update_hash(hash_value)
+	if not row:
+		resp = jsonify({"error": "Arquivo não encontrado."})
+		resp.status_code = 404
+		resp.headers["Access-Control-Allow-Origin"] = "*"
+		return resp
+	path = _disk_path(row)
+	if not path:
+		resp = jsonify({"error": "Arquivo não encontrado no servidor."})
+		resp.status_code = 404
+		resp.headers["Access-Control-Allow-Origin"] = "*"
+		return resp
+	row.increment_downloads()
+	resp = send_file(
+		path,
+		as_attachment=True,
+		download_name=row.original_filename,
+		mimetype=row.file_type or "application/octet-stream",
+	)
+	resp.headers["Access-Control-Allow-Origin"] = "*"
+	resp.headers["Access-Control-Expose-Headers"] = "X-Utility-Hash, X-Utility-Version, X-Utility-SHA256"
+	resp.headers["X-Utility-Hash"] = row.update_hash or ""
+	resp.headers["X-Utility-Version"] = str(int(row.version or 1))
+	if row.sha256:
+		resp.headers["X-Utility-SHA256"] = row.sha256
+	return resp
 
 
 @bp.route("/api/publico/<int:file_id>/download")
@@ -659,6 +831,7 @@ def api_replace_file(file_id: int):
 		if "category_id" in request.form:
 			category = _get_category(_parse_category_id(request.form.get("category_id")))
 			row.category_id = category.id if category else None
+		_after_file_written(row, dest, is_replace=True)
 		db.session.commit()
 		_remove_old_file(old_path, dest)
 	except ValueError as exc:

@@ -2584,7 +2584,11 @@ class UtilityFile(db.Model):
 	file_type = db.Column(db.String(100), nullable=False, default="application/octet-stream")
 	download_count = db.Column(db.Integer, nullable=False, default=0)
 	category_id = db.Column(db.Integer, db.ForeignKey("utility_category.id"), nullable=True, index=True)
+	update_hash = db.Column(db.String(32), unique=True, index=True, nullable=True)
+	version = db.Column(db.Integer, nullable=False, default=1)
+	sha256 = db.Column(db.String(64), nullable=True)
 	created_at = db.Column(db.DateTime, default=get_brasilia_now, nullable=False, index=True)
+	updated_at = db.Column(db.DateTime, default=get_brasilia_now, nullable=True)
 	created_by_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False, index=True)
 
 	created_by = db.relationship("User", foreign_keys=[created_by_id])

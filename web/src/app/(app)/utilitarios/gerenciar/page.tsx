@@ -13,6 +13,7 @@ import {
   groupUtilityFiles,
   uploadUtilityFile,
   utilityDownloadHref,
+  utilityUpdateUrl,
   UTILITY_MAX_FILE_BYTES,
   type UtilityCategory,
   type UtilityFile,
@@ -31,7 +32,7 @@ export default function GerenciarUtilitariosPage() {
   const [form, setForm] = useState(emptyForm);
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
   const [formError, setFormError] = useState("");
-  const [copied, setCopied] = useState(false);
+  const [copied, setCopied] = useState("");
   const [progress, setProgress] = useState("");
   const [filter, setFilter] = useState<Filter>("all");
   const [catsOpen, setCatsOpen] = useState(false);
@@ -171,14 +172,19 @@ export default function GerenciarUtilitariosPage() {
     if (inputRef.current) inputRef.current.value = "";
   }
 
-  async function copyPublicUrl() {
+  async function copyText(key: string, value: string) {
+    if (!value) return;
     try {
-      await navigator.clipboard.writeText(publicUrl);
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 1800);
+      await navigator.clipboard.writeText(value);
+      setCopied(key);
+      window.setTimeout(() => setCopied(""), 1800);
     } catch {
-      setCopied(false);
+      setCopied("");
     }
+  }
+
+  async function copyPublicUrl() {
+    await copyText("public", publicUrl);
   }
 
   return (
@@ -191,7 +197,7 @@ export default function GerenciarUtilitariosPage() {
             <a href="/utilitarios" target="_blank" rel="noreferrer" className="text-brand hover:underline">
               /utilitarios
             </a>
-            , que qualquer pessoa acessa sem login.
+            , que qualquer pessoa acessa sem login. Cada arquivo ganha um hash fixo para o app consultar a versão e se atualizar sozinho.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -201,7 +207,7 @@ export default function GerenciarUtilitariosPage() {
             className="inline-flex h-10 items-center gap-2 rounded-xl bg-wash px-4 text-sm font-medium text-ink"
           >
             <Copy className="h-4 w-4" />
-            {copied ? "Link copiado" : "Copiar link público"}
+            {copied === "public" ? "Link copiado" : "Copiar link público"}
           </button>
           <a
             href="/utilitarios"
@@ -300,10 +306,15 @@ export default function GerenciarUtilitariosPage() {
                       {file.description ? <p className="mt-1 text-sm text-ink">{file.description}</p> : null}
                       <p className="mt-1 text-xs text-muted">
                         {file.category_name ? `${file.category_name} · ` : ""}
-                        {file.file_size_label} · {formatUtilityDate(file.created_at)}
+                        v{file.version || 1} · {file.file_size_label} · {formatUtilityDate(file.updated_at || file.created_at)}
                         {file.created_by_name ? ` · ${file.created_by_name}` : ""} · {file.download_count} download
                         {file.download_count === 1 ? "" : "s"}
                       </p>
+                      {file.hash ? (
+                        <p className="mt-1 truncate font-mono text-[11px] text-muted">
+                          hash {file.hash}
+                        </p>
+                      ) : null}
                     </div>
                     <div className="flex items-center gap-1">
                       <a
@@ -313,6 +324,26 @@ export default function GerenciarUtilitariosPage() {
                         <Download className="h-4 w-4" />
                         Baixar
                       </a>
+                      {file.hash ? (
+                        <button
+                          type="button"
+                          onClick={() => void copyText(`hash-${file.id}`, file.hash || "")}
+                          className="inline-flex h-9 items-center rounded-lg bg-wash px-3 text-xs font-medium text-ink"
+                        >
+                          {copied === `hash-${file.id}` ? "Hash copiado" : "Copiar hash"}
+                        </button>
+                      ) : null}
+                      {file.hash ? (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            void copyText(`update-${file.id}`, utilityUpdateUrl(file, window.location.origin))
+                          }
+                          className="inline-flex h-9 items-center rounded-lg bg-wash px-3 text-xs font-medium text-ink"
+                        >
+                          {copied === `update-${file.id}` ? "URL copiada" : "URL da versão"}
+                        </button>
+                      ) : null}
                       <button
                         type="button"
                         onClick={() => openEdit(file)}
@@ -383,6 +414,37 @@ export default function GerenciarUtilitariosPage() {
             value={form.description}
             onChange={(v) => setForm((f) => ({ ...f, description: v }))}
           />
+          {!creating && edit?.hash ? (
+            <div className="rounded-xl border border-line px-3 py-3">
+              <p className="text-[11px] font-medium tracking-[0.08em] text-muted uppercase">Atualização automática</p>
+              <p className="mt-1 text-sm text-ink">Versão atual: v{edit.version || 1}</p>
+              <p className="mt-1 break-all font-mono text-xs text-muted">{edit.hash}</p>
+              <p className="mt-1 break-all text-xs text-muted">
+                {utilityUpdateUrl(edit, typeof window === "undefined" ? "" : window.location.origin)}
+              </p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => void copyText("modal-hash", edit.hash || "")}
+                  className="inline-flex h-8 items-center rounded-lg bg-wash px-3 text-xs font-medium text-ink"
+                >
+                  {copied === "modal-hash" ? "Hash copiado" : "Copiar hash"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() =>
+                    void copyText(
+                      "modal-url",
+                      utilityUpdateUrl(edit, typeof window === "undefined" ? "" : window.location.origin),
+                    )
+                  }
+                  className="inline-flex h-8 items-center rounded-lg bg-wash px-3 text-xs font-medium text-ink"
+                >
+                  {copied === "modal-url" ? "URL copiada" : "Copiar URL da versão"}
+                </button>
+              </div>
+            </div>
+          ) : null}
           <label className="block">
             <span className="text-[11px] font-medium tracking-[0.08em] text-muted uppercase">
               {creating ? "Arquivos" : "Arquivo"}
@@ -416,7 +478,8 @@ export default function GerenciarUtilitariosPage() {
             </button>
             {!creating ? (
               <p className="mt-2 text-xs text-muted">
-                O link público permanece o mesmo. Se não escolher outro arquivo, só os dados acima são salvos.
+                Trocar o arquivo sobe a versão (v{edit?.version || 1} → v{(edit?.version || 1) + 1}) e mantém o mesmo hash.
+                Sem arquivo novo, só os dados acima são salvos.
               </p>
             ) : null}
           </label>

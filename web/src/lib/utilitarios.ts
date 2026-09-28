@@ -18,8 +18,13 @@ export type UtilityFile = {
   download_count: number;
   category_id?: number | null;
   category_name?: string;
+  hash?: string;
+  version?: number;
+  sha256?: string;
   created_at: string | null;
+  updated_at?: string | null;
   download_url: string;
+  update_url?: string;
   created_by_name?: string;
 };
 
@@ -86,8 +91,20 @@ export async function uploadUtilityFile(
   return flask.post<UtilityFile>(`/utilitarios/api/uploads/${started.upload_id}/complete`);
 }
 
-export function utilityDownloadHref(file: Pick<UtilityFile, "id">) {
+export function utilityDownloadHref(file: Pick<UtilityFile, "id" | "hash">) {
+  if (file.hash) return `/utilitarios/arquivo/hash/${file.hash}`;
   return `/utilitarios/arquivo/${file.id}`;
+}
+
+export function utilityUpdateHref(file: Pick<UtilityFile, "hash">) {
+  return file.hash ? `/utilitarios/atualizacao/${file.hash}` : "";
+}
+
+export function utilityUpdateUrl(file: Pick<UtilityFile, "hash">, origin = "") {
+  const path = utilityUpdateHref(file);
+  if (!path) return "";
+  const base = origin.replace(/\/$/, "");
+  return base ? `${base}${path}` : path;
 }
 
 export function formatUtilityDate(iso: string | null) {
