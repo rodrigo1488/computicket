@@ -56,7 +56,12 @@ async function putChunk(url: string, body: Blob, attempt = 0): Promise<void> {
 
 export async function uploadUtilityFile(
   file: File,
-  meta: { title?: string; description?: string; category_id?: number | null },
+  meta: {
+    title?: string;
+    description?: string;
+    category_id?: number | null;
+    replace_file_id?: number;
+  },
   onProgress?: (percent: number) => void,
 ): Promise<UtilityFile> {
   if (file.size > UTILITY_MAX_FILE_BYTES) {
@@ -69,6 +74,7 @@ export async function uploadUtilityFile(
     title: meta.title || "",
     description: meta.description || "",
     category_id: meta.category_id ?? null,
+    replace_file_id: meta.replace_file_id ?? null,
   });
   const total = Math.max(1, started.total_chunks);
   const chunkSize = started.chunk_size;

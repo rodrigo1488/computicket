@@ -236,6 +236,107 @@ class UtilitariosApiTest(unittest.TestCase):
 		self.assertEqual(done.get_json()["category_id"], cat["id"])
 		self.assertEqual(done.get_json()["category_name"], "Manuais")
 
+	def test_replace_file_keeps_id_and_public_link(self):
+		created = self._upload(filename="manual.pdf", content=b"%PDF-1.4 antigo")
+		item = created.get_json()["items"][0]
+		file_id = item["id"]
+		row = UtilityFile.query.get(file_id)
+		old_path = os.path.join(self.app.instance_path, "utilitarios_uploads", row.filename)
+		self.assertTrue(os.path.isfile(old_path))
+		self.client.get(f"/utilitarios/api/publico/{file_id}/download")
+		self.assertEqual(UtilityFile.query.get(file_id).download_count, 1)
+
+		replaced = self.client.post(
+			f"/utilitarios/api/{file_id}/arquivo",
+			data={
+				"title": "Manual atualizado",
+				"file": (BytesIO(b"%PDF-1.7 novo"), "manual-v2.pdf"),
+			},
+			content_type="multipart/form-data",
+		)
+		self.assertEqual(replaced.status_code, 200, replaced.get_data(as_text=True))
+		payload = replaced.get_json()
+		self.assertEqual(payload["id"], file_id)
+		self.assertEqual(payload["title"], "Manual atualizado")
+		self.assertEqual(payload["original_filename"], "manual-v2.pdf")
+		self.assertEqual(payload["download_count"], 1)
+		self.assertFalse(os.path.isfile(old_path))
+
+		download = self.client.get(f"/utilitarios/api/publico/{file_id}/download")
+		self.assertEqual(download.status_code, 200)
+		self.assertEqual(download.data, b"%PDF-1.7 novo")
+		self.assertIn("manual-v2.pdf", download.headers.get("Content-Disposition", ""))
+
+	def test_replace_file_requires_login(self):
+		created = self._upload()
+		file_id = created.get_json()["items"][0]["id"]
+		self.client.post("/auth/api/logout")
+		res = self.client.post(
+			f"/utilitarios/api/{file_id}/arquivo",
+			data={"file": (BytesIO(b"%PDF-1.4"), "outro.pdf")},
+			content_type="multipart/form-data",
+		)
+		self.assertEqual(res.status_code, 401)
+
+	def test_replace_rejects_disallowed_extension(self):
+		created = self._upload()
+		file_id = created.get_json()["items"][0]["id"]
+		res = self.client.post(
+			f"/utilitarios/api/{file_id}/arquivo",
+			data={"file": (BytesIO(b"<script>"), "malware.html")},
+			content_type="multipart/form-data",
+		)
+		self.assertEqual(res.status_code, 400)
+		self.assertIn("não permitido", res.get_json()["error"])
+		row = UtilityFile.query.get(file_id)
+		self.assertEqual(row.original_filename, "manual.pdf")
+
+	def test_chunked_replace_updates_existing_file(self):
+		self.app.config["UTILITARIOS_CHUNK_SIZE"] = 4
+		created = self._upload(filename="pacote.zip", content=b"OLDFILEDATA")
+		file_id = created.get_json()["items"][0]["id"]
+		row = UtilityFile.query.get(file_id)
+		old_path = os.path.join(self.app.instance_path, "utilitarios_uploads", row.filename)
+		content = b"ABCDEFGHIJ"
+		init = self.client.post(
+			"/utilitarios/api/uploads",
+			json={
+				"filename": "pacote-novo.zip",
+				"size": len(content),
+				"title": "Pacote novo",
+				"mime": "application/zip",
+				"replace_file_id": file_id,
+			},
+		)
+		self.assertEqual(init.status_code, 201, init.get_data(as_text=True))
+		upload_id = init.get_json()["upload_id"]
+		for index in range(init.get_json()["total_chunks"]):
+			start = index * 4
+			res = self.client.put(
+				f"/utilitarios/api/uploads/{upload_id}/chunks/{index}",
+				data=content[start:start + 4],
+				content_type="application/octet-stream",
+			)
+			self.assertEqual(res.status_code, 200, res.get_data(as_text=True))
+		done = self.client.post(f"/utilitarios/api/uploads/{upload_id}/complete")
+		self.assertEqual(done.status_code, 200, done.get_data(as_text=True))
+		item = done.get_json()
+		self.assertEqual(item["id"], file_id)
+		self.assertEqual(item["original_filename"], "pacote-novo.zip")
+		self.assertEqual(item["title"], "Pacote novo")
+		self.assertEqual(UtilityFile.query.count(), 1)
+		self.assertFalse(os.path.isfile(old_path))
+		download = self.client.get(f"/utilitarios/api/publico/{file_id}/download")
+		self.assertEqual(download.data, content)
+
+	def test_chunked_replace_missing_file_is_not_found(self):
+		self._login()
+		res = self.client.post(
+			"/utilitarios/api/uploads",
+			json={"filename": "manual.pdf", "size": 10, "replace_file_id": 999},
+		)
+		self.assertEqual(res.status_code, 404)
+
 
 if __name__ == "__main__":
 	unittest.main()

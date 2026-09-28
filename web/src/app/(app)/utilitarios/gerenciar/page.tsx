@@ -85,6 +85,23 @@ export default function GerenciarUtilitariosPage() {
       }
       if (!edit) throw new Error("Nenhum arquivo");
       if (!form.title.trim()) throw new Error("Título é obrigatório");
+      if (pendingFiles.length) {
+        const file = pendingFiles[0];
+        if (file.size > UTILITY_MAX_FILE_BYTES) {
+          throw new Error(`"${file.name}" passa de 1 GB. Envie um arquivo menor.`);
+        }
+        setProgress(`Enviando ${file.name}…`);
+        return uploadUtilityFile(
+          file,
+          {
+            title: form.title.trim(),
+            description: form.description.trim(),
+            category_id: categoryId,
+            replace_file_id: edit.id,
+          },
+          (percent) => setProgress(`${file.name} · ${percent}%`),
+        );
+      }
       return flask.patch(`/utilitarios/api/${edit.id}`, {
         title: form.title.trim(),
         description: form.description.trim(),
@@ -138,6 +155,7 @@ export default function GerenciarUtilitariosPage() {
     setFormError("");
     setEdit(null);
     setCreating(true);
+    if (inputRef.current) inputRef.current.value = "";
   }
 
   function openEdit(file: UtilityFile) {
@@ -150,6 +168,7 @@ export default function GerenciarUtilitariosPage() {
     setFormError("");
     setCreating(false);
     setEdit(file);
+    if (inputRef.current) inputRef.current.value = "";
   }
 
   async function copyPublicUrl() {
@@ -364,28 +383,43 @@ export default function GerenciarUtilitariosPage() {
             value={form.description}
             onChange={(v) => setForm((f) => ({ ...f, description: v }))}
           />
-          {creating ? (
-            <label className="block">
-              <span className="text-[11px] font-medium tracking-[0.08em] text-muted uppercase">Arquivos</span>
-              <input
-                ref={inputRef}
-                type="file"
-                multiple
-                className="hidden"
-                onChange={(e) => setPendingFiles(Array.from(e.target.files || []))}
-              />
-              <button
-                type="button"
-                onClick={() => inputRef.current?.click()}
-                className="mt-2 flex w-full items-center justify-center gap-2 rounded-xl border border-dashed border-line px-4 py-8 text-sm text-muted hover:bg-wash"
-              >
-                <Upload className="h-4 w-4" />
-                {pendingFiles.length
+          <label className="block">
+            <span className="text-[11px] font-medium tracking-[0.08em] text-muted uppercase">
+              {creating ? "Arquivos" : "Arquivo"}
+            </span>
+            {!creating && edit ? (
+              <p className="mt-1 truncate text-sm text-ink">{edit.original_filename}</p>
+            ) : null}
+            <input
+              ref={inputRef}
+              type="file"
+              multiple={creating}
+              className="hidden"
+              onChange={(e) => {
+                const files = Array.from(e.target.files || []);
+                setPendingFiles(creating ? files : files.slice(0, 1));
+              }}
+            />
+            <button
+              type="button"
+              onClick={() => inputRef.current?.click()}
+              className="mt-2 flex w-full items-center justify-center gap-2 rounded-xl border border-dashed border-line px-4 py-8 text-sm text-muted hover:bg-wash"
+            >
+              <Upload className="h-4 w-4" />
+              {creating
+                ? pendingFiles.length
                   ? `${pendingFiles.length} arquivo${pendingFiles.length === 1 ? "" : "s"} selecionado${pendingFiles.length === 1 ? "" : "s"}`
-                  : "Clique para escolher (até 1 GB cada)"}
-              </button>
-            </label>
-          ) : null}
+                  : "Clique para escolher (até 1 GB cada)"
+                : pendingFiles[0]
+                  ? `Novo arquivo: ${pendingFiles[0].name}`
+                  : "Trocar arquivo (opcional, até 1 GB)"}
+            </button>
+            {!creating ? (
+              <p className="mt-2 text-xs text-muted">
+                O link público permanece o mesmo. Se não escolher outro arquivo, só os dados acima são salvos.
+              </p>
+            ) : null}
+          </label>
           {progress ? <p className="text-sm text-muted">{progress}</p> : null}
           {formError ? <p className="text-sm text-open">{formError}</p> : null}
           <PrimaryButton type="submit" disabled={save.isPending}>

@@ -152,6 +152,16 @@ def _serialize(row: UtilityFile, *, include_author: bool = False) -> dict:
 	return payload
 
 
+def _parse_positive_int(raw) -> int | None:
+	if raw is None or raw == "":
+		return None
+	try:
+		value = int(raw)
+	except (TypeError, ValueError):
+		return None
+	return value if value > 0 else None
+
+
 def _parse_category_id(raw) -> int | None:
 	if raw is None or raw == "":
 		return None
@@ -241,6 +251,34 @@ def _disk_path(row: UtilityFile) -> str | None:
 	return None
 
 
+def _replace_row_file(
+	row: UtilityFile,
+	*,
+	unique_name: str,
+	original: str,
+	size: int,
+	mime: str,
+) -> str | None:
+	old_path = _disk_path(row)
+	row.filename = unique_name
+	row.original_filename = original
+	row.file_path = unique_name
+	row.file_size = int(size or 0)
+	row.file_type = mime or "application/octet-stream"
+	return old_path
+
+
+def _remove_old_file(old_path: str | None, new_path: str | None) -> None:
+	if not old_path or not os.path.isfile(old_path):
+		return
+	if new_path and os.path.abspath(old_path) == os.path.abspath(new_path):
+		return
+	try:
+		os.remove(old_path)
+	except OSError:
+		pass
+
+
 def _list_query():
 	query = UtilityFile.query
 	term = (request.args.get("q") or "").strip()
@@ -321,18 +359,23 @@ def api_upload_init():
 		return jsonify({"error": "Arquivo vazio."}), 400
 	if size > MAX_FILE_SIZE:
 		return jsonify({"error": "Cada arquivo pode ter no máximo 1 GB."}), 400
-	chunk_size = _chunk_size()
-	total_chunks = max(1, math.ceil(size / chunk_size))
-	_cleanup_stale_uploads()
-	upload_id = uuid.uuid4().hex
-	folder = _incoming_dir(upload_id)
-	folder.mkdir(parents=True, exist_ok=True)
 	title = (data.get("title") or "").strip()
 	description = (data.get("description") or "").strip() or None
 	try:
 		category = _get_category(_parse_category_id(data.get("category_id")))
 	except ValueError as exc:
 		return jsonify({"error": str(exc)}), 400
+	replace_file_id = _parse_positive_int(data.get("replace_file_id"))
+	if replace_file_id:
+		existing = db.session.get(UtilityFile, replace_file_id)
+		if not existing:
+			return jsonify({"error": "Arquivo não encontrado."}), 404
+	chunk_size = _chunk_size()
+	total_chunks = max(1, math.ceil(size / chunk_size))
+	_cleanup_stale_uploads()
+	upload_id = uuid.uuid4().hex
+	folder = _incoming_dir(upload_id)
+	folder.mkdir(parents=True, exist_ok=True)
 	_write_meta(folder, {
 		"user_id": current_user.id,
 		"original_filename": original,
@@ -341,6 +384,7 @@ def api_upload_init():
 		"title": (title or Path(original).stem or original)[:200],
 		"description": description,
 		"category_id": category.id if category else None,
+		"replace_file_id": replace_file_id,
 		"mime": (data.get("mime") or "").strip() or "application/octet-stream",
 		"chunk_size": chunk_size,
 		"total_chunks": total_chunks,
@@ -409,19 +453,49 @@ def api_upload_complete(upload_id: str):
 						written += len(buf)
 		if written != expected:
 			raise ValueError("Tamanho final não confere.")
-		row = UtilityFile(
-			title=(meta.get("title") or "arquivo")[:200],
-			description=meta.get("description") or None,
-			filename=unique_name,
-			original_filename=meta.get("original_filename") or "arquivo",
-			file_path=unique_name,
-			file_size=written,
-			file_type=meta.get("mime") or "application/octet-stream",
-			category_id=_parse_category_id(meta.get("category_id")),
-			created_by_id=current_user.id,
-		)
-		db.session.add(row)
+		replace_id = _parse_positive_int(meta.get("replace_file_id"))
+		status = 201
+		old_path = None
+		if replace_id:
+			row = db.session.get(UtilityFile, replace_id)
+			if not row:
+				raise FileNotFoundError("Arquivo não encontrado.")
+			old_path = _replace_row_file(
+				row,
+				unique_name=unique_name,
+				original=meta.get("original_filename") or "arquivo",
+				size=written,
+				mime=meta.get("mime") or "application/octet-stream",
+			)
+			title = (meta.get("title") or "").strip()
+			if title:
+				row.title = title[:200]
+			row.description = (meta.get("description") or "").strip() or None
+			row.category_id = _parse_category_id(meta.get("category_id"))
+			status = 200
+		else:
+			row = UtilityFile(
+				title=(meta.get("title") or "arquivo")[:200],
+				description=meta.get("description") or None,
+				filename=unique_name,
+				original_filename=meta.get("original_filename") or "arquivo",
+				file_path=unique_name,
+				file_size=written,
+				file_type=meta.get("mime") or "application/octet-stream",
+				category_id=_parse_category_id(meta.get("category_id")),
+				created_by_id=current_user.id,
+			)
+			db.session.add(row)
 		db.session.commit()
+		_remove_old_file(old_path, dest)
+	except FileNotFoundError as exc:
+		db.session.rollback()
+		if os.path.isfile(dest):
+			try:
+				os.remove(dest)
+			except OSError:
+				pass
+		return jsonify({"error": str(exc)}), 404
 	except ValueError as exc:
 		db.session.rollback()
 		if os.path.isfile(dest):
@@ -441,7 +515,7 @@ def api_upload_complete(upload_id: str):
 		return jsonify({"error": "Não foi possível concluir o envio."}), 500
 	finally:
 		shutil.rmtree(folder, ignore_errors=True)
-	return jsonify(_serialize(row, include_author=True)), 201
+	return jsonify(_serialize(row, include_author=True)), status
 
 
 @bp.route("/api/publico")
@@ -547,6 +621,64 @@ def api_upload():
 		"items": [_serialize(row, include_author=True) for row in saved],
 		"total": len(saved),
 	}), 201
+
+
+@bp.route("/api/<int:file_id>/arquivo", methods=["POST", "PUT"])
+@login_required
+def api_replace_file(file_id: int):
+	row = UtilityFile.query.get_or_404(file_id)
+	files = list(request.files.getlist("files")) + list(request.files.getlist("file"))
+	file = next((item for item in files if item and getattr(item, "filename", None)), None)
+	if not file:
+		return jsonify({"error": "Selecione um arquivo."}), 400
+	dest = None
+	try:
+		original, _ext, safe = _prepare_filename(file.filename)
+		file.seek(0, os.SEEK_END)
+		size = file.tell()
+		file.seek(0)
+		if size <= 0:
+			raise ValueError("Arquivo vazio.")
+		if size > MAX_FILE_SIZE:
+			raise ValueError("Cada arquivo pode ter no máximo 1 GB.")
+		unique_name = f"{uuid.uuid4().hex}_{safe}"
+		dest = os.path.join(_upload_folder(), unique_name)
+		file.save(dest)
+		old_path = _replace_row_file(
+			row,
+			unique_name=unique_name,
+			original=original,
+			size=size,
+			mime=file.mimetype or "application/octet-stream",
+		)
+		title = (request.form.get("title") or "").strip()
+		if title:
+			row.title = title[:200]
+		if "description" in request.form:
+			row.description = (request.form.get("description") or "").strip() or None
+		if "category_id" in request.form:
+			category = _get_category(_parse_category_id(request.form.get("category_id")))
+			row.category_id = category.id if category else None
+		db.session.commit()
+		_remove_old_file(old_path, dest)
+	except ValueError as exc:
+		db.session.rollback()
+		if dest and os.path.isfile(dest):
+			try:
+				os.remove(dest)
+			except OSError:
+				pass
+		return jsonify({"error": str(exc)}), 400
+	except Exception:
+		db.session.rollback()
+		if dest and os.path.isfile(dest):
+			try:
+				os.remove(dest)
+			except OSError:
+				pass
+		current_app.logger.exception("Falha ao substituir arquivo de utilitários")
+		return jsonify({"error": "Não foi possível substituir o arquivo."}), 500
+	return jsonify(_serialize(row, include_author=True))
 
 
 @bp.route("/api/<int:file_id>", methods=["PATCH"])
