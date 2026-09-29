@@ -683,6 +683,7 @@ def create_app() -> Flask:
 	from .blueprints.config import bp as config_bp
 	from .blueprints.ps import bp as ps_bp
 	from .blueprints.helpdesk import helpdesk_bp
+	from .blueprints.support_contacts import bp as support_contacts_bp
 	from .blueprints.internal_chat import bp as internal_chat_bp
 	from .blueprints import helpdesk_socketio  # Importar eventos WebSocket
 	from .blueprints import budget_socketio  # Presença Co-op de orçamentos  # noqa: F401
@@ -719,6 +720,7 @@ def create_app() -> Flask:
 	app.register_blueprint(config_bp, url_prefix="/configuracoes")
 	app.register_blueprint(ps_bp, url_prefix="/ps")
 	app.register_blueprint(helpdesk_bp)
+	app.register_blueprint(support_contacts_bp)
 	app.register_blueprint(internal_chat_bp)
 	app.register_blueprint(password_vault, url_prefix="/password-vault")
 	app.register_blueprint(knowledge_base, url_prefix="/knowledge-base")

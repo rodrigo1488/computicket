@@ -58,6 +58,7 @@ import {
   tryClaimConnectionGreeting
 } from "../../helpers/connectionGreetingLimit";
 import { hasOpenedComputicketChamado } from "../../helpers/flowTicketGuard";
+import { isSupportTicket } from "../../helpers/supportContactRouting";
 import { runWithFfmpegConcurrency } from "../../utils/ffmpegConcurrency";
 import CreateOrUpdateContactService from "../ContactServices/CreateOrUpdateContactService";
 import FindOrCreateTicketService from "../TicketServices/FindOrCreateTicketService";
@@ -3667,6 +3668,16 @@ const handleMessage = async (
       isFromMe,
       isAutomatedInbound
     );
+
+    // Contato de suporte: grava na conversa direta e não abre fila, bot, menu ou avaliação.
+    if (isSupportTicket(ticket)) {
+      if (hasMedia) {
+        await verifyMediaMessage(msg, ticket, contact);
+      } else {
+        await verifyMessage(msg, ticket, contact);
+      }
+      return;
+    }
 
     // Ecos de mensagens automáticas enviadas pelo sistema (fromMe=true) não devem
     // acionar fluxos de atendimento em tickets fechados ou em avaliação.

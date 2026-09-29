@@ -22,7 +22,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     );
   }
 
-  const isChatLayout = pathname.startsWith("/helpdesk") || pathname.startsWith("/chat") || pathname.startsWith("/automacao/");
+  const isChatLayout =
+    pathname.startsWith("/helpdesk") ||
+    pathname.startsWith("/contatos-suporte") ||
+    pathname.startsWith("/chat") ||
+    pathname.startsWith("/automacao/");
 
   return (
     <div id="app-shell" className="flex h-full max-h-full min-h-0 overflow-hidden bg-canvas">

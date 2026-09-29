@@ -19,6 +19,7 @@ import Company from "./Company";
 import Schedule from "./Schedule";
 import Whatsapp from "./Whatsapp";
 import User from "./User";
+import SupportFolder from "./SupportFolder";
 
 @Table
 class Contact extends Model<Contact> {
@@ -51,6 +52,21 @@ class Contact extends Model<Contact> {
   @Default(false)
   @Column
   disableBot: boolean;
+
+  @Default(false)
+  @Column
+  isSupport: boolean;
+
+  @ForeignKey(() => SupportFolder)
+  @Column
+  supportFolderId: number;
+
+  @BelongsTo(() => SupportFolder)
+  supportFolder: SupportFolder;
+
+  /** Conexão usada ao iniciar a conversa. Nulo = conexão padrão da empresa. */
+  @Column
+  supportWhatsappId: number;
 
   @CreatedAt
   createdAt: Date;

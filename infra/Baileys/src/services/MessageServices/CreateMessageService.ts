@@ -9,6 +9,7 @@ import * as Sentry from "@sentry/node";
 import TicketTraking from "../../models/TicketTraking";
 import transcribeAndPersistAudioMessage from "../AiServices/TranscribeAndPersistAudioService";
 import { notifyComputicketInboundMessage } from "../../helpers/notifyComputicketInboundMessage";
+import { isSupportTicket } from "../../helpers/supportContactRouting";
 import { isAudioMediaType } from "../../helpers/isAudioMediaType";
 
 export interface MessageData {
@@ -82,7 +83,7 @@ const CreateMessageService = async ({
             model: Ticket,
             as: "ticket",
             // Payload mínimo para roteamento/contagem no frontend em tempo real.
-            attributes: ["id", "uuid", "status", "queueId", "userId", "contactId", "companyId", "lastMessage", "fromMe", "isGroup", "unreadMessages"],
+            attributes: ["id", "uuid", "status", "queueId", "userId", "contactId", "companyId", "lastMessage", "fromMe", "isGroup", "unreadMessages", "isSupport"],
             include: [
               {
                 model: Contact,
@@ -144,30 +145,36 @@ const CreateMessageService = async ({
         }
 
         const io = getIO();
+        const supportTicket = isSupportTicket(message.ticket);
         const ticketPayload = {
           ...message.ticket?.toJSON?.(),
           id: message.ticket?.id,
           uuid: message.ticket?.uuid,
           status: message.ticket?.status,
+          isSupport: supportTicket,
           queueId: message.ticket?.queueId ?? null,
           userId: message.ticket?.userId ?? null,
           unreadMessages: message.ticket?.unreadMessages ?? 0,
           companyId
         };
 
-        io.to(message.ticketId.toString())
-          .to(`company-${companyId}-${message.ticket.status}`)
-          .to(`company-${companyId}-notification`)
-          .to(`queue-${message.ticket.queueId}-${message.ticket.status}`)
-          .to(`queue-${message.ticket.queueId}-notification`)
-          .emit(`company-${companyId}-appMessage`, {
-            action: "create",
-            message,
-            ticket: ticketPayload,
-            contact: message.ticket.contact
-          });
+        let target = io
+          .to(message.ticketId.toString())
+          .to(`company-${companyId}-${message.ticket.status}`);
+        if (!supportTicket) {
+          target = target
+            .to(`company-${companyId}-notification`)
+            .to(`queue-${message.ticket.queueId}-${message.ticket.status}`)
+            .to(`queue-${message.ticket.queueId}-notification`);
+        }
+        target.emit(`company-${companyId}-appMessage`, {
+          action: "create",
+          message,
+          ticket: ticketPayload,
+          contact: message.ticket.contact
+        });
 
-        if (!payload.fromMe) {
+        if (!payload.fromMe && !supportTicket) {
           const inboundStatus = String(
             ticketPayload.status || message.ticket?.status || ""
           ).toLowerCase();

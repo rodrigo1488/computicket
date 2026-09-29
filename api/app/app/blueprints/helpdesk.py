@@ -32,6 +32,7 @@ from ..engine_client import (
     ensure_default_queue,
     send_engine_message,
 )
+from ..support_routing import is_support_ticket
 from ..models import (
     AIAuditLog,
     HelpDeskAgentMap,
@@ -995,12 +996,16 @@ def _helpdesk_nav_badge_count() -> int:
 
     count = 0
     for ticket in _list_engine_tickets("open"):
+        if is_support_ticket(ticket.get("status"), ticket.get("isSupport")):
+            continue
         if _conversation_unread(ticket) <= 0:
             continue
         if _conversation_user_id(ticket) == engine_user_id:
             count += 1
 
     for ticket in _list_engine_tickets("pending"):
+        if is_support_ticket(ticket.get("status"), ticket.get("isSupport")):
+            continue
         if _conversation_unread(ticket) <= 0:
             continue
         queue_id = _conversation_queue_id(ticket)
@@ -1060,6 +1065,8 @@ def list_conversations():
     for ticket in tickets:
         if not isinstance(ticket, dict):
             continue
+        if is_support_ticket(ticket.get("status"), ticket.get("isSupport")):
+            continue
         item = dict(ticket)
         item["computicket_ticket_id"] = _visible_linked_ticket_id(
             links.get(item.get("id")),
@@ -1079,6 +1086,8 @@ def list_conversations():
 def show_conversation(ticket_id: int):
     try:
         ticket = agent_request("GET", f"/tickets/{ticket_id}")
+        if isinstance(ticket, dict) and is_support_ticket(ticket.get("status"), ticket.get("isSupport")):
+            return jsonify({"error": "Esta conversa é de suporte e fica fora do Help Desk."}), 404
         return jsonify(_with_link(ticket, include_history=True))
     except EngineError as exc:
         return _fail(exc)

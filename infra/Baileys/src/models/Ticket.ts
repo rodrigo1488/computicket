@@ -63,6 +63,10 @@ class Ticket extends Model<Ticket> {
   @Column
   isGroup: boolean;
 
+  @Default(false)
+  @Column
+  isSupport: boolean;
+
   @CreatedAt
   createdAt: Date;
 

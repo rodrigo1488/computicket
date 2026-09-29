@@ -52,7 +52,14 @@ const CreateTicketService = async ({
     await CheckContactOpenTickets(contactId, companyId, targetWhatsappId);
   }
 
-  const { isGroup } = await ShowContactService(contactId, companyId);
+  const contact = await ShowContactService(contactId, companyId);
+  if (contact.isSupport) {
+    throw new AppError(
+      "Este contato é de suporte e não abre conversa no Help Desk. Use Contatos de suporte.",
+      409
+    );
+  }
+  const { isGroup } = contact;
 
   // Vários tickets fechados por contato são permitidos. Só reutiliza
   // um ciclo ainda aberto/pendente; senão cria um ticket novo (slate limpo).

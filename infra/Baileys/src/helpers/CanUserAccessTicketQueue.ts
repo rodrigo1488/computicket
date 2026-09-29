@@ -9,11 +9,12 @@ const normalizeId = (value: unknown): number | null => {
 
 /** Verifica se o usuário pode acessar o ticket pela fila, atribuição ou allTicket. */
 export const canUserAccessTicket = (
-  ticket: Pick<Ticket, "userId" | "queueId" | "isGroup">,
+  ticket: Pick<Ticket, "userId" | "queueId" | "isGroup" | "status" | "isSupport">,
   user: Pick<User, "id" | "profile" | "allTicket"> & { queues?: { id: number }[] }
 ): boolean => {
   if (!user?.id) return false;
   if (user.profile === "admin") return true;
+  if (ticket.status === "support" || ticket.isSupport) return true;
 
   // Grupos WhatsApp não usam fila; ficam visíveis para atendentes da empresa
   if (ticket.isGroup) {
@@ -40,10 +41,11 @@ export const canUserAccessTicket = (
 
 /** Pode enviar mensagem (ticket aberto + atribuído ou aberto na fila do usuário). */
 export const canUserSendOnTicket = (
-  ticket: Pick<Ticket, "userId" | "queueId" | "status" | "isGroup">,
+  ticket: Pick<Ticket, "userId" | "queueId" | "status" | "isGroup" | "isSupport">,
   user: Pick<User, "id" | "profile" | "allTicket"> & { queues?: { id: number }[] }
 ): boolean => {
   if (!user?.id) return false;
+  if (ticket.status === "support" || ticket.isSupport) return true;
   if (ticket.status !== "open") return false;
   if (user.profile === "admin") return true;
 

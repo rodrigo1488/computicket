@@ -125,6 +125,8 @@ const fetchTicketsOverview = async ({
     t."companyId" = :companyId
     AND t."isGroup" = false
     AND t.status != 'rating'
+    AND t.status != 'support'
+    AND COALESCE(t."isSupport", false) = false
     ${queueFilterSql}
   `;
 

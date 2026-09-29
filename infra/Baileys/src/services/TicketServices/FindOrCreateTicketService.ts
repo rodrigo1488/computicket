@@ -6,6 +6,8 @@ import FindOrCreateATicketTrakingService from "./FindOrCreateATicketTrakingServi
 import Whatsapp from "../../models/Whatsapp";
 import { logger } from "../../utils/logger";
 import AppError from "../../errors/AppError";
+import { shouldBypassHelpdesk } from "../../helpers/supportContactRouting";
+import { findOrCreateSupportTicket } from "../SupportServices/SupportContactService";
 
 const LIVE_STATUSES = ["open", "pending", "rating"];
 
@@ -75,6 +77,16 @@ const FindOrCreateTicketService = async (
 ): Promise<Ticket> => {
   const contactId = groupContact ? groupContact.id : contact.id;
   const isGroup = !!groupContact;
+
+  if (shouldBypassHelpdesk(contact, isGroup)) {
+    return findOrCreateSupportTicket({
+      contact,
+      companyId,
+      whatsappId,
+      unreadMessages,
+      userId: null
+    });
+  }
 
   const whatsapp = await Whatsapp.findOne({
     where: { id: whatsappId }

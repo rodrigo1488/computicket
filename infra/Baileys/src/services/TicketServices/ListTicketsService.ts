@@ -373,8 +373,12 @@ const listTicketsFromDb = async ({
   const offset = limit * (+pageNumber - 1);
 
   whereCondition = {
-    ...whereCondition,
-    companyId
+    [Op.and]: [
+      whereCondition,
+      { companyId },
+      { [Op.or]: [{ isSupport: false }, { isSupport: null }] },
+      { status: { [Op.ne]: "support" } }
+    ]
   };
 
   const { count, rows: tickets } = await Ticket.findAndCountAll({

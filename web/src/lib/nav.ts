@@ -8,6 +8,7 @@ import {
   FileSignature,
   Layers,
   Headset,
+  LifeBuoy,
   MessageCircle,
   MapPin,
   PieChart,
@@ -36,6 +37,7 @@ export type NavItem = {
 export const NAV_ITEMS: NavItem[] = [
   { href: "/dashboard", label: "Dashboard", icon: BarChart3 },
   { href: "/helpdesk", label: "Help Desk", icon: Headset },
+  { href: "/contatos-suporte", label: "Contatos de suporte", icon: LifeBuoy },
   { href: "/chat", label: "Chat", icon: MessageCircle },
   { href: "/tickets", label: "Tickets", icon: Ticket },
   { href: "/agenda", label: "Agenda", icon: CalendarDays },

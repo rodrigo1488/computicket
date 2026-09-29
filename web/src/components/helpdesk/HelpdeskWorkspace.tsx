@@ -1740,6 +1740,10 @@ export function HelpdeskWorkspace() {
       ticketId?: number | string;
       ticket?: { id?: number | string; status?: string } | null;
     }) => {
+      const support =
+        String(payload.ticket?.status || "").toLowerCase() === "support" ||
+        Boolean((payload.ticket as { isSupport?: boolean } | null)?.isSupport);
+      if (support) return;
       const ticketId = Number(payload.ticket?.id ?? payload.ticketId);
       const status = String(payload.ticket?.status || "").toLowerCase();
       const leftInbox =
@@ -1763,6 +1767,9 @@ export function HelpdeskWorkspace() {
       const openId = activeIdRef.current;
       const incoming = payload.message;
       const ticketStatus = String(payload.ticket?.status || "").toLowerCase();
+      if (ticketStatus === "support" || Boolean((payload.ticket as { isSupport?: boolean } | null)?.isSupport)) {
+        return;
+      }
       if (isClosedHelpdeskStatus(ticketStatus)) {
         if (ticketId) {
           removeConversationFromLists(qc, ticketId);

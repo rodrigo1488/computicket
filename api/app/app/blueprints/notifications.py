@@ -155,6 +155,7 @@ def engine_inbound_message():
 		return jsonify({"error": "ID da mensagem é obrigatório."}), 400
 
 	from app.models import AppNotification, HelpDeskAgentMap, User
+	from ..support_routing import is_support_ticket
 
 	ticket_id = data.get("ticketId")
 	engine_user_id = data.get("engineUserId") or data.get("userId")
@@ -162,6 +163,8 @@ def engine_inbound_message():
 	body = (data.get("body") or data.get("message") or "Nova mensagem")[:1000]
 	url = f"/helpdesk?c={ticket_id}" if ticket_id else "/helpdesk"
 	ticket_status = str(data.get("ticketStatus") or data.get("status") or "").strip().lower()
+	if is_support_ticket(ticket_status, data.get("isSupport")):
+		return jsonify({"ok": True, "skipped": "support"}), 200
 	if ticket_status in ("closed", "rating"):
 		return jsonify({"ok": True, "skipped": "closed"}), 200
 	waiting = ticket_status == "pending"

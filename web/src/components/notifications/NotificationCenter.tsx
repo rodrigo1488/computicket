@@ -342,6 +342,12 @@ export function NotificationCenter() {
     }) => {
       const incoming = payload.message;
       if (!incoming?.id || incoming.fromMe || incoming.isInternal || incoming.isPrivate) return;
+      if (
+        String(payload.ticket?.status || "").toLowerCase() === "support" ||
+        Boolean((payload.ticket as { isSupport?: boolean } | null)?.isSupport)
+      ) {
+        return;
+      }
       if (payload.action && payload.action !== "create") return;
       const ticketId = Number(payload.ticket?.id);
       if (isClosedHelpdeskStatus(payload.ticket?.status)) {
