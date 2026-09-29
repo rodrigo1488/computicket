@@ -1,15 +1,16 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { LifeBuoy, Pencil, Plus, Sparkles, Trash2 } from "lucide-react";
+import { LifeBuoy, LoaderCircle, Pencil, Plus, Send, Sparkles, Trash2, X } from "lucide-react";
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { WhatsAppFormattedText } from "@/components/helpdesk/WhatsAppFormattedText";
 import { Modal } from "@/components/ui/Modal";
 import { PrimaryButton, UnderlineField } from "@/components/ui/UnderlineField";
 import { flask } from "@/lib/api";
 import { cn } from "@/lib/cn";
 import { helpdesk, unwrapConnections } from "@/lib/helpdesk";
+import { sortMessagesChronologically } from "@/lib/helpdeskMessages";
 
 type Folder = { id: number; name: string; contactsCount?: number };
 type ConnectionChoice = { id: number | null; name: string };
@@ -37,11 +38,22 @@ type KnowledgeDraft = {
   has_solution?: boolean;
   system_name?: string;
 };
+type OpenChat = { contactId: number; ticketId: number; contact: SupportContact };
+type SubTab = "contacts" | number;
 
 const emptyContact = { name: "", number: "", supportWhatsappId: "" };
 
+function formatClock(value?: string | null) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+}
+
 export function SupportContactsWorkspace() {
   const qc = useQueryClient();
+  const threadRef = useRef<HTMLDivElement>(null);
+  const stickToBottomRef = useRef(true);
   const [folderId, setFolderId] = useState<number | null>(null);
   const [folderModal, setFolderModal] = useState(false);
   const [folderName, setFolderName] = useState("");
@@ -49,8 +61,9 @@ export function SupportContactsWorkspace() {
   const [contactModal, setContactModal] = useState(false);
   const [contactForm, setContactForm] = useState(emptyContact);
   const [editingContact, setEditingContact] = useState<SupportContact | null>(null);
-  const [active, setActive] = useState<{ contact: SupportContact; ticketId: number } | null>(null);
-  const [draft, setDraft] = useState("");
+  const [openBySystem, setOpenBySystem] = useState<Record<number, OpenChat[]>>({});
+  const [tabBySystem, setTabBySystem] = useState<Record<number, SubTab>>({});
+  const [drafts, setDrafts] = useState<Record<number, string>>({});
   const [error, setError] = useState("");
   const [knowledge, setKnowledge] = useState<KnowledgeDraft | null>(null);
   const [savedUrl, setSavedUrl] = useState("");
@@ -73,6 +86,7 @@ export function SupportContactsWorkspace() {
         `/helpdesk/api/support/contacts?folderId=${folderId}`,
       ),
   });
+  const contactList = contacts.data?.contacts || [];
 
   const connections = useQuery({
     queryKey: ["hd-connections"],
@@ -80,20 +94,50 @@ export function SupportContactsWorkspace() {
   });
   const connectionOptions = useMemo(() => unwrapConnections(connections.data), [connections.data]);
 
+  const selectedFolder = folderList.find((folder) => folder.id === folderId) || null;
+  const openChats = folderId != null ? openBySystem[folderId] || [] : [];
+  const visibleChats = openChats
+    .map((chat) => {
+      const fresh = contactList.find((item) => item.id === chat.contactId);
+      return fresh ? { ...chat, contact: fresh } : chat;
+    })
+    .filter((chat) => !contacts.isSuccess || contactList.some((item) => item.id === chat.contactId));
+  const requestedTab: SubTab = folderId != null ? (tabBySystem[folderId] ?? "contacts") : "contacts";
+  const activeChat =
+    requestedTab === "contacts"
+      ? null
+      : visibleChats.find((chat) => chat.contactId === requestedTab) || null;
+  const activeTicketId = activeChat?.ticketId ?? null;
+  const draft = activeTicketId != null ? drafts[activeTicketId] || "" : "";
+
   const messages = useQuery({
-    queryKey: ["support-messages", active?.ticketId],
-    enabled: !!active?.ticketId,
-    refetchInterval: active?.ticketId ? 4000 : false,
+    queryKey: ["support-messages", activeTicketId],
+    enabled: activeTicketId != null,
+    refetchInterval: activeTicketId ? 4000 : false,
     queryFn: () =>
       flask.get<{ messages: ChatMessage[] }>(
-        `/helpdesk/api/support/conversations/${active!.ticketId}/messages?pageNumber=1`,
+        `/helpdesk/api/support/conversations/${activeTicketId}/messages?pageNumber=1`,
       ),
   });
+  const thread = useMemo(
+    () => sortMessagesChronologically(messages.data?.messages || []),
+    [messages.data?.messages],
+  );
+
+  useEffect(() => {
+    stickToBottomRef.current = true;
+  }, [activeTicketId]);
+
+  useEffect(() => {
+    const el = threadRef.current;
+    if (!el || !stickToBottomRef.current) return;
+    el.scrollTop = el.scrollHeight;
+  }, [thread, activeTicketId]);
 
   const saveFolder = useMutation({
     mutationFn: async () => {
       const name = folderName.trim();
-      if (!name) throw new Error("Nome da pasta é obrigatório");
+      if (!name) throw new Error("Nome do sistema é obrigatório");
       if (editingFolder) {
         return flask.put(`/helpdesk/api/support/folders/${editingFolder.id}`, { name });
       }
@@ -102,25 +146,37 @@ export function SupportContactsWorkspace() {
     onSuccess: (created) => {
       qc.invalidateQueries({ queryKey: ["support-folders"] });
       if (!editingFolder && created && typeof created === "object" && "id" in created) {
-        setFolderId(Number((created as Folder).id));
+        const id = Number((created as Folder).id);
+        setFolderId(id);
+        setTabBySystem((prev) => ({ ...prev, [id]: "contacts" }));
       }
       setFolderModal(false);
     },
-    onError: (e) => setError(e instanceof Error ? e.message : "Não foi possível salvar a pasta"),
+    onError: (e) => setError(e instanceof Error ? e.message : "Não foi possível salvar o sistema"),
   });
 
   const removeFolder = useMutation({
     mutationFn: (id: number) => flask.delete(`/helpdesk/api/support/folders/${id}`),
-    onSuccess: () => {
+    onSuccess: (_data, id) => {
+      setOpenBySystem((prev) => {
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
+      setTabBySystem((prev) => {
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
       setFolderId(null);
       qc.invalidateQueries({ queryKey: ["support-folders"] });
     },
-    onError: (e) => setError(e instanceof Error ? e.message : "Não foi possível excluir a pasta"),
+    onError: (e) => setError(e instanceof Error ? e.message : "Não foi possível excluir o sistema"),
   });
 
   const saveContact = useMutation({
     mutationFn: async () => {
-      if (!folderId) throw new Error("Escolha uma pasta de sistema");
+      if (!folderId) throw new Error("Escolha um sistema");
       const payload = {
         name: contactForm.name.trim(),
         number: contactForm.number.trim(),
@@ -146,7 +202,20 @@ export function SupportContactsWorkspace() {
   const removeContact = useMutation({
     mutationFn: (id: number) => flask.delete(`/helpdesk/api/support/contacts/${id}`),
     onSuccess: (_data, id) => {
-      if (active?.contact.id === id) setActive(null);
+      setOpenBySystem((prev) => {
+        const next: Record<number, OpenChat[]> = {};
+        for (const [key, list] of Object.entries(prev)) {
+          next[Number(key)] = list.filter((item) => item.contactId !== id);
+        }
+        return next;
+      });
+      setTabBySystem((prev) => {
+        const next = { ...prev };
+        for (const key of Object.keys(next)) {
+          if (next[Number(key)] === id) next[Number(key)] = "contacts";
+        }
+        return next;
+      });
       qc.invalidateQueries({ queryKey: ["support-contacts"] });
       qc.invalidateQueries({ queryKey: ["support-folders"] });
     },
@@ -160,32 +229,41 @@ export function SupportContactsWorkspace() {
         {},
       ),
     onSuccess: (data, contact) => {
+      const systemId = contact.supportFolderId ?? folderId;
+      if (systemId == null) return;
       setSavedUrl("");
-      setActive({ contact, ticketId: data.ticket.id });
+      setOpenBySystem((prev) => {
+        const list = prev[systemId] || [];
+        const entry: OpenChat = { contactId: contact.id, ticketId: data.ticket.id, contact };
+        const next = list.some((item) => item.contactId === contact.id)
+          ? list.map((item) => (item.contactId === contact.id ? entry : item))
+          : [...list, entry];
+        return { ...prev, [systemId]: next };
+      });
+      setTabBySystem((prev) => ({ ...prev, [systemId]: contact.id }));
       setError("");
     },
     onError: (e) => setError(e instanceof Error ? e.message : "Não foi possível abrir a conversa"),
   });
 
   const send = useMutation({
-    mutationFn: async () => {
-      if (!active) throw new Error("Abra uma conversa");
-      const body = draft.trim();
+    mutationFn: async (ticketId: number) => {
+      const body = (drafts[ticketId] || "").trim();
       if (!body) throw new Error("Digite a mensagem");
-      return flask.post(`/helpdesk/api/support/conversations/${active.ticketId}/messages`, { body });
+      return flask.post(`/helpdesk/api/support/conversations/${ticketId}/messages`, { body });
     },
-    onSuccess: () => {
-      setDraft("");
-      qc.invalidateQueries({ queryKey: ["support-messages", active?.ticketId] });
+    onSuccess: (_data, ticketId) => {
+      setDrafts((prev) => ({ ...prev, [ticketId]: "" }));
+      qc.invalidateQueries({ queryKey: ["support-messages", ticketId] });
     },
     onError: (e) => setError(e instanceof Error ? e.message : "Não foi possível enviar"),
   });
 
   const previewKnowledge = useMutation({
     mutationFn: async () => {
-      if (!active) throw new Error("Abra uma conversa");
+      if (!activeChat) throw new Error("Abra uma conversa");
       return flask.post<KnowledgeDraft>(
-        `/helpdesk/api/support/conversations/${active.ticketId}/knowledge/preview`,
+        `/helpdesk/api/support/conversations/${activeChat.ticketId}/knowledge/preview`,
         {},
       );
     },
@@ -195,7 +273,7 @@ export function SupportContactsWorkspace() {
         problem: data.problem || "",
         solution: data.solution || "",
         has_solution: data.has_solution,
-        system_name: data.system_name || active?.contact.folder?.name || "",
+        system_name: data.system_name || activeChat?.contact.folder?.name || selectedFolder?.name || "",
       });
       setError("");
     },
@@ -209,9 +287,9 @@ export function SupportContactsWorkspace() {
 
   const saveKnowledge = useMutation({
     mutationFn: async () => {
-      if (!active || !knowledge) throw new Error("Nada para gravar");
+      if (!activeChat || !knowledge) throw new Error("Nada para gravar");
       return flask.post<{ url: string; title: string }>(
-        `/helpdesk/api/support/conversations/${active.ticketId}/knowledge`,
+        `/helpdesk/api/support/conversations/${activeChat.ticketId}/knowledge`,
         knowledge,
       );
     },
@@ -223,21 +301,65 @@ export function SupportContactsWorkspace() {
     onError: (e) => setError(e instanceof Error ? e.message : "Não foi possível gravar o artigo"),
   });
 
-  const selectedFolder = folderList.find((folder) => folder.id === folderId) || null;
+  function selectSystem(id: number) {
+    setFolderId(id);
+    setError("");
+    setSavedUrl("");
+  }
+
+  function selectTab(tab: SubTab) {
+    if (folderId == null) return;
+    setTabBySystem((prev) => ({ ...prev, [folderId]: tab }));
+    setError("");
+  }
+
+  function closeChat(systemId: number, contactId: number) {
+    setOpenBySystem((prev) => ({
+      ...prev,
+      [systemId]: (prev[systemId] || []).filter((item) => item.contactId !== contactId),
+    }));
+    setTabBySystem((prev) => (prev[systemId] === contactId ? { ...prev, [systemId]: "contacts" } : prev));
+  }
+
+  function startConversation(contact: SupportContact) {
+    if (folderId == null) return;
+    const existing = (openBySystem[folderId] || []).find((item) => item.contactId === contact.id);
+    if (existing) {
+      setTabBySystem((prev) => ({ ...prev, [folderId]: contact.id }));
+      setError("");
+      return;
+    }
+    openChat.mutate(contact);
+  }
+
+  function openContactModal(contact?: SupportContact) {
+    setEditingContact(contact || null);
+    setContactForm(
+      contact
+        ? {
+            name: contact.name,
+            number: contact.number,
+            supportWhatsappId: contact.supportWhatsappId ? String(contact.supportWhatsappId) : "",
+          }
+        : emptyContact,
+    );
+    setError("");
+    setContactModal(true);
+  }
+
+  const openingId = openChat.isPending ? openChat.variables?.id : null;
 
   return (
-    <div className="flex h-0 min-h-0 min-w-0 flex-1 overflow-hidden">
-      <aside className="flex w-[320px] min-w-0 shrink-0 flex-col border-r border-line">
-        <div className="flex items-center justify-between gap-2 border-b border-line px-4 py-3">
-          <div>
+    <div className="flex h-0 min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-surface">
+      <header className="shrink-0 border-b border-line bg-surface">
+        <div className="flex items-center justify-between gap-3 px-4 py-3">
+          <div className="min-w-0">
             <p className="text-sm font-semibold text-ink">Contatos de suporte</p>
             <p className="text-xs text-muted">Fora do Help Desk</p>
           </div>
           <button
             type="button"
-            className="rounded-md p-1 text-brand hover:bg-progress-bg"
-            title="Nova pasta"
-            aria-label="Nova pasta de sistema"
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm font-medium text-brand hover:bg-progress-bg"
             onClick={() => {
               setEditingFolder(null);
               setFolderName("");
@@ -246,230 +368,309 @@ export function SupportContactsWorkspace() {
             }}
           >
             <Plus className="h-4 w-4" />
+            Criar sistema
           </button>
         </div>
-        <div className="border-b border-line px-3 py-2">
-          {folders.isLoading ? <p className="px-1 py-2 text-sm text-muted">Carregando pastas…</p> : null}
-          {folderList.length === 0 && !folders.isLoading ? (
-            <p className="px-1 py-3 text-sm text-muted">Crie uma pasta para cada sistema.</p>
-          ) : (
-            <ul className="max-h-40 space-y-1 overflow-y-auto">
-              {folderList.map((folder) => (
-                <li key={folder.id}>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setFolderId(folder.id);
-                      setActive(null);
-                    }}
-                    className={cn(
-                      "flex w-full items-center justify-between rounded-lg px-2 py-1.5 text-left text-sm",
-                      folder.id === folderId ? "bg-progress-bg text-brand" : "text-ink hover:bg-canvas",
-                    )}
-                  >
-                    <span className="truncate">{folder.name}</span>
-                    <span className="text-xs text-muted">{folder.contactsCount ?? 0}</span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
+        <div className="flex items-end gap-2 px-2">
+          <div className="flex min-w-0 flex-1 items-end gap-0.5 overflow-x-auto" role="tablist" aria-label="Sistemas">
+            {folders.isLoading ? <p className="px-2 py-2 text-sm text-muted">Carregando sistemas…</p> : null}
+            {folderList.map((folder) => {
+              const selected = folder.id === folderId;
+              return (
+                <button
+                  key={folder.id}
+                  type="button"
+                  role="tab"
+                  aria-selected={selected}
+                  onClick={() => selectSystem(folder.id)}
+                  className={cn(
+                    "inline-flex shrink-0 items-center gap-2 border-b-2 px-3 py-2 text-sm",
+                    selected
+                      ? "border-brand font-semibold text-brand"
+                      : "border-transparent text-muted hover:text-ink",
+                  )}
+                >
+                  <span className="max-w-48 truncate">{folder.name}</span>
+                  <span className={cn("text-xs", selected ? "text-brand/80" : "text-muted")}>
+                    {folder.contactsCount ?? 0}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
           {selectedFolder ? (
-            <div className="mt-2 flex gap-2">
+            <div className="mb-1.5 flex shrink-0 items-center gap-1 pr-2">
               <button
                 type="button"
-                className="text-xs text-muted hover:text-ink"
+                className="rounded-md px-2 py-1 text-xs text-muted hover:bg-wash hover:text-ink"
                 onClick={() => {
                   setEditingFolder(selectedFolder);
                   setFolderName(selectedFolder.name);
+                  setError("");
                   setFolderModal(true);
                 }}
               >
-                Renomear pasta
+                Renomear
               </button>
               <button
                 type="button"
-                className="text-xs text-muted hover:text-ink"
+                className="rounded-md px-2 py-1 text-xs text-muted hover:bg-open-bg hover:text-open"
                 onClick={() => {
-                  if (window.confirm(`Excluir a pasta ${selectedFolder.name}?`)) {
+                  if (window.confirm(`Excluir o sistema ${selectedFolder.name}?`)) {
                     removeFolder.mutate(selectedFolder.id);
                   }
                 }}
               >
-                Excluir pasta
+                Excluir
               </button>
             </div>
           ) : null}
         </div>
-        <div className="flex items-center justify-between px-4 py-2">
-          <span className="text-xs font-medium uppercase tracking-wide text-muted">Contatos</span>
+      </header>
+
+      {!selectedFolder && !folders.isLoading ? (
+        <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 px-6 text-center text-muted">
+          <LifeBuoy className="h-8 w-8" />
+          <p className="max-w-sm text-sm">Crie um sistema para agrupar os contatos de suporte dele.</p>
           <button
             type="button"
-            disabled={!folderId}
-            className="rounded-md p-1 text-brand hover:bg-progress-bg disabled:opacity-40"
-            title="Novo contato"
-            aria-label="Adicionar contato de suporte"
+            className="inline-flex items-center gap-1.5 rounded-lg bg-brand px-3 py-1.5 text-sm font-medium text-white"
             onClick={() => {
-              setEditingContact(null);
-              setContactForm(emptyContact);
-              setError("");
-              setContactModal(true);
+              setEditingFolder(null);
+              setFolderName("");
+              setFolderModal(true);
             }}
           >
             <Plus className="h-4 w-4" />
+            Criar sistema
           </button>
         </div>
-        <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-3">
-          {(contacts.data?.contacts || []).map((contact) => (
-            <div
-              key={contact.id}
+      ) : selectedFolder ? (
+        <>
+          <div
+            className="flex shrink-0 items-end gap-0.5 overflow-x-auto border-b border-line bg-wash px-2"
+            role="tablist"
+            aria-label={`Sub-abas de ${selectedFolder.name}`}
+          >
+            <button
+              type="button"
+              role="tab"
+              aria-selected={!activeChat}
+              onClick={() => selectTab("contacts")}
               className={cn(
-                "mb-1 rounded-xl px-3 py-2",
-                active?.contact.id === contact.id ? "bg-progress-bg" : "hover:bg-canvas",
+                "shrink-0 border-b-2 px-3 py-2 text-sm",
+                !activeChat ? "border-brand font-medium text-ink" : "border-transparent text-muted hover:text-ink",
               )}
             >
-              <div className="flex items-start justify-between gap-2">
-                <button
-                  type="button"
-                  className="min-w-0 flex-1 text-left"
-                  onClick={() => openChat.mutate(contact)}
-                >
-                  <p className="truncate text-sm font-medium text-ink">{contact.name}</p>
-                  <p className="truncate text-xs text-muted">{contact.number}</p>
-                  <p className="truncate text-xs text-muted">
-                    {contact.connection?.name || "Padrão"}
-                  </p>
-                </button>
-                <div className="flex shrink-0 gap-1">
-                  <button
-                    type="button"
-                    className="rounded p-1 text-muted hover:text-ink"
-                    aria-label={`Editar ${contact.name}`}
-                    onClick={() => {
-                      setEditingContact(contact);
-                      setContactForm({
-                        name: contact.name,
-                        number: contact.number,
-                        supportWhatsappId: contact.supportWhatsappId
-                          ? String(contact.supportWhatsappId)
-                          : "",
-                      });
-                      setContactModal(true);
-                    }}
-                  >
-                    <Pencil className="h-3.5 w-3.5" />
-                  </button>
-                  <button
-                    type="button"
-                    className="rounded p-1 text-muted hover:text-ink"
-                    aria-label={`Remover ${contact.name}`}
-                    onClick={() => {
-                      if (window.confirm(`Remover ${contact.name} dos contatos de suporte?`)) {
-                        removeContact.mutate(contact.id);
-                      }
-                    }}
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </button>
-                </div>
-              </div>
-              <button
-                type="button"
-                className="mt-1 text-xs font-medium text-brand"
-                onClick={() => openChat.mutate(contact)}
-              >
-                {openChat.isPending ? "Abrindo…" : "Conversar"}
-              </button>
-            </div>
-          ))}
-          {folderId && !contacts.isLoading && (contacts.data?.contacts || []).length === 0 ? (
-            <p className="px-2 py-4 text-sm text-muted">Nenhum contato nesta pasta.</p>
-          ) : null}
-        </div>
-      </aside>
-
-      <section className="flex min-h-0 min-w-0 flex-1 flex-col">
-        {error ? (
-          <p className="border-b border-line px-4 py-2 text-sm text-rose-600" role="alert">
-            {error}
-          </p>
-        ) : null}
-        {!active ? (
-          <div className="flex flex-1 flex-col items-center justify-center gap-2 px-6 text-center text-muted">
-            <LifeBuoy className="h-8 w-8" />
-            <p className="max-w-sm text-sm">
-              Escolha um contato de suporte para abrir a conversa direta. Ela não vira atendimento no Help Desk.
-            </p>
-          </div>
-        ) : (
-          <>
-            <header className="flex items-center justify-between gap-3 border-b border-line px-4 py-3">
-              <div className="min-w-0">
-                <p className="truncate text-sm font-semibold text-ink">{active.contact.name}</p>
-                <p className="truncate text-xs text-muted">
-                  {active.contact.number} · {active.contact.connection?.name || "Conexão padrão"} · fora do Help Desk
-                </p>
-              </div>
-              <button
-                type="button"
-                className="inline-flex items-center gap-1 rounded-lg border border-line px-3 py-1.5 text-xs font-medium text-ink hover:bg-canvas disabled:opacity-50"
-                disabled={previewKnowledge.isPending}
-                onClick={() => previewKnowledge.mutate()}
-              >
-                <Sparkles className="h-3.5 w-3.5" />
-                {previewKnowledge.isPending ? "Lendo conversa…" : "Registrar solução"}
-              </button>
-            </header>
-            {savedUrl ? (
-              <p className="border-b border-line px-4 py-2 text-sm text-ink">
-                Solução gravada no conhecimento.{" "}
-                <Link href={savedUrl} className="text-brand underline">
-                  Abrir artigo
-                </Link>
-              </p>
-            ) : null}
-            <div className="min-h-0 flex-1 space-y-2 overflow-y-auto px-4 py-3">
-              {(messages.data?.messages || []).map((message) => (
+              Contatos
+            </button>
+            {visibleChats.map((chat) => {
+              const selected = activeChat?.contactId === chat.contactId;
+              return (
                 <div
-                  key={message.id}
-                  className={cn("flex", message.fromMe ? "justify-end" : "justify-start")}
+                  key={chat.contactId}
+                  className={cn(
+                    "inline-flex shrink-0 items-center border-b-2",
+                    selected ? "border-brand" : "border-transparent",
+                  )}
                 >
-                  <div
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={selected}
+                    onClick={() => selectTab(chat.contactId)}
                     className={cn(
-                      "max-w-[75%] rounded-2xl px-3 py-2 text-sm",
-                      message.fromMe ? "bg-brand text-white" : "bg-canvas text-ink",
+                      "max-w-48 truncate px-3 py-2 text-sm",
+                      selected ? "font-medium text-ink" : "text-muted hover:text-ink",
                     )}
                   >
-                    <WhatsAppFormattedText text={message.body || message.mediaType || ""} />
-                  </div>
+                    {chat.contact.name}
+                  </button>
+                  <button
+                    type="button"
+                    className="mr-1 rounded p-1 text-muted hover:bg-surface hover:text-ink"
+                    aria-label={`Fechar conversa com ${chat.contact.name}`}
+                    title="Fechar conversa"
+                    onClick={() => closeChat(selectedFolder.id, chat.contactId)}
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
                 </div>
-              ))}
-              {messages.isLoading ? <p className="text-sm text-muted">Carregando mensagens…</p> : null}
+              );
+            })}
+          </div>
+
+          {error ? (
+            <p className="shrink-0 border-b border-line bg-open-bg px-4 py-2 text-sm text-open" role="alert">
+              {error}
+            </p>
+          ) : null}
+
+          {!activeChat ? (
+            <div className="min-h-0 flex-1 overflow-y-auto bg-canvas px-4 py-4">
+              <div className="mb-4 flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <h2 className="truncate text-sm font-semibold text-ink">Contatos de {selectedFolder.name}</h2>
+                  <p className="text-xs text-muted">Agrupados neste sistema, fora do Help Desk</p>
+                </div>
+                <button
+                  type="button"
+                  className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-brand px-3 py-1.5 text-sm font-medium text-white hover:opacity-90"
+                  onClick={() => openContactModal()}
+                >
+                  <Plus className="h-4 w-4" />
+                  Adicionar contato
+                </button>
+              </div>
+              {contacts.isLoading ? <p className="text-sm text-muted">Carregando contatos…</p> : null}
+              {!contacts.isLoading && contactList.length === 0 ? (
+                <p className="rounded-xl border border-dashed border-line bg-surface px-4 py-8 text-center text-sm text-muted">
+                  Nenhum contato neste sistema.
+                </p>
+              ) : (
+                <ul className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                  {contactList.map((contact) => (
+                    <li key={contact.id} className="rounded-xl border border-line bg-surface p-3 shadow-sm">
+                      <p className="truncate text-sm font-semibold text-ink">{contact.name}</p>
+                      <p className="mt-0.5 truncate text-xs text-muted">{contact.number}</p>
+                      <p className="truncate text-xs text-muted">{contact.connection?.name || "Conexão padrão"}</p>
+                      <div className="mt-3 flex items-center gap-2">
+                        <button
+                          type="button"
+                          className="text-xs font-medium text-brand hover:underline disabled:opacity-50"
+                          disabled={openingId === contact.id}
+                          onClick={() => startConversation(contact)}
+                        >
+                          {openingId === contact.id ? "Abrindo…" : "Conversar"}
+                        </button>
+                        <button
+                          type="button"
+                          className="rounded p-1 text-muted hover:bg-wash hover:text-ink"
+                          aria-label={`Editar ${contact.name}`}
+                          onClick={() => openContactModal(contact)}
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          className="rounded p-1 text-muted hover:bg-open-bg hover:text-open"
+                          aria-label={`Remover ${contact.name}`}
+                          onClick={() => {
+                            if (window.confirm(`Remover ${contact.name} dos contatos de suporte?`)) {
+                              removeContact.mutate(contact.id);
+                            }
+                          }}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
-            <form
-              className="flex gap-2 border-t border-line p-3"
-              onSubmit={(event) => {
-                event.preventDefault();
-                send.mutate();
-              }}
-            >
-              <input
-                value={draft}
-                onChange={(event) => setDraft(event.target.value)}
-                placeholder="Mensagem para o suporte"
-                className="min-w-0 flex-1 rounded-xl border border-line bg-transparent px-3 py-2 text-sm text-ink"
-              />
-              <PrimaryButton type="submit" disabled={send.isPending}>
-                Enviar
-              </PrimaryButton>
-            </form>
-          </>
-        )}
-      </section>
+          ) : (
+            <section className="flex min-h-0 min-w-0 flex-1 basis-0 flex-col overflow-hidden bg-chat">
+              <header className="flex shrink-0 items-center justify-between gap-3 border-b border-chat-border bg-surface px-4 py-2.5">
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-semibold text-ink">{activeChat.contact.name}</p>
+                  <p className="truncate text-xs text-muted">
+                    {activeChat.contact.number} · {activeChat.contact.connection?.name || "Conexão padrão"} · fora do
+                    Help Desk
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-line bg-surface px-3 py-1.5 text-xs font-medium text-ink hover:bg-wash disabled:opacity-50"
+                  disabled={previewKnowledge.isPending}
+                  onClick={() => previewKnowledge.mutate()}
+                >
+                  <Sparkles className="h-3.5 w-3.5" />
+                  {previewKnowledge.isPending ? "Lendo conversa…" : "Registrar solução"}
+                </button>
+              </header>
+              {savedUrl ? (
+                <p className="shrink-0 border-b border-chat-border bg-surface px-4 py-2 text-sm text-ink">
+                  Solução gravada no conhecimento.{" "}
+                  <Link href={savedUrl} className="text-brand underline">
+                    Abrir artigo
+                  </Link>
+                </p>
+              ) : null}
+              <div
+                ref={threadRef}
+                className="min-h-0 flex-1 basis-0 overflow-y-auto overscroll-contain px-4 py-4 [overflow-anchor:none]"
+                onScroll={(event) => {
+                  const el = event.currentTarget;
+                  stickToBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+                }}
+              >
+                {messages.isLoading ? <p className="text-sm text-muted">Carregando mensagens…</p> : null}
+                {messages.isSuccess && thread.length === 0 ? (
+                  <p className="py-10 text-center text-sm text-muted">Nenhuma mensagem nesta conversa</p>
+                ) : null}
+                {thread.map((message) => (
+                  <div
+                    key={message.id}
+                    className={cn("mb-2 flex", message.fromMe ? "justify-end" : "justify-start")}
+                  >
+                    <div
+                      className={cn(
+                        "max-w-[75%] rounded-lg px-3 py-1.5 text-sm shadow-sm",
+                        message.fromMe
+                          ? "rounded-tr-none bg-bubble-out text-ink"
+                          : "rounded-tl-none bg-bubble-in text-ink",
+                      )}
+                    >
+                      <p className="whitespace-pre-wrap break-words">
+                        <WhatsAppFormattedText text={message.body || message.mediaType || ""} />
+                      </p>
+                      {message.createdAt ? (
+                        <p className="mt-0.5 text-right text-[10px] text-muted">{formatClock(message.createdAt)}</p>
+                      ) : null}
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <form
+                className="relative shrink-0 border-t border-chat-border bg-chat-composer px-3 py-2"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  if (!activeTicketId || !draft.trim() || send.isPending) return;
+                  send.mutate(activeTicketId);
+                }}
+              >
+                <div className="flex items-center gap-2">
+                  <input
+                    value={draft}
+                    onChange={(event) => {
+                      const value = event.target.value;
+                      if (activeTicketId == null) return;
+                      setDrafts((prev) => ({ ...prev, [activeTicketId]: value }));
+                    }}
+                    placeholder="Digite a mensagem"
+                    autoComplete="off"
+                    className="min-h-9 min-w-0 flex-1 rounded-lg border-0 bg-surface px-3 py-2 text-sm text-ink shadow-sm outline-none placeholder:text-muted"
+                  />
+                  <button
+                    type="submit"
+                    disabled={send.isPending || !draft.trim()}
+                    className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-full bg-brand px-3.5 text-sm font-medium text-white disabled:opacity-40"
+                    aria-label="Enviar"
+                  >
+                    {send.isPending ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                    Enviar
+                  </button>
+                </div>
+              </form>
+            </section>
+          )}
+        </>
+      ) : null}
 
       <Modal
         open={folderModal}
-        title={editingFolder ? "Renomear pasta" : "Nova pasta de sistema"}
+        title={editingFolder ? "Renomear sistema" : "Novo sistema"}
         onClose={() => setFolderModal(false)}
       >
         <form
