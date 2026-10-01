@@ -38,8 +38,12 @@ type KnowledgeDraft = {
   has_solution?: boolean;
   system_name?: string;
 };
-type OpenChat = { contactId: number; ticketId: number; contact: SupportContact };
-type SubTab = "contacts" | number;
+type OpenChat = {
+  contactId: number;
+  ticketId: number;
+  contact: SupportContact;
+  systemId: number;
+};
 
 const emptyContact = { name: "", number: "", supportWhatsappId: "" };
 
@@ -61,8 +65,8 @@ export function SupportContactsWorkspace() {
   const [contactModal, setContactModal] = useState(false);
   const [contactForm, setContactForm] = useState(emptyContact);
   const [editingContact, setEditingContact] = useState<SupportContact | null>(null);
-  const [openBySystem, setOpenBySystem] = useState<Record<number, OpenChat[]>>({});
-  const [tabBySystem, setTabBySystem] = useState<Record<number, SubTab>>({});
+  const [openChats, setOpenChats] = useState<OpenChat[]>([]);
+  const [activeContactId, setActiveContactId] = useState<number | null>(null);
   const [drafts, setDrafts] = useState<Record<number, string>>({});
   const [error, setError] = useState("");
   const [knowledge, setKnowledge] = useState<KnowledgeDraft | null>(null);
@@ -95,18 +99,19 @@ export function SupportContactsWorkspace() {
   const connectionOptions = useMemo(() => unwrapConnections(connections.data), [connections.data]);
 
   const selectedFolder = folderList.find((folder) => folder.id === folderId) || null;
-  const openChats = folderId != null ? openBySystem[folderId] || [] : [];
-  const visibleChats = openChats
-    .map((chat) => {
+  const visibleChats = openChats.flatMap((chat) => {
+    if (folderId != null && chat.systemId === folderId) {
       const fresh = contactList.find((item) => item.id === chat.contactId);
-      return fresh ? { ...chat, contact: fresh } : chat;
-    })
-    .filter((chat) => !contacts.isSuccess || contactList.some((item) => item.id === chat.contactId));
-  const requestedTab: SubTab = folderId != null ? (tabBySystem[folderId] ?? "contacts") : "contacts";
+      if (contacts.isSuccess && !fresh) return [];
+      return [fresh ? { ...chat, contact: fresh } : chat];
+    }
+    return [chat];
+  });
   const activeChat =
-    requestedTab === "contacts"
+    activeContactId == null
       ? null
-      : visibleChats.find((chat) => chat.contactId === requestedTab) || null;
+      : visibleChats.find((chat) => chat.contactId === activeContactId) || null;
+  const labelOtherSystems = visibleChats.some((chat) => chat.systemId !== folderId);
   const activeTicketId = activeChat?.ticketId ?? null;
   const draft = activeTicketId != null ? drafts[activeTicketId] || "" : "";
 
@@ -148,7 +153,7 @@ export function SupportContactsWorkspace() {
       if (!editingFolder && created && typeof created === "object" && "id" in created) {
         const id = Number((created as Folder).id);
         setFolderId(id);
-        setTabBySystem((prev) => ({ ...prev, [id]: "contacts" }));
+        setActiveContactId(null);
       }
       setFolderModal(false);
     },
@@ -158,17 +163,12 @@ export function SupportContactsWorkspace() {
   const removeFolder = useMutation({
     mutationFn: (id: number) => flask.delete(`/helpdesk/api/support/folders/${id}`),
     onSuccess: (_data, id) => {
-      setOpenBySystem((prev) => {
-        const next = { ...prev };
-        delete next[id];
-        return next;
-      });
-      setTabBySystem((prev) => {
-        const next = { ...prev };
-        delete next[id];
-        return next;
-      });
-      setFolderId(null);
+      const activeWasRemoved = openChats.some(
+        (item) => item.contactId === activeContactId && item.systemId === id,
+      );
+      setOpenChats((prev) => prev.filter((item) => item.systemId !== id));
+      if (activeWasRemoved) setActiveContactId(null);
+      if (folderId === id) setFolderId(null);
       qc.invalidateQueries({ queryKey: ["support-folders"] });
     },
     onError: (e) => setError(e instanceof Error ? e.message : "Não foi possível excluir o sistema"),
@@ -202,20 +202,8 @@ export function SupportContactsWorkspace() {
   const removeContact = useMutation({
     mutationFn: (id: number) => flask.delete(`/helpdesk/api/support/contacts/${id}`),
     onSuccess: (_data, id) => {
-      setOpenBySystem((prev) => {
-        const next: Record<number, OpenChat[]> = {};
-        for (const [key, list] of Object.entries(prev)) {
-          next[Number(key)] = list.filter((item) => item.contactId !== id);
-        }
-        return next;
-      });
-      setTabBySystem((prev) => {
-        const next = { ...prev };
-        for (const key of Object.keys(next)) {
-          if (next[Number(key)] === id) next[Number(key)] = "contacts";
-        }
-        return next;
-      });
+      setOpenChats((prev) => prev.filter((item) => item.contactId !== id));
+      setActiveContactId((current) => (current === id ? null : current));
       qc.invalidateQueries({ queryKey: ["support-contacts"] });
       qc.invalidateQueries({ queryKey: ["support-folders"] });
     },
@@ -232,15 +220,18 @@ export function SupportContactsWorkspace() {
       const systemId = contact.supportFolderId ?? folderId;
       if (systemId == null) return;
       setSavedUrl("");
-      setOpenBySystem((prev) => {
-        const list = prev[systemId] || [];
-        const entry: OpenChat = { contactId: contact.id, ticketId: data.ticket.id, contact };
-        const next = list.some((item) => item.contactId === contact.id)
-          ? list.map((item) => (item.contactId === contact.id ? entry : item))
-          : [...list, entry];
-        return { ...prev, [systemId]: next };
-      });
-      setTabBySystem((prev) => ({ ...prev, [systemId]: contact.id }));
+      const entry: OpenChat = {
+        contactId: contact.id,
+        ticketId: data.ticket.id,
+        contact,
+        systemId,
+      };
+      setOpenChats((prev) =>
+        prev.some((item) => item.contactId === contact.id)
+          ? prev.map((item) => (item.contactId === contact.id ? entry : item))
+          : [...prev, entry],
+      );
+      setActiveContactId(contact.id);
       setError("");
     },
     onError: (e) => setError(e instanceof Error ? e.message : "Não foi possível abrir a conversa"),
@@ -303,30 +294,39 @@ export function SupportContactsWorkspace() {
 
   function selectSystem(id: number) {
     setFolderId(id);
+    setActiveContactId(null);
     setError("");
     setSavedUrl("");
   }
 
-  function selectTab(tab: SubTab) {
-    if (folderId == null) return;
-    setTabBySystem((prev) => ({ ...prev, [folderId]: tab }));
+  function selectContactsTab() {
+    setActiveContactId(null);
     setError("");
   }
 
-  function closeChat(systemId: number, contactId: number) {
-    setOpenBySystem((prev) => ({
-      ...prev,
-      [systemId]: (prev[systemId] || []).filter((item) => item.contactId !== contactId),
-    }));
-    setTabBySystem((prev) => (prev[systemId] === contactId ? { ...prev, [systemId]: "contacts" } : prev));
+  function selectChat(chat: OpenChat) {
+    if (chat.systemId !== folderId) {
+      setFolderId(chat.systemId);
+      setSavedUrl("");
+    }
+    setActiveContactId(chat.contactId);
+    setError("");
+  }
+
+  function closeChat(contactId: number) {
+    setOpenChats((prev) => prev.filter((item) => item.contactId !== contactId));
+    setActiveContactId((current) => (current === contactId ? null : current));
+  }
+
+  function chatSystemName(chat: OpenChat) {
+    return folderList.find((folder) => folder.id === chat.systemId)?.name || chat.contact.folder?.name || "";
   }
 
   function startConversation(contact: SupportContact) {
     if (folderId == null) return;
-    const existing = (openBySystem[folderId] || []).find((item) => item.contactId === contact.id);
+    const existing = openChats.find((item) => item.contactId === contact.id);
     if (existing) {
-      setTabBySystem((prev) => ({ ...prev, [folderId]: contact.id }));
-      setError("");
+      selectChat(existing);
       return;
     }
     openChat.mutate(contact);
@@ -450,13 +450,13 @@ export function SupportContactsWorkspace() {
           <div
             className="flex shrink-0 items-end gap-0.5 overflow-x-auto border-b border-line bg-wash px-2"
             role="tablist"
-            aria-label={`Sub-abas de ${selectedFolder.name}`}
+            aria-label="Sub-abas de suporte"
           >
             <button
               type="button"
               role="tab"
               aria-selected={!activeChat}
-              onClick={() => selectTab("contacts")}
+              onClick={selectContactsTab}
               className={cn(
                 "shrink-0 border-b-2 px-3 py-2 text-sm",
                 !activeChat ? "border-brand font-medium text-ink" : "border-transparent text-muted hover:text-ink",
@@ -466,6 +466,7 @@ export function SupportContactsWorkspace() {
             </button>
             {visibleChats.map((chat) => {
               const selected = activeChat?.contactId === chat.contactId;
+              const systemName = labelOtherSystems ? chatSystemName(chat) : "";
               return (
                 <div
                   key={chat.contactId}
@@ -478,20 +479,24 @@ export function SupportContactsWorkspace() {
                     type="button"
                     role="tab"
                     aria-selected={selected}
-                    onClick={() => selectTab(chat.contactId)}
+                    title={systemName ? `${chat.contact.name} · ${systemName}` : chat.contact.name}
+                    onClick={() => selectChat(chat)}
                     className={cn(
-                      "max-w-48 truncate px-3 py-2 text-sm",
+                      "flex max-w-56 items-center gap-1.5 px-3 py-2 text-sm",
                       selected ? "font-medium text-ink" : "text-muted hover:text-ink",
                     )}
                   >
-                    {chat.contact.name}
+                    <span className="max-w-36 truncate">{chat.contact.name}</span>
+                    {systemName ? (
+                      <span className="max-w-24 truncate text-[10px] font-normal text-muted">{systemName}</span>
+                    ) : null}
                   </button>
                   <button
                     type="button"
                     className="mr-1 rounded p-1 text-muted hover:bg-surface hover:text-ink"
                     aria-label={`Fechar conversa com ${chat.contact.name}`}
                     title="Fechar conversa"
-                    onClick={() => closeChat(selectedFolder.id, chat.contactId)}
+                    onClick={() => closeChat(chat.contactId)}
                   >
                     <X className="h-3.5 w-3.5" />
                   </button>
