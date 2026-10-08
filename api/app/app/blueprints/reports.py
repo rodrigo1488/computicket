@@ -1818,6 +1818,246 @@ def _xlsx_table(title, filename, headers, rows, start=None, end=None):
 	)
 
 
+def _bounds():
+	start = (request.args.get("start") or "").strip()
+	end = (request.args.get("end") or "").strip()
+	start_dt = datetime.fromisoformat(start) if start else None
+	end_dt = None
+	if end:
+		end_dt = datetime.fromisoformat(end)
+		if len(end) <= 10:
+			end_dt = end_dt + timedelta(hours=23, minutes=59, seconds=59)
+	return start, end, start_dt, end_dt
+
+
+def _fmt_day(value):
+	if not value:
+		return ""
+	try:
+		return value.strftime("%d/%m/%Y")
+	except Exception:
+		return str(value)[:10]
+
+
+def _status_pt(status):
+	labels = {
+		"aberto": "Aberto",
+		"em_andamento": "Em atendimento",
+		"fechado": "Encerrado",
+		"cancelado": "Cancelado",
+	}
+	return labels.get(status or "", status or "—")
+
+
+def _ticket_line(ticket: Ticket):
+	return [
+		ticket.id,
+		ticket.title or "",
+		_status_pt(ticket.status),
+		ticket.service.name if ticket.service else "—",
+		ticket.assigned_to_user.name if ticket.assigned_to_user else "—",
+		round(float(ticket.total_hours() or 0), 1),
+		_fmt_day(ticket.created_at),
+	]
+
+
+def _filter_created(query, column, start_dt, end_dt):
+	if start_dt:
+		query = query.filter(column >= start_dt)
+	if end_dt:
+		query = query.filter(column <= end_dt)
+	return query
+
+
+def build_row_detail():
+	"""Detalhe de uma linha do relatório (um cliente, técnico ou serviço)."""
+	kind = (request.args.get("kind") or "").strip()
+	name = (request.args.get("name") or "").strip()
+	try:
+		start, end, start_dt, end_dt = _bounds()
+	except ValueError:
+		return None, ({"error": "Período inválido."}, 400)
+
+	title = name or "Relatório"
+	headers: list[str] = []
+	rows: list[list] = []
+
+	if kind in ("hours-client", "tickets-client"):
+		client_id = request.args.get("client_id", type=int)
+		external_client_id = request.args.get("external_client_id", type=int)
+		external_client_name = (request.args.get("external_client_name") or "").strip()
+		query = Ticket.query
+		if client_id:
+			query = query.filter(Ticket.client_id == client_id)
+		elif external_client_id:
+			query = query.filter(Ticket.external_client_id == external_client_id)
+		elif external_client_name:
+			query = query.filter(Ticket.external_client_name == external_client_name)
+		else:
+			return None, ({"error": "Cliente não especificado."}, 400)
+		if kind == "hours-client":
+			query = query.filter(Ticket.status != "cancelado")
+		query = _filter_created(query, Ticket.created_at, start_dt, end_dt)
+		tickets = query.order_by(Ticket.created_at.desc()).all()
+		label = name or (tickets[0].display_client_name() if tickets else "Cliente")
+		title = f"{'Horas' if kind == 'hours-client' else 'Tickets'} — {label}"
+		headers = ["Ticket", "Título", "Status", "Serviço", "Técnico", "Horas", "Aberto em"]
+		rows = [_ticket_line(ticket) for ticket in tickets]
+
+	elif kind == "hours-technician":
+		user_id = request.args.get("user_id", type=int)
+		if not user_id:
+			return None, ({"error": "Técnico não especificado."}, 400)
+		user = User.query.get(user_id)
+		query = (
+			TimeEntry.query.join(Ticket, TimeEntry.ticket_id == Ticket.id)
+			.filter(TimeEntry.user_id == user_id, Ticket.status != "cancelado")
+		)
+		query = _filter_created(query, TimeEntry.created_at, start_dt, end_dt)
+		entries = query.order_by(TimeEntry.created_at.desc()).all()
+		ticket_ids = {entry.ticket_id for entry in entries}
+		tickets = {
+			ticket.id: ticket
+			for ticket in (Ticket.query.filter(Ticket.id.in_(ticket_ids)).all() if ticket_ids else [])
+		}
+		title = f"Horas — {user.name if user else name or user_id}"
+		headers = ["Data", "Ticket", "Cliente", "Descrição", "Horas"]
+		for entry in entries:
+			ticket = tickets.get(entry.ticket_id)
+			rows.append([
+				_fmt_day(entry.created_at),
+				ticket.id if ticket else entry.ticket_id,
+				ticket.display_client_name() if ticket else "—",
+				entry.comment or "—",
+				round(float(entry.hours or 0), 1),
+			])
+
+	elif kind == "tickets-technician":
+		user_id = request.args.get("user_id", type=int)
+		if not user_id:
+			return None, ({"error": "Técnico não especificado."}, 400)
+		user = User.query.get(user_id)
+		query = Ticket.query.filter(Ticket.assigned_to_id == user_id)
+		query = _filter_created(query, Ticket.created_at, start_dt, end_dt)
+		tickets = query.order_by(Ticket.created_at.desc()).all()
+		title = f"Tickets — {user.name if user else name or user_id}"
+		headers = ["Ticket", "Título", "Cliente", "Status", "Serviço", "Horas", "Aberto em"]
+		rows = [
+			[
+				ticket.id,
+				ticket.title or "",
+				ticket.display_client_name(),
+				_status_pt(ticket.status),
+				ticket.service.name if ticket.service else "—",
+				round(float(ticket.total_hours() or 0), 1),
+				_fmt_day(ticket.created_at),
+			]
+			for ticket in tickets
+		]
+
+	elif kind == "billing-technician":
+		user_id = request.args.get("user_id", type=int)
+		if not user_id:
+			return None, ({"error": "Técnico não especificado."}, 400)
+		user = User.query.get(user_id)
+		tickets_query = Ticket.query.filter(
+			Ticket.assigned_to_id == user_id,
+			Ticket.status == "fechado",
+			Ticket.closed_at.isnot(None),
+			Ticket.total_cost > 0,
+		)
+		tickets_query = _filter_created(tickets_query, Ticket.closed_at, start_dt, end_dt)
+		orders_query = ServiceOrder.query.filter(
+			ServiceOrder.technician_id == user_id,
+			ServiceOrder.value > 0,
+		)
+		orders_query = _filter_created(orders_query, ServiceOrder.completion_date, start_dt, end_dt)
+		title = f"Faturamento — {user.name if user else name or user_id}"
+		headers = ["Tipo", "Código", "Cliente", "Descrição", "Valor", "Horas", "Data"]
+		for ticket in tickets_query.order_by(Ticket.closed_at.desc()).all():
+			rows.append([
+				"Ticket",
+				ticket.id,
+				ticket.display_client_name(),
+				ticket.title or "",
+				round(float(ticket.total_cost or 0), 2),
+				round(float(ticket.total_hours() or 0), 1),
+				_fmt_day(ticket.closed_at),
+			])
+		for order in orders_query.order_by(ServiceOrder.completion_date.desc()).all():
+			rows.append([
+				"OS",
+				order.codigo or order.id,
+				order.client_name or "",
+				order.service_executed or "",
+				round(float(order.value or 0), 2),
+				"",
+				_fmt_day(order.completion_date),
+			])
+
+	elif kind == "service-performance":
+		service_id = request.args.get("service_id", type=int)
+		if not service_id:
+			return None, ({"error": "Serviço não especificado."}, 400)
+		service = Service.query.get(service_id)
+		query = Ticket.query.filter(Ticket.service_id == service_id)
+		query = _filter_created(query, Ticket.created_at, start_dt, end_dt)
+		tickets = query.order_by(Ticket.created_at.desc()).all()
+		title = f"Serviço — {service.name if service else name or service_id}"
+		headers = ["Ticket", "Título", "Cliente", "Status", "Técnico", "Horas", "Receita", "Aberto em"]
+		rows = [
+			[
+				ticket.id,
+				ticket.title or "",
+				ticket.display_client_name(),
+				_status_pt(ticket.status),
+				ticket.assigned_to_user.name if ticket.assigned_to_user else "—",
+				round(float(ticket.total_hours() or 0), 1),
+				round(float(ticket.total_cost or 0), 2),
+				_fmt_day(ticket.created_at),
+			]
+			for ticket in tickets
+		]
+	else:
+		return None, ({"error": "Tipo de relatório inválido."}, 400)
+
+	return {
+		"title": title,
+		"headers": headers,
+		"rows": rows,
+		"start": start,
+		"end": end,
+	}, None
+
+
+def _safe_filename(text: str) -> str:
+	cleaned = "".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in (text or "relatorio"))
+	return (cleaned.strip("_") or "relatorio")[:80]
+
+
+@bp.route("/api/row-detail")
+@login_required
+def api_row_detail():
+	payload, err = build_row_detail()
+	if err:
+		body, code = err
+		return jsonify(body), code
+	return jsonify(payload)
+
+
+@bp.route("/export/row")
+@login_required
+def export_row():
+	payload, err = build_row_detail()
+	if err:
+		body, code = err
+		return jsonify(body), code
+	start = payload.get("start")
+	end = payload.get("end")
+	filename = f"{_safe_filename(payload['title'])}_{start or 'inicio'}_{end or 'fim'}.xlsx"
+	return _xlsx_table(payload["title"], filename, payload["headers"], payload["rows"], start, end)
+
+
 def _period():
 	return request.args.get("start"), request.args.get("end")
 

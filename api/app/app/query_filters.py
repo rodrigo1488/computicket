@@ -3,10 +3,11 @@ from __future__ import annotations
 
 import json
 import unicodedata
+from datetime import date, datetime
 from typing import Any, Iterable
 
 from flask import request
-from sqlalchemy import String, cast, func
+from sqlalchemy import Float, String, cast, func
 
 
 def _norm(key: str) -> str:
@@ -96,10 +97,93 @@ def _item_get(item: dict, field: str) -> Any:
 	return None
 
 
+def parse_number(value: Any) -> float | None:
+	if isinstance(value, bool) or value is None:
+		return None
+	if isinstance(value, (int, float)):
+		number = float(value)
+		if number != number or number in (float("inf"), float("-inf")):
+			return None
+		return number
+	raw = str(value).strip().replace("R$", "").replace(" ", "")
+	if not raw or raw in {"—", "-"}:
+		return None
+	if "," in raw and "." in raw:
+		raw = raw.replace(".", "").replace(",", ".")
+	elif "," in raw:
+		raw = raw.replace(",", ".")
+	try:
+		number = float(raw)
+	except ValueError:
+		return None
+	if number != number or number in (float("inf"), float("-inf")):
+		return None
+	return number
+
+
+def parse_date(value: Any) -> date | None:
+	if isinstance(value, datetime):
+		return value.date()
+	if isinstance(value, date):
+		return value
+	raw = str(value or "").strip()
+	if not raw or raw in {"—", "-"}:
+		return None
+	head = raw[:10]
+	for fmt, text in (("%Y-%m-%d", head), ("%d/%m/%Y", head)):
+		try:
+			return datetime.strptime(text, fmt).date()
+		except ValueError:
+			continue
+	try:
+		return datetime.fromisoformat(raw.replace("Z", "+00:00")).date()
+	except ValueError:
+		return None
+
+
 def _match(hay: Any, op: str, needle: str) -> bool:
+	if op in {"gt", "gte", "lt", "lte"}:
+		left = parse_number(hay)
+		right = parse_number(needle)
+		if left is None or right is None:
+			return False
+		if op == "gt":
+			return left > right
+		if op == "gte":
+			return left >= right
+		if op == "lt":
+			return left < right
+		return left <= right
+	if op in {"before", "after", "on", "between"}:
+		left = parse_date(hay)
+		if left is None:
+			return False
+		if op == "between":
+			parts = (needle or "").split("|", 1)
+			start = parse_date(parts[0]) if parts and parts[0].strip() else None
+			end = parse_date(parts[1]) if len(parts) > 1 and parts[1].strip() else None
+			if start is None and end is None:
+				return True
+			if start and left < start:
+				return False
+			if end and left > end:
+				return False
+			return True
+		right = parse_date(needle)
+		if right is None:
+			return False
+		if op == "on":
+			return left == right
+		if op == "before":
+			return left <= right
+		return left >= right
 	h = "" if hay is None else str(hay)
 	n = needle
 	if op == "equals":
+		left = parse_number(hay)
+		right = parse_number(needle)
+		if left is not None and right is not None:
+			return left == right
 		return h.strip().lower() == n.strip().lower()
 	return n.lower() in h.lower()
 
@@ -137,7 +221,43 @@ def filter_query(query, columns: dict):
 		if col is None:
 			continue
 		val = f["value"]
-		if f["op"] == "equals":
+		op = f["op"]
+		if op in {"gt", "gte", "lt", "lte"}:
+			number = parse_number(val)
+			if number is None:
+				continue
+			numeric = cast(col, Float)
+			if op == "gt":
+				query = query.filter(numeric > number)
+			elif op == "gte":
+				query = query.filter(numeric >= number)
+			elif op == "lt":
+				query = query.filter(numeric < number)
+			else:
+				query = query.filter(numeric <= number)
+			continue
+		if op in {"before", "after", "on", "between"}:
+			day = func.date(col)
+			if op == "between":
+				parts = val.split("|", 1)
+				start = parse_date(parts[0]) if parts and parts[0].strip() else None
+				end = parse_date(parts[1]) if len(parts) > 1 and parts[1].strip() else None
+				if start:
+					query = query.filter(day >= start)
+				if end:
+					query = query.filter(day <= end)
+				continue
+			parsed = parse_date(val)
+			if parsed is None:
+				continue
+			if op == "on":
+				query = query.filter(day == parsed)
+			elif op == "before":
+				query = query.filter(day <= parsed)
+			else:
+				query = query.filter(day >= parsed)
+			continue
+		if op == "equals":
 			query = query.filter(func.lower(cast(col, String)) == val.lower())
 		else:
 			query = query.filter(cast(col, String).ilike(f"%{val}%"))

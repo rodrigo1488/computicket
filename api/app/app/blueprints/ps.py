@@ -1,3 +1,5 @@
+from datetime import date
+
 from flask import Blueprint, render_template, send_file, jsonify, request, current_app
 from flask_login import login_required, current_user
 import os
@@ -12,7 +14,7 @@ from ..models import ServiceOrder, Ticket, User
 from .. import db
 from ..external_pg import ExternalPgError, fetch_ps_financial_records
 from ..timezone_utils import get_brasilia_now, brasilia_to_utc
-from ..query_filters import filter_dicts
+from ..query_filters import filter_dicts, parse_date, parse_number
 
 bp = Blueprint('ps', __name__)
 
@@ -242,6 +244,15 @@ def list_files():
             per_page = min(100, max(10, int(request.args.get("per_page", 25))))
         except (TypeError, ValueError):
             per_page = 25
+        items = apply_ps_list_filters(
+            items,
+            client=request.args.get("client") or "",
+            date_from=request.args.get("date_from") or "",
+            date_to=request.args.get("date_to") or "",
+            value_min=request.args.get("value_min") or "",
+            value_max=request.args.get("value_max") or "",
+            sort=(request.args.get("sort") or "issued_desc").strip(),
+        )
         items = filter_dicts(items)
         total = len(items)
         start = (page - 1) * per_page
@@ -259,6 +270,58 @@ def list_files():
     except Exception as e:
         current_app.logger.exception("Erro ao listar PS")
         return jsonify({"error": f"Erro ao listar PS: {str(e)}"}), 500
+
+
+def apply_ps_list_filters(
+    items,
+    *,
+    client: str = "",
+    date_from: str = "",
+    date_to: str = "",
+    value_min: str = "",
+    value_max: str = "",
+    sort: str = "issued_desc",
+):
+    """Filtra e ordena a lista já montada de PS (antes da paginação)."""
+    client_q = (client or "").strip().casefold()
+    start = parse_date(date_from)
+    end = parse_date(date_to)
+    minimum = parse_number(value_min) if str(value_min or "").strip() else None
+    maximum = parse_number(value_max) if str(value_max or "").strip() else None
+    filtered = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        if client_q and client_q not in str(item.get("client_name") or "").casefold():
+            continue
+        issued = parse_date(item.get("issued_at"))
+        if (start or end) and issued is None:
+            continue
+        if start and issued and issued < start:
+            continue
+        if end and issued and issued > end:
+            continue
+        amount = _safe_float(item.get("value"))
+        if minimum is not None and amount < minimum:
+            continue
+        if maximum is not None and amount > maximum:
+            continue
+        filtered.append(item)
+
+    if sort == "value_asc":
+        filtered.sort(key=lambda item: _safe_float(item.get("value")))
+    elif sort == "value_desc":
+        filtered.sort(key=lambda item: _safe_float(item.get("value")), reverse=True)
+    elif sort == "client_asc":
+        filtered.sort(key=lambda item: str(item.get("client_name") or "").casefold())
+    elif sort == "issued_asc":
+        filtered.sort(key=lambda item: (parse_date(item.get("issued_at")) is None, parse_date(item.get("issued_at")) or date.min))
+    else:
+        filtered.sort(
+            key=lambda item: (parse_date(item.get("issued_at")) is not None, parse_date(item.get("issued_at")) or date.min),
+            reverse=True,
+        )
+    return filtered
 
 
 def _ps_key(value):

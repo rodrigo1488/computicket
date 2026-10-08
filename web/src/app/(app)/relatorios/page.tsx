@@ -7,6 +7,7 @@ import { PageTitle } from "@/components/layout/AppShell";
 import { DataTable, Kpi } from "@/components/ui/DataTable";
 import { Modal } from "@/components/ui/Modal";
 import { Pagination } from "@/components/ui/Pagination";
+import { IconAction, RowActions, ViewAction } from "@/components/ui/RowActions";
 import { PrimaryButton, UnderlineField } from "@/components/ui/UnderlineField";
 import { flask } from "@/lib/api";
 import { applyColFilters, applyTextSearch } from "@/lib/col-filters";
@@ -25,6 +26,7 @@ type HoursClient = {
   avg_hours_per_entry: number;
 };
 type HoursTech = {
+  user_id?: number;
   name: string;
   role: string;
   total_hours: number;
@@ -33,6 +35,7 @@ type HoursTech = {
   avg_hours_per_entry: number;
 };
 type BillingTech = {
+  user_id?: number;
   name: string;
   role: string;
   total_billing: number;
@@ -40,6 +43,7 @@ type BillingTech = {
   service_orders_count: number;
 };
 type TicketsTech = {
+  user_id?: number;
   name: string;
   role: string;
   total_tickets: number;
@@ -62,6 +66,7 @@ type TicketsClient = {
   total_hours: number;
 };
 type ServicePerf = {
+  service_id?: number;
   name: string;
   hourly_rate: number;
   tickets_count: number;
@@ -220,6 +225,47 @@ const EXPORT_PATH: Record<TabId, string> = {
   "service-performance": "/relatorios/export/service-performance",
 };
 
+const ACTIONS_META = { Ações: { sortable: false, filter: false } } as const;
+
+type RowDetail = {
+  title: string;
+  headers: string[];
+  rows: (string | number)[][];
+};
+
+function rowQuery(
+  kind: string,
+  start: string,
+  end: string,
+  extra: Record<string, string | number | null | undefined>,
+) {
+  const params = new URLSearchParams({ kind, start, end });
+  for (const [key, value] of Object.entries(extra)) {
+    if (value == null) continue;
+    const text = String(value).trim();
+    if (text) params.set(key, text);
+  }
+  return params.toString();
+}
+
+function ReportActions({
+  onView,
+  onExport,
+  onPdf,
+}: {
+  onView: () => void;
+  onExport: () => void;
+  onPdf?: () => void;
+}) {
+  return (
+    <RowActions>
+      <ViewAction onClick={onView} />
+      <IconAction label="Exportar Excel" icon={FileSpreadsheet} onClick={onExport} />
+      {onPdf ? <IconAction label="Exportar PDF" icon={FileText} onClick={onPdf} /> : null}
+    </RowActions>
+  );
+}
+
 function ExportBar({
   onExcel,
   onPdf,
@@ -269,8 +315,16 @@ export default function RelatoriosPage() {
   const [pdfOpen, setPdfOpen] = useState(false);
   const [pdfClient, setPdfClient] = useState("");
   const [pdfKind, setPdfKind] = useState<"detailed" | "synthetic">("detailed");
+  const [detailQuery, setDetailQuery] = useState("");
+  const [detailTitle, setDetailTitle] = useState("");
   const { colFilters, onFiltersChange } = useColFilters();
   const perPage = 25;
+
+  const detail = useQuery({
+    queryKey: ["report-row", detailQuery],
+    enabled: Boolean(detailQuery),
+    queryFn: () => flask.get<RowDetail>(`/relatorios/api/row-detail?${detailQuery}`),
+  });
 
   const { data, isLoading, isFetching, error } = useQuery({
     queryKey: ["reports", applied.start, applied.end],
@@ -358,6 +412,28 @@ export default function RelatoriosPage() {
       setExportErr("Selecione um cliente para o PDF");
       return;
     }
+    await exportClientPdf(client, pdfKind);
+  }
+
+  function openDetail(kind: string, extra: Record<string, string | number | null | undefined>, title: string) {
+    setDetailTitle(title);
+    setDetailQuery(rowQuery(kind, applied.start, applied.end, extra));
+  }
+
+  async function exportDetail(query = detailQuery) {
+    if (!query) return;
+    setExportErr("");
+    setExporting(true);
+    try {
+      await flask.download(`/relatorios/export/row?${query}`);
+    } catch (e) {
+      setExportErr(e instanceof Error ? e.message : "Não foi possível exportar");
+    } finally {
+      setExporting(false);
+    }
+  }
+
+  async function exportClientPdf(client: HoursClient, kind: "detailed" | "synthetic" = "detailed") {
     setExportErr("");
     setExporting(true);
     try {
@@ -366,7 +442,7 @@ export default function RelatoriosPage() {
       else if (client.external_client_id) params.set("external_client_id", String(client.external_client_id));
       if (client.external_client_name) params.set("external_client_name", client.external_client_name);
       const path =
-        pdfKind === "synthetic"
+        kind === "synthetic"
           ? "/relatorios/export/hours-by-client-synthetic-pdf"
           : "/relatorios/export/hours-by-client-pdf";
       await flask.download(`${path}?${params.toString()}`);
@@ -378,7 +454,16 @@ export default function RelatoriosPage() {
     }
   }
 
-  function clientKey(c: HoursClient, i?: number) {
+  function clientExtra(c: HoursClient | TicketsClient) {
+    return {
+      name: c.client_name,
+      client_id: c.client_id,
+      external_client_id: c.external_client_id,
+      external_client_name: c.external_client_name,
+    };
+  }
+
+  function clientKey(c: HoursClient | TicketsClient, i?: number) {
     if (c.client_id) return `int-${c.client_id}`;
     if (c.external_client_id) return `ext-${c.external_client_id}`;
     if (c.external_client_name) return `name-${c.external_client_name}`;
@@ -474,15 +559,22 @@ export default function RelatoriosPage() {
             onSearch={setTableQ}
             onFiltersChange={onFiltersChange}
             columnMeta={{
+              ...ACTIONS_META,
               Tipo: { field: "client_type" },
               Horas: { field: "total_hours" },
               Tickets: { field: "tickets_count" },
               "Média por entrada": { field: "avg_hours_per_entry" },
             }}
-            columns={["Cliente", "Tipo", "Horas", "Tickets", "Média por entrada"]}
+            columns={["Ações", "Cliente", "Tipo", "Horas", "Tickets", "Média por entrada"]}
             rows={hoursClient
               .slice((tablePage - 1) * perPage, tablePage * perPage)
               .map((r) => [
+                <ReportActions
+                  key={clientKey(r)}
+                  onView={() => openDetail("hours-client", clientExtra(r), r.client_name)}
+                  onExport={() => void exportDetail(rowQuery("hours-client", applied.start, applied.end, clientExtra(r)))}
+                  onPdf={() => void exportClientPdf(r)}
+                />,
                 r.client_name,
                 r.client_type,
                 formatHours(r.total_hours),
@@ -513,6 +605,7 @@ export default function RelatoriosPage() {
             onSearch={setTableQ}
             onFiltersChange={onFiltersChange}
             columnMeta={{
+              ...ACTIONS_META,
               Técnico: { field: "name" },
               Função: { field: "role" },
               Horas: { field: "total_hours" },
@@ -520,10 +613,17 @@ export default function RelatoriosPage() {
               Tickets: { field: "tickets_count" },
               "Média por entrada": { field: "avg_hours_per_entry" },
             }}
-            columns={["Técnico", "Função", "Horas", "Entradas", "Tickets", "Média por entrada"]}
+            columns={["Ações", "Técnico", "Função", "Horas", "Entradas", "Tickets", "Média por entrada"]}
             rows={hoursTech
               .slice((tablePage - 1) * perPage, tablePage * perPage)
               .map((r) => [
+                <ReportActions
+                  key={r.user_id || r.name}
+                  onView={() => openDetail("hours-technician", { name: r.name, user_id: r.user_id }, r.name)}
+                  onExport={() =>
+                    void exportDetail(rowQuery("hours-technician", applied.start, applied.end, { name: r.name, user_id: r.user_id }))
+                  }
+                />,
                 r.name,
                 roleLabel(r.role),
                 formatHours(r.total_hours),
@@ -555,16 +655,24 @@ export default function RelatoriosPage() {
             onSearch={setTableQ}
             onFiltersChange={onFiltersChange}
             columnMeta={{
+              ...ACTIONS_META,
               Técnico: { field: "name" },
               Função: { field: "role" },
               Faturamento: { field: "total_billing" },
               Tickets: { field: "tickets_count" },
               OS: { field: "service_orders_count" },
             }}
-            columns={["Técnico", "Função", "Faturamento", "Tickets", "OS"]}
+            columns={["Ações", "Técnico", "Função", "Faturamento", "Tickets", "OS"]}
             rows={billingTech
               .slice((tablePage - 1) * perPage, tablePage * perPage)
               .map((r) => [
+                <ReportActions
+                  key={r.user_id || r.name}
+                  onView={() => openDetail("billing-technician", { name: r.name, user_id: r.user_id }, r.name)}
+                  onExport={() =>
+                    void exportDetail(rowQuery("billing-technician", applied.start, applied.end, { name: r.name, user_id: r.user_id }))
+                  }
+                />,
                 r.name,
                 roleLabel(r.role),
                 formatBRL(r.total_billing),
@@ -595,6 +703,7 @@ export default function RelatoriosPage() {
             onSearch={setTableQ}
             onFiltersChange={onFiltersChange}
             columnMeta={{
+              ...ACTIONS_META,
               Técnico: { field: "name" },
               Função: { field: "role" },
               Total: { field: "total_tickets" },
@@ -603,10 +712,17 @@ export default function RelatoriosPage() {
               Encerrados: { field: "closed_tickets" },
               Horas: { field: "total_hours" },
             }}
-            columns={["Técnico", "Função", "Total", "Abertos", "Em atendimento", "Encerrados", "Horas"]}
+            columns={["Ações", "Técnico", "Função", "Total", "Abertos", "Em atendimento", "Encerrados", "Horas"]}
             rows={ticketsTech
               .slice((tablePage - 1) * perPage, tablePage * perPage)
               .map((r) => [
+                <ReportActions
+                  key={r.user_id || r.name}
+                  onView={() => openDetail("tickets-technician", { name: r.name, user_id: r.user_id }, r.name)}
+                  onExport={() =>
+                    void exportDetail(rowQuery("tickets-technician", applied.start, applied.end, { name: r.name, user_id: r.user_id }))
+                  }
+                />,
                 r.name,
                 roleLabel(r.role),
                 String(r.total_tickets),
@@ -639,6 +755,7 @@ export default function RelatoriosPage() {
             onSearch={setTableQ}
             onFiltersChange={onFiltersChange}
             columnMeta={{
+              ...ACTIONS_META,
               Tipo: { field: "client_type" },
               Total: { field: "total_tickets" },
               Abertos: { field: "open_tickets" },
@@ -646,10 +763,15 @@ export default function RelatoriosPage() {
               Encerrados: { field: "closed_tickets" },
               Horas: { field: "total_hours" },
             }}
-            columns={["Cliente", "Tipo", "Total", "Abertos", "Em atendimento", "Encerrados", "Horas"]}
+            columns={["Ações", "Cliente", "Tipo", "Total", "Abertos", "Em atendimento", "Encerrados", "Horas"]}
             rows={ticketsClient
               .slice((tablePage - 1) * perPage, tablePage * perPage)
               .map((r) => [
+                <ReportActions
+                  key={clientKey(r)}
+                  onView={() => openDetail("tickets-client", clientExtra(r), r.client_name)}
+                  onExport={() => void exportDetail(rowQuery("tickets-client", applied.start, applied.end, clientExtra(r)))}
+                />,
                 r.client_name,
                 r.client_type,
                 String(r.total_tickets),
@@ -707,6 +829,7 @@ export default function RelatoriosPage() {
             onSearch={setTableQ}
             onFiltersChange={onFiltersChange}
             columnMeta={{
+              ...ACTIONS_META,
               Serviço: { field: "name" },
               "Taxa/hora": { field: "hourly_rate" },
               Tickets: { field: "tickets_count" },
@@ -714,10 +837,19 @@ export default function RelatoriosPage() {
               "Média por ticket": { field: "avg_hours_per_ticket" },
               Receita: { field: "total_revenue" },
             }}
-            columns={["Serviço", "Taxa/hora", "Tickets", "Horas", "Média por ticket", "Receita"]}
+            columns={["Ações", "Serviço", "Taxa/hora", "Tickets", "Horas", "Média por ticket", "Receita"]}
             rows={servicePerf
               .slice((tablePage - 1) * perPage, tablePage * perPage)
               .map((r) => [
+                <ReportActions
+                  key={r.service_id || r.name}
+                  onView={() => openDetail("service-performance", { name: r.name, service_id: r.service_id }, r.name)}
+                  onExport={() =>
+                    void exportDetail(
+                      rowQuery("service-performance", applied.start, applied.end, { name: r.name, service_id: r.service_id }),
+                    )
+                  }
+                />,
                 r.name,
                 formatBRL(r.hourly_rate),
                 String(r.tickets_count),
@@ -735,6 +867,59 @@ export default function RelatoriosPage() {
           />
         </>
       ) : null}
+
+      <Modal
+        open={Boolean(detailQuery)}
+        onClose={() => setDetailQuery("")}
+        title={detail.data?.title || detailTitle || "Detalhe"}
+        wide
+      >
+        {detail.isLoading ? <p className="text-sm text-muted">Carregando…</p> : null}
+        {detail.error ? <p className="text-sm text-open">{(detail.error as Error).message}</p> : null}
+        {detail.data ? (
+          <div className="space-y-4">
+            <div className="flex justify-end">
+              <button
+                type="button"
+                disabled={exporting}
+                onClick={() => void exportDetail()}
+                className="inline-flex h-10 items-center gap-2 rounded-xl border border-line px-4 text-sm font-medium text-ink hover:bg-wash disabled:opacity-50"
+              >
+                <FileSpreadsheet className="h-4 w-4" />
+                {exporting ? "Exportando…" : "Exportar Excel"}
+              </button>
+            </div>
+            {detail.data.rows.length === 0 ? (
+              <p className="text-sm text-muted">Nenhum lançamento neste período.</p>
+            ) : (
+              <div className="max-h-[60vh] overflow-auto rounded-xl border border-line">
+                <table className="w-full text-left text-sm">
+                  <thead className="sticky top-0 bg-wash text-ink">
+                    <tr>
+                      {detail.data.headers.map((header) => (
+                        <th key={header} className="px-3 py-2 font-medium">
+                          {header}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {detail.data.rows.map((row, index) => (
+                      <tr key={index} className="border-t border-line">
+                        {row.map((cell, cellIndex) => (
+                          <td key={cellIndex} className="px-3 py-2 text-ink">
+                            {cell === "" || cell == null ? "—" : String(cell)}
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        ) : null}
+      </Modal>
 
       <Modal open={pdfOpen} onClose={() => setPdfOpen(false)} title="Exportar PDF de horas por cliente">
         <div className="space-y-4 text-sm">

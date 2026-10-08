@@ -5,7 +5,19 @@ export type PageRes<T> = {
   per_page: number;
 };
 
-export type ColFilter = { field: string; op: "contains" | "equals"; value: string };
+export type ColFilterOp =
+  | "contains"
+  | "equals"
+  | "gt"
+  | "gte"
+  | "lt"
+  | "lte"
+  | "before"
+  | "after"
+  | "on"
+  | "between";
+
+export type ColFilter = { field: string; op: ColFilterOp; value: string };
 
 export function colFiltersParam(filters: ColFilter[]) {
   const active = filters.filter((f) => f.value.trim());

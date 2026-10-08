@@ -1,6 +1,7 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Plus } from "lucide-react";
 import { useEffect, useState } from "react";
 import { PageTitle } from "@/components/layout/AppShell";
 import { DataTable } from "@/components/ui/DataTable";
@@ -16,23 +17,33 @@ type Item = {
   title: string;
   description?: string;
   serial_number?: string;
+  status: string;
   status_label: string;
   public_uuid: string;
 };
+
+const STATUSES = [
+  { value: "disponivel", label: "Disponível" },
+  { value: "emprestado", label: "Emprestado" },
+  { value: "vendido", label: "Vendido" },
+  { value: "descartado", label: "Descartado" },
+];
+
+const EMPTY_FORM = { title: "", description: "", serial_number: "", status: "disponivel" };
 
 export default function InventarioPage() {
   const qc = useQueryClient();
   const [q, setQ] = useState("");
   const [page, setPage] = useState(1);
-  const [edit, setEdit] = useState<Item | null>(null);
+  const [edit, setEdit] = useState<Item | "new" | null>(null);
   const [view, setView] = useState<Item | null>(null);
-  const [form, setForm] = useState({ title: "", description: "", serial_number: "" });
+  const [form, setForm] = useState(EMPTY_FORM);
   const [formError, setFormError] = useState("");
   const { colQuery, colFilters, onFiltersChange } = useColFilters();
 
   useEffect(() => setPage(1), [q, colFilters]);
 
-  const { data, isLoading, isFetching } = useQuery({
+  const { data, error, isLoading, isFetching } = useQuery({
     queryKey: ["inventory", q, page, colQuery],
     queryFn: () =>
       flask.get<PageRes<Item>>(`/api/web/inventory?q=${encodeURIComponent(q)}&page=${page}&per_page=20${colQuery}`),
@@ -43,6 +54,7 @@ export default function InventarioPage() {
     mutationFn: () => {
       if (!edit) throw new Error("Nenhum item");
       if (!form.description.trim()) throw new Error("A descrição é obrigatória");
+      if (edit === "new") return flask.post("/api/web/inventory", form);
       return flask.patch(`/api/web/inventory/${edit.id}`, form);
     },
     onSuccess: () => {
@@ -57,9 +69,27 @@ export default function InventarioPage() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ["inventory"] }),
   });
 
+  const openCreate = () => {
+    setForm(EMPTY_FORM);
+    setFormError("");
+    setEdit("new");
+  };
+
   return (
     <div>
-      <PageTitle>Inventário</PageTitle>
+      <div className="mb-8 flex flex-wrap items-center justify-between gap-3">
+        <PageTitle className="mb-0">Inventário</PageTitle>
+        <button
+          type="button"
+          onClick={openCreate}
+          className="inline-flex h-10 items-center gap-2 rounded-xl bg-inverse px-4 text-sm font-medium text-on-inverse"
+        >
+          <Plus className="h-4 w-4" />
+          Novo item
+        </button>
+      </div>
+      {error ? <p className="mb-4 text-sm text-open">{(error as Error).message}</p> : null}
+      {remove.error ? <p className="mb-4 text-sm text-open">{(remove.error as Error).message}</p> : null}
       <DataTable
         id="inventario"
         loading={isLoading}
@@ -71,7 +101,7 @@ export default function InventarioPage() {
         columnMeta={{ Status: { filter: "select" }, Ações: { sortable: false, filter: false } }}
         columns={["Item", "Serial", "Status", "UUID", "Ações"]}
         rows={(data?.items || []).map((i) => [
-          i.title,
+          i.title || i.description || "—",
           i.serial_number || "—",
           i.status_label,
           i.public_uuid,
@@ -79,7 +109,12 @@ export default function InventarioPage() {
             <ViewAction onClick={() => setView(i)} />
             <EditAction
               onClick={() => {
-                setForm({ title: i.title || "", description: i.description || "", serial_number: i.serial_number || "" });
+                setForm({
+                  title: i.title || "",
+                  description: i.description || "",
+                  serial_number: i.serial_number || "",
+                  status: i.status || "disponivel",
+                });
                 setFormError("");
                 setEdit(i);
               }}
@@ -121,7 +156,7 @@ export default function InventarioPage() {
         ) : null}
       </Modal>
 
-      <Modal open={!!edit} onClose={() => setEdit(null)} title="Editar item" wide>
+      <Modal open={!!edit} onClose={() => setEdit(null)} title={edit === "new" ? "Novo item" : "Editar item"} wide>
         <form
           className="space-y-5"
           onSubmit={(e) => {
@@ -144,6 +179,20 @@ export default function InventarioPage() {
             value={form.serial_number}
             onChange={(v) => setForm((f) => ({ ...f, serial_number: v }))}
           />
+          <label className="block">
+            <span className="text-[11px] font-medium tracking-[0.08em] text-muted uppercase">Status</span>
+            <select
+              value={form.status}
+              onChange={(e) => setForm((f) => ({ ...f, status: e.target.value }))}
+              className="mt-1 w-full border-0 border-b border-line bg-transparent py-2 text-[15px] text-ink"
+            >
+              {STATUSES.map((status) => (
+                <option key={status.value} value={status.value}>
+                  {status.label}
+                </option>
+              ))}
+            </select>
+          </label>
           {formError ? <p className="text-sm text-open">{formError}</p> : null}
           <PrimaryButton type="submit" disabled={save.isPending}>
             {save.isPending ? "Salvando…" : "Salvar"}

@@ -1404,9 +1404,40 @@ def knowledge_article_create():
 	return jsonify(_knowledge_article_json(a)), 201
 
 
-@bp.route("/inventory")
+def _inventory_json(item: InventoryItem) -> dict:
+	return {
+		"id": item.id,
+		"title": item.title or "",
+		"description": item.description or "",
+		"serial_number": item.serial_number,
+		"status": item.status,
+		"status_label": item.status_label(),
+		"public_uuid": item.public_uuid,
+	}
+
+
+@bp.route("/inventory", methods=["GET", "POST"])
 @login_required
 def inventory():
+	if request.method == "POST":
+		data = _json()
+		description = (data.get("description") or "").strip()
+		if not description:
+			return jsonify({"error": "A descrição é obrigatória."}), 400
+		status = (data.get("status") or InventoryItem.STATUS_DISPONIVEL).strip()
+		if status not in InventoryItem.STATUSES:
+			return jsonify({"error": "Status inválido."}), 400
+		item = InventoryItem(
+			public_uuid=str(uuid.uuid4()),
+			title=(data.get("title") or "").strip() or None,
+			description=description,
+			serial_number=(data.get("serial_number") or "").strip() or None,
+			status=status,
+			created_by_id=current_user.id,
+		)
+		db.session.add(item)
+		db.session.commit()
+		return jsonify(_inventory_json(item)), 201
 	page, per_page = _page_args(20)
 	q = (request.args.get("q") or "").strip()
 	status = (request.args.get("status") or "").strip()
@@ -1436,18 +1467,7 @@ def inventory():
 	})
 	pagination = query.order_by(InventoryItem.updated_at.desc()).paginate(page=page, per_page=per_page, error_out=False)
 	return jsonify({
-		"items": [
-			{
-				"id": i.id,
-				"title": i.title or (i.description or "")[:80],
-				"description": i.description or "",
-				"serial_number": i.serial_number,
-				"status": i.status,
-				"status_label": i.status_label(),
-				"public_uuid": i.public_uuid,
-			}
-			for i in pagination.items
-		],
+		"items": [_inventory_json(i) for i in pagination.items],
 		"total": pagination.total,
 		"page": page,
 		"per_page": per_page,
@@ -2082,16 +2102,14 @@ def knowledge_attachment_delete(attachment_id: int):
 def inventory_item(item_id: int):
 	item = InventoryItem.query.get_or_404(item_id)
 	if request.method == "GET":
-		return jsonify({
-			"id": item.id,
-			"title": item.title or "",
-			"description": item.description or "",
-			"serial_number": item.serial_number,
-			"status": item.status,
-			"status_label": item.status_label(),
-			"public_uuid": item.public_uuid,
-		})
+		return jsonify(_inventory_json(item))
 	if request.method == "DELETE":
+		from .inventory import _delete_photo_record
+
+		for photo in list(item.photos or []):
+			_delete_photo_record(photo)
+		for event in list(item.events or []):
+			db.session.delete(event)
 		db.session.delete(item)
 		db.session.commit()
 		return jsonify({"ok": True})
@@ -2105,16 +2123,13 @@ def inventory_item(item_id: int):
 		item.description = desc
 	if "serial_number" in data:
 		item.serial_number = (data.get("serial_number") or "").strip() or None
+	if data.get("status") is not None:
+		status = (data.get("status") or "").strip()
+		if status not in InventoryItem.STATUSES:
+			return jsonify({"error": "Status inválido."}), 400
+		item.status = status
 	db.session.commit()
-	return jsonify({
-		"id": item.id,
-		"title": item.title or "",
-		"description": item.description or "",
-		"serial_number": item.serial_number,
-		"status": item.status,
-		"status_label": item.status_label(),
-		"public_uuid": item.public_uuid,
-	})
+	return jsonify(_inventory_json(item))
 
 
 @bp.route("/budgets/<int:budget_id>", methods=["GET", "PATCH", "DELETE", "POST"])

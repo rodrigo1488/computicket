@@ -29,15 +29,51 @@ function formatDate(value?: string | null) {
   return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString("pt-BR");
 }
 
+type PsFilters = {
+  client: string;
+  dateFrom: string;
+  dateTo: string;
+  valueMin: string;
+  valueMax: string;
+  sort: string;
+};
+
+const EMPTY_FILTERS: PsFilters = {
+  client: "",
+  dateFrom: "",
+  dateTo: "",
+  valueMin: "",
+  valueMax: "",
+  sort: "issued_desc",
+};
+
+function psFilterQuery(filters: PsFilters) {
+  const params = new URLSearchParams();
+  if (filters.client.trim()) params.set("client", filters.client.trim());
+  if (filters.dateFrom) params.set("date_from", filters.dateFrom);
+  if (filters.dateTo) params.set("date_to", filters.dateTo);
+  if (filters.valueMin.trim()) params.set("value_min", filters.valueMin.trim());
+  if (filters.valueMax.trim()) params.set("value_max", filters.valueMax.trim());
+  if (filters.sort && filters.sort !== "issued_desc") params.set("sort", filters.sort);
+  const query = params.toString();
+  return query ? `&${query}` : "";
+}
+
 export default function PSPage() {
   const qc = useQueryClient();
   const [q, setQ] = useState("");
   const [page, setPage] = useState(1);
+  const [draftFilters, setDraftFilters] = useState<PsFilters>(EMPTY_FILTERS);
+  const [filters, setFilters] = useState<PsFilters>(EMPTY_FILTERS);
   const { colQuery, colFilters, onFiltersChange } = useColFilters();
-  useEffect(() => setPage(1), [q, colFilters]);
+  const filterQuery = psFilterQuery(filters);
+  useEffect(() => setPage(1), [q, colFilters, filterQuery]);
   const { data, error, isLoading, isFetching } = useQuery({
-    queryKey: ["ps", q, page, colQuery],
-    queryFn: () => flask.get<PageRes<Item>>(`/ps/api/list?q=${encodeURIComponent(q)}&page=${page}&per_page=25${colQuery}`),
+    queryKey: ["ps", q, page, colQuery, filterQuery],
+    queryFn: () =>
+      flask.get<PageRes<Item>>(
+        `/ps/api/list?q=${encodeURIComponent(q)}&page=${page}&per_page=25${filterQuery}${colQuery}`,
+      ),
     placeholderData: (previousData) => previousData,
   });
 
@@ -50,6 +86,90 @@ export default function PSPage() {
     <div>
       <PageTitle>PS</PageTitle>
       {error ? <p className="mb-4 text-sm text-open">{(error as Error).message}</p> : null}
+      <form
+        className="mb-4 grid gap-3 rounded-2xl border border-line bg-surface p-4 sm:grid-cols-2 lg:grid-cols-6"
+        onSubmit={(e) => {
+          e.preventDefault();
+          setFilters(draftFilters);
+        }}
+      >
+        <label className="block text-xs text-muted">
+          Cliente
+          <input
+            value={draftFilters.client}
+            onChange={(e) => setDraftFilters((f) => ({ ...f, client: e.target.value }))}
+            placeholder="Nome do cliente"
+            className="mt-1 h-10 w-full rounded-lg border border-line bg-surface px-3 text-sm text-ink"
+          />
+        </label>
+        <label className="block text-xs text-muted">
+          Emissão de
+          <input
+            type="date"
+            value={draftFilters.dateFrom}
+            onChange={(e) => setDraftFilters((f) => ({ ...f, dateFrom: e.target.value }))}
+            className="mt-1 h-10 w-full rounded-lg border border-line bg-surface px-3 text-sm text-ink"
+          />
+        </label>
+        <label className="block text-xs text-muted">
+          Emissão até
+          <input
+            type="date"
+            value={draftFilters.dateTo}
+            onChange={(e) => setDraftFilters((f) => ({ ...f, dateTo: e.target.value }))}
+            className="mt-1 h-10 w-full rounded-lg border border-line bg-surface px-3 text-sm text-ink"
+          />
+        </label>
+        <label className="block text-xs text-muted">
+          Valor mínimo
+          <input
+            inputMode="decimal"
+            value={draftFilters.valueMin}
+            onChange={(e) => setDraftFilters((f) => ({ ...f, valueMin: e.target.value }))}
+            placeholder="0,00"
+            className="mt-1 h-10 w-full rounded-lg border border-line bg-surface px-3 text-sm text-ink"
+          />
+        </label>
+        <label className="block text-xs text-muted">
+          Valor máximo
+          <input
+            inputMode="decimal"
+            value={draftFilters.valueMax}
+            onChange={(e) => setDraftFilters((f) => ({ ...f, valueMax: e.target.value }))}
+            placeholder="0,00"
+            className="mt-1 h-10 w-full rounded-lg border border-line bg-surface px-3 text-sm text-ink"
+          />
+        </label>
+        <label className="block text-xs text-muted">
+          Ordenar
+          <select
+            value={draftFilters.sort}
+            onChange={(e) => setDraftFilters((f) => ({ ...f, sort: e.target.value }))}
+            className="mt-1 h-10 w-full rounded-lg border border-line bg-surface px-3 text-sm text-ink"
+          >
+            <option value="issued_desc">Emissão mais recente</option>
+            <option value="issued_asc">Emissão mais antiga</option>
+            <option value="value_desc">Maior valor</option>
+            <option value="value_asc">Menor valor</option>
+            <option value="client_asc">Cliente (A–Z)</option>
+          </select>
+        </label>
+        <div className="flex items-end gap-2 sm:col-span-2 lg:col-span-6">
+          <button type="submit" className="h-10 rounded-lg bg-brand px-4 text-sm font-medium text-white">
+            Filtrar
+          </button>
+          <button
+            type="button"
+            className="h-10 rounded-lg px-4 text-sm text-muted hover:bg-wash"
+            onClick={() => {
+              setDraftFilters(EMPTY_FILTERS);
+              setFilters(EMPTY_FILTERS);
+            }}
+          >
+            Limpar
+          </button>
+        </div>
+      </form>
       <DataTable
         id="ps-v2"
         loading={isLoading}
@@ -60,9 +180,10 @@ export default function PSPage() {
         onFiltersChange={onFiltersChange}
         columnMeta={{
           Cliente: { field: "client_name" },
-          Valor: { field: "value" },
+          Valor: { field: "value", filter: "number" },
           Técnico: { field: "technician_name" },
           Origem: { field: "source", filter: "select" },
+          Emissão: { field: "issued_at", filter: "date" },
           Ações: { sortable: false, filter: false },
         }}
         columns={["PS", "Cliente", "Valor", "Técnico", "Origem", "Emissão", "Ações"]}

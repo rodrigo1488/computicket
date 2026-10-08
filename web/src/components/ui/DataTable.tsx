@@ -24,7 +24,7 @@ import type { ColFilter } from "@/lib/api";
 
 export type KpiTone = "default" | "open" | "progress" | "done" | "brand";
 
-export type ColumnFilterOp = "contains" | "equals";
+export type ColumnFilterOp = ColFilter["op"];
 
 export type ColumnFilter = {
   op: ColumnFilterOp;
@@ -38,7 +38,7 @@ export type DataTableColumnMeta = {
    * - `text`: operadores Contém/Igual a + select de valores únicos (fallback para input se vazio).
    * Valores sempre vêm das `rows` passadas à tabela (conjunto atual / página carregada), não do banco inteiro.
    */
-  filter?: "text" | "select" | false;
+  filter?: "text" | "select" | "date" | "number" | false;
   options?: { value: string; label: string }[];
   /** Não ordenável / sem funil. */
   sortable?: boolean;
@@ -154,12 +154,62 @@ function sortKey(text: string): string | number {
   return raw.toLocaleLowerCase("pt-BR");
 }
 
+function parseFilterNumber(raw: string): number | null {
+  const cleaned = raw.replace(/R\$\s*/gi, "").trim();
+  if (!cleaned || cleaned === "—" || cleaned === "-") return null;
+  const normalized = cleaned.includes(",")
+    ? cleaned.replace(/\./g, "").replace(",", ".")
+    : cleaned;
+  if (!/^-?\d+(\.\d+)?$/.test(normalized)) return null;
+  const value = Number(normalized);
+  return Number.isFinite(value) ? value : null;
+}
+
+function parseFilterDate(raw: string): string | null {
+  const text = raw.trim();
+  const iso = text.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`;
+  const br = text.match(/^(\d{2})\/(\d{2})\/(\d{4})/);
+  if (br) return `${br[3]}-${br[2]}-${br[1]}`;
+  return null;
+}
+
 function matchesFilter(text: string, filter: ColumnFilter) {
-  const hay = text.toLocaleLowerCase("pt-BR").trim();
-  const needle = filter.value.toLocaleLowerCase("pt-BR").trim();
+  const needle = filter.value.trim();
   if (!needle) return true;
-  if (filter.op === "equals") return hay === needle;
-  return hay.includes(needle);
+  if (filter.op === "gt" || filter.op === "gte" || filter.op === "lt" || filter.op === "lte") {
+    const left = parseFilterNumber(text);
+    const right = parseFilterNumber(needle);
+    if (left == null || right == null) return false;
+    if (filter.op === "gt") return left > right;
+    if (filter.op === "gte") return left >= right;
+    if (filter.op === "lt") return left < right;
+    return left <= right;
+  }
+  if (filter.op === "on" || filter.op === "before" || filter.op === "after" || filter.op === "between") {
+    const left = parseFilterDate(text);
+    if (!left) return false;
+    if (filter.op === "between") {
+      const [start, end] = needle.split("|");
+      if (start && left < start) return false;
+      if (end && left > end) return false;
+      return Boolean(start || end);
+    }
+    const right = parseFilterDate(needle);
+    if (!right) return false;
+    if (filter.op === "on") return left === right;
+    if (filter.op === "before") return left <= right;
+    return left >= right;
+  }
+  const hay = text.toLocaleLowerCase("pt-BR").trim();
+  const folded = needle.toLocaleLowerCase("pt-BR");
+  if (filter.op === "equals") {
+    const left = parseFilterNumber(text);
+    const right = parseFilterNumber(needle);
+    if (left != null && right != null) return left === right;
+    return hay === folded;
+  }
+  return hay.includes(folded);
 }
 
 function StatusLike({ text }: { text: string }) {
@@ -335,7 +385,7 @@ export function DataTable({
     });
   };
 
-  const filterKind = (col: number): "text" | "select" | false => {
+  const filterKind = (col: number): "text" | "select" | "date" | "number" | false => {
     const name = columns[col];
     const meta = columnMeta?.[name];
     if (meta?.filter === false) return false;
@@ -448,9 +498,13 @@ export function DataTable({
           anchor={open.el}
           onClose={() => setOpen(null)}
           onApply={() => {
+            const meaningful =
+              filterDraft.op === "between"
+                ? filterDraft.value.split("|").some((part) => part.trim())
+                : Boolean(filterDraft.value.trim());
             setFilters((prev) => {
               const next = { ...prev };
-              if (!filterDraft.value.trim()) delete next[open.col!];
+              if (!meaningful) delete next[open.col!];
               else next[open.col!] = { ...filterDraft, value: filterDraft.value.trim() };
               emitFilters(next);
               return next;
@@ -538,7 +592,13 @@ export function DataTable({
                             type="button"
                             disabled={loading || refreshing}
                             onClick={(e) => {
-                              setFilterDraft(filters[i] || { op: "contains", value: "" });
+                              const kind = filterKind(i);
+                              setFilterDraft(
+                                filters[i] || {
+                                  op: kind === "date" ? "between" : kind === "number" ? "gte" : kind === "select" ? "equals" : "contains",
+                                  value: "",
+                                },
+                              );
                               setOpen({ kind: "filter", col: i, el: e.currentTarget });
                             }}
                             className={cn(
@@ -689,7 +749,7 @@ function FilterPopover({
 }: {
   col: number;
   name: string;
-  kind: "text" | "select" | false;
+  kind: "text" | "select" | "date" | "number" | false;
   options?: { value: string; label: string }[];
   unique: string[];
   draft: ColumnFilter;
@@ -702,7 +762,11 @@ function FilterPopover({
   void col;
   const selectOpts = options?.length ? options : unique.map((v) => ({ value: v, label: v }));
   const isSelect = kind === "select";
-  const hasValueList = selectOpts.length > 0;
+  const isDate = kind === "date";
+  const isNumber = kind === "number";
+  const hasValueList = !isDate && !isNumber && selectOpts.length > 0;
+  const [rangeStart, rangeEnd] = draft.value.split("|");
+  const inputClass = "mb-3 w-full rounded-lg border border-line bg-surface px-2 py-2 text-sm";
 
   return (
     <FloatingMenu anchor={anchor} width={260} onClose={onClose} className="p-3">
@@ -714,16 +778,85 @@ function FilterPopover({
           className="mb-3"
           onChange={(value) => setDraft({ op: "equals", value })}
         />
-      ) : (
+      ) : isDate ? (
+        <>
+          <select
+            value={draft.op}
+            onChange={(e) => setDraft({ op: e.target.value as ColumnFilterOp, value: "" })}
+            className="mb-2 w-full rounded-lg border border-line bg-surface px-2 py-2 text-sm"
+          >
+            <option value="between">Entre</option>
+            <option value="on">No dia</option>
+            <option value="after">A partir de</option>
+            <option value="before">Até</option>
+          </select>
+          {draft.op === "between" ? (
+            <div className="mb-3 grid grid-cols-2 gap-2">
+              <input
+                type="date"
+                value={rangeStart || ""}
+                onChange={(e) => setDraft({ ...draft, value: `${e.target.value}|${rangeEnd || ""}` })}
+                className="w-full rounded-lg border border-line bg-surface px-2 py-2 text-sm"
+              />
+              <input
+                type="date"
+                value={rangeEnd || ""}
+                onChange={(e) => setDraft({ ...draft, value: `${rangeStart || ""}|${e.target.value}` })}
+                className="w-full rounded-lg border border-line bg-surface px-2 py-2 text-sm"
+              />
+            </div>
+          ) : (
+            <input
+              type="date"
+              value={draft.value}
+              onChange={(e) => setDraft({ ...draft, value: e.target.value })}
+              className={inputClass}
+            />
+          )}
+        </>
+      ) : isNumber ? (
         <>
           <select
             value={draft.op}
             onChange={(e) => setDraft({ ...draft, op: e.target.value as ColumnFilterOp })}
             className="mb-2 w-full rounded-lg border border-line bg-surface px-2 py-2 text-sm"
           >
+            <option value="gte">Maior ou igual</option>
+            <option value="gt">Maior que</option>
+            <option value="lte">Menor ou igual</option>
+            <option value="lt">Menor que</option>
+            <option value="equals">Igual a</option>
+          </select>
+          <input
+            inputMode="decimal"
+            value={draft.value}
+            onChange={(e) => setDraft({ ...draft, value: e.target.value })}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") onApply();
+            }}
+            placeholder="0,00"
+            className={inputClass}
+          />
+        </>
+      ) : (
+        <>
+          <select
+            value={draft.op === "contains" || draft.op === "equals" ? draft.op : "contains"}
+            onChange={(e) => setDraft({ ...draft, op: e.target.value as ColumnFilterOp })}
+            className="mb-2 w-full rounded-lg border border-line bg-surface px-2 py-2 text-sm"
+          >
             <option value="contains">Contém</option>
             <option value="equals">Igual a</option>
           </select>
+          <input
+            value={draft.value}
+            onChange={(e) => setDraft({ ...draft, value: e.target.value })}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") onApply();
+            }}
+            placeholder="Valor…"
+            className={inputClass}
+          />
           {hasValueList ? (
             <FilterValueSelect
               value={draft.value}
@@ -731,17 +864,7 @@ function FilterPopover({
               className="mb-3"
               onChange={(value) => setDraft({ ...draft, value })}
             />
-          ) : (
-            <input
-              value={draft.value}
-              onChange={(e) => setDraft({ ...draft, value: e.target.value })}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") onApply();
-              }}
-              placeholder="Valor…"
-              className="mb-3 w-full rounded-lg border border-line px-2 py-2 text-sm"
-            />
-          )}
+          ) : null}
         </>
       )}
       <div className="flex justify-end gap-2">
