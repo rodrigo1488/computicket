@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState, type Dispatch, type SetStateAction } from "react";
 import { BudgetAiDialog, type BudgetAiDraft } from "@/components/budgets/BudgetAiDialog";
 import { Modal } from "@/components/ui/Modal";
+import { RichTextEditor } from "@/components/ui/RichTextEditor";
 import { PrimaryButton, UnderlineField } from "@/components/ui/UnderlineField";
 import { flask } from "@/lib/api";
 import {
@@ -15,7 +16,8 @@ import {
   revokeBudgetPublicLink,
 } from "@/lib/budget-share";
 import { cn } from "@/lib/cn";
-import { formatBRL, stripHtml } from "@/lib/format";
+import { formatBRL } from "@/lib/format";
+import { isRichTextEmpty } from "@/lib/rich-text";
 
 export type BudgetItemForm = {
   key: string;
@@ -137,11 +139,11 @@ function fromDetail(b?: BudgetDetail | null): BudgetItemForm[] {
     product_id: it.product_id,
     service_id: it.service_id,
     codigo: it.codigo || "",
-    description: stripHtml(it.description) || it.description || "",
+    description: it.description || "",
     quantity: String(it.quantity ?? 1),
     unit_price: String(it.unit_price ?? 0),
     unit_of_measure: it.unit_of_measure || "",
-    observations: stripHtml(it.observations) || it.observations || "",
+    observations: it.observations || "",
     is_recurring: Boolean(it.is_recurring),
     recurrence_period: (it.recurrence_period as BudgetItemForm["recurrence_period"]) || "monthly",
     option_key: it.option_key || null,
@@ -156,11 +158,11 @@ export function BudgetBuilder({ budget }: { budget?: BudgetDetail | null }) {
   const qc = useQueryClient();
   const [title, setTitle] = useState(budget?.title || "");
   const [status, setStatus] = useState(budget?.status || "draft");
-  const [description, setDescription] = useState(stripHtml(budget?.description) || budget?.description || "");
+  const [description, setDescription] = useState(budget?.description || "");
   const [validUntil, setValidUntil] = useState(budget?.valid_until || "");
   const [discount, setDiscount] = useState(String(budget?.discount ?? 0));
-  const [paymentTerms, setPaymentTerms] = useState(stripHtml(budget?.payment_terms) || budget?.payment_terms || "");
-  const [internalNotes, setInternalNotes] = useState(stripHtml(budget?.internal_notes) || budget?.internal_notes || "");
+  const [paymentTerms, setPaymentTerms] = useState(budget?.payment_terms || "");
+  const [internalNotes, setInternalNotes] = useState(budget?.internal_notes || "");
   const [themeId, setThemeId] = useState(budget?.theme_id ? String(budget.theme_id) : "");
   const [showLogo, setShowLogo] = useState(budget?.show_logo !== false);
   const [items, setItems] = useState<BudgetItemForm[]>(() => fromDetail(budget));
@@ -301,7 +303,7 @@ export function BudgetBuilder({ budget }: { budget?: BudgetDetail | null }) {
         external_client_id: client?.type === "external" ? client.id : null,
         external_client_name: client?.type === "external" ? client.name : null,
         items: items
-          .filter((it) => it.description.trim())
+          .filter((it) => !isRichTextEmpty(it.description))
           .map((it) => ({
             item_type: it.item_type,
             product_id: it.product_id || null,
@@ -460,9 +462,10 @@ export function BudgetBuilder({ budget }: { budget?: BudgetDetail | null }) {
         setTitle(draft.title);
       }
     }
-    setDescription(stripHtml(draft.description) || "");
-    setPaymentTerms(stripHtml(draft.payment_terms) || "");
-    setInternalNotes(stripHtml(draft.internal_notes) || "");
+    // o rascunho da IA já vem sanitizado pelo backend; o editor sanitiza de novo ao carregar
+    setDescription(draft.description || "");
+    setPaymentTerms(draft.payment_terms || "");
+    setInternalNotes(draft.internal_notes || "");
     const nextItems = (draft.items || []).map((it) => {
       const optKey = (it.option_key || "").trim() || null;
       const optLabel = (it.option_label || "").trim() || (optKey ? `Opção ${optKey}` : null);
@@ -471,11 +474,11 @@ export function BudgetBuilder({ budget }: { budget?: BudgetDetail | null }) {
         product_id: it.product_id,
         service_id: it.service_id,
         codigo: it.codigo || "",
-        description: stripHtml(it.description) || it.description || "",
+        description: it.description || "",
         quantity: String(it.quantity ?? 1),
         unit_price: String(it.unit_price ?? 0),
         unit_of_measure: it.unit_of_measure || "",
-        observations: stripHtml(it.observations) || it.observations || "",
+        observations: it.observations || "",
         is_recurring: Boolean(it.is_recurring),
         recurrence_period: (it.recurrence_period as BudgetItemForm["recurrence_period"]) || "monthly",
         option_key: optKey,
@@ -592,15 +595,17 @@ export function BudgetBuilder({ budget }: { budget?: BudgetDetail | null }) {
                 </select>
               </label>
             </div>
-            <label className="block">
-              <span className="text-[11px] font-medium tracking-[0.08em] text-muted uppercase">Descrição / introdução</span>
-              <textarea
+            <div>
+              <span className="mb-1 block text-[11px] font-medium tracking-[0.08em] text-muted uppercase">
+                Descrição / introdução
+              </span>
+              <RichTextEditor
                 value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                rows={4}
-                className="mt-1 w-full border-0 border-b border-line bg-transparent py-2 text-[15px]"
+                onChange={setDescription}
+                ariaLabel="Descrição / introdução"
+                placeholder="Apresente a proposta ao cliente…"
               />
-            </label>
+            </div>
           </div>
         </section>
 
@@ -824,22 +829,23 @@ export function BudgetBuilder({ budget }: { budget?: BudgetDetail | null }) {
         <section className="rounded-2xl border border-line p-6">
           <h2 className="mb-3 text-lg font-semibold text-navy">Condições e observações</h2>
           <p className="mb-2 text-xs text-muted">Visível ao cliente no PDF e no link público.</p>
-          <textarea
+          <RichTextEditor
             value={paymentTerms}
-            onChange={(e) => setPaymentTerms(e.target.value)}
-            rows={4}
-            className="w-full rounded-lg border border-line px-3 py-2 text-sm"
+            onChange={setPaymentTerms}
+            ariaLabel="Condições e observações"
+            placeholder="Forma de pagamento, prazos, garantia…"
           />
         </section>
 
         <section className="rounded-2xl border border-line p-6">
           <h2 className="mb-1 text-lg font-semibold text-navy">Observações internas</h2>
           <p className="mb-3 text-xs text-muted">Uso exclusivo da empresa — não aparece para o cliente.</p>
-          <textarea
+          <RichTextEditor
             value={internalNotes}
-            onChange={(e) => setInternalNotes(e.target.value)}
-            rows={3}
-            className="w-full rounded-lg border border-line px-3 py-2 text-sm"
+            onChange={setInternalNotes}
+            compact
+            ariaLabel="Observações internas"
+            placeholder="Anotações da equipe…"
           />
         </section>
       </div>
@@ -1027,9 +1033,11 @@ function ItemEditor({
         setOverIdx(idx);
       }}
       onDrop={(e) => {
+        // só reordena quando o arraste veio da alça (evita reagir a texto arrastado dentro do editor)
+        if (dragFrom === null) return;
         e.preventDefault();
         const from = Number(e.dataTransfer.getData("text/plain"));
-        moveItem(from, idx);
+        if (Number.isFinite(from)) moveItem(from, idx);
         setDragFrom(null);
         setOverIdx(null);
       }}
@@ -1102,18 +1110,20 @@ function ItemEditor({
           <Trash2 className="h-4 w-4" />
         </button>
       </div>
-      <textarea
+      <RichTextEditor
+        key={`desc-${it.key}`}
         value={it.description}
-        onChange={(e) =>
-          setItems((prev) => prev.map((row, i) => (i === idx ? { ...row, description: e.target.value } : row)))
+        onChange={(html) =>
+          setItems((prev) => prev.map((row) => (row.key === it.key ? { ...row, description: html } : row)))
         }
+        compact
+        className="mb-3"
+        ariaLabel="Descrição do item"
         placeholder={
           it.item_type === "service"
             ? "Descreva o serviço (ex: Instalação de rede, manutenção…)"
             : "Descrição do item"
         }
-        rows={2}
-        className="mb-3 w-full rounded-lg border border-line px-3 py-2 text-sm"
       />
       <div className="grid gap-3 sm:grid-cols-3">
         <label className="text-xs text-muted">
@@ -1146,14 +1156,19 @@ function ItemEditor({
           {formatBRL((Number(it.quantity.replace(",", ".")) || 0) * (Number(it.unit_price.replace(",", ".")) || 0))}
         </div>
       </div>
-      <input
-        value={it.observations}
-        onChange={(e) =>
-          setItems((prev) => prev.map((row, i) => (i === idx ? { ...row, observations: e.target.value } : row)))
-        }
-        placeholder="Observações (visível ao cliente)"
-        className="mt-3 w-full border-0 border-b border-line py-1 text-sm"
-      />
+      <div className="mt-3">
+        <span className="mb-1 block text-xs text-muted">Observações (visível ao cliente)</span>
+        <RichTextEditor
+          key={`obs-${it.key}`}
+          value={it.observations}
+          onChange={(html) =>
+            setItems((prev) => prev.map((row) => (row.key === it.key ? { ...row, observations: html } : row)))
+          }
+          compact
+          ariaLabel="Observações do item"
+          placeholder="Observações (visível ao cliente)"
+        />
+      </div>
     </div>
   );
 }

@@ -6,6 +6,7 @@ import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { PageTitle } from "@/components/layout/AppShell";
 import type { BudgetDetail } from "@/components/budgets/BudgetBuilder";
+import { RichTextContent } from "@/components/ui/RichTextContent";
 import { TableLoadingRows } from "@/components/ui/table-loading";
 import { flask } from "@/lib/api";
 import {
@@ -14,7 +15,7 @@ import {
   publicBudgetUrl,
   revokeBudgetPublicLink,
 } from "@/lib/budget-share";
-import { formatBRL, stripHtml } from "@/lib/format";
+import { formatBRL } from "@/lib/format";
 
 function budgetStatus(s?: string) {
   if (s === "draft") return "Rascunho";
@@ -210,7 +211,7 @@ export default function VerOrcamentoPage() {
       {data.description ? (
         <section className="mb-6 rounded-2xl border border-line p-5">
           <h2 className="mb-2 text-sm font-medium text-muted">Descrição</h2>
-          <p className="whitespace-pre-wrap text-sm text-ink">{stripHtml(data.description) || data.description}</p>
+          <RichTextContent html={data.description} />
         </section>
       ) : null}
 
@@ -251,7 +252,10 @@ export default function VerOrcamentoPage() {
                           return (
                             <tr key={i} className="border-t border-line">
                               <td className="py-3 pr-3">
-                                <p>{stripHtml(it.description) || it.description || "—"}</p>
+                                <RichTextContent html={it.description} fallback="—" />
+                                {it.observations ? (
+                                  <RichTextContent html={it.observations} className="mt-1 text-xs text-muted" />
+                                ) : null}
                                 {it.is_recurring ? (
                                   <p className="text-xs text-muted">
                                     Recorrente · {periodLabel[it.recurrence_period || "monthly"]}
@@ -325,7 +329,10 @@ export default function VerOrcamentoPage() {
                     return (
                       <tr key={i} className="border-t border-line">
                         <td className="py-3 pr-3">
-                          <p>{stripHtml(it.description) || it.description || "—"}</p>
+                          <RichTextContent html={it.description} fallback="—" />
+                          {it.observations ? (
+                            <RichTextContent html={it.observations} className="mt-1 text-xs text-muted" />
+                          ) : null}
                           {it.is_recurring ? (
                             <p className="text-xs text-muted">
                               Recorrente · {periodLabel[it.recurrence_period || "monthly"]}
@@ -364,14 +371,14 @@ export default function VerOrcamentoPage() {
       {data.payment_terms ? (
         <section className="mb-6 rounded-2xl border border-line p-5">
           <h2 className="mb-2 text-sm font-medium text-muted">Condições</h2>
-          <p className="whitespace-pre-wrap text-sm text-ink">{stripHtml(data.payment_terms) || data.payment_terms}</p>
+          <RichTextContent html={data.payment_terms} />
         </section>
       ) : null}
 
       {data.internal_notes ? (
         <section className="rounded-2xl border border-line bg-wash p-5">
           <h2 className="mb-2 text-sm font-medium text-muted">Observações internas</h2>
-          <p className="whitespace-pre-wrap text-sm text-ink">{stripHtml(data.internal_notes) || data.internal_notes}</p>
+          <RichTextContent html={data.internal_notes} />
         </section>
       ) : null}
     </div>

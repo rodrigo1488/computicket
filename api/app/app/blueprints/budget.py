@@ -272,7 +272,7 @@ def new_budget():
         print(f"DEBUG: Dados do formulário: {dict(request.form)}")
         
         title = request.form.get('title', '').strip()
-        description = request.form.get('description', '').strip()
+        description = sanitize_rich_html(request.form.get('description', ''))
         client_id = request.form.get('client_id', '').strip()
         external_client_id = request.form.get('external_client_id', '').strip()
         status = request.form.get('status', 'draft').strip()
@@ -410,7 +410,7 @@ def edit_budget(budget_id):
     
     if request.method == 'POST':
         title = request.form.get('title', '').strip()
-        description = request.form.get('description', '').strip()
+        description = sanitize_rich_html(request.form.get('description', ''))
         client_id = request.form.get('client_id', '').strip()
         external_client_id = request.form.get('external_client_id', '').strip()
         status = request.form.get('status', 'draft').strip()
