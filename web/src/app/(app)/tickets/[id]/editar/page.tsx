@@ -1,7 +1,7 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { useParams } from "next/navigation";
+import { useParams } from "@/components/tabs/navigation";
 import { TicketForm } from "@/components/tickets/TicketForm";
 import { PageTitle } from "@/components/layout/AppShell";
 import { flask } from "@/lib/api";

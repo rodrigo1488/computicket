@@ -2,8 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus } from "lucide-react";
-import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
+import { Link, useRouter, useSearchParams } from "@/components/tabs/navigation";
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { PageTitle } from "@/components/layout/AppShell";
 import { ImplantationForm } from "@/components/implantacao/ImplantationForm";

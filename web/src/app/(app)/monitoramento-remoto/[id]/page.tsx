@@ -15,8 +15,7 @@ import {
   Thermometer,
   Trash2,
 } from "lucide-react";
-import Link from "next/link";
-import { useParams } from "next/navigation";
+import { Link, useParams } from "@/components/tabs/navigation";
 import { useEffect, useState, type ReactNode } from "react";
 import { io } from "socket.io-client";
 import { PageTitle } from "@/components/layout/AppShell";
@@ -141,7 +140,7 @@ export default function RemoteAgentDetailPage() {
 
   return (
     <div>
-      <Link href="/monitoramento-remoto" className="mb-3 inline-flex items-center gap-1 text-sm text-muted hover:text-ink">
+      <Link href="/monitoramento-remoto" replace className="mb-3 inline-flex items-center gap-1 text-sm text-muted hover:text-ink">
         <ArrowLeft className="h-4 w-4" /> Voltar aos agentes
       </Link>
       <div className="mb-6 flex flex-wrap items-start justify-between gap-4">

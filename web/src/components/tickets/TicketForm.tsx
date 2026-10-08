@@ -1,7 +1,7 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
-import { useRouter } from "next/navigation";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useRouter, useSearchParams } from "@/components/tabs/navigation";
 import { useEffect, useState } from "react";
 import { PrimaryButton, UnderlineField } from "@/components/ui/UnderlineField";
 import { flask, type PageRes, asItems } from "@/lib/api";
@@ -35,6 +35,9 @@ export function TicketForm({
   onCancel?: () => void;
 }) {
   const router = useRouter();
+  const qc = useQueryClient();
+  // Query da PRÓPRIA aba (window.location reflete só a aba ativa).
+  const searchParams = useSearchParams();
   const [title, setTitle] = useState(ticket?.title || defaults?.title || "");
   const [description, setDescription] = useState(ticket?.description || defaults?.description || "");
   const [solicitante, setSolicitante] = useState(ticket?.solicitante || defaults?.solicitante || "");
@@ -97,8 +100,7 @@ export function TicketForm({
       }
       return;
     }
-    if (typeof window === "undefined") return;
-    const sp = new URLSearchParams(window.location.search);
+    const sp = searchParams;
     const fromChat = sp.get("title");
     if (!fromChat) return;
     setTitle(fromChat);
@@ -106,7 +108,7 @@ export function TicketForm({
     setSolicitante(sp.get("client_name") || sp.get("pg_client_name") || "");
     const qClient = sp.get("pg_client_name") || sp.get("client_name") || "";
     if (qClient) setQ(qClient);
-  }, [ticket, defaults]);
+  }, [ticket, defaults, searchParams]);
 
   useEffect(() => {
     if (!clientId || !serviceId) {
@@ -158,7 +160,9 @@ export function TicketForm({
           images.forEach((file) => data.append("images", file));
           await flask.post(`/tickets/api/${ticket.id}/attachments`, data);
         }
-        router.push(`/tickets/${ticket.id}`);
+        void qc.invalidateQueries({ queryKey: ["tickets"] });
+        // `replace`: a aba de edição vira (ou é mesclada com) a aba do ticket.
+        router.replace(`/tickets/${ticket.id}`);
       } else {
         const created = await flask.post<TicketDetail>("/tickets/api", payload);
         if (images.length && created?.id) {
@@ -166,8 +170,9 @@ export function TicketForm({
           images.forEach((file) => data.append("images", file));
           await flask.post(`/tickets/api/${created.id}/attachments`, data);
         }
+        void qc.invalidateQueries({ queryKey: ["tickets"] });
         if (onCreated) onCreated(created);
-        else router.push(`/tickets/${created.id}`);
+        else router.replace(`/tickets/${created.id}`);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erro ao salvar");

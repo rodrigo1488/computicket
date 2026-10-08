@@ -2,7 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { FileDown, Link2, Plus, Sparkles } from "lucide-react";
-import { useRouter } from "next/navigation";
+import { useRouter } from "@/components/tabs/navigation";
 import { useEffect, useState } from "react";
 import { PageTitle } from "@/components/layout/AppShell";
 import { DataTable } from "@/components/ui/DataTable";

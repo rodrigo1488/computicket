@@ -1,7 +1,7 @@
 "use client";
 
 import { Eye, MoreVertical, Pencil, Trash2, type LucideIcon } from "lucide-react";
-import Link from "next/link";
+import { Link } from "@/components/tabs/navigation";
 import {
   Children,
   createContext,

@@ -1,7 +1,7 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter } from "@/components/tabs/navigation";
 import { PageTitle } from "@/components/layout/AppShell";
 import { BudgetBuilder, type BudgetDetail } from "@/components/budgets/BudgetBuilder";
 import { flask } from "@/lib/api";
@@ -22,7 +22,7 @@ export default function EditarOrcamentoPage() {
 
   return (
     <div>
-      <button type="button" onClick={() => router.push(`/orcamentos/${id}`)} className="mb-3 text-sm text-muted hover:text-ink">
+      <button type="button" onClick={() => router.replace(`/orcamentos/${id}`)} className="mb-3 text-sm text-muted hover:text-ink">
         ← Voltar à visualização
       </button>
       <PageTitle>Editar orçamento</PageTitle>

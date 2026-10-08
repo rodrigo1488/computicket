@@ -2,8 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft } from "lucide-react";
-import Link from "next/link";
-import { useParams } from "next/navigation";
+import { Link, useParams } from "@/components/tabs/navigation";
 import { useState } from "react";
 import { FlowCanvas } from "@/components/automacao/FlowCanvas";
 import { PageTitle } from "@/components/layout/AppShell";

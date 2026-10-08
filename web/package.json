@@ -9,6 +9,7 @@
     "dev": "next dev --port 3000",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
+    "test:tabs": "node --test src/components/tabs/tabs-store.test.ts",
     "build": "next build",
     "start": "next start"
   },

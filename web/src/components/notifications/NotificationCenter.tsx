@@ -2,7 +2,7 @@
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Bell, CalendarDays, Columns3, FileSignature, MessageCircle, Pause, Ticket, Vibrate, X } from "lucide-react";
-import { useRouter } from "next/navigation";
+import { useRouter } from "@/components/tabs/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { io } from "socket.io-client";
 import { flask } from "@/lib/api";

@@ -15,7 +15,7 @@ import {
   Users,
   Vibrate,
 } from "lucide-react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "@/components/tabs/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ComposerContextBanner, MessageActions } from "@/components/chat/MessageActions";
 import { WhatsAppFormattedText } from "@/components/helpdesk/WhatsAppFormattedText";

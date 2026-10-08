@@ -2,7 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Suspense, useEffect, useMemo, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "@/components/tabs/navigation";
 import { PageTitle } from "@/components/layout/AppShell";
 import { AiSettings } from "@/components/settings/AiSettings";
 import { UniplusSettings } from "@/components/settings/UniplusSettings";

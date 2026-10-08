@@ -2,7 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Download, Plus, Share2, Trash2 } from "lucide-react";
-import { useParams, useRouter, useSearchParams } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "@/components/tabs/navigation";
 import { useEffect, useState } from "react";
 import { PageTitle } from "@/components/layout/AppShell";
 import { DataTable } from "@/components/ui/DataTable";
@@ -184,7 +184,7 @@ export default function ConhecimentoCategoriaPage() {
     <div>
       <button
         type="button"
-        onClick={() => router.push("/conhecimento")}
+        onClick={() => router.replace("/conhecimento")}
         className="mb-3 text-sm text-muted hover:text-ink"
       >
         ← Voltar às categorias

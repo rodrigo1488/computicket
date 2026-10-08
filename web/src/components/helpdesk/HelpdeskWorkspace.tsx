@@ -33,8 +33,7 @@ import {
   X,
   Zap,
 } from "lucide-react";
-import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
+import { Link, useRouter, useSearchParams } from "@/components/tabs/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { io, type Socket } from "socket.io-client";
 import { CloseTicketDialog } from "@/components/tickets/CloseTicketDialog";

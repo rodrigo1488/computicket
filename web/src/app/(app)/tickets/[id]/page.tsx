@@ -2,8 +2,8 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Ban, Check, Clock, Hand, MessageCircle, Pencil, Plus, Printer, RotateCcw, Share2, Trash2 } from "lucide-react";
-import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
+import { Link, useParams, useRouter } from "@/components/tabs/navigation";
+import { useTabTitle } from "@/components/tabs/hooks";
 import { useState } from "react";
 import { AdditionalServiceDialog } from "@/components/tickets/AdditionalServiceDialog";
 import { CancelTicketDialog } from "@/components/tickets/CancelTicketDialog";
@@ -42,6 +42,7 @@ export default function TicketDetailPage() {
     queryFn: () => flask.get<TicketDetail>(`/tickets/api/${id}`),
     enabled: Number.isFinite(id),
   });
+  useTabTitle(data?.title ? `#${id} · ${data.title}` : undefined);
 
   const invalidate = () => {
     qc.invalidateQueries({ queryKey: ["ticket", id] });
@@ -169,7 +170,7 @@ export default function TicketDetailPage() {
         <div>
           <button
             type="button"
-            onClick={() => router.push("/tickets")}
+            onClick={() => router.replace("/tickets")}
             className="mb-3 text-sm text-muted hover:text-ink"
           >
             ← Voltar

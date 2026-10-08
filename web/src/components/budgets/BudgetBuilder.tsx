@@ -2,7 +2,8 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { FileDown, GripVertical, Link2, Plus, Sparkles, Trash2, Unlink, X } from "lucide-react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "@/components/tabs/navigation";
+import { useTabDirty } from "@/components/tabs/hooks";
 import { useEffect, useMemo, useState, type Dispatch, type SetStateAction } from "react";
 import { BudgetAiDialog, type BudgetAiDraft } from "@/components/budgets/BudgetAiDialog";
 import { Modal } from "@/components/ui/Modal";
@@ -155,6 +156,7 @@ const TYPE_LABEL: Record<string, string> = { manual: "Item", product: "Produto",
 
 export function BudgetBuilder({ budget }: { budget?: BudgetDetail | null }) {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const qc = useQueryClient();
   const [title, setTitle] = useState(budget?.title || "");
   const [status, setStatus] = useState(budget?.status || "draft");
@@ -192,6 +194,15 @@ export function BudgetBuilder({ budget }: { budget?: BudgetDetail | null }) {
   const [error, setError] = useState("");
   const [aiOpen, setAiOpen] = useState(false);
 
+  // Indicador de "não salvo" na aba (orçamento novo com algo preenchido).
+  useTabDirty(
+    !budget &&
+      (title.trim() !== "" ||
+        client !== null ||
+        !isRichTextEmpty(description) ||
+        items.some((it) => !isRichTextEmpty(it.description) || (Number(it.unit_price.replace(",", ".")) || 0) > 0)),
+  );
+
   const meta = useQuery({
     queryKey: ["budget-meta"],
     queryFn: () => flask.get<{ themes: Theme[] }>("/api/web/budgets/meta"),
@@ -217,10 +228,9 @@ export function BudgetBuilder({ budget }: { budget?: BudgetDetail | null }) {
   }, [budget?.public_token]);
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    const params = new URLSearchParams(window.location.search);
-    if (params.get("ia") === "1") setAiOpen(true);
-  }, []);
+    // Query da PRÓPRIA aba (window.location reflete só a aba ativa).
+    if (searchParams.get("ia") === "1") setAiOpen(true);
+  }, [searchParams]);
 
   useEffect(() => {
     if (!themeId && meta.data?.themes?.length) {
@@ -326,7 +336,8 @@ export function BudgetBuilder({ budget }: { budget?: BudgetDetail | null }) {
     onSuccess: (res) => {
       const id = res.budget_id || budget?.id;
       if (id) qc.invalidateQueries({ queryKey: ["budget", id] });
-      router.push(id ? `/orcamentos/${id}` : "/orcamentos");
+      // `replace`: a aba do construtor vira (ou é mesclada com) a aba do orçamento salvo.
+      router.replace(id ? `/orcamentos/${id}` : "/orcamentos");
     },
     onError: (e) => setError(e instanceof Error ? e.message : "Erro ao salvar"),
   });
@@ -922,7 +933,7 @@ export function BudgetBuilder({ budget }: { budget?: BudgetDetail | null }) {
           )}
           <button
             type="button"
-            onClick={() => router.push(budget ? `/orcamentos/${budget.id}` : "/orcamentos")}
+            onClick={() => router.replace(budget ? `/orcamentos/${budget.id}` : "/orcamentos")}
             className="mt-2 w-full rounded-xl py-3 text-sm text-muted hover:text-ink"
           >
             Cancelar

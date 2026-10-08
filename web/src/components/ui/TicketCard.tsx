@@ -1,7 +1,7 @@
 "use client";
 
 import { Check, Clock, Pencil } from "lucide-react";
-import { useRouter } from "next/navigation";
+import { useRouter } from "@/components/tabs/navigation";
 import { StatusIcon } from "@/components/ui/StatusBadge";
 import { UserAvatar } from "@/components/ui/UserAvatar";
 import { formatBRL, type TicketCard } from "@/lib/format";

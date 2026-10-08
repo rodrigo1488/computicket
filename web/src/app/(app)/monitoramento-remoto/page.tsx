@@ -2,7 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, ChevronDown, ChevronRight, Copy, Download, Plus, Trash2 } from "lucide-react";
-import Link from "next/link";
+import { Link } from "@/components/tabs/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { io } from "socket.io-client";
 import { PageTitle } from "@/components/layout/AppShell";

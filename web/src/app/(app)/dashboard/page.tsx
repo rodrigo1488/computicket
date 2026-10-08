@@ -28,8 +28,8 @@ import {
   Wrench,
   type LucideIcon,
 } from "lucide-react";
-import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
+import { Link, useRouter, useSearchParams } from "@/components/tabs/navigation";
+import { useIsActiveTab } from "@/components/tabs/hooks";
 import { Suspense, useEffect, useState, type ReactNode } from "react";
 import {
   Area,
@@ -567,6 +567,7 @@ function ListRanking({
 }
 
 function HelpdeskDash() {
+  const isActiveTab = useIsActiveTab();
   const query = useQuery({
     queryKey: ["dashboard-helpdesk"],
     queryFn: () => flask.get<HdDash>("/api/web/dashboard/helpdesk"),
@@ -576,7 +577,7 @@ function HelpdeskDash() {
     queryKey: ["dashboard-helpdesk-ratings"],
     queryFn: helpdesk.ratingSummary,
     retry: 1,
-    refetchInterval: 60000,
+    refetchInterval: isActiveTab ? 60000 : false,
   });
   const [queuePage, setQueuePage] = useState(1);
   const [userPage, setUserPage] = useState(1);
@@ -781,6 +782,7 @@ function MachineCard({ agent }: { agent: RemoteAgent }) {
 
 function MonitoramentoDash() {
   const queryClient = useQueryClient();
+  const isActiveTab = useIsActiveTab();
   const [page, setPage] = useState(1);
   const perPage = 12;
   const agents = useQuery({
@@ -789,10 +791,12 @@ function MonitoramentoDash() {
       const incoming = await flask.get<PageRes<RemoteAgent>>(`/api/remote-monitor/agents?page=${page}&per_page=${perPage}`);
       return reconcileAgentPage(queryClient.getQueryData<PageRes<RemoteAgent>>(["remote-agents-dash", page]), incoming);
     },
-    refetchInterval: 15000,
+    refetchInterval: isActiveTab ? 15000 : false,
   });
 
   useEffect(() => {
+    // Aba em segundo plano: sem socket (reconecta ao voltar).
+    if (!isActiveTab) return;
     const socket = io(`${remoteSocketOrigin}/remote-monitor-view`, flaskSocketOptions());
     const update = (payload: RemoteAgent | RemoteLiveEvent) => {
       queryClient.setQueriesData<PageRes<RemoteAgent>>({ queryKey: ["remote-agents-dash"] }, (current) => mergeAgentPage(current, payload));
@@ -802,7 +806,7 @@ function MonitoramentoDash() {
     return () => {
       socket.close();
     };
-  }, [queryClient]);
+  }, [queryClient, isActiveTab]);
 
   const items = agents.data?.items || [];
   return (

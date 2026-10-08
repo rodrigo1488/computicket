@@ -3,7 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Copy, Eye, EyeOff, Plus, Share2 } from "lucide-react";
 import { Suspense, useEffect, useState } from "react";
-import { useParams, useRouter, useSearchParams } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "@/components/tabs/navigation";
 import { PageTitle } from "@/components/layout/AppShell";
 import { DataTable } from "@/components/ui/DataTable";
 import { Modal } from "@/components/ui/Modal";
@@ -142,7 +142,7 @@ function CofreClienteInner() {
 
   return (
     <div>
-      <button type="button" onClick={() => router.push("/cofre")} className="mb-3 text-sm text-muted hover:text-ink">
+      <button type="button" onClick={() => router.replace("/cofre")} className="mb-3 text-sm text-muted hover:text-ink">
         ← Voltar ao cofre
       </button>
       <div className="mb-6 flex flex-wrap items-start justify-between gap-4">

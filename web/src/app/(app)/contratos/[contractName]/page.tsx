@@ -2,8 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Plus } from "lucide-react";
-import Link from "next/link";
-import { useParams } from "next/navigation";
+import { Link, useParams } from "@/components/tabs/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { PageTitle } from "@/components/layout/AppShell";
 import { DataTable, Kpi } from "@/components/ui/DataTable";
@@ -196,7 +195,7 @@ export default function ContratoDetalhePage() {
     <div>
       <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <div>
-          <Link href="/contratos" className="mb-2 inline-flex items-center gap-1.5 text-sm text-muted hover:text-ink">
+          <Link href="/contratos" replace className="mb-2 inline-flex items-center gap-1.5 text-sm text-muted hover:text-ink">
             <ArrowLeft className="h-4 w-4" /> Contratos
           </Link>
           <PageTitle>{contractName || "Contrato"}</PageTitle>

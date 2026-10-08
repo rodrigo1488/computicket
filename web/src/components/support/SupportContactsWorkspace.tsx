@@ -2,7 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { LifeBuoy, LoaderCircle, Pencil, Plus, Send, Sparkles, Trash2, X } from "lucide-react";
-import Link from "next/link";
+import { Link } from "@/components/tabs/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { WhatsAppFormattedText } from "@/components/helpdesk/WhatsAppFormattedText";
 import { Modal } from "@/components/ui/Modal";

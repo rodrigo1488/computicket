@@ -1,7 +1,6 @@
 "use client";
 
-import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { Link, usePathname } from "@/components/tabs/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { LogOut, PanelLeftClose, PanelLeftOpen, UserRound } from "lucide-react";
 import { useState } from "react";

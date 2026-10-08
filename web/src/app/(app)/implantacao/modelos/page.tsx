@@ -2,7 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus } from "lucide-react";
-import Link from "next/link";
+import { Link } from "@/components/tabs/navigation";
 import { useEffect, useState } from "react";
 import { PageTitle } from "@/components/layout/AppShell";
 import { ModelForm } from "@/components/implantacao/ModelForm";

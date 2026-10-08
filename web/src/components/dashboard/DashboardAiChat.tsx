@@ -1,7 +1,7 @@
 "use client";
 
 import { Bot, LoaderCircle, MessageCircle, Send, Sparkles, X } from "lucide-react";
-import Link from "next/link";
+import { Link } from "@/components/tabs/navigation";
 import { useEffect, useRef, useState } from "react";
 import { helpdesk, type HelpdeskAiSource } from "@/lib/helpdesk";
 import { cn } from "@/lib/cn";

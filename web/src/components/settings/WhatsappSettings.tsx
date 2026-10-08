@@ -2,8 +2,8 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Copy, Pencil, PlugZap, Plus, QrCode, RefreshCw, Trash2, Workflow } from "lucide-react";
-import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { Link, useRouter } from "@/components/tabs/navigation";
+import { useIsActiveTab } from "@/components/tabs/hooks";
 import { useEffect, useMemo, useState } from "react";
 import { Modal } from "@/components/ui/Modal";
 import { PrimaryButton, UnderlineField } from "@/components/ui/UnderlineField";
@@ -806,6 +806,7 @@ function QuickMessagesPanel() {
 
 export function WhatsappSettings({ section, onSection }: { section: WhatsappSection; onSection: (s: WhatsappSection) => void }) {
   const qc = useQueryClient();
+  const isActiveTab = useIsActiveTab();
   const [queueEdit, setQueueEdit] = useState<HelpdeskQueue | null | undefined>(undefined);
   const [connEdit, setConnEdit] = useState<HelpdeskConnection | null | undefined>(undefined);
   const [qrId, setQrId] = useState<number | null>(null);
@@ -821,7 +822,7 @@ export function WhatsappSettings({ section, onSection }: { section: WhatsappSect
     queryKey: ["hd-connections"],
     queryFn: async () => unwrapConnections(await helpdesk.connections()),
     enabled: section === "conexoes",
-    refetchInterval: section === "conexoes" ? 2500 : false,
+    refetchInterval: section === "conexoes" && isActiveTab ? 2500 : false,
   });
 
   useEffect(() => {

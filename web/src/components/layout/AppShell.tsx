@@ -1,11 +1,41 @@
 "use client";
 
-import { useEffect } from "react";
+import { useContext, useEffect } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { AppSidebar } from "@/components/layout/AppSidebar";
 import { NotificationCenter } from "@/components/notifications/NotificationCenter";
+import { TabBar } from "@/components/tabs/TabBar";
+import { TabHost } from "@/components/tabs/TabHost";
+import { TabsProvider } from "@/components/tabs/TabsProvider";
+import { TabsViewContext } from "@/components/tabs/context";
+import { isChatLayoutPath } from "@/components/tabs/routes";
 import { useAuth } from "@/lib/auth-context";
 import { cn } from "@/lib/cn";
+
+function ShellFrame({ children }: { children: React.ReactNode }) {
+  const view = useContext(TabsViewContext);
+  const activePathname = view?.tabs.find((t) => t.id === view.activeId)?.pathname ?? "/";
+  const isChatLayout = isChatLayoutPath(activePathname);
+
+  return (
+    <div id="app-shell" className="flex h-full max-h-full min-h-0 overflow-hidden bg-canvas">
+      <AppSidebar />
+      <main
+        className={cn(
+          "flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden",
+          isChatLayout ? "p-3" : "p-5",
+        )}
+      >
+        <TabBar />
+        {/* Cada aba tem o seu próprio contêiner rolável dentro deste (ver TabHost). */}
+        <div className="relative min-h-0 min-w-0 flex-1 overflow-hidden rounded-[28px] bg-surface shadow-sm">
+          <TabHost>{children}</TabHost>
+        </div>
+      </main>
+      <NotificationCenter />
+    </div>
+  );
+}
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
@@ -22,34 +52,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     );
   }
 
-  const isChatLayout =
-    pathname.startsWith("/helpdesk") ||
-    pathname.startsWith("/contatos-suporte") ||
-    pathname.startsWith("/chat") ||
-    pathname.startsWith("/automacao/");
-
   return (
-    <div id="app-shell" className="flex h-full max-h-full min-h-0 overflow-hidden bg-canvas">
-      <AppSidebar />
-      <main
-        className={cn(
-          "flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden",
-          isChatLayout ? "p-3" : "p-5",
-        )}
-      >
-        <div
-          className={cn(
-            "min-h-0 min-w-0 flex-1",
-            isChatLayout
-              ? "flex h-0 min-h-0 flex-col overflow-hidden rounded-[28px] bg-surface shadow-sm"
-              : "overflow-y-auto rounded-[28px] bg-surface p-8 shadow-sm",
-          )}
-        >
-          {children}
-        </div>
-      </main>
-      <NotificationCenter />
-    </div>
+    <TabsProvider userKey={String(user.id)}>
+      <ShellFrame>{children}</ShellFrame>
+    </TabsProvider>
   );
 }
 

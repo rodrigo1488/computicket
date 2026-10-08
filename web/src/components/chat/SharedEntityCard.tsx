@@ -1,7 +1,7 @@
 "use client";
 
 import { BookOpen, KeyRound, MessageCircle, Ticket } from "lucide-react";
-import Link from "next/link";
+import { Link } from "@/components/tabs/navigation";
 import { cn } from "@/lib/cn";
 import { chatShareKindLabel, type ChatSharePayload } from "@/lib/chat-share";
 

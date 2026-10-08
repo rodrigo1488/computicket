@@ -3,6 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { RefreshCw } from "lucide-react";
 import { useEffect, useState } from "react";
+import { useIsActiveTab } from "@/components/tabs/hooks";
 import { PrimaryButton, UnderlineField } from "@/components/ui/UnderlineField";
 import { flask } from "@/lib/api";
 import { cn } from "@/lib/cn";
@@ -38,10 +39,11 @@ function sourceLabel(src?: string) {
 
 export function UniplusSettings() {
   const qc = useQueryClient();
+  const isActiveTab = useIsActiveTab();
   const { data, error, isFetching, refetch } = useQuery({
     queryKey: ["uniplus-config"],
     queryFn: () => flask.get<UniplusConfig>("/api/uniplus/config"),
-    refetchInterval: 10_000,
+    refetchInterval: isActiveTab ? 10_000 : false,
   });
 
   const [enabled, setEnabled] = useState(false);

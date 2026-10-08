@@ -2,7 +2,8 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { FileDown, Link2, Pencil, Trash2, Unlink } from "lucide-react";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter } from "@/components/tabs/navigation";
+import { useTabTitle } from "@/components/tabs/hooks";
 import { useEffect, useState } from "react";
 import { PageTitle } from "@/components/layout/AppShell";
 import type { BudgetDetail } from "@/components/budgets/BudgetBuilder";
@@ -62,6 +63,7 @@ export default function VerOrcamentoPage() {
     queryFn: () => flask.get<BudgetDetail>(`/api/web/budgets/${id}`),
     enabled: Number.isFinite(id),
   });
+  useTabTitle(data?.title ? `#${id} · ${data.title}` : undefined);
   const [token, setToken] = useState("");
   const [shareMsg, setShareMsg] = useState("");
   const [busyFile, setBusyFile] = useState("");
@@ -75,7 +77,7 @@ export default function VerOrcamentoPage() {
     mutationFn: () => flask.delete(`/api/web/budgets/${id}`),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["budgets"] });
-      router.push("/orcamentos");
+      router.replace("/orcamentos");
     },
   });
 
@@ -135,7 +137,7 @@ export default function VerOrcamentoPage() {
 
   return (
     <div>
-      <button type="button" onClick={() => router.push("/orcamentos")} className="mb-3 text-sm text-muted hover:text-ink">
+      <button type="button" onClick={() => router.replace("/orcamentos")} className="mb-3 text-sm text-muted hover:text-ink">
         ← Voltar aos orçamentos
       </button>
       <div className="mb-6 flex flex-wrap items-start justify-between gap-4">

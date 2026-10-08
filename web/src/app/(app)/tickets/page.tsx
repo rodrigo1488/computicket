@@ -2,8 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Ban, CalendarX2, Hand, Play, Plus, RotateCcw, Share2, Square } from "lucide-react";
-import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { Link, useSearchParams } from "@/components/tabs/navigation";
 import { Suspense, useEffect, useState } from "react";
 import { PageTitle } from "@/components/layout/AppShell";
 import { TicketCreateDialog } from "@/components/tickets/TicketCreateDialog";

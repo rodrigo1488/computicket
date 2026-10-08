@@ -1,6 +1,7 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
+import { clearAllTabsStorage } from "@/components/tabs/storage";
 import { flask } from "@/lib/api";
 import type { AuthUser } from "@/lib/format";
 
@@ -37,6 +38,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       await flask.post("/auth/api/logout");
     } finally {
+      // Abas abertas e o estado delas pertencem à sessão do usuário: não podem vazar para o próximo login.
+      clearAllTabsStorage();
       setUser(null);
       window.location.href = "/login";
     }
