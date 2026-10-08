@@ -628,7 +628,10 @@ def get_dashboard_data():
     ).count()
 
     # OS finalizadas no mês atual
-    os_mes_count = ServiceOrder.query.filter(ServiceOrder.completion_date >= current_month).count()
+    os_mes_count = ServiceOrder.query.filter(
+        ServiceOrder.completion_date >= current_month,
+        ServiceOrder.status != ServiceOrder.OS_STATUS_CANCELADA,
+    ).count()
 
     # Atendimentos (tickets fechados) dia a dia no mês atual
     closed_by_day = (
@@ -1250,7 +1253,10 @@ def api_os_mes():
 		current_month = brasilia_now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
 		
 		# Buscar OS finalizadas no mês atual
-		os_mes = ServiceOrder.query.filter(ServiceOrder.completion_date >= current_month).all()
+		os_mes = ServiceOrder.query.filter(
+			ServiceOrder.completion_date >= current_month,
+			ServiceOrder.status != ServiceOrder.OS_STATUS_CANCELADA,
+		).all()
 		
 		# Agrupar por usuário
 		os_por_usuario = {}

@@ -644,6 +644,7 @@ def service_orders():
 			| (ServiceOrder.equipment.ilike(like))
 		)
 	status_label = case(
+		(ServiceOrder.status == ServiceOrder.OS_STATUS_CANCELADA, "Cancelada"),
 		(ServiceOrder.status == 3, "Finalizada sem cobrança"),
 		(ServiceOrder.status == 5, "Finalizada com cobrança"),
 		else_=cast(ServiceOrder.status, String),
@@ -676,6 +677,7 @@ def service_orders():
 				"delivery_file": o.delivery_file,
 				"has_contract": bool(o.has_contract),
 				"no_charge": bool(o.no_charge),
+				**_os_cancel_json(o),
 			}
 			for o in pagination.items
 		],
@@ -685,8 +687,23 @@ def service_orders():
 	})
 
 
+def _os_cancel_json(o: ServiceOrder) -> dict:
+	"""Campos de cancelamento/auditoria da OS (somente leitura)."""
+	cancelled = o.is_cancelled()
+	by = db.session.get(User, o.cancelled_by_id) if o.cancelled_by_id else None
+	return {
+		"cancelled": cancelled,
+		"cancelled_at": o.formatted_cancelled_at(),
+		"cancelled_by_name": by.name if by else None,
+		"cancellation_reason": o.cancellation_reason or "",
+		"cancelled_ps_number": o.cancelled_ps_number,
+		"cancelled_value": float(o.cancelled_value) if o.cancelled_value is not None else None,
+	}
+
+
 def _os_json(o: ServiceOrder):
 	return {
+		**_os_cancel_json(o),
 		"id": o.id,
 		"codigo": o.codigo,
 		"client_name": o.client_name,

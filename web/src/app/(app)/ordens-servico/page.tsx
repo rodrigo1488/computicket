@@ -1,16 +1,18 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CheckCircle, FileText, Plus, Printer } from "lucide-react";
+import { Ban, CheckCircle, FileText, Plus, Printer } from "lucide-react";
 import { useEffect, useState } from "react";
 import { PageTitle } from "@/components/layout/AppShell";
+import { CancelServiceOrderDialog } from "@/components/service-orders/CancelServiceOrderDialog";
 import { ProductPicker, type PickedProduct } from "@/components/tickets/ProductPicker";
 import { DataTable } from "@/components/ui/DataTable";
 import { Modal } from "@/components/ui/Modal";
 import { Pagination } from "@/components/ui/Pagination";
-import { ViewAction, PrimaryRowAction, RowActions } from "@/components/ui/RowActions";
+import { IconAction, ViewAction, PrimaryRowAction, RowActions } from "@/components/ui/RowActions";
 import { PrimaryButton, UnderlineField } from "@/components/ui/UnderlineField";
 import { flask } from "@/lib/api";
+import { useAuth } from "@/lib/auth-context";
 import { cn } from "@/lib/cn";
 import { formatBRL, parseMoney } from "@/lib/format";
 import { useColFilters } from "@/lib/use-col-filters";
@@ -29,6 +31,12 @@ type OsRow = {
   delivery_file?: string | null;
   has_contract?: boolean;
   no_charge?: boolean;
+  cancelled?: boolean;
+  cancelled_at?: string | null;
+  cancelled_by_name?: string | null;
+  cancellation_reason?: string;
+  cancelled_ps_number?: string | null;
+  cancelled_value?: number | null;
 };
 
 type Res = { items: OsRow[]; total?: number; page?: number; per_page?: number };
@@ -61,9 +69,14 @@ type Picked = PickedProduct;
 
 export default function OSPage() {
   const qc = useQueryClient();
+  const { user } = useAuth();
+  const isAdmin = ["admin", "administrador", "administrator"].includes((user?.role || "").toLowerCase());
   const [q, setQ] = useState("");
   const [page, setPage] = useState(1);
   const [view, setView] = useState<OsRow | null>(null);
+  const [cancelTarget, setCancelTarget] = useState<OsRow | null>(null);
+  const [cancelReason, setCancelReason] = useState("");
+  const [cancelError, setCancelError] = useState("");
   const { colQuery, colFilters, onFiltersChange } = useColFilters();
   useEffect(() => setPage(1), [q, colFilters]);
   const { data, error, isLoading, isFetching } = useQuery({
@@ -275,6 +288,28 @@ export default function OSPage() {
     onError: (e) => setPrintError(e instanceof Error ? e.message : "Erro ao imprimir"),
   });
 
+  const openCancel = (o: OsRow) => {
+    setCancelReason("");
+    setCancelError("");
+    setView(null);
+    setCancelTarget(o);
+  };
+
+  const cancelarOs = useMutation({
+    mutationFn: ({ id, reason }: { id: number; reason: string }) =>
+      flask.post<{ message?: string }>(`/ordens-servico/${id}/cancel`, { reason }),
+    onSuccess: (res) => {
+      setCancelTarget(null);
+      setCancelReason("");
+      setCancelError("");
+      setView(null);
+      setSuccessMsg(res.message || "Ordem de serviço cancelada com sucesso");
+      qc.invalidateQueries({ queryKey: ["os"] });
+    },
+    // Mantém o diálogo aberto e mostra o erro do backend (inclui falha do Unico: OS preservada).
+    onError: (e) => setCancelError(e instanceof Error ? e.message : "Erro ao cancelar a ordem de serviço"),
+  });
+
   const finalizar = useMutation({
     mutationFn: async () => {
       if (!selected) throw new Error("Nenhuma ordem selecionada");
@@ -356,15 +391,33 @@ export default function OSPage() {
           o.completion_date,
           <RowActions key={o.id}>
             <ViewAction onClick={() => setView(o)} />
-            <PrimaryRowAction onClick={() => void openFinalize(o.codigo)}>
-              <CheckCircle className="h-3.5 w-3.5" />
-              Finalizar
-            </PrimaryRowAction>
+            {!o.cancelled ? (
+              <PrimaryRowAction onClick={() => void openFinalize(o.codigo)}>
+                <CheckCircle className="h-3.5 w-3.5" />
+                Finalizar
+              </PrimaryRowAction>
+            ) : null}
+            {isAdmin && !o.cancelled ? (
+              <IconAction label="Cancelar OS" icon={Ban} danger onClick={() => openCancel(o)} />
+            ) : null}
           </RowActions>,
         ])}
         empty="Nenhuma ordem finalizada"
       />
       <Pagination page={data?.page || page} perPage={data?.per_page || 20} total={data?.total || 0} onPage={setPage} />
+
+      <CancelServiceOrderDialog
+        order={cancelTarget}
+        reason={cancelReason}
+        pending={cancelarOs.isPending}
+        error={cancelError}
+        onReason={setCancelReason}
+        onClose={() => setCancelTarget(null)}
+        onConfirm={() => {
+          if (!cancelTarget) return;
+          cancelarOs.mutate({ id: cancelTarget.id, reason: cancelReason.trim() });
+        }}
+      />
 
       <Modal open={!!view} onClose={() => setView(null)} title={`OS ${view?.codigo || ""}`} wide>
         {view ? (
@@ -405,6 +458,34 @@ export default function OSPage() {
               {view.has_contract ? "Sim" : "Não"}
               {view.no_charge ? " · sem cobrança" : ""}
             </p>
+            {view.cancelled ? (
+              <div className="md:col-span-2 rounded-xl bg-open-bg p-3 text-open">
+                <p className="font-semibold">OS cancelada</p>
+                <p className="mt-1">
+                  {view.cancelled_at ? `Em ${view.cancelled_at}` : ""}
+                  {view.cancelled_by_name ? ` por ${view.cancelled_by_name}` : ""}
+                </p>
+                {view.cancellation_reason ? <p className="mt-1">Motivo: {view.cancellation_reason}</p> : null}
+                {view.cancelled_ps_number ? (
+                  <p className="mt-1">
+                    PS {view.cancelled_ps_number} excluída do Unico e do Computicket
+                    {view.cancelled_value != null ? ` (valor original ${formatBRL(view.cancelled_value)})` : ""}.
+                  </p>
+                ) : null}
+              </div>
+            ) : null}
+            {isAdmin && !view.cancelled ? (
+              <div className="md:col-span-2">
+                <button
+                  type="button"
+                  onClick={() => openCancel(view)}
+                  className="inline-flex items-center gap-2 rounded-xl border border-open px-4 py-2 text-sm font-medium text-open hover:bg-open/10"
+                >
+                  <Ban className="h-4 w-4" />
+                  Cancelar OS
+                </button>
+              </div>
+            ) : null}
             {(view.ps_file || view.delivery_file) ? (
               <div className="md:col-span-2 flex flex-wrap gap-3">
                 {view.ps_file ? (

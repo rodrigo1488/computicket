@@ -1,7 +1,12 @@
-from flask import Blueprint, render_template, request, jsonify, send_file
+from flask import Blueprint, render_template, request, jsonify, send_file, current_app
 from flask_login import login_required, current_user
 from .. import db
 from ..models import ServiceOrder, User
+from ..services.unico_finance import (
+	UnicoFinanceBlocked,
+	check_finance_ps_deletable,
+	delete_finance_ps,
+)
 from .utils import connect_postgres
 from .printer import (
 	generateDeliveryReceipt,
@@ -767,6 +772,10 @@ def process_finalization():
 		except (TypeError, ValueError):
 			unico_status = 0
 		existing_order = _local_os_by_codigo(codigo)
+		if existing_order is not None and existing_order.is_cancelled():
+			cursor.close()
+			conn.close()
+			return jsonify({"error": f"A OS {codigo} foi cancelada no Computicket e não pode ser finalizada novamente."}), 409
 		if unico_status in FINALIZED_UNICO_STATUSES:
 			if existing_order:
 				cursor.close()
@@ -1196,6 +1205,122 @@ def view_service_order(order_id):
 	"""Visualizar ordem de serviço específica"""
 	service_order = ServiceOrder.query.get_or_404(order_id)
 	return render_template("service_orders/view.html", service_order=service_order)
+
+
+def _os_utc_now_naive() -> datetime:
+	"""Agora em UTC sem tzinfo (mesmo formato de ServiceOrder.completion_date)."""
+	from ..timezone_utils import brasilia_to_utc, get_brasilia_now
+	return brasilia_to_utc(get_brasilia_now()).replace(tzinfo=None)
+
+
+@bp.route("/<int:order_id>/cancel", methods=["POST"])
+@login_required
+def api_cancel_service_order(order_id: int):
+	"""Cancela uma OS e exclui sua movimentação financeira (PS) no Unico e no Computicket.
+
+	Regras:
+	- Somente administradores (a ação apaga lançamento financeiro no ERP).
+	- Motivo obrigatório; quem/quando/motivo ficam registrados na OS.
+	- 404 se não existir; 409 se já cancelada ou em estado não cancelável (só OS
+	  finalizadas, status 3/5, existem localmente); 409 também se a PS já foi
+	  baixada/paga no Unico (estorne lá primeiro).
+	- Ordem: (1) confere o Unico (somente leitura); (2) aplica o cancelamento local
+	  na sessão (flush, sem commit); (3) exclui a PS no Unico; (4) commit local.
+	  Se o Unico falhar → rollback e 502, nada muda localmente. Se o Unico já não tiver
+	  a PS, é tratado como sucesso (idempotente). OS sem PS: lado financeiro ignorado.
+	- Local: soft-delete — a OS permanece com status Cancelada; PS/valor saem das
+	  listagens/relatórios (ps_generated=False, ps_number=None, value=0) e os valores
+	  originais ficam em cancelled_ps_number/cancelled_value para auditoria.
+	"""
+	if not current_user.has_role("admin"):
+		return jsonify({"error": "Apenas administradores podem cancelar ordens de serviço."}), 403
+
+	data = request.get_json(silent=True) or {}
+	reason = str(data.get("reason") or "").strip()
+	if not reason:
+		return jsonify({"error": "Informe o motivo do cancelamento da OS."}), 400
+
+	order = ServiceOrder.query.filter_by(id=order_id).with_for_update().first()
+	if order is None:
+		return jsonify({"error": "Ordem de serviço não encontrada."}), 404
+	if order.is_cancelled():
+		return jsonify({"error": f"A OS {order.codigo} já está cancelada."}), 409
+	if order.status not in FINALIZED_UNICO_STATUSES:
+		return jsonify({
+			"error": f"A OS {order.codigo} está em um estado que não permite cancelamento (status {order.status}).",
+		}), 409
+
+	ps_number = (order.ps_number or "").strip() or None
+
+	if ps_number:
+		try:
+			check_finance_ps_deletable(ps_number)
+		except UnicoFinanceBlocked as exc:
+			return jsonify({"error": str(exc)}), 409
+		except Exception as exc:
+			current_app.logger.exception("Falha ao consultar PS %s da OS #%s no Unico", ps_number, order_id)
+			return jsonify({
+				"error": f"Não foi possível consultar o Unico: {exc}",
+				"details": "A OS foi preservada. Verifique a conexão com o Unico.",
+			}), 502
+
+	previous_status = order.status
+	previous_value = float(order.value or 0)
+	unico_deleted = None
+	try:
+		order.cancelled_at = _os_utc_now_naive()
+		order.cancelled_by_id = getattr(current_user, "id", None)
+		order.cancellation_reason = reason
+		order.cancelled_prev_status = previous_status
+		order.cancelled_ps_number = ps_number
+		order.cancelled_value = previous_value
+		order.status = ServiceOrder.OS_STATUS_CANCELADA
+		order.value = 0.0
+		order.ps_generated = False
+		order.ps_number = None
+		db.session.flush()
+
+		if ps_number:
+			unico_deleted = delete_finance_ps(ps_number)
+			order.cancelled_unico_deleted = unico_deleted
+		db.session.commit()
+	except Exception as exc:
+		db.session.rollback()
+		current_app.logger.exception("Falha ao cancelar OS #%s", order_id)
+		return jsonify({
+			"error": f"Não foi possível cancelar a OS: {exc}",
+			"details": (
+				"A OS local foi preservada. Verifique a conexão com o Unico e tente novamente."
+				if ps_number else None
+			),
+		}), 502
+
+	current_app.logger.info(
+		"OS %s (#%s) cancelada por %s. PS=%s excluídos_unico=%s motivo=%s",
+		order.codigo, order.id, getattr(current_user, "name", None), ps_number, unico_deleted, reason,
+	)
+	if ps_number:
+		if unico_deleted == 0:
+			finance_msg = f" PS {ps_number} já não existia no Unico; movimentação removida do Computicket."
+		else:
+			finance_msg = f" Movimentação financeira (PS {ps_number}) excluída do Unico e do Computicket."
+	else:
+		finance_msg = " A OS não tinha movimentação financeira."
+	return jsonify({
+		"success": True,
+		"message": f"OS {order.codigo} cancelada com sucesso." + finance_msg,
+		"service_order": {
+			"id": order.id,
+			"codigo": order.codigo,
+			"status": order.status,
+			"status_text": order.status_text(),
+			"cancelled_at": order.cancelled_at.isoformat() if order.cancelled_at else None,
+			"cancelled_by_id": order.cancelled_by_id,
+			"cancellation_reason": order.cancellation_reason,
+			"cancelled_ps_number": order.cancelled_ps_number,
+			"unico_deleted": unico_deleted,
+		},
+	})
 
 
 @bp.route("/pdf/<filename>")

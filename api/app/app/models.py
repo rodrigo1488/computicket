@@ -828,12 +828,34 @@ class ServiceOrder(db.Model):
 	# Arquivos gerados
 	ps_file = db.Column(db.String(200), nullable=True)  # Nome do arquivo PS
 	delivery_file = db.Column(db.String(200), nullable=True)  # Nome do arquivo recibo
+
+	# Cancelamento (auditoria). A OS cancelada fica com status=OS_STATUS_CANCELADA,
+	# ps_number/ps_generated limpos e value=0; os valores originais ficam em cancelled_*.
+	cancelled_at = db.Column(db.DateTime, nullable=True)
+	cancelled_by_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=True)
+	cancellation_reason = db.Column(db.Text, nullable=True)
+	cancelled_prev_status = db.Column(db.Integer, nullable=True)
+	cancelled_ps_number = db.Column(db.String(50), nullable=True)
+	cancelled_value = db.Column(db.Float, nullable=True)
+	cancelled_unico_deleted = db.Column(db.Integer, nullable=True)  # lançamentos excluídos no Unico
+
+	OS_STATUS_CANCELADA = 9
+
+	def is_cancelled(self) -> bool:
+		return self.status == self.OS_STATUS_CANCELADA or self.cancelled_at is not None
 	
 	def formatted_completion_date(self) -> str:
 		"""Formata a data de finalização"""
 		from .timezone_utils import format_datetime_brasilia
 		return format_datetime_brasilia(self.completion_date)
 	
+	def formatted_cancelled_at(self) -> str | None:
+		"""Formata a data de cancelamento (None se não cancelada)"""
+		if not self.cancelled_at:
+			return None
+		from .timezone_utils import format_datetime_brasilia
+		return format_datetime_brasilia(self.cancelled_at)
+
 	def formatted_opening_date(self) -> str:
 		"""Formata a data de abertura"""
 		if self.opening_date:
@@ -843,6 +865,8 @@ class ServiceOrder(db.Model):
 	
 	def status_text(self) -> str:
 		"""Retorna o texto do status"""
+		if self.is_cancelled():
+			return "Cancelada"
 		if self.status == 3:
 			return "Finalizada sem cobrança"
 		elif self.status == 5:
