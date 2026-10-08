@@ -1,6 +1,6 @@
 from flask import Blueprint, current_app, render_template, request, redirect, url_for, flash, jsonify, send_file
 from flask_login import login_required, current_user
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 import os
 import base64
 import uuid
@@ -32,6 +32,10 @@ from ..services.faturamento_products import (
 	validate_products,
 	create_dav,
 )
+
+# Idade mínima (dias, estritamente maior) para o admin cancelar um ticket pelo fluxo "ticket antigo".
+STALE_CANCEL_MIN_AGE_DAYS = 7
+
 
 def save_signature_file(signature_data, ticket_id, user_id):
     """
@@ -2641,6 +2645,9 @@ def _serialize_ticket_card(ticket: Ticket) -> dict:
 		"ps_printed": bool(ticket.ps_printed),
 		"ps_number": ticket.ps_number,
 		"closed_at": _fmt_ticket_dt(ticket.closed_at),
+		"stale_cancel_eligible": (
+			not _ticket_is_cancelled(ticket) and ticket_exceeds_cancel_age(ticket)
+		),
 	}
 
 
@@ -3589,6 +3596,71 @@ def api_cancel_ticket(ticket_id: int):
 	notify_helpdesk_ticket(
 		ticket.id,
 		f"Ticket #{ticket.id} cancelado por {current_user.name}."
+		+ (f"\nMotivo: {reason}" if reason else ""),
+	)
+	return jsonify({
+		"success": True,
+		"message": (
+			f"Ticket #{ticket.id} cancelado com sucesso"
+			+ (f" e PS {ps_number} removida do Unico." if ps_number else ".")
+		),
+		"ticket": _serialize_ticket_detail(ticket),
+	})
+
+
+def _utc_now_naive() -> datetime:
+	"""Agora em UTC sem tzinfo (mesmo formato de Ticket.created_at)."""
+	return brasilia_to_utc(get_brasilia_now()).replace(tzinfo=None)
+
+
+def ticket_exceeds_cancel_age(ticket: Ticket, now: datetime | None = None) -> bool:
+	"""True se o ticket foi criado há MAIS de STALE_CANCEL_MIN_AGE_DAYS dias (limite exato não conta)."""
+	created = ticket.created_at
+	if created is None:
+		return False
+	if created.tzinfo is not None:
+		created = created.astimezone(timezone.utc).replace(tzinfo=None)
+	return ((now or _utc_now_naive()) - created) > timedelta(days=STALE_CANCEL_MIN_AGE_DAYS)
+
+
+@bp.route("/api/<int:ticket_id>/cancel-stale", methods=["POST"])
+@login_required
+def api_cancel_stale_ticket(ticket_id: int):
+	"""Admin cancela ticket com mais de 7 dias de criação (registra quem/quando/motivo)."""
+	if not current_user.has_role("admin"):
+		return jsonify({"error": "Apenas administradores podem cancelar tickets antigos."}), 403
+
+	ticket = _lock_ticket(ticket_id)
+	if _ticket_is_cancelled(ticket):
+		return jsonify({"error": f"Ticket #{ticket_id} já está cancelado."}), 409
+	if not ticket_exceeds_cancel_age(ticket):
+		return jsonify({
+			"error": (
+				f"Só é possível cancelar por este fluxo tickets criados há mais de "
+				f"{STALE_CANCEL_MIN_AGE_DAYS} dias."
+			),
+			"min_age_days": STALE_CANCEL_MIN_AGE_DAYS,
+		}), 400
+
+	data = request.get_json(silent=True) or {}
+	reason = (data.get("reason") or "").strip()
+	ps_number = ticket.ps_number
+	try:
+		if ps_number:
+			_delete_ticket_ps_from_unico(ps_number)
+		_mark_ticket_cancelled(ticket, reason=reason, ps_number=ps_number)
+		db.session.commit()
+	except Exception as exc:
+		db.session.rollback()
+		current_app.logger.exception("Falha ao cancelar ticket antigo #%s", ticket_id)
+		return jsonify({
+			"error": f"Não foi possível cancelar o ticket: {exc}",
+			"details": "O ticket local foi preservado. Verifique a conexão com o Unico." if ps_number else None,
+		}), 502
+
+	notify_helpdesk_ticket(
+		ticket.id,
+		f"Ticket #{ticket.id} cancelado por {current_user.name} (ticket com mais de {STALE_CANCEL_MIN_AGE_DAYS} dias)."
 		+ (f"\nMotivo: {reason}" if reason else ""),
 	)
 	return jsonify({

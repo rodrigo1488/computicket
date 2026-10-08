@@ -1,7 +1,7 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Ban, Hand, Play, Plus, RotateCcw, Share2, Square } from "lucide-react";
+import { Ban, CalendarX2, Hand, Play, Plus, RotateCcw, Share2, Square } from "lucide-react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
@@ -68,6 +68,8 @@ function TicketsPageInner() {
   const [createOpen, setCreateOpen] = useState(false);
   const [cancelTarget, setCancelTarget] = useState<TicketRow | null>(null);
   const [cancelReason, setCancelReason] = useState("");
+  const [staleCancelTarget, setStaleCancelTarget] = useState<TicketRow | null>(null);
+  const [staleCancelReason, setStaleCancelReason] = useState("");
   const [reopenTarget, setReopenTarget] = useState<TicketRow | null>(null);
   const [reopenReason, setReopenReason] = useState("");
   const [shareTarget, setShareTarget] = useState<ShareToChatTarget | null>(null);
@@ -132,6 +134,23 @@ function TicketsPageInner() {
     },
     onError: onErr,
   });
+  const cancelStaleTicket = useMutation({
+    mutationFn: ({ id, reason }: { id: number; reason: string }) =>
+      flask.post<{ message?: string }>(`/tickets/api/${id}/cancel-stale`, { reason }),
+    onSuccess: (result) => {
+      setStaleCancelTarget(null);
+      setStaleCancelReason("");
+      setErr("");
+      invalidate();
+      if (result.message) window.alert(result.message);
+    },
+    onError: (e: Error) => {
+      // Fecha o diálogo e mostra o erro do backend (400/403/409...) na página; recarrega a lista.
+      setStaleCancelTarget(null);
+      setErr(e.message);
+      invalidate();
+    },
+  });
   const reopenTicket = useMutation({
     mutationFn: ({ id, reason }: { id: number; reason: string }) =>
       flask.post<{ message?: string }>(`/tickets/api/${id}/reopen`, { reason }),
@@ -145,7 +164,9 @@ function TicketsPageInner() {
     onError: onErr,
   });
   const busy =
-    start.isPending || stop.isPending || assume.isPending || cancelTicket.isPending || reopenTicket.isPending;
+    start.isPending || stop.isPending || assume.isPending || cancelTicket.isPending ||
+    cancelStaleTicket.isPending ||
+    reopenTicket.isPending;
 
   return (
     <div>
@@ -342,6 +363,23 @@ function TicketsPageInner() {
                   }}
                 />
               ) : null}
+              {isAdmin && t.status !== "cancelado" ? (
+                <IconAction
+                  label="Cancelar ticket antigo"
+                  icon={CalendarX2}
+                  danger
+                  disabled={busy || !t.stale_cancel_eligible}
+                  title={
+                    t.stale_cancel_eligible
+                      ? "Cancelar ticket com mais de 7 dias"
+                      : "Disponível apenas para tickets criados há mais de 7 dias"
+                  }
+                  onClick={() => {
+                    setStaleCancelReason("");
+                    setStaleCancelTarget(t);
+                  }}
+                />
+              ) : null}
               {(isAdmin && t.status === "fechado") ||
               (!closed && (isAdmin || mine || t.opened_by_id === uid)) ? (
                 <IconAction
@@ -381,6 +419,19 @@ function TicketsPageInner() {
         onConfirm={() => {
           if (!cancelTarget) return;
           cancelTicket.mutate({ id: cancelTarget.id, reason: cancelReason.trim() });
+        }}
+      />
+      <CancelTicketDialog
+        title="Cancelar ticket antigo"
+        description="Este ticket foi criado há mais de 7 dias. Ele será marcado como cancelado e o seu usuário e a data ficam registrados para auditoria. Apontamentos e valores são preservados."
+        ticket={staleCancelTarget}
+        reason={staleCancelReason}
+        pending={cancelStaleTicket.isPending}
+        onReason={setStaleCancelReason}
+        onClose={() => setStaleCancelTarget(null)}
+        onConfirm={() => {
+          if (!staleCancelTarget) return;
+          cancelStaleTicket.mutate({ id: staleCancelTarget.id, reason: staleCancelReason.trim() });
         }}
       />
       <ReopenTicketDialog

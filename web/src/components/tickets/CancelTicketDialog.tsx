@@ -16,7 +16,12 @@ export function CancelTicketDialog({
   onReason,
   onClose,
   onConfirm,
+  title,
+  description,
 }: {
+  title?: string;
+  /** Substitui o texto explicativo padrão (ex.: cancelamento de ticket antigo). */
+  description?: string;
   ticket: CancelTarget | null;
   reason: string;
   pending: boolean;
@@ -31,7 +36,7 @@ export function CancelTicketDialog({
       onClose={() => {
         if (!pending) onClose();
       }}
-      title={closed ? "Cancelar ticket fechado" : "Cancelar ticket"}
+      title={title ?? (closed ? "Cancelar ticket fechado" : "Cancelar ticket")}
     >
       {ticket ? (
         <div>
@@ -40,9 +45,10 @@ export function CancelTicketDialog({
               Ticket #{ticket.id} · {ticket.title}
             </p>
             <p className="mt-1">
-              {closed
-                ? "O ticket será marcado como cancelado. Apontamentos e valor serão preservados para auditoria."
-                : "O ticket será marcado como cancelado. Apontamentos já lançados ficam no histórico; a sessão em andamento é encerrada sem gerar um novo apontamento."}
+              {description ??
+                (closed
+                  ? "O ticket será marcado como cancelado. Apontamentos e valor serão preservados para auditoria."
+                  : "O ticket será marcado como cancelado. Apontamentos já lançados ficam no histórico; a sessão em andamento é encerrada sem gerar um novo apontamento.")}
               {ticket.ps_number ? ` A PS ${ticket.ps_number} será removida do Unico.` : ""}
             </p>
           </div>

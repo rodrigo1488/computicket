@@ -71,6 +71,8 @@ export type TicketCard = {
   ps_printed?: boolean;
   ps_number?: string | null;
   closed_at?: string | null;
+  /** true quando o ticket tem mais de 7 dias e ainda não foi cancelado (regra calculada no backend). */
+  stale_cancel_eligible?: boolean;
 };
 
 export type TicketAddon = {
