@@ -9,15 +9,16 @@ import formatBody from "../../helpers/Mustache";
 import SendWhatsAppMessage from "../WbotServices/SendWhatsAppMessage";
 import { verifyMessage } from "../WbotServices/wbotMessageListener";
 import UpdateTicketService from "./UpdateTicketService";
+import { isAutoCloseEnabled } from "../../helpers/companyFeatureFlags";
+import {
+  decideCompanyAutoClose,
+  type AutoCloseCache
+} from "../../helpers/helpdeskAutomationGuards";
 
 const DEFAULT_WARNING =
   "Este chat será encerrado em {{minutos}} minutos por falta de interação.";
 
-type WarnCache = {
-  anchor: string;
-  warned: boolean;
-  warningBody?: string;
-};
+type WarnCache = AutoCloseCache;
 
 const cacheKey = (ticketId: number) => `autoCloseWarned:${ticketId}`;
 
@@ -29,14 +30,6 @@ const parseMinutes = (raw?: string | null): number => {
 
 const replaceMinutes = (template: string, minutes: number): string =>
   template.replace(/\{\{\s*minutos\s*\}\}/gi, String(minutes));
-
-const sameText = (a?: string | null, b?: string | null): boolean =>
-  String(a || "")
-    .replace(/\u200e/g, "")
-    .trim() ===
-  String(b || "")
-    .replace(/\u200e/g, "")
-    .trim();
 
 const readCache = async (ticketId: number): Promise<WarnCache | null> => {
   try {
@@ -71,25 +64,9 @@ const clearCache = async (ticketId: number): Promise<void> => {
   }
 };
 
-const isActiveFlow = (ticket: Ticket): boolean => {
-  if (ticket.flowWebhook) return true;
-  if (ticket.chatbot) return true;
-  if (ticket.useIntegration) return true;
-  return false;
-};
-
-const resolveAnchor = (ticket: Ticket, cached: WarnCache | null): Date => {
-  const updatedAt = new Date(ticket.updatedAt);
-  if (!cached?.warned) return updatedAt;
-  const warningBody = (cached.warningBody || "").trim();
-  const last = String(ticket.lastMessage || "").trim();
-  if (warningBody && last && sameText(last, warningBody)) {
-    return new Date(cached.anchor);
-  }
-  return updatedAt;
-};
-
 const processCompany = async (companyId: number): Promise<void> => {
+  if (!(await isAutoCloseEnabled(companyId))) return;
+
   const settings = await Setting.findAll({
     where: {
       companyId,
@@ -120,30 +97,29 @@ const processCompany = async (companyId: number): Promise<void> => {
   for (const ticket of tickets) {
     try {
       if (!ticket.whatsappId) continue;
-      if (isActiveFlow(ticket)) continue;
 
       const cached = await readCache(ticket.id);
-      const warned =
-        !!cached?.warned &&
-        !!cached.warningBody &&
-        sameText(ticket.lastMessage, cached.warningBody);
-      // Só conta inatividade quando a última fala é do contato (sem retorno).
-      // Depois do aviso o lastMessage passa a ser nosso — o cache mantém o ciclo.
-      if (ticket.fromMe && !warned) {
-        await clearCache(ticket.id);
+      const decision = decideCompanyAutoClose({
+        autoCloseEnabled: true,
+        queueId: ticket.queueId,
+        userId: ticket.userId,
+        chatbot: ticket.chatbot,
+        flowWebhook: ticket.flowWebhook,
+        useIntegration: ticket.useIntegration,
+        lastMessage: ticket.lastMessage,
+        updatedAt: new Date(ticket.updatedAt),
+        now,
+        warnAfterMs,
+        closeAfterMs,
+        cached
+      });
+
+      if (decision.type === "skip" || decision.type === "wait") {
+        if (decision.clearCache) await clearCache(ticket.id);
         continue;
       }
 
-      const anchor = resolveAnchor(ticket, cached);
-      const idleMs = now - anchor.getTime();
-      if (idleMs < warnAfterMs) {
-        if (cached && cached.anchor !== anchor.toISOString()) {
-          await clearCache(ticket.id);
-        }
-        continue;
-      }
-
-      if (idleMs >= closeAfterMs) {
+      if (decision.type === "close") {
         await UpdateTicketService({
           ticketData: { status: "closed" },
           ticketId: ticket.id,
@@ -159,17 +135,8 @@ const processCompany = async (companyId: number): Promise<void> => {
         continue;
       }
 
-      const alreadyWarned =
-        cached?.warned &&
-        cached.anchor === anchor.toISOString() &&
-        !!cached.warningBody &&
-        sameText(ticket.lastMessage, cached.warningBody);
-      if (alreadyWarned) continue;
-
-      const remaining = Math.max(
-        1,
-        Math.ceil((closeAfterMs - idleMs) / 60_000)
-      );
+      const remaining = decision.remainingMinutes;
+      const anchor = decision.anchor;
       if (!ticket.contact) continue;
       const rendered = replaceMinutes(template, remaining);
       const body = formatBody(`\u200e${rendered}`, ticket.contact);

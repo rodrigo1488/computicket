@@ -1,12 +1,11 @@
 import { Op } from "sequelize";
 import Whatsapp from "../../models/Whatsapp";
 import Ticket from "../../models/Ticket";
-import CloseTicketsByWhatsAppIdService from "./CloseTicketsByWhatsAppIdService";
 import { logger } from "../../utils/logger";
 
 /**
- * Fecha todos os tickets (chats) que estão "travados" porque a conexão WhatsApp
- * está desconectada ou foi excluída. Deve rodar na subida do servidor e diariamente (ex.: 00:00).
+ * Fecha tickets órfãos, cuja conexão WhatsApp foi excluída.
+ * Status DISCONNECTED não encerra conversas: uma queda breve não pode zerar a fila.
  */
 const CloseStuckTicketsFromDisconnectedWhatsAppService = async (): Promise<{
   disconnectedClosed: number;
@@ -17,17 +16,8 @@ const CloseStuckTicketsFromDisconnectedWhatsAppService = async (): Promise<{
   let orphanClosed = 0;
 
   try {
-    // 1) Conexões com status DISCONNECTED: fechar todos os tickets dessas conexões
-    const disconnectedWhatsapps = await Whatsapp.findAll({
-      where: { status: "DISCONNECTED" },
-      attributes: ["id"]
-    });
-
-    for (const w of disconnectedWhatsapps) {
-      const count = await CloseTicketsByWhatsAppIdService(w.id);
-      disconnectedClosed += count;
-    }
-
+    // Queda ou status DISCONNECTED não encerra a fila. Só some o ticket
+    // cuja conexão foi apagada de fato.
     // 2) Tickets órfãos: whatsappId que não existe mais (conexão foi excluída)
     const validWhatsappIds = await Whatsapp.findAll({ attributes: ["id"] });
     const validIds = validWhatsappIds.map((w) => w.id);

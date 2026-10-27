@@ -317,6 +317,8 @@ export type BusinessHours = {
   outOfHoursMessage?: string;
   autoCloseMinutes?: number;
   autoCloseWarningMessage?: string;
+  autoCloseEnabled?: boolean;
+  sectorMenuEnabled?: boolean;
 };
 
 export type BusinessHoursPayload = {
@@ -325,6 +327,8 @@ export type BusinessHoursPayload = {
   outOfHoursMessage?: string;
   autoCloseMinutes?: number;
   autoCloseWarningMessage?: string;
+  autoCloseEnabled?: boolean;
+  sectorMenuEnabled?: boolean;
 };
 
 export type TransferPayload = {

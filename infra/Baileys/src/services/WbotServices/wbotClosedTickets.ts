@@ -8,8 +8,12 @@ import moment from "moment";
 import ShowTicketService from "../TicketServices/ShowTicketService";
 import { verifyMessage } from "./wbotMessageListener";
 import TicketTraking from "../../models/TicketTraking";
+import { isAutoCloseEnabled } from "../../helpers/companyFeatureFlags";
+import { shouldCloseForConnectionExpiry } from "../../helpers/helpdeskAutomationGuards";
+import { logger } from "../../utils/logger";
 
 export const ClosedAllOpenTickets = async (companyId: number): Promise<void> => {
+  if (!(await isAutoCloseEnabled(companyId))) return;
 
   // @ts-ignore: Unreachable code error
   const closeTicket = async (ticket: any, currentStatus: any, body: any) => {
@@ -51,7 +55,8 @@ export const ClosedAllOpenTickets = async (companyId: number): Promise<void> => 
       order: [["updatedAt", "DESC"]]
     });
 
-    tickets.forEach(async ticket => {
+    for (const ticket of tickets) {
+      try {
       const showTicket = await ShowTicketService(ticket.id, companyId);
       const whatsapp = await Whatsapp.findByPk(showTicket?.whatsappId);
       const ticketTraking = await TicketTraking.findOne({
@@ -61,58 +66,60 @@ export const ClosedAllOpenTickets = async (companyId: number): Promise<void> => 
         }
       })
 
-      if (!whatsapp) return;
+      if (!whatsapp || !ticketTraking) continue;
 
-      let {
-        expiresInactiveMessage, //mensage de encerramento por inatividade      
-        expiresTicket //tempo em horas para fechar ticket automaticamente
-      } = whatsapp
+      const {
+        expiresInactiveMessage,
+        expiresTicket
+      } = whatsapp;
 
+      const hours = Number(expiresTicket);
+      if (!Number.isFinite(hours) || hours <= 0) continue;
 
-      // @ts-ignore: Unreachable code error
-      if (expiresTicket && expiresTicket !== "" &&
-        // @ts-ignore: Unreachable code error
-        expiresTicket !== "0" && Number(expiresTicket) > 0) {
+      const shouldClose = shouldCloseForConnectionExpiry({
+        status: showTicket.status,
+        isGroup: showTicket.isGroup,
+        fromMe: showTicket.fromMe,
+        queueId: showTicket.queueId,
+        userId: showTicket.userId,
+        chatbot: showTicket.chatbot,
+        flowWebhook: showTicket.flowWebhook,
+        useIntegration: showTicket.useIntegration,
+        updatedAt: new Date(showTicket.updatedAt),
+        expiresTicketHours: hours,
+        now: new Date()
+      });
+      if (!shouldClose) continue;
 
-        //mensagem de encerramento por inatividade
-        const bodyExpiresMessageInactive = formatBody(`\u200e ${expiresInactiveMessage}`, showTicket.contact);
+      const bodyExpiresMessageInactive = formatBody(`\u200e ${expiresInactiveMessage}`, showTicket.contact);
 
-        const dataLimite = new Date()
-        dataLimite.setMinutes(dataLimite.getMinutes() - Number(expiresTicket));
-
-        if (showTicket.status === "open" && !showTicket.isGroup) {
-
-          const dataUltimaInteracaoChamado = new Date(showTicket.updatedAt)
-
-          if (dataUltimaInteracaoChamado < dataLimite && showTicket.fromMe) {
-
-            // Enviar mensagem de inatividade ANTES de fechar o ticket para evitar race condition:
-            // se fechássemos primeiro, o eco (fromMe=true) da mensagem chegaria com o ticket já
-            // em "closed" e FindOrCreateTicketService o reabriria indevidamente para "pending".
-            if (expiresInactiveMessage !== "" && expiresInactiveMessage !== undefined) {
-              const sentMessage = await SendWhatsAppMessage({ body: bodyExpiresMessageInactive, ticket: showTicket });
-
-              await verifyMessage(sentMessage, showTicket, showTicket.contact);
-            }
-
-            closeTicket(showTicket, showTicket.status, bodyExpiresMessageInactive);
-
-            await ticketTraking.update({
-              finishedAt: moment().toDate(),
-              closedAt: moment().toDate(),
-              whatsappId: ticket.whatsappId,
-              userId: ticket.userId,
-            })
-
-            io.to("open").emit(`company-${companyId}-ticket`, {
-              action: "delete",
-              ticketId: showTicket.id
-            });
-
-          }
-        }
+      if (expiresInactiveMessage !== "" && expiresInactiveMessage !== undefined) {
+        const sentMessage = await SendWhatsAppMessage({ body: bodyExpiresMessageInactive, ticket: showTicket });
+        await verifyMessage(sentMessage, showTicket, showTicket.contact);
       }
-    });
+
+      await closeTicket(showTicket, showTicket.status, bodyExpiresMessageInactive);
+
+      await ticketTraking.update({
+        finishedAt: moment().toDate(),
+        closedAt: moment().toDate(),
+        whatsappId: ticket.whatsappId,
+        userId: ticket.userId,
+      })
+
+      io.to("open").emit(`company-${companyId}-ticket`, {
+        action: "delete",
+        ticketId: showTicket.id
+      });
+      } catch (err: any) {
+        logger.warn({
+          msg: "ClosedAllOpenTickets: falha ao processar ticket",
+          ticketId: ticket.id,
+          companyId,
+          error: err?.message || err
+        });
+      }
+    }
 
   } catch (e: any) {
     console.log('e', e)

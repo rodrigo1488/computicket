@@ -773,6 +773,13 @@ def _settings_by_key(raw) -> dict[str, str]:
     return out
 
 
+def _feature_enabled(settings: dict[str, str], key: str) -> bool:
+    raw = (settings.get(key) or "").strip().lower()
+    if not raw:
+        return True
+    return raw != "disabled"
+
+
 def _company_ooh_message(settings: dict[str, str]) -> str:
     for key in _COMPANY_OOH_KEYS:
         value = (settings.get(key) or "").strip()
@@ -803,6 +810,8 @@ def _business_hours_payload(company_id: int) -> dict:
         "outOfHoursMessage": _company_ooh_message(settings),
         "autoCloseMinutes": auto_close_minutes,
         "autoCloseWarningMessage": (settings.get("autoCloseWarningMessage") or "").strip(),
+        "autoCloseEnabled": _feature_enabled(settings, "autoCloseEnabled"),
+        "sectorMenuEnabled": _feature_enabled(settings, "sectorMenuEnabled"),
     }
 
 
@@ -2050,8 +2059,20 @@ def update_business_hours():
         if auto_close_minutes > 10080:
             auto_close_minutes = 10080
         warning = str(payload.get("autoCloseWarningMessage") or "").strip()
+        auto_close_enabled = payload.get("autoCloseEnabled", True)
+        sector_menu_enabled = payload.get("sectorMenuEnabled", True)
         admin_request("PUT", "/settings/autoCloseMinutes", json={"value": str(auto_close_minutes)})
         admin_request("PUT", "/settings/autoCloseWarningMessage", json={"value": warning})
+        admin_request(
+            "PUT",
+            "/settings/autoCloseEnabled",
+            json={"value": "enabled" if auto_close_enabled else "disabled"},
+        )
+        admin_request(
+            "PUT",
+            "/settings/sectorMenuEnabled",
+            json={"value": "enabled" if sector_menu_enabled else "disabled"},
+        )
         return jsonify(_business_hours_payload(company_id))
     except EngineError as exc:
         return _fail(exc)

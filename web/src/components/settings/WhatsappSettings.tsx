@@ -452,6 +452,8 @@ function BusinessHoursPanel() {
   const [outOfHours, setOutOfHours] = useState("");
   const [autoCloseMinutes, setAutoCloseMinutes] = useState("0");
   const [autoCloseWarning, setAutoCloseWarning] = useState("");
+  const [autoCloseOn, setAutoCloseOn] = useState(true);
+  const [sectorMenuOn, setSectorMenuOn] = useState(true);
 
   useEffect(() => {
     if (!hours.data) return;
@@ -461,6 +463,8 @@ function BusinessHoursPanel() {
     setOutOfHours(hours.data.outOfHoursMessage || "");
     setAutoCloseMinutes(String(hours.data.autoCloseMinutes ?? 0));
     setAutoCloseWarning(hours.data.autoCloseWarningMessage || "");
+    setAutoCloseOn(hours.data.autoCloseEnabled !== false);
+    setSectorMenuOn(hours.data.sectorMenuEnabled !== false);
   }, [hours.data]);
 
   const save = useMutation({
@@ -472,6 +476,8 @@ function BusinessHoursPanel() {
         outOfHoursMessage: outOfHours,
         autoCloseMinutes: minutes,
         autoCloseWarningMessage: autoCloseWarning,
+        autoCloseEnabled: autoCloseOn,
+        sectorMenuEnabled: sectorMenuOn,
       };
       return helpdesk.updateBusinessHours(payload);
     },
@@ -514,28 +520,60 @@ function BusinessHoursPanel() {
             placeholder="No momento estamos fora do horário de atendimento. Retornamos em breve."
             hint="Enviada no WhatsApp quando a empresa está fechada. Se vazia, usa a mensagem da conexão."
           />
-          <div className="border-t border-line pt-5">
-            <p className="mb-3 text-sm text-muted">
-              Encerramento automático: se ninguém interagir no ticket, na metade do tempo o sistema avisa; no fim, fecha
-              o atendimento. Tickets no meio de um fluxo de automação não são fechados. Use 0 para desligar.
-            </p>
-            <UnderlineField
-              label="Encerrar após (minutos)"
-              type="number"
-              value={autoCloseMinutes}
-              onChange={setAutoCloseMinutes}
-              placeholder="0"
-              hint="Ex.: 10 — aviso aos 5 minutos, encerramento aos 10. Qualquer mensagem no chat reinicia a contagem."
-            />
-            <div className="mt-4">
-              <TextArea
-                label="Mensagem de aviso (metade do período)"
-                value={autoCloseWarning}
-                onChange={setAutoCloseWarning}
-                placeholder="Este chat será encerrado em {{minutos}} minutos por falta de interação."
-                hint="Use {{minutos}} para o tempo que falta até o encerramento. Se vazia, o sistema usa um texto padrão."
+          <div className="border-t border-line pt-5 space-y-4">
+            <label className="flex items-start gap-2 text-sm text-ink">
+              <input
+                type="checkbox"
+                className="mt-1"
+                checked={autoCloseOn}
+                onChange={(e) => setAutoCloseOn(e.target.checked)}
               />
-            </div>
+              <span>
+                Encerramento automático
+                <span className="mt-0.5 block text-xs text-muted">
+                  Desligado, nenhuma conversa fecha sozinha por prazo, inatividade ou queda da conexão. Resolver e
+                  Rejeitar continuam manuais.
+                </span>
+              </span>
+            </label>
+            {autoCloseOn ? (
+              <>
+                <p className="text-sm text-muted">
+                  Se ninguém interagir no ticket, na metade do tempo o sistema avisa; no fim, fecha o atendimento.
+                  Conversa que ainda espera o setor, ou que está no meio de um fluxo, não entra nessa contagem.
+                </p>
+                <UnderlineField
+                  label="Encerrar após (minutos)"
+                  type="number"
+                  value={autoCloseMinutes}
+                  onChange={setAutoCloseMinutes}
+                  placeholder="0"
+                  hint="Ex.: 10 — aviso aos 5 minutos, encerramento aos 10. Mensagem do cliente ou do atendente reinicia a contagem."
+                />
+                <TextArea
+                  label="Mensagem de aviso (metade do período)"
+                  value={autoCloseWarning}
+                  onChange={setAutoCloseWarning}
+                  placeholder="Este chat será encerrado em {{minutos}} minutos por falta de interação."
+                  hint="Use {{minutos}} para o tempo que falta até o encerramento. Se vazia, o sistema usa um texto padrão."
+                />
+              </>
+            ) : null}
+            <label className="flex items-start gap-2 text-sm text-ink">
+              <input
+                type="checkbox"
+                className="mt-1"
+                checked={sectorMenuOn}
+                onChange={(e) => setSectorMenuOn(e.target.checked)}
+              />
+              <span>
+                Menu de setor na saudação
+                <span className="mt-0.5 block text-xs text-muted">
+                  Desligado, o WhatsApp não envia a saudação nem a lista de setores e não recomeça o fluxo de
+                  boas-vindas. A conversa entra para um atendente assumir.
+                </span>
+              </span>
+            </label>
           </div>
           {save.error ? <p className="text-sm text-open">{(save.error as Error).message}</p> : null}
           {save.isSuccess ? <p className="text-sm text-done">Configurações salvas.</p> : null}

@@ -50,7 +50,8 @@ import { buildChatMutexKey, runWithChatMutex } from "../../utils/ticketChatMutex
 import { getMessageCreatedAt, getMessageTimestampSeconds } from "../../helpers/messageTimestamp";
 import {
   isAutomatedInboundMessage,
-  isDuplicateAutomatedEcho
+  isDuplicateAutomatedEcho,
+  normalizeMessageBodyForComparison
 } from "../../helpers/automatedMessage";
 import {
   shouldSendConnectionGreeting,
@@ -58,6 +59,12 @@ import {
   tryClaimConnectionGreeting
 } from "../../helpers/connectionGreetingLimit";
 import { hasOpenedComputicketChamado } from "../../helpers/flowTicketGuard";
+import { isSectorMenuEnabled } from "../../helpers/companyFeatureFlags";
+import {
+  sectorMenuAlreadyShown,
+  shouldStartSectorAutomation,
+  shouldSuppressRepeatedMenu
+} from "../../helpers/helpdeskAutomationGuards";
 import { isSupportTicket } from "../../helpers/supportContactRouting";
 import { runWithFfmpegConcurrency } from "../../utils/ffmpegConcurrency";
 import CreateOrUpdateContactService from "../ContactServices/CreateOrUpdateContactService";
@@ -2247,6 +2254,10 @@ const verifyQueue = async (
 
   const companyId = ticket.companyId;
 
+  if (!(await isSectorMenuEnabled(companyId))) {
+    return;
+  }
+
   const whatsappConn = await ShowWhatsAppService(wbot.id!, ticket.companyId);
   const { queues, greetingMessage, maxUseBotQueues, timeUseBotQueues } =
     whatsappConn;
@@ -2568,53 +2579,38 @@ const verifyQueue = async (
       }
     }
   } else {
-    if (
-      maxUseBotQueues &&
-      maxUseBotQueues !== 0 &&
-      ticket.amountUsedBotQueues >= maxUseBotQueues
-    ) {
-      // await UpdateTicketService({
-      //   ticketData: { queueId: queues[0].id },
-      //   ticketId: ticket.id
-      // });
-
-      return;
-    }
-
-    //Regra para desabilitar o chatbot por x minutos/horas após o primeiro envio
+    const requestedMenu = selectedOption === "#";
     const ticketTraking = await FindOrCreateATicketTrakingService({
       ticketId: ticket.id,
       companyId
     });
-    let dataLimite = new Date();
-    let Agora = new Date();
 
-    if (ticketTraking.chatbotAt !== null) {
-      dataLimite.setMinutes(
-        ticketTraking.chatbotAt.getMinutes() + Number(timeUseBotQueues)
-      );
-
-      if (
-        ticketTraking.chatbotAt !== null &&
-        Agora < dataLimite &&
-        timeUseBotQueues !== "0" &&
-        ticket.amountUsedBotQueues !== 0
-      ) {
-        return;
-      }
-    }
-    await ticketTraking.update({
-      chatbotAt: null
-    });
-
-    // "#" pede o menu de propósito — não bloquear pelo claim da saudação automática
-    if (selectedOption !== "#" && !(await tryClaimConnectionGreeting(ticket))) {
+    if (
+      shouldSuppressRepeatedMenu({
+        requestedMenu,
+        amountUsedBotQueues: ticket.amountUsedBotQueues || 0,
+        maxUseBotQueues: Number(maxUseBotQueues) || 0,
+        chatbotAt: ticketTraking.chatbotAt,
+        now: new Date(),
+        timeUseBotQueuesMinutes: Number(timeUseBotQueues) || 0
+      })
+    ) {
       return;
     }
 
-    if (buttonActive.value === "text") {
-      return botText();
+    const sendTextMenu = !buttonActive || buttonActive.value === "text";
+    if (!sendTextMenu) return;
+
+    if (!requestedMenu && !(await tryClaimConnectionGreeting(ticket))) {
+      return;
     }
+
+    await botText();
+    await ticket.update({
+      amountUsedBotQueues: Number(ticket.amountUsedBotQueues || 0) + 1,
+      ...(requestedMenu ? { lastGreetingSentAt: new Date() } : {})
+    });
+    await ticketTraking.update({ chatbotAt: new Date() });
   }
 };
 
@@ -2749,7 +2745,9 @@ const handleChartbot = async (
   const messageBody = getBodyMessage(msg);
 
   if (messageBody == "#") {
-    // voltar para o menu inicial
+    if (!(await isSectorMenuEnabled(ticket.companyId))) {
+      return;
+    }
     await ticket.update({ queueOptionId: null, chatbot: false, queueId: null });
     await verifyQueue(wbot, msg, ticket, ticket.contact);
     return;
@@ -3334,6 +3332,21 @@ const flowbuilderIntegration = async (
     return false;
   }
 
+  const sectorMenuOn = await isSectorMenuEnabled(ticket.companyId);
+  if (
+    !shouldStartSectorAutomation({
+      sectorMenuEnabled: sectorMenuOn,
+      requestedMenu: normalizeMessageBodyForComparison(body) === "#",
+      alreadyShown: sectorMenuAlreadyShown(ticket)
+    })
+  ) {
+    logger.info({
+      msg: "FlowBuilder: menu de setor já exibido ou desligado — fluxo não reiniciado",
+      ticketId: ticket.id
+    });
+    return false;
+  }
+
   return startFlowBuilderForTicket(
     resolvedFlowId,
     whatsapp.id,
@@ -3706,13 +3719,27 @@ const handleMessage = async (
     // voltar para o menu inicial
 
     if (bodyMessage == "#") {
-      if (!companyClosed) {
+      if (!companyClosed && (await isSectorMenuEnabled(companyId))) {
         await ticket.update({
           queueOptionId: null,
           chatbot: false,
-          queueId: null
+          queueId: null,
+          flowWebhook: false,
+          lastFlowId: null,
+          flowStopped: null,
+          lastGreetingSentAt: null
         });
-        await verifyQueue(wbot, msg, ticket, ticket.contact);
+        if (hasWelcomeFlow(whatsapp)) {
+          await startFlowBuilderForTicket(
+            Number(whatsapp.flowIdWelcome),
+            whatsapp.id,
+            ticket,
+            contact,
+            msg
+          );
+        } else {
+          await verifyQueue(wbot, msg, ticket, ticket.contact);
+        }
         return;
       }
     }
@@ -4395,7 +4422,16 @@ const handleMessage = async (
 
     logger.debug('VERIFICACAO FLOWBUILDER', checkFlowBuilder);
 
+    await ticket.reload();
+    const sectorMenuOn = await isSectorMenuEnabled(companyId);
+    const restartWelcome = shouldStartSectorAutomation({
+      sectorMenuEnabled: sectorMenuOn,
+      requestedMenu: false,
+      alreadyShown: sectorMenuAlreadyShown(ticket)
+    });
+
     if (
+      restartWelcome &&
       !isFromMe &&
       !ticket.isGroup &&
       !ticket.queue &&
@@ -4535,12 +4571,14 @@ const handleMessage = async (
     }
 
     if (
+      sectorMenuOn &&
       !hasWelcomeFlow(whatsapp) &&
       !ticket.flowWebhook &&
       !whatsapp?.queues?.length &&
       !ticket.userId &&
       !isGroup &&
       !isFromMe &&
+      !sectorMenuAlreadyShown(ticket) &&
       whatsapp.greetingMessage
     ) {
       const canSendGreeting = await shouldSendConnectionGreeting(ticket);

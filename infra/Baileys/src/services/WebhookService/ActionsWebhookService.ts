@@ -733,17 +733,14 @@ export const ActionsWebhookService = async (
           const fromMenu = connectStatic.filter(
             confil => confil.source === next
           );
-          const optionConn = fromMenu.find(
-            filt2 => String(filt2.sourceHandle || "") === "a" + optionNumber
-          );
-          const defaultConn = fromMenu.find(
-            filt2 =>
-              filt2.sourceHandle === "out" ||
-              !filt2.sourceHandle
-          );
-          execFn = optionConn?.target || defaultConn?.target;
+          const optionConn = option
+            ? fromMenu.find(
+                filt2 => String(filt2.sourceHandle || "") === "a" + optionNumber
+              )
+            : undefined;
+          execFn = optionConn?.target;
 
-          if (execFn === undefined) {
+          if (!option || execFn === undefined) {
             break;
           }
           pressKey = "999";

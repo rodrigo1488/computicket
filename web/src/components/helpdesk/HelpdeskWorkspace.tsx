@@ -17,7 +17,6 @@ import {
   MessageSquarePlus,
   MoreVertical,
   Paperclip,
-  PenLine,
   Plus,
   RotateCcw,
   Search,
@@ -103,7 +102,6 @@ const TAB_META: { key: HelpdeskTab; label: string }[] = [
 ];
 
 const FILTER_KEY = "computicket.helpdesk.filters";
-const SIGN_KEY = "computicket.helpdesk.sign";
 const LIST_WIDTH_KEY = "computicket.helpdesk.listWidth";
 const LIST_WIDTH_DEFAULT = 340;
 const LIST_WIDTH_MIN = 260;
@@ -208,14 +206,14 @@ function MessageBodyContent({
   );
 }
 
-function withAgentSignature(body: string, name?: string | null, enabled?: boolean, isInternal?: boolean) {
+function withAgentSignature(body: string, name?: string | null, isInternal?: boolean) {
   const text = body.trim();
   const agent = name?.trim();
   if (!agent) return text;
   if (isInternal) {
     return text ? `*${agent.toUpperCase()}*\n${text}` : `*${agent.toUpperCase()}*`;
   }
-  if (!enabled || !text) return text;
+  if (!text) return text;
   return `*${agent.toUpperCase()}*\n${text}`;
 }
 
@@ -849,10 +847,6 @@ export function HelpdeskWorkspace() {
   const [mediaViewer, setMediaViewer] = useState<MediaViewerItem | null>(null);
   const [shareTarget, setShareTarget] = useState<ShareToChatTarget | null>(null);
   const [expandedPhoneKeys, setExpandedPhoneKeys] = useState<Set<string>>(() => new Set());
-  const [sign, setSign] = useState(() => {
-    if (typeof window === "undefined") return true;
-    return window.localStorage.getItem(SIGN_KEY) !== "0";
-  });
   const [listWidth, setListWidth] = useState(LIST_WIDTH_DEFAULT);
   const listPaneRef = useRef<HTMLElement>(null);
   const listDragRef = useRef<{ startX: number; startW: number } | null>(null);
@@ -921,10 +915,6 @@ export function HelpdeskWorkspace() {
     router,
     filtersReady,
   ]);
-
-  useEffect(() => {
-    window.localStorage.setItem(SIGN_KEY, sign ? "1" : "0");
-  }, [sign]);
 
   useEffect(() => {
     setListWidth(readListWidth());
@@ -2591,13 +2581,13 @@ export function HelpdeskWorkspace() {
                       sendFile.mutate({
                         ticketId: activeId,
                         file: pendingFile,
-                        body: withAgentSignature(rawText, user?.name, sign, sendingInternal),
+                        body: withAgentSignature(rawText, user?.name, sendingInternal),
                         rawText,
                         quotedMsg: replyTo,
                       });
                       return;
                     }
-                    const body = withAgentSignature(rawText, user?.name, sign, sendingInternal);
+                    const body = withAgentSignature(rawText, user?.name, sendingInternal);
                     if (!body.trim()) return;
                     send.mutate({
                       ticketId: activeId,
@@ -2809,14 +2799,6 @@ export function HelpdeskWorkspace() {
                       title="Mensagem interna"
                     >
                       <Lock className="h-4 w-4" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setSign((v) => !v)}
-                      className={cn("rounded-md p-1.5", sign ? "bg-progress-bg text-brand" : "text-muted hover:text-ink")}
-                      title={sign ? "Assinatura ligada" : "Assinatura desligada"}
-                    >
-                      <PenLine className="h-4 w-4" />
                     </button>
                     {text.trim() || pendingFile || editingMessage ? (
                       <button

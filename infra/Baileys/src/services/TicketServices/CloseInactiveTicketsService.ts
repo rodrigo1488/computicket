@@ -6,6 +6,7 @@ import Queue from "../../models/Queue";
 import { getIO } from "../../libs/socket";
 import { logger } from "../../utils/logger";
 import * as Sentry from "@sentry/node";
+import { companyIdsWithAutoCloseDisabled } from "../../helpers/companyFeatureFlags";
 
 /**
  * Fecha automaticamente tickets inativos há 48 horas ou mais.
@@ -32,17 +33,22 @@ const CloseInactiveTicketsService = async (): Promise<number> => {
       ]
     });
 
-    if (inactiveTickets.length === 0) {
+    const autoCloseOff = new Set(await companyIdsWithAutoCloseDisabled());
+    const ticketsToClose = inactiveTickets.filter(
+      ticket => !autoCloseOff.has(ticket.companyId)
+    );
+
+    if (ticketsToClose.length === 0) {
       logger.debug("CloseInactiveTicketsService: Nenhum ticket inativo há 48h encontrado");
       return 0;
     }
 
-    logger.info(`CloseInactiveTicketsService: Encontrados ${inactiveTickets.length} ticket(s) inativo(s) há 48h+ para fechar`);
+    logger.info(`CloseInactiveTicketsService: Encontrados ${ticketsToClose.length} ticket(s) inativo(s) há 48h+ para fechar`);
 
     const io = getIO();
     let closedCount = 0;
 
-    for (const ticket of inactiveTickets) {
+    for (const ticket of ticketsToClose) {
       try {
         const oldStatus = ticket.status;
         const companyId = ticket.companyId;
