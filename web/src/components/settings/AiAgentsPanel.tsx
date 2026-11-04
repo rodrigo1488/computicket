@@ -1,7 +1,7 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Pencil, Plus, Trash2 } from "lucide-react";
+import { Pencil, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { Modal } from "@/components/ui/Modal";
 import { PrimaryButton, UnderlineField } from "@/components/ui/UnderlineField";
@@ -139,6 +139,9 @@ function AgentForm({
   connections,
   assignees,
   groups,
+  groupsRefreshing,
+  groupsError,
+  onRefreshGroups,
   onClose,
 }: {
   initial: AiWhatsappAgent | null;
@@ -146,6 +149,9 @@ function AgentForm({
   connections: HelpdeskConnection[];
   assignees: HelpdeskAssignee[];
   groups: WhatsappGroupList | undefined;
+  groupsRefreshing: boolean;
+  groupsError: string;
+  onRefreshGroups: () => void;
   onClose: () => void;
 }) {
   const qc = useQueryClient();
@@ -258,20 +264,35 @@ function AgentForm({
             value={draft.idleAlertMinutes}
             onChange={(idleAlertMinutes) => patch({ idleAlertMinutes })}
           />
-          <SelectField
-            label="Grupo"
-            value={draft.idleAlertGroupJid}
-            onChange={(idleAlertGroupJid) => patch({ idleAlertGroupJid })}
-          >
-            <option value="">Selecione</option>
-            {(groups?.groups || []).map((group) => (
-              <option key={group.id} value={group.number || ""}>
-                {group.whatsappName ? `${group.name} · ${group.whatsappName}` : group.name || group.number}
-              </option>
-            ))}
-          </SelectField>
+          <div>
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-[11px] font-medium tracking-[0.08em] text-muted uppercase">Grupo</span>
+              <button
+                type="button"
+                onClick={onRefreshGroups}
+                disabled={groupsRefreshing}
+                className="inline-flex items-center gap-1 text-xs font-medium text-muted hover:text-ink disabled:opacity-60"
+              >
+                <RefreshCw className={`h-3.5 w-3.5 ${groupsRefreshing ? "animate-spin" : ""}`} />
+                {groupsRefreshing ? "Atualizando…" : "Atualizar grupos"}
+              </button>
+            </div>
+            <select
+              value={draft.idleAlertGroupJid}
+              onChange={(event) => patch({ idleAlertGroupJid: event.target.value })}
+              className="mt-1 w-full border-0 border-b border-line bg-transparent py-2 text-[15px] text-ink"
+            >
+              <option value="">Selecione</option>
+              {(groups?.groups || []).map((group) => (
+                <option key={group.id} value={group.number || ""}>
+                  {group.whatsappName ? `${group.name} · ${group.whatsappName}` : group.name || group.number}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
       ) : null}
+      {draft.idleAlertEnabled && groupsError ? <p className="text-sm text-open">{groupsError}</p> : null}
       {draft.idleAlertEnabled && groups?.message ? <p className="text-sm text-muted">{groups.message}</p> : null}
       {idleMissingGroup ? (
         <p className="text-sm text-open">Escolha o grupo que recebe o alerta.</p>
@@ -380,6 +401,11 @@ export function AiAgentsPanel({ queues }: { queues: HelpdeskQueue[] }) {
             connections={connections.data || []}
             assignees={assignees.data || []}
             groups={groups.data}
+            groupsRefreshing={groups.isFetching}
+            groupsError={groups.error ? (groups.error as Error).message : ""}
+            onRefreshGroups={() => {
+              void groups.refetch();
+            }}
             onClose={() => setEditing(undefined)}
           />
         ) : null}

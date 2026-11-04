@@ -118,6 +118,24 @@ export const processPromptAiReplyActions = async (
   } = params;
 
   const companyId = ticket.companyId;
+  const writeTransferSummary = async (destination: string): Promise<void> => {
+    try {
+      const summary = await generateContextSummary({
+        ticketId: ticket.id,
+        companyId,
+        provider: prompt.provider || "gemini",
+        maxMessages: Math.max(Number(prompt.maxMessages) || 12, 8)
+      });
+      await persistInternalNote(
+        ticket,
+        companyId,
+        `📋 RESUMO DA TRANSFERÊNCIA (${destination}):\n\n${summary}`
+      );
+      logger.info(`Resumo interno gravado na transferência do ticket ${ticket.id} para ${destination}`);
+    } catch (err: any) {
+      logger.error(`Erro ao gravar resumo da transferência: ${err.message}`);
+    }
+  };
   let cleanedResponse = response || "";
   const pendingActions: PendingAction[] = [];
   const internalMessages: string[] = [];
@@ -348,29 +366,7 @@ export const processPromptAiReplyActions = async (
       });
 
       if (execute && targetQueueId) {
-        try {
-          const summary = await generateContextSummary({
-            ticketId: ticket.id,
-            companyId: ticket.companyId,
-            provider: "openai",
-            maxMessages: prompt.maxMessages
-          });
-          const summaryMessageData: MessageData = {
-            id: `${ticket.id}-${Date.now()}-summary`,
-            body: `📋 RESUMO DO CONTEXTO (antes da transferência):\n\n${summary}`,
-            ticketId: ticket.id,
-            contactId: ticket.contactId,
-            fromMe: true,
-            read: true,
-            isInternal: true,
-            mediaType: "conversation"
-          };
-          await CreateMessageService({ messageData: summaryMessageData, companyId: ticket.companyId });
-          logger.info(`Resumo do contexto gerado antes da transferência do ticket ${ticket.id}`);
-        } catch (err: any) {
-          logger.error(`Erro ao gerar resumo antes da transferência: ${err.message}`);
-        }
-
+        await writeTransferSummary(`fila ${targetQueueName || targetQueueId}`);
         await UpdateTicketService({
           ticketData: { queueId: targetQueueId },
           ticketId: ticket.id,
@@ -399,21 +395,7 @@ export const processPromptAiReplyActions = async (
       userName: matchedUser?.name || requestedUserName || null
     });
     if (execute && matchedUser) {
-      try {
-        const summary = await generateContextSummary({
-          ticketId: ticket.id,
-          companyId: ticket.companyId,
-          provider: "openai",
-          maxMessages: prompt.maxMessages
-        });
-        await persistInternalNote(
-          ticket,
-          companyId,
-          `📋 RESUMO DO CONTEXTO (antes da transferência):\n\n${summary}`
-        );
-      } catch (err: any) {
-        logger.error(`Erro ao gerar resumo antes da transferência para usuário: ${err.message}`);
-      }
+      await writeTransferSummary(`atendente ${matchedUser.name}`);
       await UpdateTicketService({
         ticketData: {
           queueId: ticket.queueId,
@@ -469,6 +451,17 @@ export const processPromptAiReplyActions = async (
       });
     }
     if (execute && (fallbackQueueId || fallbackUserId)) {
+      const destination = [
+        fallbackQueueId
+          ? `fila ${availableQueues.find(queue => queue.id === fallbackQueueId)?.name || fallbackQueueId}`
+          : "",
+        fallbackUserId
+          ? `atendente ${availableUsers.find(user => user.id === fallbackUserId)?.name || fallbackUserId}`
+          : ""
+      ]
+        .filter(Boolean)
+        .join(" e ");
+      await writeTransferSummary(destination || "atendimento");
       await UpdateTicketService({
         ticketData: {
           queueId: fallbackQueueId || ticket.queueId,

@@ -1,3 +1,4 @@
+import { Op } from "sequelize";
 import Message from "../../models/Message";
 import Ticket from "../../models/Ticket";
 import Contact from "../../models/Contact";
@@ -13,8 +14,7 @@ import { AIProviderSelector } from "./AIProviderSelector";
 interface GenerateContextSummaryParams {
   ticketId: number;
   companyId: number;
-  /** @deprecated Ignorado — sempre LM Studio (OpenAI-compat) */
-  provider?: "openai";
+  provider?: string;
   maxMessages?: number;
 }
 
@@ -55,7 +55,8 @@ export const generateContextSummary = async ({
       where: {
         ticketId,
         companyId,
-        isDeleted: false
+        isDeleted: false,
+        [Op.or]: [{ isInternal: false }, { isInternal: null }]
       },
       include: [
         { model: Contact, attributes: ["id", "name"] }
@@ -80,23 +81,20 @@ export const generateContextSummary = async ({
       .join("\n");
 
     // Construir prompt para resumo (simplificado para economizar tokens)
-    const systemPrompt = `Crie um resumo objetivo da conversa abaixo (máximo 200 palavras).
+    const systemPrompt = `Resuma a situação atual deste atendimento para quem vai continuar a conversa (máximo 120 palavras).
 
-TICKET: ${ticketData.status} | ${ticketData.contact?.name || "Desconhecido"} | ${ticketData.user?.name || "Sem atendente"} | ${ticketData.queue?.name || "Sem fila"}
+CLIENTE: ${ticketData.contact?.name || "Desconhecido"}
 
 MENSAGENS:
 ${messagesContext}
 
-INSTRUÇÕES: Identifique status da conversa, pontos principais, próximos passos. Seja direto e objetivo. Retorne APENAS o texto do resumo, sem formatação adicional.`;
+Diga o que o cliente precisa, o que já foi respondido e o que falta resolver. Retorne só o texto do resumo.`;
 
-    // Selecionar provider automaticamente usando a configuração da funcionalidade
-    // Se provider foi especificado explicitamente, criar diretamente, senão usar selector
-    const { AIProviderFactory } = require("./AIProviderFactory") as {
-      AIProviderFactory: typeof import("./AIProviderFactory").AIProviderFactory;
-    };
-    const selectedProvider = provider
-      ? await AIProviderFactory.createOpenAIProvider(companyId)
-      : await AIProviderSelector.getProvider(companyId, "summaries");
+    const selectedProvider = await AIProviderSelector.getProvider(
+      companyId,
+      "summaries",
+      provider
+    );
 
     // Gerar resumo usando o provider selecionado
     const summary = await selectedProvider.generateText(systemPrompt, {
@@ -113,8 +111,30 @@ INSTRUÇÕES: Identifique status da conversa, pontos principais, próximos passo
     return summary.trim();
   } catch (error: any) {
     logger.error(`Erro ao gerar resumo do contexto: ${error.message}`);
-    throw error;
+    return fallbackTransferSummary(ticketId, companyId);
   }
+};
+
+const fallbackTransferSummary = async (ticketId: number, companyId: number): Promise<string> => {
+  const messages = await Message.findAll({
+    where: {
+      ticketId,
+      companyId,
+      isDeleted: false,
+      [Op.or]: [{ isInternal: false }, { isInternal: null }]
+    },
+    order: [["createdAt", "DESC"]],
+    limit: 8
+  });
+  const lines = messages
+    .reverse()
+    .map(message => {
+      const who = message.fromMe ? "Atendente" : "Cliente";
+      const body = (message.body || "").replace(/\s+/g, " ").trim().slice(0, 180);
+      return body ? `${who}: ${body}` : "";
+    })
+    .filter(Boolean);
+  return lines.join("\n") || "Sem mensagens anteriores nesta conversa.";
 };
 
 export default generateContextSummary;
