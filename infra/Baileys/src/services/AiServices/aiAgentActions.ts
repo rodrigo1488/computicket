@@ -364,8 +364,8 @@ export function completeGroupFallback(input: {
   if (said && !/[.!?…]$/.test(said)) said = `${said}.`;
   const quote = said ? ` Última fala do cliente: ${said}` : "";
   const charge = assignee
-    ? ` Responsável: ${assignee}. ${assignee}, responda agora.`
-    : " Responsável: ninguém. Peguem isso agora.";
+    ? ` Responsável: ${assignee}. ${assignee}, pode retomar este atendimento.`
+    : " Responsável: ninguém. Alguém do grupo pode assumir.";
   return `*Resumo do contexto*\n${name} está parado.${wait}${charge}${quote}`;
 }
 
