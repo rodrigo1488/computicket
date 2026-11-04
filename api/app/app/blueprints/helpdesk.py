@@ -2700,7 +2700,7 @@ def _ai_agent_engine_body(payload: dict) -> dict:
         "prompt": (payload.get("prompt") or "").strip(),
         "provider": "gemini",
         "maxMessages": 10,
-        "maxTokens": 800,
+        "maxTokens": 8192,
         "temperature": 0.3,
         "queueId": None,
         "canTransferToAgent": _ai_flag(payload, "canTransferToAgent"),

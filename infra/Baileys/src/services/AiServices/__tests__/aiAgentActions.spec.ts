@@ -1,8 +1,12 @@
 import {
+  completionTokenBudget,
+  conversationTurns,
   decideIdleAlert,
   parseAgendaCommands,
   parseUserTransferName,
-  shouldForceKnowledgeHandoff
+  sanitizeCustomerReply,
+  shouldForceKnowledgeHandoff,
+  splitWhatsAppText
 } from "../aiAgentActions";
 
 describe("ações do agente de WhatsApp", () => {
@@ -103,5 +107,40 @@ describe("alerta de conversa parada", () => {
         status: "pending"
       })
     ).toBe(false);
+  });
+
+  it("reserva saída longa no Gemini mesmo com prompt gigante", () => {
+    const huge = "regra ".repeat(20000);
+    expect(completionTokenBudget("gemini", 800, { prompt: huge })).toBe(8192);
+    expect(completionTokenBudget("openai", 800, { prompt: huge })).toBeLessThan(512);
+  });
+
+  it("divide o texto do WhatsApp sem cortar no meio da palavra", () => {
+    const text = `${"Primeiro bloco. ".repeat(200)}\n\n${"Segundo bloco. ".repeat(200)}`;
+    const parts = splitWhatsAppText(text, 500);
+    expect(parts.length).toBeGreaterThan(1);
+    expect(parts.every(part => part.length <= 500)).toBe(true);
+    expect(parts.join(" ").includes("Primeiro bloco.")).toBe(true);
+  });
+
+  it("mantém o histórico e não repete a fala atual", () => {
+    const turns = conversationTurns(
+      [
+        { fromMe: false, body: "Ola", mediaType: "conversation" },
+        { fromMe: true, body: "Olá, Rodrigo! Como posso ajudar?", mediaType: "conversation" },
+        { fromMe: false, body: "Erro de digest value", mediaType: "extendedTextMessage" },
+        { fromMe: true, body: "nota interna", mediaType: "conversation", isInternal: true }
+      ],
+      "Erro de digest value"
+    );
+    expect(turns.map(turn => turn.role)).toEqual(["user", "assistant", "user"]);
+    expect(turns[2].content).toBe("Erro de digest value");
+  });
+
+  it("remove chave e json soltos da resposta", () => {
+    expect(
+      sanitizeCustomerReply("Entendi, Rodrigo.\n\nSiga estes passos: 1. Abra o Clipp.\n}")
+    ).toBe("Entendi, Rodrigo.\n\nSiga estes passos: 1. Abra o Clipp.");
+    expect(sanitizeCustomerReply("}")).toBe("");
   });
 });

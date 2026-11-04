@@ -117,7 +117,13 @@ import {
   processPromptAiReplyActions,
   buildPromptActionFormattingInstructions
 } from "../AiServices/PromptReplyActionExecutor";
-import { formatAgentContext } from "../AiServices/aiAgentActions";
+import {
+  completionTokenBudget,
+  conversationTurns,
+  formatAgentContext,
+  sanitizeCustomerReply,
+  splitWhatsAppText
+} from "../AiServices/aiAgentActions";
 import { loadAgentContext } from "../../helpers/computicketAgentApi";
 import GetTicketWbot from "../../helpers/GetTicketWbot";
 import { getChatJid as getChatJidFromHelper } from "../../helpers/chatJid";
@@ -1539,7 +1545,11 @@ const handleOpenAi = async (
   const promptSystem =
     `Você é um assistente de atendimento. O nome do CLIENTE que você está atendendo é: ${contactName}. Use este nome ao se dirigir ao cliente nas suas respostas.\n${prompt.prompt}` +
     buildPromptActionFormattingInstructions(prompt, queuesList, tagsList, usersList) +
-    `\n\nSua resposta deve usar no máximo ${prompt.maxTokens} tokens e cuide para não truncar o final.`;
+    `\n\nCOMO RESPONDER NO WHATSAPP:
+- Continue o histórico. Cumprimente só se esta for a primeira resposta sua.
+- Responda à última fala do cliente, em frases completas.
+- Não repita a saudação, não mostre raciocínio e não envie JSON, chaves ou marcadores de ação.
+- Se explicar um procedimento, escreva os passos até o fim.`;
 
   const historyText = [...messages].reverse()
     .map(message => `${message.fromMe ? "Atendente" : "Cliente"}: ${message.body || ""}`)
@@ -1552,36 +1562,16 @@ const handleOpenAi = async (
     messagesOpenAi = [];
     const textContext = await loadAgentContext(prompt, bodyMessage || "", historyText);
     messagesOpenAi.push({ role: "system", content: promptSystem + formatAgentContext(textContext) });
+    messagesOpenAi.push(
+      ...conversationTurns([...messages].reverse(), bodyMessage || "")
+    );
 
-    // Adicionar histórico de mensagens (inverter ordem para ter do mais antigo ao mais recente)
-    const sortedMessages = [...messages].reverse();
-    for (
-      let i = 0;
-      i < Math.min(maxHistoryMessages, sortedMessages.length);
-      i++
-    ) {
-      const message = sortedMessages[i];
-      if (
-        message.mediaType === "conversation" ||
-        message.mediaType === "extendedTextMessage"
-      ) {
-        if (message.fromMe) {
-          messagesOpenAi.push({ role: "assistant", content: message.body });
-        } else {
-          messagesOpenAi.push({ role: "user", content: message.body });
-        }
-      }
-    }
-
-    // Adicionar mensagem atual do usuário
-    messagesOpenAi.push({ role: "user", content: bodyMessage! });
-
-    const ctxWindow = getLmStudioContextWindowTokens();
-    const estPromptTokens = Math.ceil(JSON.stringify(messagesOpenAi).length / 3.2);
-    const headroom = 128;
-    const safeMax = Math.max(64, ctxWindow - estPromptTokens - headroom);
-    const minCompletion = 512;
-    const max_tokens = Math.min(Math.max(prompt.maxTokens, minCompletion), safeMax);
+    const max_tokens = (prompt.provider || "").toLowerCase() === "gemini"
+      ? completionTokenBudget(prompt.provider, prompt.maxTokens, messagesOpenAi)
+      : Math.min(
+          Math.max(prompt.maxTokens, 512),
+          Math.max(64, getLmStudioContextWindowTokens() - Math.ceil(JSON.stringify(messagesOpenAi).length / 3.2) - 128)
+        );
 
     let response = await providerForChat.chat(messagesOpenAi as any, {
       model: prompt.model || getLmStudioDefaultModel(),
@@ -1594,7 +1584,7 @@ const handleOpenAi = async (
       await verifyMessage(sentMessage!, ticket, contact);
     };
 
-    const { cleanedResponse } = await processPromptAiReplyActions({
+    const { cleanedResponse: rawCleanedResponse } = await processPromptAiReplyActions({
       response: response || "",
       prompt,
       ticket,
@@ -1607,6 +1597,7 @@ const handleOpenAi = async (
       sendWhatsAppToCustomer,
       knowledge: { hasEvidence: !!textContext.has_evidence, userText: bodyMessage || "" }
     });
+    const cleanedResponse = sanitizeCustomerReply(rawCleanedResponse);
 
     if (cleanedResponse.trim()) {
       // Verificar se mensagem duplicada antes de enviar
@@ -1633,10 +1624,12 @@ const handleOpenAi = async (
         }
       }
 
-      const sentMessage = await wbot.sendMessage(msg.key.remoteJid!, {
-        text: cleanedResponse
-      });
-      await verifyMessage(sentMessage!, ticket, contact);
+      for (const part of splitWhatsAppText(cleanedResponse)) {
+        const sentMessage = await wbot.sendMessage(msg.key.remoteJid!, {
+          text: part
+        });
+        await verifyMessage(sentMessage!, ticket, contact);
+      }
     }
 
     // Remover lock após processamento bem-sucedido
@@ -1662,33 +1655,14 @@ const handleOpenAi = async (
     messagesOpenAi = [];
     const audioContext = await loadAgentContext(prompt, transcriptionText || "", historyText);
     messagesOpenAi.push({ role: "system", content: promptSystem + formatAgentContext(audioContext) });
+    messagesOpenAi.push(...conversationTurns([...messages].reverse(), transcriptionText || ""));
 
-    // Adicionar histórico de mensagens (inverter ordem para ter do mais antigo ao mais recente)
-    const sortedAudioMessages = [...messages].reverse();
-    for (let i = 0; i < Math.min(maxHistoryMessages, sortedAudioMessages.length); i++) {
-      const message = sortedAudioMessages[i];
-      if (
-        message.mediaType === "conversation" ||
-        message.mediaType === "extendedTextMessage"
-      ) {
-        if (message.fromMe) {
-          messagesOpenAi.push({ role: "assistant", content: message.body });
-        } else {
-          messagesOpenAi.push({ role: "user", content: message.body });
-        }
-      }
-    }
-    messagesOpenAi.push({ role: "user", content: transcriptionText });
-
-    const ctxWindowAudio = getLmStudioContextWindowTokens();
-    const estPromptTokensAudio = Math.ceil(JSON.stringify(messagesOpenAi).length / 3.2);
-    const headroomAudio = 128;
-    const safeMaxAudio = Math.max(64, ctxWindowAudio - estPromptTokensAudio - headroomAudio);
-    const minCompletionAudio = 768;
-    const max_tokens_audio = Math.min(
-      Math.max(prompt.maxTokens, minCompletionAudio),
-      safeMaxAudio
-    );
+    const max_tokens_audio = (prompt.provider || "").toLowerCase() === "gemini"
+      ? completionTokenBudget(prompt.provider, prompt.maxTokens, messagesOpenAi)
+      : Math.min(
+          Math.max(prompt.maxTokens, 768),
+          Math.max(64, getLmStudioContextWindowTokens() - Math.ceil(JSON.stringify(messagesOpenAi).length / 3.2) - 128)
+        );
 
     let response = await providerForChat.chat(messagesOpenAi as any, {
       model: prompt.model || getLmStudioDefaultModel(),
@@ -1701,7 +1675,7 @@ const handleOpenAi = async (
       await verifyMessage(sentMessage!, ticket, contact);
     };
 
-    const { cleanedResponse: cleanedAudioResponse } = await processPromptAiReplyActions({
+    const { cleanedResponse: rawAudioResponse } = await processPromptAiReplyActions({
       response: response || "",
       prompt,
       ticket,
@@ -1714,6 +1688,7 @@ const handleOpenAi = async (
       sendWhatsAppToCustomer: sendWhatsAppAudio,
       knowledge: { hasEvidence: !!audioContext.has_evidence, userText: transcriptionText || "" }
     });
+    const cleanedAudioResponse = sanitizeCustomerReply(rawAudioResponse);
 
     if (cleanedAudioResponse.trim()) {
       // Verificar se mensagem duplicada antes de enviar (áudio)
@@ -1739,10 +1714,12 @@ const handleOpenAi = async (
           return;
         }
       }
-      const sentMessage = await wbot.sendMessage(msg.key.remoteJid!, {
-        text: cleanedAudioResponse
-      });
-      await verifyMessage(sentMessage!, ticket, contact);
+      for (const part of splitWhatsAppText(cleanedAudioResponse)) {
+        const sentMessage = await wbot.sendMessage(msg.key.remoteJid!, {
+          text: part
+        });
+        await verifyMessage(sentMessage!, ticket, contact);
+      }
     }
     
     // Remover lock após processamento de áudio

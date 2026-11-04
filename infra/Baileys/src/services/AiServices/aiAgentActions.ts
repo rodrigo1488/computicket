@@ -90,6 +90,83 @@ export function formatAgentContext(ctx: {
   return block;
 }
 
+const GEMINI_CONTEXT_TOKENS = 1_048_576;
+const GEMINI_COMPLETION_FLOOR = 8192;
+
+/** Orçamento de saída. O Gemini não usa a janela curta do LM Studio. */
+export function completionTokenBudget(
+  provider: string | undefined,
+  requested: number,
+  payload: unknown
+): number {
+  const isGemini = (provider || "").toLowerCase() === "gemini";
+  const estimated = Math.ceil(JSON.stringify(payload ?? "").length / 3.2);
+  if (!isGemini) {
+    const ctxWindow = 4096;
+    const safeMax = Math.max(64, ctxWindow - estimated - 128);
+    return Math.min(Math.max(requested || 0, 512), safeMax);
+  }
+  const safeMax = Math.max(1024, GEMINI_CONTEXT_TOKENS - estimated - 2048);
+  return Math.min(Math.max(requested || 0, GEMINI_COMPLETION_FLOOR), safeMax);
+}
+
+export function splitWhatsAppText(text: string, limit = 3500): string[] {
+  const value = (text || "").trim();
+  if (!value) return [];
+  if (value.length <= limit) return [value];
+  const parts: string[] = [];
+  let rest = value;
+  while (rest.length > limit) {
+    let cut = rest.lastIndexOf("\n\n", limit);
+    if (cut < limit * 0.5) cut = rest.lastIndexOf("\n", limit);
+    if (cut < limit * 0.5) cut = rest.lastIndexOf(" ", limit);
+    if (cut < 1) cut = limit;
+    const piece = rest.slice(0, cut).trim();
+    if (piece) parts.push(piece);
+    rest = rest.slice(cut).trim();
+  }
+  if (rest) parts.push(rest);
+  return parts;
+}
+
+const TEXT_MESSAGE_TYPES = new Set([
+  "conversation",
+  "extendedTextMessage",
+  "chat",
+  "ephemeralMessage"
+]);
+
+export function conversationTurns(
+  messages: { fromMe?: boolean; body?: string | null; mediaType?: string | null; isInternal?: boolean }[],
+  currentUserText: string
+): { role: "user" | "assistant"; content: string }[] {
+  const turns: { role: "user" | "assistant"; content: string }[] = [];
+  for (const message of messages) {
+    if (message.isInternal) continue;
+    const body = (message.body || "").replace(/\u200e/g, "").trim();
+    if (!body) continue;
+    const type = message.mediaType || "conversation";
+    if (!TEXT_MESSAGE_TYPES.has(type)) continue;
+    turns.push({ role: message.fromMe ? "assistant" as const : "user" as const, content: body });
+  }
+  const current = (currentUserText || "").replace(/\u200e/g, "").trim();
+  const last = turns[turns.length - 1];
+  if (current && !(last?.role === "user" && last.content === current)) {
+    turns.push({ role: "user", content: current });
+  }
+  return turns;
+}
+
+/** Tira JSON, ação e chave solta que o modelo deixa na mensagem do cliente. */
+export function sanitizeCustomerReply(text: string): string {
+  let value = text || "";
+  value = value.replace(/\[(?:AGENDA|AGENDAR|INTERNA)\][\s\S]*$/gi, "");
+  value = value.replace(/Ação:\s*Transferir[\s\S]*$/gi, "");
+  value = value.replace(/\{\s*"(?:title|action|appointment_date|tecnico|profissional)"[\s\S]*$/gi, "");
+  const lines = value.split("\n").filter(line => !/^\s*[{}\[\],]+\s*$/.test(line));
+  return lines.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+}
+
 export function decideIdleAlert(input: {
   enabled: boolean;
   groupJid: string | null | undefined;

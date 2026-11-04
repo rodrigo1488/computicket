@@ -26,10 +26,23 @@ const extractGeminiText = (data: any): string => {
     return "";
   }
   return parts
-    .map((p: any) => (typeof p?.text === "string" ? p.text : ""))
+    .filter((part: any) => part?.thought !== true)
+    .map((part: any) => (typeof part?.text === "string" ? part.text : ""))
     .join("\n")
     .trim();
 };
+
+const generationConfigFor = (
+  temperature: number,
+  topP: number,
+  maxTokens: number,
+  withThinking: boolean
+): Record<string, unknown> => ({
+  temperature,
+  topP,
+  maxOutputTokens: maxTokens,
+  ...(withThinking ? { thinkingConfig: { thinkingLevel: "LOW" } } : {})
+});
 
 export class GeminiProvider implements IAIProvider {
   readonly name = "gemini";
@@ -101,27 +114,42 @@ export class GeminiProvider implements IAIProvider {
 
     try {
       const apiKey = await this.resolveApiKey();
-      const data = await callGeminiGenerateContent(
-        {
-          ...(systemMessages
-            ? {
-                systemInstruction: {
-                  parts: [{ text: systemMessages }]
-                }
+      const merged: typeof contents = [];
+      for (const item of contents) {
+        const previous = merged[merged.length - 1];
+        if (previous && previous.role === item.role) {
+          previous.parts[0].text = `${previous.parts[0].text}\n${item.parts[0].text}`;
+        } else {
+          merged.push({ role: item.role, parts: [{ text: item.parts[0].text }] });
+        }
+      }
+      const payload = {
+        ...(systemMessages
+          ? {
+              systemInstruction: {
+                parts: [{ text: systemMessages }]
               }
-            : {}),
-          contents: contents.length
-            ? contents
-            : [{ role: "user", parts: [{ text: "Olá" }] }],
-          generationConfig: {
-            temperature,
-            topP,
-            maxOutputTokens: maxTokens
-          }
-        },
-        model,
-        apiKey
-      );
+            }
+          : {}),
+        contents: merged.length
+          ? merged
+          : [{ role: "user", parts: [{ text: "Olá" }] }]
+      };
+      let data: any;
+      try {
+        data = await callGeminiGenerateContent(
+          { ...payload, generationConfig: generationConfigFor(temperature, topP, maxTokens, true) },
+          model,
+          apiKey
+        );
+      } catch (err: any) {
+        if (err?.response?.status !== 400) throw err;
+        data = await callGeminiGenerateContent(
+          { ...payload, generationConfig: generationConfigFor(temperature, topP, maxTokens, false) },
+          model,
+          apiKey
+        );
+      }
       const text = extractGeminiText(data);
       if (!text) {
         throw new AppError("A IA não retornou resposta válida", 500);
