@@ -2,6 +2,7 @@ import {
   completionTokenBudget,
   conversationTurns,
   decideIdleScan,
+  formatGroupAlertSummary,
   formatIdleAlertContext,
   parseIdleAlertDecision,
   matchPersonByName,
@@ -156,6 +157,8 @@ describe("alerta de conversa parada", () => {
       minutesSinceCustomer: 40,
       transcript: "Cliente: o sistema caiu"
     })).toContain("Cliente: o sistema caiu");
+    expect(formatGroupAlertSummary('{"resumo":"Ana espera há 40 min por causa de um erro no sistema."}'))
+      .toBe("*Resumo do contexto*\nAna espera há 40 min por causa de um erro no sistema.");
   });
 
   it("reserva saída longa no Gemini mesmo com prompt gigante", () => {

@@ -341,6 +341,27 @@ export function parseIdleAlertDecision(text: string): { alert: boolean; summary:
   }
 }
 
+/** Texto do grupo: um resumo curto do contexto, sem JSON nem título repetido. */
+export function formatGroupAlertSummary(text: string): string {
+  const raw = String(text || "").trim();
+  let summary = raw;
+  const start = raw.indexOf("{");
+  const end = raw.lastIndexOf("}");
+  if (start >= 0 && end > start) {
+    try {
+      const data = JSON.parse(raw.slice(start, end + 1));
+      if (typeof data?.resumo === "string" && data.resumo.trim()) summary = data.resumo.trim();
+    } catch {
+      summary = raw;
+    }
+  }
+  summary = summary
+    .replace(/^\*{0,2}\s*resumo(?:\s+do\s+contexto)?\s*\*{0,2}\s*[:\-–]?\s*/i, "")
+    .trim();
+  if (!summary) return "";
+  return `*Resumo do contexto*\n${summary}`;
+}
+
 export function formatIdleTranscript(
   messages: { fromMe?: boolean; body?: string | null }[]
 ): string {

@@ -12,6 +12,7 @@ import { logger } from "../../utils/logger";
 import { AIProviderSelector } from "./AIProviderSelector";
 import {
   decideIdleScan,
+  formatGroupAlertSummary,
   formatIdleAlertContext,
   formatIdleTranscript,
   parseIdleAlertDecision,
@@ -108,10 +109,9 @@ const askSilence = async (prompt: Prompt, ticket: Ticket, now: Date): Promise<bo
 
 const summarizeForGroup = async (prompt: Prompt, ticket: Ticket, now: Date): Promise<string> => {
   const context = await buildContext(ticket, now);
-  const fallback =
-    `Conversa sem resposta.\n` +
-    `Cliente: ${ticket.contact?.name || "Cliente"}\n` +
-    context.split("\n").slice(0, 6).join("\n");
+  const fallback = formatGroupAlertSummary(
+    `${ticket.contact?.name || "Cliente"} está com a conversa parada e aguardando retorno.`
+  );
   try {
     const provider = await AIProviderSelector.getProvider(prompt.companyId, "summaries", prompt.provider);
     const text = await provider.chat(
@@ -119,16 +119,15 @@ const summarizeForGroup = async (prompt: Prompt, ticket: Ticket, now: Date): Pro
         {
           role: "system",
           content:
-            "Escreva um aviso curto para o grupo interno, em português, em até 4 linhas. " +
-            "Use só o histórico. Diga o cliente, o que foi pedido e há quanto tempo está parado. " +
-            "Sem saudação e sem inventar."
+            "Antes de avisar o grupo, escreva só um resumo curto do contexto, em português, em 2 a 4 linhas. " +
+            "Diga quem é o cliente, o que ele pediu, há quanto tempo está parado e por que o grupo está sendo avisado. " +
+            "Use apenas o histórico. Não invente, não cumprimente e não escreva título."
         },
         { role: "user", content: context }
       ],
       { maxTokens: 220, temperature: 0.2 }
     );
-    const summary = String(text || "").trim();
-    return summary || fallback;
+    return formatGroupAlertSummary(String(text || "")) || fallback;
   } catch (err: any) {
     logger.warn(`AlertStaleConversations: resumo indisponível no ticket ${ticket.id} (${err.message})`);
     return fallback;
@@ -219,81 +218,104 @@ const scanPrompt = async (prompt: Prompt, now: Date): Promise<void> => {
       await remember(ticket, null, null);
       continue;
     }
-    if (decision.action === "queue") {
-      await remember(ticket, 0, decision.messageId);
-      continue;
-    }
-    if (decision.action === "ask") {
+    if (decision.action === "queue" || decision.action === "ask") {
       if (ticket.groupAlertStatus != null && ticket.groupAlertMessageId !== decision.messageId) {
         const cleared = await remember(ticket, null, null);
         if (!cleared) continue;
       }
-      const alert = await askSilence(prompt, ticket, now);
-      if (alert === null) continue;
-      await remember(ticket, alert ? 0 : 2, decision.messageId);
+      await remember(ticket, 0, decision.messageId);
     }
   }
 };
 
+const settleClaim = async (ticketId: number, groupAlertStatus: number): Promise<void> => {
+  await Ticket.update(
+    { groupAlertStatus },
+    { where: { id: ticketId, groupAlertStatus: 3 } }
+  );
+};
+
 const dispatchQueued = async (now: Date): Promise<void> => {
+  const abandoned = new Date(now.getTime() - 5 * 60 * 1000);
+  await Ticket.update(
+    { groupAlertStatus: 0 },
+    { where: { groupAlertStatus: 3, updatedAt: { [Op.lt]: abandoned } } }
+  );
   const prompts = await Prompt.findAll({ where: { idleAlertEnabled: true } });
   const promptById = new Map(prompts.map(prompt => [prompt.id, prompt]));
-  const tickets = await Ticket.findAll({
+  const ticket = await Ticket.findOne({
     where: {
       groupAlertStatus: 0,
       isGroup: false,
       status: { [Op.in]: ["pending", "open"] }
     },
+    order: [["updatedAt", "ASC"], ["id", "ASC"]],
     include: [
       { model: Contact, as: "contact", attributes: ["id", "name", "isSupport"] },
       { model: Whatsapp, as: "whatsapp", attributes: ["id", "promptId"], required: false },
       { model: Queue, as: "queue", attributes: ["id", "promptId"], required: false }
     ]
   });
+  if (!ticket) return;
 
-  for (const ticket of tickets) {
-    const prompt = promptById.get(ticket.queue?.promptId) || promptById.get(ticket.whatsapp?.promptId);
-    if (!prompt?.idleAlertGroupJid || !ticket.whatsappId || ticket.contact?.isSupport) {
-      await remember(ticket, null, null);
-      continue;
-    }
-    const last = await Message.findOne({
-      where: {
-        ticketId: ticket.id,
-        isDeleted: false,
-        [Op.or]: [{ isInternal: false }, { isInternal: null }]
-      },
-      attributes: ["id"],
-      order: [["createdAt", "DESC"]]
-    });
-    if (!last || last.id !== ticket.groupAlertMessageId) {
-      await remember(ticket, null, null);
-      continue;
-    }
-    const claimed = await Ticket.update(
-      { groupAlertStatus: 3 },
-      { where: { id: ticket.id, groupAlertStatus: 0 } }
+  const prompt = promptById.get(ticket.queue?.promptId) || promptById.get(ticket.whatsapp?.promptId);
+  if (!prompt?.idleAlertGroupJid || !ticket.whatsappId || ticket.contact?.isSupport) {
+    await remember(ticket, null, null);
+    return;
+  }
+  const claimed = await Ticket.update(
+    { groupAlertStatus: 3 },
+    { where: { id: ticket.id, groupAlertStatus: 0 } }
+  );
+  if (!claimed[0]) return;
+  ticket.groupAlertStatus = 3;
+
+  const last = await Message.findOne({
+    where: {
+      ticketId: ticket.id,
+      isDeleted: false,
+      [Op.or]: [{ isInternal: false }, { isInternal: null }]
+    },
+    attributes: ["id", "fromMe"],
+    order: [["createdAt", "DESC"]]
+  });
+  if (!last || last.id !== ticket.groupAlertMessageId) {
+    await Ticket.update(
+      { groupAlertStatus: null, groupAlertMessageId: null },
+      { where: { id: ticket.id, groupAlertStatus: 3 } }
     );
-    if (!claimed[0]) continue;
-    ticket.groupAlertStatus = 3;
-    try {
-      const summary = await summarizeForGroup(prompt, ticket, now);
-      const body = signAgentMessage(summary, prompt.name);
-      if (!body) throw new Error("resumo vazio");
-      const wbot = getWbot(ticket.whatsappId);
-      await wbot.sendMessage(toWhatsAppGroupJid(prompt.idleAlertGroupJid), { text: body });
-      await Ticket.update(
-        { groupAlertStatus: 1 },
-        { where: { id: ticket.id, groupAlertStatus: 3 } }
-      );
-      logger.info(`Alerta de silêncio enviado para o ticket ${ticket.id}`);
-    } catch (err: any) {
-      await Ticket.update(
-        { groupAlertStatus: 0 },
-        { where: { id: ticket.id, groupAlertStatus: 3 } }
-      );
-      logger.error(`AlertStaleConversations: falha no ticket ${ticket.id}: ${err.message}`);
+    return;
+  }
+
+  if (last.fromMe) {
+    const alert = await askSilence(prompt, ticket, now);
+    if (alert === null) {
+      await settleClaim(ticket.id, 0);
+      return;
     }
+    if (!alert) {
+      await settleClaim(ticket.id, 2);
+      return;
+    }
+  }
+
+  let sent = false;
+  try {
+    const summary = await summarizeForGroup(prompt, ticket, now);
+    const body = signAgentMessage(summary, prompt.name);
+    if (!body) throw new Error("resumo vazio");
+    const wbot = getWbot(ticket.whatsappId);
+    await wbot.sendMessage(toWhatsAppGroupJid(prompt.idleAlertGroupJid), { text: body });
+    sent = true;
+    await settleClaim(ticket.id, 1);
+    logger.info(`Alerta de silêncio enviado para o ticket ${ticket.id}`);
+  } catch (err: any) {
+    if (sent) {
+      await settleClaim(ticket.id, 1);
+    } else {
+      await settleClaim(ticket.id, 0);
+    }
+    logger.error(`AlertStaleConversations: falha no ticket ${ticket.id}: ${err.message}`);
   }
 };
 
