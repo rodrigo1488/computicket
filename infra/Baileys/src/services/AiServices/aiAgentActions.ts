@@ -349,10 +349,12 @@ export function summaryLooksComplete(text: string): boolean {
 /** Resumo inteiro, cortando só em espaço quando a última fala é longa. */
 export function completeGroupFallback(input: {
   contactName: string;
+  assigneeName?: string | null;
   minutes: number | null;
   lastCustomerText: string;
 }): string {
   const name = (input.contactName || "Cliente").trim() || "Cliente";
+  const assignee = (input.assigneeName || "").trim();
   const wait = input.minutes == null ? "" : ` Há ${input.minutes} min sem resposta.`;
   let said = (input.lastCustomerText || "").replace(/\s+/g, " ").trim();
   if (said.length > 400) {
@@ -361,7 +363,20 @@ export function completeGroupFallback(input: {
   }
   if (said && !/[.!?…]$/.test(said)) said = `${said}.`;
   const quote = said ? ` Última fala do cliente: ${said}` : "";
-  return `*Resumo do contexto*\n${name} está parado e ninguém assumiu.${wait} Peguem isso agora.${quote}`;
+  const charge = assignee
+    ? ` Responsável: ${assignee}. ${assignee}, responda agora.`
+    : " Responsável: ninguém. Peguem isso agora.";
+  return `*Resumo do contexto*\n${name} está parado.${wait}${charge}${quote}`;
+}
+
+/** Garante o nome de quem responde o atendimento, mesmo se o modelo omitir. */
+export function ensureResponsibleLine(summary: string, assigneeName?: string | null): string {
+  const name = (assigneeName || "").trim();
+  const body = summary.replace(/^\*Resumo do contexto\*\s*/i, "");
+  if (name && body.toLowerCase().includes(name.toLowerCase())) return summary;
+  if (!name && /responsável:\s*ninguém/i.test(body)) return summary;
+  const line = name ? `Responsável: ${name}.` : "Responsável: ninguém.";
+  return `${summary.trim()}\n${line}`;
 }
 
 /** Texto do grupo: um resumo curto do contexto, sem JSON nem título repetido. */
@@ -400,7 +415,7 @@ export function formatIdleTranscript(
 export function formatIdleAlertContext(input: {
   contactName: string;
   ticketStatus: string;
-  hasAssignee: boolean;
+  assigneeName?: string | null;
   minutesSinceAny: number;
   minutesSinceCustomer: number | null;
   transcript: string;
@@ -408,10 +423,11 @@ export function formatIdleAlertContext(input: {
   const sinceCustomer = input.minutesSinceCustomer == null
     ? "o cliente não falou"
     : `${input.minutesSinceCustomer} min`;
+  const assignee = (input.assigneeName || "").trim() || "ninguém";
   return [
     `Cliente: ${input.contactName}`,
     `Status do atendimento: ${input.ticketStatus}`,
-    `Atendente atribuído: ${input.hasAssignee ? "sim" : "não"}`,
+    `Responsável pela conversa: ${assignee}`,
     `Minutos sem nenhuma mensagem: ${input.minutesSinceAny}`,
     `Minutos desde a última fala do cliente: ${sinceCustomer}`,
     "",

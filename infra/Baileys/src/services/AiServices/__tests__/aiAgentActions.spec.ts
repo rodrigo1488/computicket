@@ -154,7 +154,7 @@ describe("alerta de conversa parada", () => {
     expect(formatIdleAlertContext({
       contactName: "Ana",
       ticketStatus: "open",
-      hasAssignee: true,
+      assigneeName: "Maria Souza",
       minutesSinceAny: 40,
       minutesSinceCustomer: 40,
       transcript: "Cliente: o sistema caiu"
@@ -164,10 +164,12 @@ describe("alerta de conversa parada", () => {
     expect(summaryLooksComplete("Cliente: Açougue São")).toBe(false);
     const fallback = completeGroupFallback({
       contactName: "Açougue São João",
+      assigneeName: "Maria Souza",
       minutes: 35,
       lastCustomerText: "O sistema não abre o caixa desde cedo"
     });
     expect(fallback.endsWith(".")).toBe(true);
+    expect(fallback).toContain("Responsável: Maria Souza.");
     expect(fallback).toContain("O sistema não abre o caixa desde cedo.");
     expect(summaryLooksComplete(fallback)).toBe(true);
   });

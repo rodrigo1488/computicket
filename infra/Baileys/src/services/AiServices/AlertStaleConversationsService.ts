@@ -5,6 +5,7 @@ import Message from "../../models/Message";
 import Prompt from "../../models/Prompt";
 import Queue from "../../models/Queue";
 import Ticket from "../../models/Ticket";
+import User from "../../models/User";
 import Whatsapp from "../../models/Whatsapp";
 import { getWbot } from "../../libs/wbot";
 import { toWhatsAppGroupJid } from "../../helpers/chatJid";
@@ -13,6 +14,7 @@ import { AIProviderSelector } from "./AIProviderSelector";
 import {
   decideIdleScan,
   completeGroupFallback,
+  ensureResponsibleLine,
   formatGroupAlertSummary,
   formatIdleAlertContext,
   formatIdleTranscript,
@@ -68,6 +70,8 @@ const minutesBetween = (from: Date | string | null | undefined, now: Date): numb
   return Math.max(0, Math.round((now.getTime() - at) / 60000));
 };
 
+const assigneeNameOf = (ticket: Ticket): string => (ticket.user?.name || "").trim();
+
 const buildContext = async (ticket: Ticket, now: Date): Promise<string> => {
   const history = await loadHistory(ticket.id);
   const lastCustomer = [...history].reverse().find(message => !message.fromMe);
@@ -75,7 +79,7 @@ const buildContext = async (ticket: Ticket, now: Date): Promise<string> => {
   return formatIdleAlertContext({
     contactName: ticket.contact?.name || "Cliente",
     ticketStatus: ticket.status,
-    hasAssignee: !!ticket.userId,
+    assigneeName: assigneeNameOf(ticket),
     minutesSinceAny: minutesBetween(lastAny?.createdAt, now) ?? 0,
     minutesSinceCustomer: minutesBetween(lastCustomer?.createdAt, now),
     transcript: formatIdleTranscript(history)
@@ -113,19 +117,21 @@ const summarizeForGroup = async (prompt: Prompt, ticket: Ticket, now: Date): Pro
   const history = await loadHistory(ticket.id);
   const lastCustomer = [...history].reverse().find(message => !message.fromMe);
   const lastAny = history[history.length - 1];
+  const assigneeName = assigneeNameOf(ticket);
   const context = formatIdleAlertContext({
     contactName: ticket.contact?.name || "Cliente",
     ticketStatus: ticket.status,
-    hasAssignee: !!ticket.userId,
+    assigneeName,
     minutesSinceAny: minutesBetween(lastAny?.createdAt, now) ?? 0,
     minutesSinceCustomer: minutesBetween(lastCustomer?.createdAt, now),
     transcript: formatIdleTranscript(history)
   });
-  const fallback = completeGroupFallback({
+  const fallback = ensureResponsibleLine(completeGroupFallback({
     contactName: ticket.contact?.name || "Cliente",
+    assigneeName,
     minutes: minutesBetween(lastCustomer?.createdAt, now),
     lastCustomerText: lastCustomer?.body || ""
-  });
+  }), assigneeName);
   try {
     const provider = await AIProviderSelector.getProvider(prompt.companyId, "summaries", prompt.provider);
     const text = await provider.chat(
@@ -134,7 +140,8 @@ const summarizeForGroup = async (prompt: Prompt, ticket: Ticket, now: Date): Pro
           role: "system",
           content:
             "Escreva o alerta do grupo em português, em 2 a 4 frases completas, em tom grosso, rígido e ríspido, de cobrança. " +
-            "Cobre quem está no grupo para assumir este atendimento agora. " +
+            "Cobre pelo nome o responsável pela conversa, que está no contexto, para responder agora. " +
+            "Se o responsável for ninguém, cobre o grupo. " +
             "Diga quem é o cliente, o que ele pediu e há quanto tempo está parado. " +
             "Use apenas o histórico. Não invente, não cumprimente, não peça desculpa, não escreva título e termine com ponto final."
         },
@@ -142,7 +149,7 @@ const summarizeForGroup = async (prompt: Prompt, ticket: Ticket, now: Date): Pro
       ],
       { maxTokens: 1024, temperature: 0.2, thinking: false }
     );
-    const summary = formatGroupAlertSummary(String(text || ""));
+    const summary = ensureResponsibleLine(formatGroupAlertSummary(String(text || "")), assigneeName);
     return summaryLooksComplete(summary) ? summary : fallback;
   } catch (err: any) {
     logger.warn(`AlertStaleConversations: resumo indisponível no ticket ${ticket.id} (${err.message})`);
@@ -269,6 +276,7 @@ const dispatchQueued = async (now: Date): Promise<void> => {
     order: [["updatedAt", "ASC"], ["id", "ASC"]],
     include: [
       { model: Contact, as: "contact", attributes: ["id", "name", "isSupport"] },
+      { model: User, as: "user", attributes: ["id", "name"], required: false },
       { model: Whatsapp, as: "whatsapp", attributes: ["id", "promptId"], required: false },
       { model: Queue, as: "queue", attributes: ["id", "promptId"], required: false }
     ]
