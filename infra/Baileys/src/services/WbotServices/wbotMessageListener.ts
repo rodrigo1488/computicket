@@ -117,6 +117,8 @@ import {
   processPromptAiReplyActions,
   buildPromptActionFormattingInstructions
 } from "../AiServices/PromptReplyActionExecutor";
+import { formatAgentContext } from "../AiServices/aiAgentActions";
+import { loadAgentContext } from "../../helpers/computicketAgentApi";
 import GetTicketWbot from "../../helpers/GetTicketWbot";
 import { getChatJid as getChatJidFromHelper } from "../../helpers/chatJid";
 import { isValidPhoneNumber as isValidPhoneNumberBase } from "../../helpers/validatePhoneNumber";
@@ -1240,6 +1242,11 @@ const handleOpenAi = async (
     return;
   }
 
+  if (ticket.userId || ticket.isGroup) {
+    logger.info(`handleOpenAi: bot parado no ticket ${ticket.id} (atendente humano ou grupo)`);
+    return;
+  }
+
   const bodyMessage = getBodyMessage(msg);
 
   if (!bodyMessage) {
@@ -1518,19 +1525,33 @@ const handleOpenAi = async (
     tagsList = availableTags.map(t => `- ${t.name} (ID: ${t.id})`).join('\n');
   }
 
+  let availableUsers: User[] = [];
+  if (prompt.canTransferToUser || prompt.fallbackUserId) {
+    availableUsers = await User.findAll({
+      where: { companyId: ticket.companyId },
+      attributes: ["id", "name"]
+    });
+  }
+  const usersList = availableUsers.map(user => `- ${user.name} (ID: ${user.id})`).join("\n");
+
   // Prompt do sistema otimizado e mais completo (igual ao Gemini)
   const contactName = sanitizeName(contact.name || "Amigo(a)");
   const promptSystem =
     `Você é um assistente de atendimento. O nome do CLIENTE que você está atendendo é: ${contactName}. Use este nome ao se dirigir ao cliente nas suas respostas.\n${prompt.prompt}` +
-    buildPromptActionFormattingInstructions(prompt, queuesList, tagsList) +
+    buildPromptActionFormattingInstructions(prompt, queuesList, tagsList, usersList) +
     `\n\nSua resposta deve usar no máximo ${prompt.maxTokens} tokens e cuide para não truncar o final.`;
+
+  const historyText = [...messages].reverse()
+    .map(message => `${message.fromMe ? "Atendente" : "Cliente"}: ${message.body || ""}`)
+    .join("\n");
 
 
   let messagesOpenAi: Array<{ role: "system" | "user" | "assistant"; content: string }> = [];
 
   if (msg.message?.conversation || msg.message?.extendedTextMessage?.text) {
     messagesOpenAi = [];
-    messagesOpenAi.push({ role: "system", content: promptSystem });
+    const textContext = await loadAgentContext(prompt, bodyMessage || "", historyText);
+    messagesOpenAi.push({ role: "system", content: promptSystem + formatAgentContext(textContext) });
 
     // Adicionar histórico de mensagens (inverter ordem para ter do mais antigo ao mais recente)
     const sortedMessages = [...messages].reverse();
@@ -1580,9 +1601,11 @@ const handleOpenAi = async (
       contact,
       availableQueues,
       availableTags,
+      availableUsers,
       execute: true,
       channel: "whatsapp",
-      sendWhatsAppToCustomer
+      sendWhatsAppToCustomer,
+      knowledge: { hasEvidence: !!textContext.has_evidence, userText: bodyMessage || "" }
     });
 
     if (cleanedResponse.trim()) {
@@ -1637,7 +1660,8 @@ const handleOpenAi = async (
         : (txRes as any)?.text ?? (txRes as any)?.data?.text ?? "";
 
     messagesOpenAi = [];
-    messagesOpenAi.push({ role: "system", content: promptSystem });
+    const audioContext = await loadAgentContext(prompt, transcriptionText || "", historyText);
+    messagesOpenAi.push({ role: "system", content: promptSystem + formatAgentContext(audioContext) });
 
     // Adicionar histórico de mensagens (inverter ordem para ter do mais antigo ao mais recente)
     const sortedAudioMessages = [...messages].reverse();
@@ -1684,9 +1708,11 @@ const handleOpenAi = async (
       contact,
       availableQueues,
       availableTags,
+      availableUsers,
       execute: true,
       channel: "whatsapp",
-      sendWhatsAppToCustomer: sendWhatsAppAudio
+      sendWhatsAppToCustomer: sendWhatsAppAudio,
+      knowledge: { hasEvidence: !!audioContext.has_evidence, userText: transcriptionText || "" }
     });
 
     if (cleanedAudioResponse.trim()) {

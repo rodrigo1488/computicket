@@ -38,6 +38,7 @@ import BaileysChats from "../models/BaileysChats";
 import Files from "../models/Files";
 import FilesOptions from "../models/FilesOptions";
 import Prompt from "../models/Prompt";
+import AiIdleAlert from "../models/AiIdleAlert";
 import QueueIntegrations from "../models/QueueIntegrations";
 import { FlowDefaultModel } from "../models/FlowDefault";
 import { FlowBuilderModel } from "../models/FlowBuilder";
@@ -118,6 +119,7 @@ const models = [
   Files,
   FilesOptions,
   Prompt,
+  AiIdleAlert,
   QueueIntegrations,
   FlowDefaultModel,
   FlowBuilderModel,

@@ -40,7 +40,7 @@ export const store = async (req: Request, res: Response): Promise<Response> => {
     const [, token] = authHeader.split(" ");
     const decoded = verify(token, authConfig.secret);
     const { companyId } = decoded as TokenPayload;
-    const { name, prompt, maxTokens, temperature, promptTokens, completionTokens, totalTokens, queueId, maxMessages, model, provider, canSendInternalMessages, canTransferToAgent, canChangeTag, permitirCriarAgendamentos, tipoAgente, isTemplate, templateVariables, transferQueueId, businessHours } = req.body;
+    const { name, prompt, maxTokens, temperature, promptTokens, completionTokens, totalTokens, queueId, maxMessages, model, provider, canSendInternalMessages, canTransferToAgent, canChangeTag, permitirCriarAgendamentos, tipoAgente, isTemplate, templateVariables, transferQueueId, businessHours, canTransferToUser, answerFromKnowledge, fallbackQueueId, fallbackUserId, idleAlertEnabled, idleAlertMinutes, idleAlertGroupJid } = req.body;
 
     // Não passar apiKey - será buscada das Settings
     const promptTable = await CreatePromptService({
@@ -64,7 +64,14 @@ export const store = async (req: Request, res: Response): Promise<Response> => {
       isTemplate,
       templateVariables,
       transferQueueId,
-      businessHours
+      businessHours,
+      canTransferToUser,
+      answerFromKnowledge,
+      fallbackQueueId,
+      fallbackUserId,
+      idleAlertEnabled,
+      idleAlertMinutes,
+      idleAlertGroupJid
     });
 
     const io = getIO();

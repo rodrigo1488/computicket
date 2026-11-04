@@ -5,6 +5,8 @@ import ShowPromptService from "./ShowPromptService";
 import { getLmStudioDefaultModel, isAiBackendConfigured } from "../../config/openai";
 import { getGeminiDefaultModel } from "../../config/gemini";
 import { isGeminiConfiguredForCompany } from "../AiServices/GeminiApiKeyService";
+import syncPromptQueue from "./syncPromptQueue";
+import { asBool, clampIdleMinutes, normalizeGroupJid, optionalId } from "./promptAgentFields";
 
 interface PromptData {
     id?: number;
@@ -30,6 +32,13 @@ interface PromptData {
     templateVariables?: string;
     transferQueueId?: number | null;
     businessHours?: any;
+    canTransferToUser?: boolean;
+    answerFromKnowledge?: boolean;
+    fallbackQueueId?: number | null;
+    fallbackUserId?: number | null;
+    idleAlertEnabled?: boolean;
+    idleAlertMinutes?: number;
+    idleAlertGroupJid?: string | null;
 }
 
 interface Request {
@@ -61,7 +70,7 @@ const UpdatePromptService = async ({
     });
 
     // Não exigir apiKey no prompt - será buscada das Settings
-    const { name, prompt, maxTokens, temperature, promptTokens, completionTokens, totalTokens, queueId, maxMessages, model, canSendInternalMessages, canTransferToAgent, canChangeTag, permitirCriarAgendamentos, tipoAgente, isTemplate, templateVariables, transferQueueId, businessHours } = promptData;
+    const { name, prompt, maxTokens, temperature, promptTokens, completionTokens, totalTokens, queueId, maxMessages, model, canSendInternalMessages, canTransferToAgent, canChangeTag, permitirCriarAgendamentos, tipoAgente, isTemplate, templateVariables, transferQueueId, businessHours, canTransferToUser, answerFromKnowledge, fallbackQueueId, fallbackUserId, idleAlertEnabled, idleAlertMinutes, idleAlertGroupJid } = promptData;
 
     try {
         await promptSchema.validate({ name, prompt, maxTokens, temperature, promptTokens, completionTokens, totalTokens, queueId, maxMessages, provider });
@@ -104,13 +113,23 @@ const UpdatePromptService = async ({
         tipoAgente: tipoAgente !== undefined ? tipoAgente : promptTable.tipoAgente || "personalizado",
         isTemplate: isTemplate !== undefined ? isTemplate : promptTable.isTemplate || false,
         templateVariables: templateVariables !== undefined ? templateVariables : promptTable.templateVariables,
-        transferQueueId: transferQueueId || null,
+        transferQueueId: transferQueueId !== undefined ? optionalId(transferQueueId) : promptTable.transferQueueId,
         businessHours: businessHours !== undefined ? businessHours : promptTable.businessHours,
+        canTransferToUser: canTransferToUser !== undefined ? asBool(canTransferToUser) : promptTable.canTransferToUser,
+        answerFromKnowledge: answerFromKnowledge !== undefined ? asBool(answerFromKnowledge) : promptTable.answerFromKnowledge,
+        fallbackQueueId: fallbackQueueId !== undefined ? optionalId(fallbackQueueId) : promptTable.fallbackQueueId,
+        fallbackUserId: fallbackUserId !== undefined ? optionalId(fallbackUserId) : promptTable.fallbackUserId,
+        idleAlertEnabled: idleAlertEnabled !== undefined ? asBool(idleAlertEnabled) : promptTable.idleAlertEnabled,
+        idleAlertMinutes: idleAlertMinutes !== undefined ? clampIdleMinutes(idleAlertMinutes, promptTable.idleAlertMinutes || 30) : promptTable.idleAlertMinutes,
+        idleAlertGroupJid: idleAlertGroupJid !== undefined ? normalizeGroupJid(idleAlertGroupJid) : promptTable.idleAlertGroupJid,
         // Sempre definir apiKey como string vazia - será buscada das Settings
         apiKey: ""
     };
 
     await promptTable.update(updateData);
+    if (queueId !== undefined) {
+        await syncPromptQueue(promptTable.id, optionalId(queueId), companyIdNumber);
+    }
     await promptTable.reload();
     return promptTable;
 };

@@ -13,6 +13,7 @@ import {
 } from "sequelize-typescript";
 import Queue from "./Queue";
 import Company from "./Company";
+import User from "./User";
 
 @Table
 class Prompt extends Model<Prompt> {
@@ -69,6 +70,38 @@ class Prompt extends Model<Prompt> {
   @Column({ defaultValue: false })
   permitirCriarAgendamentos: boolean;
 
+  @Column({ defaultValue: false })
+  canTransferToUser: boolean;
+
+  @Column({ defaultValue: false })
+  answerFromKnowledge: boolean;
+
+  @AllowNull
+  @ForeignKey(() => Queue)
+  @Column
+  fallbackQueueId: number;
+
+  @BelongsTo(() => Queue, "fallbackQueueId")
+  fallbackQueue: Queue;
+
+  @AllowNull
+  @ForeignKey(() => User)
+  @Column
+  fallbackUserId: number;
+
+  @BelongsTo(() => User, "fallbackUserId")
+  fallbackUser: User;
+
+  @Column({ defaultValue: false })
+  idleAlertEnabled: boolean;
+
+  @Column({ defaultValue: 30 })
+  idleAlertMinutes: number;
+
+  @AllowNull
+  @Column
+  idleAlertGroupJid: string;
+
   @Column({ defaultValue: null })
   tipoAgente: string;
 
@@ -94,7 +127,7 @@ class Prompt extends Model<Prompt> {
   @Column
   queueId: number;
 
-  @BelongsTo(() => Queue)
+  @BelongsTo(() => Queue, "queueId")
   queue: Queue;
 
   @ForeignKey(() => Company)

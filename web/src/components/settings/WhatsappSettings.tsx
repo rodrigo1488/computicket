@@ -21,12 +21,14 @@ import {
   type QueueSchedule,
   type QuickMessage,
 } from "@/lib/helpdesk";
+import { AiAgentsPanel } from "@/components/settings/AiAgentsPanel";
 
-export type WhatsappSection = "filas" | "agentes" | "conexoes" | "rapidas" | "expediente" | "automacao";
+export type WhatsappSection = "filas" | "agentes" | "agentes-ia" | "conexoes" | "rapidas" | "expediente" | "automacao";
 
 const SECTIONS: { key: WhatsappSection; label: string }[] = [
   { key: "filas", label: "Filas" },
   { key: "agentes", label: "Agentes" },
+  { key: "agentes-ia", label: "Agentes de IA" },
   { key: "rapidas", label: "Mensagens rápidas" },
   { key: "conexoes", label: "Conexões" },
   { key: "expediente", label: "Expediente" },
@@ -986,6 +988,8 @@ export function WhatsappSettings({ section, onSection }: { section: WhatsappSect
           )}
         </div>
       ) : null}
+
+      {section === "agentes-ia" ? <AiAgentsPanel queues={queueList} /> : null}
 
       {section === "agentes" ? (
         <div>

@@ -20,6 +20,7 @@ import ContactCustomField from "../models/ContactCustomField";
 import { logger } from "../utils/logger";
 import ToggleDisableBotContactService from "../services/ContactServices/ToggleDisableBotContactService";
 import RefreshContactProfilePicService from "../services/ContactServices/RefreshContactProfilePicService";
+import Contact from "../models/Contact";
 
 type IndexQuery = {
   searchParam: string;
@@ -201,6 +202,15 @@ export const remove = async (
   });
 
   return res.status(200).json({ message: "Contact deleted" });
+};
+
+export const groups = async (req: Request, res: Response): Promise<Response> => {
+  const contacts = await Contact.findAll({
+    where: { companyId: req.user.companyId, isGroup: true },
+    attributes: ["id", "name", "number"],
+    order: [["name", "ASC"]]
+  });
+  return res.json(contacts);
 };
 
 export const list = async (req: Request, res: Response): Promise<Response> => {

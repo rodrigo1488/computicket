@@ -83,6 +83,44 @@ export type HelpdeskAgent = {
   queues?: HelpdeskQueue[];
 };
 
+export type AiWhatsappAgent = {
+  id: number;
+  name: string;
+  prompt: string;
+  queueId?: number | null;
+  canTransferToAgent: boolean;
+  canTransferToUser: boolean;
+  answerFromKnowledge: boolean;
+  permitirCriarAgendamentos: boolean;
+  fallbackQueueId?: number | null;
+  fallbackUserId?: number | null;
+  idleAlertEnabled: boolean;
+  idleAlertMinutes: number;
+  idleAlertGroupJid?: string;
+  provider?: string;
+};
+
+export type AiWhatsappAgentPayload = {
+  name: string;
+  prompt: string;
+  queueId?: number | null;
+  canTransferToAgent: boolean;
+  canTransferToUser: boolean;
+  answerFromKnowledge: boolean;
+  permitirCriarAgendamentos: boolean;
+  fallbackQueueId?: number | null;
+  fallbackUserId?: number | null;
+  idleAlertEnabled: boolean;
+  idleAlertMinutes: number;
+  idleAlertGroupJid?: string | null;
+};
+
+export type WhatsappGroupContact = {
+  id: number;
+  name?: string;
+  number?: string;
+};
+
 export type HelpdeskConnection = {
   id: number;
   name: string;
@@ -564,6 +602,13 @@ export const helpdesk = {
   updateQueue: (id: number, payload: QueuePayload) => flask.put<HelpdeskQueue>(`/helpdesk/api/queues/${id}`, payload),
   deleteQueue: (id: number) => flask.delete(`/helpdesk/api/queues/${id}`),
   agents: () => flask.get<HelpdeskAgent[]>("/helpdesk/api/agents"),
+  aiAgents: () => flask.get<AiWhatsappAgent[]>("/helpdesk/api/ai-agents"),
+  aiAgentGroups: () => flask.get<WhatsappGroupContact[]>("/helpdesk/api/ai-agents/groups"),
+  createAiAgent: (payload: AiWhatsappAgentPayload) =>
+    flask.post<AiWhatsappAgent>("/helpdesk/api/ai-agents", payload),
+  updateAiAgent: (id: number, payload: AiWhatsappAgentPayload) =>
+    flask.put<AiWhatsappAgent>(`/helpdesk/api/ai-agents/${id}`, payload),
+  deleteAiAgent: (id: number) => flask.delete(`/helpdesk/api/ai-agents/${id}`),
   updateAgentQueues: (userId: number, queueIds: number[]) =>
     flask.put<HelpdeskAgent>(`/helpdesk/api/agents/${userId}`, { queueIds }),
   businessHours: () => flask.get<BusinessHours>("/helpdesk/api/business-hours"),

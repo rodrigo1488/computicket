@@ -44,6 +44,7 @@ from ..models import (
 )
 from ..timezone_utils import brasilia_to_utc, get_brasilia_now
 from ..services.copilot import CopilotError, answer_question, improve_draft, suggest_reply, suggest_ticket
+from ..services.whatsapp_agent import build_agent_context, internal_token_ok
 
 helpdesk_bp = Blueprint("helpdesk", __name__, url_prefix="/helpdesk")
 
@@ -2650,5 +2651,167 @@ def duplicate_flow(flow_id: int):
     try:
         data = admin_request("POST", "/flowbuilder/duplicate", json={"flowId": flow_id})
         return jsonify(_unwrap_flow(data) or data), 201
+    except EngineError as exc:
+        return _fail(exc)
+
+
+def _ai_flag(payload: dict, key: str, default: bool = False) -> bool:
+    if key not in payload:
+        return default
+    value = payload.get(key)
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "on"}
+    return bool(value)
+
+
+def _ai_optional_int(value):
+    if value in (None, "", 0, "0"):
+        return None
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed > 0 else None
+
+
+def _ai_agent_engine_body(payload: dict) -> dict:
+    minutes = _ai_optional_int(payload.get("idleAlertMinutes")) or 30
+    minutes = min(1440, max(5, minutes))
+    return {
+        "name": (payload.get("name") or "").strip(),
+        "prompt": (payload.get("prompt") or "").strip(),
+        "provider": "gemini",
+        "maxMessages": 10,
+        "maxTokens": 800,
+        "temperature": 0.3,
+        "queueId": _ai_optional_int(payload.get("queueId")),
+        "canTransferToAgent": _ai_flag(payload, "canTransferToAgent"),
+        "canTransferToUser": _ai_flag(payload, "canTransferToUser"),
+        "answerFromKnowledge": _ai_flag(payload, "answerFromKnowledge", True),
+        "permitirCriarAgendamentos": _ai_flag(payload, "permitirCriarAgendamentos"),
+        "fallbackQueueId": _ai_optional_int(payload.get("fallbackQueueId")),
+        "fallbackUserId": _ai_optional_int(payload.get("fallbackUserId")),
+        "idleAlertEnabled": _ai_flag(payload, "idleAlertEnabled"),
+        "idleAlertMinutes": minutes,
+        "idleAlertGroupJid": (payload.get("idleAlertGroupJid") or "").strip() or None,
+        "tipoAgente": "atendimento",
+    }
+
+
+def _public_ai_agent(row: dict) -> dict:
+    return {
+        "id": row.get("id"),
+        "name": row.get("name") or "",
+        "prompt": row.get("prompt") or "",
+        "queueId": row.get("queueId"),
+        "canTransferToAgent": bool(row.get("canTransferToAgent")),
+        "canTransferToUser": bool(row.get("canTransferToUser")),
+        "answerFromKnowledge": bool(row.get("answerFromKnowledge")),
+        "permitirCriarAgendamentos": bool(row.get("permitirCriarAgendamentos")),
+        "fallbackQueueId": row.get("fallbackQueueId"),
+        "fallbackUserId": row.get("fallbackUserId"),
+        "idleAlertEnabled": bool(row.get("idleAlertEnabled")),
+        "idleAlertMinutes": row.get("idleAlertMinutes") or 30,
+        "idleAlertGroupJid": row.get("idleAlertGroupJid") or "",
+        "provider": row.get("provider") or "gemini",
+    }
+
+
+def _list_engine_prompts() -> list[dict]:
+    rows: list[dict] = []
+    page = 1
+    while page <= 10:
+        data = admin_request("GET", "/prompt", params={"pageNumber": str(page)}) or {}
+        chunk = data.get("prompts") if isinstance(data, dict) else data
+        rows.extend(item for item in (chunk or []) if isinstance(item, dict))
+        if not (isinstance(data, dict) and data.get("hasMore")):
+            break
+        page += 1
+    return rows
+
+
+@helpdesk_bp.route("/api/internal/agent/context", methods=["POST"])
+def internal_agent_context():
+    if not internal_token_ok():
+        return jsonify({"error": "Não autorizado"}), 401
+    payload = request.get_json(silent=True) or {}
+    return jsonify(build_agent_context(payload.get("question") or "", payload.get("history") or ""))
+
+
+@helpdesk_bp.route("/api/ai-agents")
+@login_required
+def list_ai_agents():
+    denied = _require_admin()
+    if denied:
+        return denied
+    try:
+        return jsonify([_public_ai_agent(row) for row in _list_engine_prompts()])
+    except EngineError as exc:
+        return _fail(exc)
+
+
+@helpdesk_bp.route("/api/ai-agents/groups")
+@login_required
+def list_ai_agent_groups():
+    denied = _require_admin()
+    if denied:
+        return denied
+    try:
+        data = admin_request("GET", "/contacts/groups") or []
+        groups = data if isinstance(data, list) else []
+        return jsonify([
+            {"id": item.get("id"), "name": item.get("name") or item.get("number"), "number": item.get("number")}
+            for item in groups
+            if isinstance(item, dict)
+        ])
+    except EngineError as exc:
+        return _fail(exc)
+
+
+@helpdesk_bp.route("/api/ai-agents", methods=["POST"])
+@login_required
+def create_ai_agent():
+    denied = _require_admin()
+    if denied:
+        return denied
+    payload = request.get_json(silent=True) or {}
+    body = _ai_agent_engine_body(payload)
+    if not body["name"] or not body["prompt"]:
+        return jsonify({"error": "Informe o nome e as instruções do agente."}), 400
+    if not body["queueId"]:
+        return jsonify({"error": "Escolha a fila que este agente atende."}), 400
+    try:
+        created = admin_request("POST", "/prompt", json=body) or {}
+        return jsonify(_public_ai_agent(created if isinstance(created, dict) else {})), 201
+    except EngineError as exc:
+        return _fail(exc)
+
+
+@helpdesk_bp.route("/api/ai-agents/<int:agent_id>", methods=["PUT"])
+@login_required
+def update_ai_agent(agent_id: int):
+    denied = _require_admin()
+    if denied:
+        return denied
+    payload = request.get_json(silent=True) or {}
+    body = _ai_agent_engine_body(payload)
+    if not body["name"] or not body["prompt"]:
+        return jsonify({"error": "Informe o nome e as instruções do agente."}), 400
+    try:
+        updated = admin_request("PUT", f"/prompt/{agent_id}", json=body) or {}
+        return jsonify(_public_ai_agent(updated if isinstance(updated, dict) else {}))
+    except EngineError as exc:
+        return _fail(exc)
+
+
+@helpdesk_bp.route("/api/ai-agents/<int:agent_id>", methods=["DELETE"])
+@login_required
+def delete_ai_agent(agent_id: int):
+    denied = _require_admin()
+    if denied:
+        return denied
+    try:
+        data = admin_request("DELETE", f"/prompt/{agent_id}") or {}
+        return jsonify(data if isinstance(data, dict) else {"message": "Agente excluído"})
     except EngineError as exc:
         return _fail(exc)

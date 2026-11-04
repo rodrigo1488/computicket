@@ -2,7 +2,7 @@ from flask import Blueprint, render_template, request, jsonify, flash, redirect,
 from flask_login import login_required, current_user
 from datetime import datetime, timedelta
 from app import db
-from app.models import User, Client, Service, Ticket, Appointment, ShiftSwap
+from app.models import User, Client, Service, Ticket, Appointment, ShiftSwap, HelpDeskContactClientLink
 from app.timezone_utils import get_brasilia_now, brasilia_to_utc, utc_to_brasilia, format_datetime_brasilia
 from app.external_pg import fetch_external_clients
 import json
@@ -429,6 +429,103 @@ def calendario():
     except Exception as e:
         print(f"❌ Erro na API calendário: {e}")
         return jsonify({'error': str(e)}), 500
+
+def _resolve_agenda_technician(user_id=None, name=None):
+	if user_id not in (None, ""):
+		try:
+			user = db.session.get(User, int(user_id))
+		except (TypeError, ValueError):
+			user = None
+		if user and str(user.status) == "1":
+			return user
+	cleaned = (name or "").strip()
+	if not cleaned:
+		return None
+	exact = User.query.filter(db.func.lower(User.name) == cleaned.lower(), User.status == "1").first()
+	if exact:
+		return exact
+	return User.query.filter(User.name.ilike(f"%{cleaned}%"), User.status == "1").order_by(User.name.asc()).first()
+
+
+def create_appointment_from_whatsapp(data: dict) -> tuple[dict, int]:
+	"""Cria visita na agenda a partir do agente de WhatsApp."""
+	from ..services.whatsapp_agent import internal_token_ok
+
+	if not internal_token_ok():
+		return {"ok": False, "error": "Não autorizado"}, 401
+
+	title = (data.get("title") or "").strip()
+	raw_date = (data.get("appointment_date") or "").strip()
+	try:
+		engine_contact_id = int(data.get("engine_contact_id") or 0)
+	except (TypeError, ValueError):
+		engine_contact_id = 0
+	if not title or not raw_date or engine_contact_id <= 0:
+		return {"ok": False, "error": "Informe título, data e contato."}, 400
+
+	link = HelpDeskContactClientLink.query.filter_by(engine_contact_id=engine_contact_id).first()
+	if not link:
+		return {
+			"ok": False,
+			"code": "client_unlinked",
+			"message": "Não encontrei este WhatsApp vinculado a um cliente. Pode me passar o CNPJ ou o nome da empresa?",
+		}, 422
+
+	technician = _resolve_agenda_technician(data.get("user_id"), data.get("tecnico") or data.get("technician"))
+	if not technician:
+		return {
+			"ok": False,
+			"message": "Não encontrei esse técnico na agenda. Informe o nome de um técnico ativo.",
+		}, 400
+
+	try:
+		appointment_date = datetime.fromisoformat(raw_date.replace("Z", "+00:00"))
+	except ValueError:
+		return {"ok": False, "message": "Data do agendamento inválida. Use ano, mês, dia e horário."}, 400
+
+	appointment = Appointment(
+		title=title,
+		description=(data.get("description") or "").strip(),
+		appointment_date=appointment_date,
+		client_id=link.external_client_id,
+		user_id=technician.id,
+		created_by=technician.id,
+	)
+	db.session.add(appointment)
+	db.session.commit()
+
+	from ..notification_service import create_notifications
+	create_notifications(
+		[appointment.user_id],
+		notification_type="appointment",
+		title="Novo agendamento",
+		message=f"{appointment.title} · {appointment.get_formatted_date()}",
+		url="/agenda",
+		entity_type="appointment",
+		entity_id=appointment.id,
+	)
+	try:
+		enviar_email_confirmacao(appointment)
+	except Exception as exc:
+		print(f"❌ Email agendamento WhatsApp: {exc}")
+	try:
+		notify_appointment_whatsapp(appointment)
+	except Exception as exc:
+		print(f"❌ WhatsApp agendamento: {exc}")
+
+	when = appointment.get_formatted_date()
+	return {
+		"ok": True,
+		"appointment_id": appointment.id,
+		"message": f"Agendamento confirmado: {appointment.title} em {when} com {technician.name}.",
+	}, 201
+
+
+@agenda_bp.route("/api/internal/from-whatsapp", methods=["POST"])
+def agendamento_from_whatsapp():
+	payload, status = create_appointment_from_whatsapp(request.get_json(silent=True) or {})
+	return jsonify(payload), status
+
 
 @agenda_bp.route('/novo', methods=['GET', 'POST'])
 @login_required

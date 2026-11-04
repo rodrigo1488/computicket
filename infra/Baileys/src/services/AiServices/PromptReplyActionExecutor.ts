@@ -9,6 +9,13 @@ import SyncTags from "../TagServices/SyncTagsService";
 import ParseAppointmentCommand from "../AppointmentAIService/ParseAppointmentCommand";
 import generateContextSummary from "./GenerateContextSummaryService";
 import { logger } from "../../utils/logger";
+import type User from "../../models/User";
+import { createComputicketAppointment } from "../../helpers/computicketAgentApi";
+import {
+  parseAgendaCommands,
+  parseUserTransferName,
+  shouldForceKnowledgeHandoff
+} from "./aiAgentActions";
 
 export type PromptReplyChannel = "whatsapp" | "agent_panel";
 
@@ -16,8 +23,10 @@ export type PendingAction =
   | { type: "internal_notes"; bodies: string[] }
   | { type: "change_tag"; tagName: string }
   | { type: "transfer_queue"; queueId: number | null; queueName: string | null }
+  | { type: "transfer_user"; userId: number | null; userName: string | null }
   | { type: "transfer_wait_only" }
-  | { type: "agendar_commands"; commands: string[] };
+  | { type: "agendar_commands"; commands: string[] }
+  | { type: "agenda_commands"; commands: string[] };
 
 export interface ProcessPromptReplyActionsParams {
   response: string;
@@ -30,6 +39,8 @@ export interface ProcessPromptReplyActionsParams {
   channel: PromptReplyChannel;
   /** Obrigatório no modo WhatsApp quando `canTransferToAgent` é false (mensagem de espera). */
   sendWhatsAppToCustomer?: (text: string) => Promise<void>;
+  availableUsers?: Array<Pick<User, "id" | "name">>;
+  knowledge?: { hasEvidence: boolean; userText: string };
 }
 
 export interface ProcessPromptReplyActionsResult {
@@ -43,12 +54,16 @@ export interface ProcessPromptReplyActionsResult {
 export const buildPromptActionFormattingInstructions = (
   prompt: any,
   queuesList: string,
-  tagsList: string
+  tagsList: string,
+  usersList = ""
 ): string => {
   if (!prompt) return "";
   let extra = "";
   if (prompt.canTransferToAgent) {
     extra += `\n\nFILAS DISPONÍVEIS PARA TRANSFERÊNCIA:\n${queuesList}\n\nIMPORTANTE: Seja direto e objetivo. Para transferir, use o formato: 'Ação: Transferir para o setor de atendimento [Fila: Nome da Fila]' ou apenas 'Ação: Transferir para o setor de atendimento' para usar a fila padrão.`;
+  }
+  if (prompt.canTransferToUser) {
+    extra += `\n\nATENDENTES DISPONÍVEIS:\n${usersList || "(nenhum)"}\n\nPara transferir a uma pessoa, use: 'Ação: Transferir para o atendente [Usuário: Nome]'.`;
   }
   if (prompt.canChangeTag && tagsList) {
     extra += `\n\nTAGS DISPONÍVEIS PARA ALTERAÇÃO:\n${tagsList}\n\nPara alterar a tag/estágio do ticket, use o formato: 'Ação: Alterar tag [Tag: Nome da Tag]'`;
@@ -58,6 +73,7 @@ export const buildPromptActionFormattingInstructions = (
   }
   if (prompt.permitirCriarAgendamentos) {
     extra += `\n\nAGENDAMENTOS: Use [AGENDAR]{"action":"criar|verificar|listar","profissional":"Nome","data":"YYYY-MM-DD","horarioInicio":"HH:mm","horarioFim":"HH:mm"(opcional),"titulo":"Título","descricao":"Desc"(opcional)}[/AGENDAR]. Execute comandos IMEDIATAMENTE sem dizer "vou verificar". Verifique disponibilidade antes de criar. Remova tags [AGENDAR] da resposta final.`;
+    extra += `\n\nVISITA NA AGENDA: Use [AGENDA]{"title":"Título","appointment_date":"YYYY-MM-DDTHH:mm:ss","tecnico":"Nome do técnico","description":"Detalhe"}[/AGENDA]. O cliente é o contato desta conversa. Confirme data, horário e técnico antes de incluir o bloco. Não diga que a visita foi marcada sem o bloco [AGENDA].`;
   }
   return extra;
 };
@@ -96,7 +112,9 @@ export const processPromptAiReplyActions = async (
     availableTags,
     execute,
     channel,
-    sendWhatsAppToCustomer
+    sendWhatsAppToCustomer,
+    availableUsers = [],
+    knowledge
   } = params;
 
   const companyId = ticket.companyId;
@@ -219,6 +237,43 @@ export const processPromptAiReplyActions = async (
     }
   }
 
+  const agendaCommands = prompt.permitirCriarAgendamentos ? parseAgendaCommands(response || "") : [];
+  if (agendaCommands.length) {
+    pendingActions.push({
+      type: "agenda_commands",
+      commands: agendaCommands.map(command => JSON.stringify(command))
+    });
+    if (execute) {
+      for (const command of agendaCommands) {
+        try {
+          const result = await createComputicketAppointment({
+            engine_contact_id: contact.id,
+            contact_number: contact.number,
+            title: command.title,
+            appointment_date: command.appointment_date,
+            tecnico: command.tecnico,
+            user_id: command.user_id,
+            description: command.description
+          });
+          cleanedResponse = cleanedResponse.replace(
+            /\[AGENDA\][\s\S]*?\[\/AGENDA\]/i,
+            result.message
+          );
+        } catch (err: any) {
+          logger.error(`Erro ao criar agendamento no Computicket: ${err.message}`);
+          cleanedResponse = cleanedResponse.replace(
+            /\[AGENDA\][\s\S]*?\[\/AGENDA\]/i,
+            "Não consegui criar o agendamento agora. Pode repetir a data e o técnico?"
+          );
+        }
+      }
+    } else {
+      cleanedResponse = cleanedResponse.replace(/\[AGENDA\][\s\S]*?\[\/AGENDA\]/gi, "").trim();
+    }
+  } else if ((response || "").includes("[AGENDA]")) {
+    cleanedResponse = cleanedResponse.replace(/\[AGENDA\][\s\S]*?\[\/AGENDA\]/gi, "").trim();
+  }
+
   if (prompt.canChangeTag && response?.includes("Ação: Alterar tag")) {
     const tagMatch = response.match(/\[Tag:\s*([^\]]+)\]/i);
     if (tagMatch && tagMatch[1]) {
@@ -331,6 +386,100 @@ export const processPromptAiReplyActions = async (
         .replace(/Ação: Transferir para o setor de atendimento/gi, "")
         .trim();
     }
+  }
+
+  const requestedUserName = parseUserTransferName(response || "");
+  if (requestedUserName !== null && prompt.canTransferToUser) {
+    const matchedUser = availableUsers.find(
+      user => user.name && requestedUserName && user.name.toLowerCase() === requestedUserName.toLowerCase()
+    );
+    pendingActions.push({
+      type: "transfer_user",
+      userId: matchedUser?.id || null,
+      userName: matchedUser?.name || requestedUserName || null
+    });
+    if (execute && matchedUser) {
+      try {
+        const summary = await generateContextSummary({
+          ticketId: ticket.id,
+          companyId: ticket.companyId,
+          provider: "openai",
+          maxMessages: prompt.maxMessages
+        });
+        await persistInternalNote(
+          ticket,
+          companyId,
+          `📋 RESUMO DO CONTEXTO (antes da transferência):\n\n${summary}`
+        );
+      } catch (err: any) {
+        logger.error(`Erro ao gerar resumo antes da transferência para usuário: ${err.message}`);
+      }
+      await UpdateTicketService({
+        ticketData: {
+          queueId: ticket.queueId,
+          userId: matchedUser.id,
+          status: "open"
+        },
+        ticketId: ticket.id,
+        companyId: ticket.companyId
+      });
+      logger.info(`Ticket ${ticket.id} transferido para o usuário ${matchedUser.id} (${matchedUser.name})`);
+    } else if (execute && requestedUserName) {
+      logger.warn(`Atendente informado pela IA não encontrado: "${requestedUserName}"`);
+    }
+    cleanedResponse = cleanedResponse
+      .replace(/Ação:\s*Transferir para o atendente\s*\[Usuário:[^\]]+\]/gi, "")
+      .replace(/Ação:\s*Transferir para o atendente/gi, "")
+      .trim();
+  } else if (requestedUserName !== null) {
+    cleanedResponse = cleanedResponse
+      .replace(/Ação:\s*Transferir para o atendente\s*\[Usuário:[^\]]+\]/gi, "")
+      .replace(/Ação:\s*Transferir para o atendente/gi, "")
+      .trim();
+  }
+
+  const alreadyTransferring = pendingActions.some(
+    action => action.type === "transfer_queue" || action.type === "transfer_user" || action.type === "transfer_wait_only"
+  );
+  const alreadyScheduling = pendingActions.some(
+    action => action.type === "agenda_commands" || action.type === "agendar_commands"
+  );
+  if (
+    knowledge &&
+    shouldForceKnowledgeHandoff({
+      answerFromKnowledge: !!prompt.answerFromKnowledge,
+      hasEvidence: !!knowledge.hasEvidence,
+      userText: knowledge.userText || "",
+      alreadyTransferring,
+      alreadyScheduling
+    })
+  ) {
+    const fallbackQueueId = prompt.fallbackQueueId || prompt.transferQueueId || prompt.queueId || null;
+    const fallbackUserId = prompt.fallbackUserId || null;
+    pendingActions.push({
+      type: "transfer_queue",
+      queueId: fallbackQueueId,
+      queueName: null
+    });
+    if (fallbackUserId) {
+      pendingActions.push({
+        type: "transfer_user",
+        userId: fallbackUserId,
+        userName: null
+      });
+    }
+    if (execute && (fallbackQueueId || fallbackUserId)) {
+      await UpdateTicketService({
+        ticketData: {
+          queueId: fallbackQueueId || ticket.queueId,
+          ...(fallbackUserId ? { userId: fallbackUserId, status: "open" } : {})
+        },
+        ticketId: ticket.id,
+        companyId: ticket.companyId
+      });
+      logger.info(`Ticket ${ticket.id} transferido por falta de evidência na base`);
+    }
+    cleanedResponse = "Não tenho essa informação confirmada. Vou transferir você para um atendente.";
   }
 
   if (cleanedResponse.includes("[INTERNA]") || cleanedResponse.includes("[/INTERNA]")) {

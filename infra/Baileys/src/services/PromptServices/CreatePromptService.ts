@@ -5,6 +5,8 @@ import ShowPromptService from "./ShowPromptService";
 import { getLmStudioDefaultModel, isAiBackendConfigured } from "../../config/openai";
 import { getGeminiDefaultModel } from "../../config/gemini";
 import { isGeminiConfiguredForCompany } from "../AiServices/GeminiApiKeyService";
+import syncPromptQueue from "./syncPromptQueue";
+import { asBool, clampIdleMinutes, normalizeGroupJid, optionalId } from "./promptAgentFields";
 
 interface PromptData {
     name: string;
@@ -29,6 +31,13 @@ interface PromptData {
     templateVariables?: string;
     transferQueueId?: number | null;
     businessHours?: any;
+    canTransferToUser?: boolean;
+    answerFromKnowledge?: boolean;
+    fallbackQueueId?: number | null;
+    fallbackUserId?: number | null;
+    idleAlertEnabled?: boolean;
+    idleAlertMinutes?: number;
+    idleAlertGroupJid?: string | null;
 }
 
 const CreatePromptService = async (promptData: PromptData): Promise<Prompt> => {
@@ -111,8 +120,15 @@ const CreatePromptService = async (promptData: PromptData): Promise<Prompt> => {
         tipoAgente: promptData.tipoAgente || "personalizado",
         isTemplate: promptData.isTemplate || false,
         templateVariables: promptData.templateVariables || null,
-        transferQueueId: promptData.transferQueueId || null,
-        businessHours: promptData.businessHours || null
+        transferQueueId: optionalId(promptData.transferQueueId),
+        businessHours: promptData.businessHours || null,
+        canTransferToUser: asBool(promptData.canTransferToUser),
+        answerFromKnowledge: asBool(promptData.answerFromKnowledge),
+        fallbackQueueId: optionalId(promptData.fallbackQueueId),
+        fallbackUserId: optionalId(promptData.fallbackUserId),
+        idleAlertEnabled: asBool(promptData.idleAlertEnabled),
+        idleAlertMinutes: clampIdleMinutes(promptData.idleAlertMinutes),
+        idleAlertGroupJid: normalizeGroupJid(promptData.idleAlertGroupJid)
     };
 
     try {
@@ -126,6 +142,7 @@ const CreatePromptService = async (promptData: PromptData): Promise<Prompt> => {
 
         let promptTable = await Prompt.create(promptToCreate);
         console.log("Prompt criado com sucesso, ID:", promptTable.id);
+        await syncPromptQueue(promptTable.id, queueIdNumber, companyIdNumber);
 
         promptTable = await ShowPromptService({ promptId: promptTable.id, companyId: companyIdNumber });
         return promptTable;
