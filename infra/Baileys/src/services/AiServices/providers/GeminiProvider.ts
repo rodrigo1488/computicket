@@ -123,6 +123,17 @@ export class GeminiProvider implements IAIProvider {
           merged.push({ role: item.role, parts: [{ text: item.parts[0].text }] });
         }
       }
+      if (options.image?.data) {
+        const lastUser = [...merged].reverse().find(item => item.role === "user");
+        const target = lastUser || { role: "user", parts: [{ text: "O cliente enviou uma imagem." }] };
+        if (!lastUser) merged.push(target);
+        (target.parts as Array<Record<string, unknown>>).push({
+          inlineData: {
+            mimeType: options.image.mimeType || "image/jpeg",
+            data: options.image.data
+          }
+        });
+      }
       const payload = {
         ...(systemMessages
           ? {

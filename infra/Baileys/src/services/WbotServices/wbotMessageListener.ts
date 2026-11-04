@@ -1,6 +1,7 @@
 import path, { join } from "path";
 import { promisify } from "util";
 import { writeFile } from "fs";
+import { readFile, stat } from "fs/promises";
 import * as Sentry from "@sentry/node";
 import { isNil, head } from "lodash";
 import { Op } from "sequelize";
@@ -1235,6 +1236,31 @@ const detectCommandType = (message: string): "appointment" | "task" | "none" => 
   return "none";
 };
 
+const readCustomerImage = async (
+  msg: proto.IWebMessageInfo,
+  mediaSent: Message | undefined,
+  publicFolder: string
+): Promise<{ mimeType: string; data: string } | null> => {
+  if (!msg.message?.imageMessage || !mediaSent) return null;
+  const storedName = typeof (mediaSent as any).getDataValue === "function"
+    ? (mediaSent as any).getDataValue("mediaUrl")
+    : mediaSent.mediaUrl;
+  const filename = String(storedName || "").split("/").pop();
+  if (!filename) return null;
+  const mimeType = msg.message.imageMessage.mimetype || "image/jpeg";
+  if (!mimeType.startsWith("image/")) return null;
+  try {
+    const filePath = path.join(publicFolder, filename);
+    const info = await stat(filePath);
+    if (info.size <= 0 || info.size > 7 * 1024 * 1024) return null;
+    const data = await readFile(filePath);
+    return { mimeType, data: data.toString("base64") };
+  } catch (err: any) {
+    logger.warn(`readCustomerImage: ${err.message}`);
+    return null;
+  }
+};
+
 const handleOpenAi = async (
   msg: proto.IWebMessageInfo,
   wbot: Session,
@@ -1256,8 +1282,9 @@ const handleOpenAi = async (
   }
 
   const bodyMessage = getBodyMessage(msg);
+  const isCustomerImage = !!msg.message?.imageMessage;
 
-  if (!bodyMessage) {
+  if (!bodyMessage && !isCustomerImage) {
     logger.debug(`handleOpenAi: Sem bodyMessage para ticket ${ticket.id}`);
     return;
   }
@@ -1383,7 +1410,7 @@ const handleOpenAi = async (
   if (msg.messageStubType) return;
 
   // PRIORIDADE: Verificar se a mensagem é um comando de agendamento/tarefa ANTES de processar com IA
-  const commandType = detectCommandType(bodyMessage);
+  const commandType = detectCommandType(bodyMessage || "");
   
   if (commandType !== "none" && prompt.permitirCriarAgendamentos) {
     try {
@@ -1568,13 +1595,29 @@ ${TRANSFER_RULES}`;
 
   let messagesOpenAi: Array<{ role: "system" | "user" | "assistant"; content: string }> = [];
 
-  if (msg.message?.conversation || msg.message?.extendedTextMessage?.text) {
+  const customerImage = await readCustomerImage(msg, mediaSent, publicFolder);
+  const canReadImage = !!customerImage && (prompt.provider || "").toLowerCase() === "gemini";
+  const imageCaption = (bodyMessage || "").trim();
+  const imageUserText = imageCaption
+    ? `O cliente enviou uma imagem com a legenda: ${imageCaption}. Descreva só o que estiver visível e continue o atendimento.`
+    : "O cliente enviou uma imagem. Descreva só o que estiver visível e continue o atendimento.";
+  const imageRules = canReadImage
+    ? "\n- Nesta mensagem há uma imagem do cliente. Use apenas o que estiver visível. Se mostrar um problema técnico, descreva o que aparece e encaminhe; não tente resolver."
+    : "";
+
+  if (
+    msg.message?.conversation ||
+    msg.message?.extendedTextMessage?.text ||
+    canReadImage ||
+    (isCustomerImage && imageCaption)
+  ) {
     messagesOpenAi = [];
-    const textContext = await loadAgentContext(prompt, bodyMessage || "", historyText);
+    const userText = canReadImage ? imageUserText : imageCaption || bodyMessage || "";
+    const textContext = await loadAgentContext(prompt, userText, historyText);
     rememberPeople(textContext.technicians);
-    messagesOpenAi.push({ role: "system", content: promptSystem + formatAgentContext(textContext) });
+    messagesOpenAi.push({ role: "system", content: promptSystem + imageRules + formatAgentContext(textContext) });
     messagesOpenAi.push(
-      ...conversationTurns([...messages].reverse(), bodyMessage || "")
+      ...conversationTurns([...messages].reverse(), userText)
     );
 
     const max_tokens = (prompt.provider || "").toLowerCase() === "gemini"
@@ -1587,7 +1630,8 @@ ${TRANSFER_RULES}`;
     let response = await providerForChat.chat(messagesOpenAi as any, {
       model: prompt.model || getLmStudioDefaultModel(),
       maxTokens: max_tokens,
-      temperature: prompt.temperature
+      temperature: prompt.temperature,
+      ...(canReadImage && customerImage ? { image: customerImage } : {})
     });
 
     const sendWhatsAppToCustomer = async (text: string): Promise<void> => {
@@ -1608,7 +1652,7 @@ ${TRANSFER_RULES}`;
       execute: true,
       channel: "whatsapp",
       sendWhatsAppToCustomer,
-      knowledge: { hasEvidence: !!textContext.has_evidence, userText: bodyMessage || "" }
+      knowledge: { hasEvidence: !!textContext.has_evidence, userText }
     });
     const cleanedResponse = sanitizeCustomerReply(rawCleanedResponse);
 
@@ -1747,6 +1791,19 @@ ${TRANSFER_RULES}`;
     logger.debug(`Lock removido (OpenAI - áudio): ${lockKey}`);
   }
   
+  if (isCustomerImage && !canReadImage && !imageCaption && msg.key.remoteJid) {
+    const signed = signAgentMessage(
+      customerImage
+        ? "Recebi a imagem, mas não consigo interpretá-la neste atendimento. Pode descrever o que aparece?"
+        : "Recebi a imagem, mas não consegui abri-la. Pode descrever o que aparece?",
+      prompt.name
+    );
+    if (signed) {
+      const sentMessage = await wbot.sendMessage(msg.key.remoteJid, { text: signed });
+      await verifyMessage(sentMessage!, ticket, contact);
+    }
+  }
+
   // Remover lock após processamento completo (caso não tenha sido removido antes)
   if (openAiProcessingLocks.has(lockKey)) {
     openAiProcessingLocks.delete(lockKey);

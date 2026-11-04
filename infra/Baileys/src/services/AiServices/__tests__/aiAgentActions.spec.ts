@@ -1,7 +1,9 @@
 import {
   completionTokenBudget,
   conversationTurns,
-  decideIdleAlert,
+  decideIdleScan,
+  formatIdleAlertContext,
+  parseIdleAlertDecision,
   matchPersonByName,
   parseAgendaCommands,
   parseUserTransferName,
@@ -78,47 +80,82 @@ describe("ações do agente de WhatsApp", () => {
 
 describe("alerta de conversa parada", () => {
   const now = new Date("2026-11-04T15:00:00.000Z");
+  const waiting = new Date("2026-11-04T14:00:00.000Z");
+  const base = {
+    ticketStatus: "pending",
+    groupAlertStatus: null as number | null,
+    groupAlertMessageId: null as string | null,
+    lastMessageId: "m1",
+    lastFromMe: false,
+    lastMessageAt: waiting,
+    idleMinutes: 30,
+    now
+  };
 
-  it("não reenvia o mesmo messageId", () => {
-    expect(
-      decideIdleAlert({
-        enabled: true,
-        groupJid: "120363@g.us",
-        idleMinutes: 30,
-        lastFromMe: false,
-        lastMessageAt: new Date("2026-11-04T14:00:00.000Z"),
-        now,
-        alreadyAlerted: true,
-        status: "pending"
-      })
-    ).toBe(false);
+  it("marca 0 quando o cliente espera além do prazo", () => {
+    expect(decideIdleScan(base)).toEqual({ action: "queue", messageId: "m1" });
   });
 
-  it("alerta quando o cliente espera além do prazo e ainda não houve aviso", () => {
-    expect(
-      decideIdleAlert({
-        enabled: true,
-        groupJid: "120363@g.us",
-        idleMinutes: 30,
-        lastFromMe: false,
-        lastMessageAt: new Date("2026-11-04T14:00:00.000Z"),
-        now,
-        alreadyAlerted: false,
-        status: "pending"
-      })
-    ).toBe(true);
-    expect(
-      decideIdleAlert({
-        enabled: true,
-        groupJid: "120363@g.us",
-        idleMinutes: 30,
-        lastFromMe: true,
-        lastMessageAt: new Date("2026-11-04T14:00:00.000Z"),
-        now,
-        alreadyAlerted: false,
-        status: "pending"
-      })
-    ).toBe(false);
+  it("não marca de novo a mesma mensagem já avisada", () => {
+    expect(decideIdleScan({
+      ...base,
+      groupAlertStatus: 1,
+      groupAlertMessageId: "m1"
+    })).toEqual({ action: "none" });
+  });
+
+  it("recomeça o ciclo quando chega outra mensagem do cliente", () => {
+    expect(decideIdleScan({
+      ...base,
+      groupAlertStatus: 1,
+      groupAlertMessageId: "m0",
+      lastMessageId: "m1"
+    })).toEqual({ action: "queue", messageId: "m1" });
+  });
+
+  it("pede interpretação quando ninguém fala além do prazo", () => {
+    expect(decideIdleScan({
+      ...base,
+      lastFromMe: true
+    })).toEqual({ action: "ask", messageId: "m1" });
+    expect(decideIdleScan({
+      ...base,
+      lastFromMe: true,
+      groupAlertStatus: 2,
+      groupAlertMessageId: "m1"
+    })).toEqual({ action: "none" });
+  });
+
+  it("limpa o status se o ticket fechou ou a última fala ainda é recente", () => {
+    expect(decideIdleScan({
+      ...base,
+      ticketStatus: "closed",
+      groupAlertStatus: 0,
+      groupAlertMessageId: "m1"
+    })).toEqual({ action: "clear" });
+    expect(decideIdleScan({
+      ...base,
+      lastFromMe: true,
+      lastMessageAt: new Date("2026-11-04T14:50:00.000Z"),
+      groupAlertStatus: 0,
+      groupAlertMessageId: "antiga"
+    })).toEqual({ action: "clear" });
+  });
+
+  it("entende o não da IA e monta o contexto com o histórico", () => {
+    expect(parseIdleAlertDecision('{"alertar":false,"resumo":"já se despediram"}')).toEqual({
+      alert: false,
+      summary: "já se despediram"
+    });
+    expect(parseIdleAlertDecision("sem json")).toBeNull();
+    expect(formatIdleAlertContext({
+      contactName: "Ana",
+      ticketStatus: "open",
+      hasAssignee: true,
+      minutesSinceAny: 40,
+      minutesSinceCustomer: 40,
+      transcript: "Cliente: o sistema caiu"
+    })).toContain("Cliente: o sistema caiu");
   });
 
   it("reserva saída longa no Gemini mesmo com prompt gigante", () => {

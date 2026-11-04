@@ -282,21 +282,96 @@ export function formatTransferNote(brief: TransferBrief): string {
     .trim();
 }
 
-export function decideIdleAlert(input: {
-  enabled: boolean;
-  groupJid: string | null | undefined;
-  idleMinutes: number;
+const OPEN_TICKET_STATUSES = new Set(["pending", "open"]);
+
+export type IdleScanAction =
+  | { action: "none" }
+  | { action: "clear" }
+  | { action: "queue"; messageId: string }
+  | { action: "ask"; messageId: string };
+
+/** Marca 0, pede interpretação ou limpa o status. Não chama a IA. */
+export function decideIdleScan(input: {
+  ticketStatus: string;
+  groupAlertStatus: number | null;
+  groupAlertMessageId: string | null;
+  lastMessageId: string | null;
   lastFromMe: boolean;
   lastMessageAt: Date | null;
+  idleMinutes: number;
   now: Date;
-  alreadyAlerted: boolean;
-  status: string;
-}): boolean {
-  if (!input.enabled || !input.groupJid) return false;
-  if (input.status !== "pending") return false;
-  if (input.lastFromMe || !input.lastMessageAt || input.alreadyAlerted) return false;
+}): IdleScanAction {
+  const status = input.groupAlertStatus ?? null;
+  const flagged = status !== null;
+  if (!OPEN_TICKET_STATUSES.has(input.ticketStatus)) {
+    return flagged ? { action: "clear" } : { action: "none" };
+  }
   const minutes = Number(input.idleMinutes);
-  if (!Number.isFinite(minutes) || minutes <= 0) return false;
-  const ageMs = input.now.getTime() - input.lastMessageAt.getTime();
-  return ageMs >= minutes * 60 * 1000;
+  if (!input.lastMessageId || !input.lastMessageAt || !Number.isFinite(minutes) || minutes <= 0) {
+    return flagged ? { action: "clear" } : { action: "none" };
+  }
+  const sameMessage = input.groupAlertMessageId === input.lastMessageId;
+  const idle = input.now.getTime() - input.lastMessageAt.getTime() >= minutes * 60 * 1000;
+  if (status === 3) return { action: "none" };
+
+  if (input.lastFromMe) {
+    if (sameMessage && (status === 0 || status === 1 || status === 2)) return { action: "none" };
+    if (!idle) return flagged ? { action: "clear" } : { action: "none" };
+    return { action: "ask", messageId: input.lastMessageId };
+  }
+
+  if (!idle) {
+    return !sameMessage && flagged ? { action: "clear" } : { action: "none" };
+  }
+  if (status === null || !sameMessage) return { action: "queue", messageId: input.lastMessageId };
+  return { action: "none" };
+}
+
+export function parseIdleAlertDecision(text: string): { alert: boolean; summary: string } | null {
+  const raw = String(text || "").trim();
+  const start = raw.indexOf("{");
+  const end = raw.lastIndexOf("}");
+  if (start < 0 || end <= start) return null;
+  try {
+    const data = JSON.parse(raw.slice(start, end + 1));
+    if (typeof data?.alertar !== "boolean") return null;
+    return { alert: data.alertar, summary: String(data.resumo || "").trim() };
+  } catch {
+    return null;
+  }
+}
+
+export function formatIdleTranscript(
+  messages: { fromMe?: boolean; body?: string | null }[]
+): string {
+  return messages
+    .map(message => {
+      const who = message.fromMe ? "Atendente" : "Cliente";
+      const body = (message.body || "[Mídia]").replace(/\s+/g, " ").trim().slice(0, 500) || "[Mídia]";
+      return `${who}: ${body}`;
+    })
+    .join("\n");
+}
+
+export function formatIdleAlertContext(input: {
+  contactName: string;
+  ticketStatus: string;
+  hasAssignee: boolean;
+  minutesSinceAny: number;
+  minutesSinceCustomer: number | null;
+  transcript: string;
+}): string {
+  const sinceCustomer = input.minutesSinceCustomer == null
+    ? "o cliente não falou"
+    : `${input.minutesSinceCustomer} min`;
+  return [
+    `Cliente: ${input.contactName}`,
+    `Status do atendimento: ${input.ticketStatus}`,
+    `Atendente atribuído: ${input.hasAssignee ? "sim" : "não"}`,
+    `Minutos sem nenhuma mensagem: ${input.minutesSinceAny}`,
+    `Minutos desde a última fala do cliente: ${sinceCustomer}`,
+    "",
+    "Histórico:",
+    input.transcript || "Sem mensagens."
+  ].join("\n");
 }

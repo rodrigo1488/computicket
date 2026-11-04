@@ -18,6 +18,7 @@ import {
   logCronDbUnavailable,
 } from "./utils/dbUnavailable";
 import runMinuteCronJobs from "./services/MinuteCronJobsService";
+import AlertStaleConversationsService from "./services/AiServices/AlertStaleConversationsService";
 import {
   isWhatsAppEnabled,
   isBullWorkersEnabled,
@@ -112,6 +113,15 @@ const server = listenHost
 // Jobs por minuto unificados (transferência, lembretes, pedidos, impressão)
 cron.schedule("* * * * *", async () => {
   await runMinuteCronJobs();
+});
+
+cron.schedule("*/5 * * * * *", async () => {
+  try {
+    await AlertStaleConversationsService();
+  } catch (error: any) {
+    if (isDbUnavailableError(error)) logCronDbUnavailable("AlertStaleConversations");
+    else logger.error("AlertStaleConversations:", error);
+  }
 });
 
 // Job para verificar e processar renovações de assinaturas

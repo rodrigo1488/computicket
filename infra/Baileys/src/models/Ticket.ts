@@ -195,6 +195,15 @@ class Ticket extends Model<Ticket> {
   @AllowNull(true)
   @Column(DataType.DATE)
   lastOutOfHoursSentAt: Date;
+
+  /** null fora da fila; 0 aguardando aviso; 1 avisado; 2 sem aviso; 3 enviando. */
+  @AllowNull(true)
+  @Column(DataType.INTEGER)
+  groupAlertStatus: number | null;
+
+  @AllowNull(true)
+  @Column(DataType.STRING)
+  groupAlertMessageId: string | null;
 }
 
 export default Ticket;

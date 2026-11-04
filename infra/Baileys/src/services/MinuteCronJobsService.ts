@@ -6,7 +6,6 @@ import CheckWaitlistAndNotifyService from "./AppointmentServices/CheckWaitlistAn
 import CheckOrderAutoConfirmService from "./OrderServices/CheckOrderAutoConfirmService";
 import PrintPedido from "../models/PrintPedido";
 import RedispatchPendingUniplusJobsService from "./UniplusServices/RedispatchPendingUniplusJobsService";
-import AlertStaleConversationsService from "./AiServices/AlertStaleConversationsService";
 import {
   isDbUnavailableError,
   logCronDbUnavailable,
@@ -50,10 +49,6 @@ const runMinuteCronJobs = async (): Promise<void> => {
         await RedispatchPendingUniplusJobsService();
       }
     },
-    {
-      name: "AlertStaleConversations",
-      run: AlertStaleConversationsService
-    }
   ];
 
   for (const { name, run } of jobs) {
