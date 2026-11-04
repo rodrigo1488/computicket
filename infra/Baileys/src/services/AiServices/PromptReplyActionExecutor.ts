@@ -12,9 +12,12 @@ import { logger } from "../../utils/logger";
 import type User from "../../models/User";
 import { createComputicketAppointment } from "../../helpers/computicketAgentApi";
 import {
+  matchPersonByName,
   parseAgendaCommands,
+  parseRecommendedQueueName,
   parseUserTransferName,
-  shouldForceKnowledgeHandoff
+  shouldForceKnowledgeHandoff,
+  splitCustomerAndInternalNote
 } from "./aiAgentActions";
 
 export type PromptReplyChannel = "whatsapp" | "agent_panel";
@@ -60,10 +63,13 @@ export const buildPromptActionFormattingInstructions = (
   if (!prompt) return "";
   let extra = "";
   if (prompt.canTransferToAgent) {
-    extra += `\n\nFILAS DISPONÍVEIS PARA TRANSFERÊNCIA:\n${queuesList}\n\nIMPORTANTE: Seja direto e objetivo. Para transferir, use o formato: 'Ação: Transferir para o setor de atendimento [Fila: Nome da Fila]' ou apenas 'Ação: Transferir para o setor de atendimento' para usar a fila padrão.`;
+    extra += `\n\nFILAS DISPONÍVEIS PARA TRANSFERÊNCIA:\n${queuesList}\n\nPara transferir, use somente: 'Ação: Transferir para o setor de atendimento [Fila: Nome da Fila]'. A plataforma grava a nota interna com cliente, sistema, problema, erros, resumo, motivo e setor. Não escreva essa nota na resposta.`;
   }
-  if (prompt.canTransferToUser) {
-    extra += `\n\nATENDENTES DISPONÍVEIS:\n${usersList || "(nenhum)"}\n\nPara transferir a uma pessoa, use: 'Ação: Transferir para o atendente [Usuário: Nome]'.`;
+  if (usersList || prompt.canTransferToUser) {
+    extra += `\n\nATENDENTES DISPONÍVEIS:\n${usersList || "(nenhum)"}\n\nEstas pessoas existem. Compare pelo primeiro nome, sem acento. Não diga que a pessoa não existe.`;
+    if (prompt.canTransferToUser) {
+      extra += ` Se o cliente pedir para falar com uma delas, use o nome completo: 'Ação: Transferir para o atendente [Usuário: Nome]'.`;
+    }
   }
   if (prompt.canChangeTag && tagsList) {
     extra += `\n\nTAGS DISPONÍVEIS PARA ALTERAÇÃO:\n${tagsList}\n\nPara alterar a tag/estágio do ticket, use o formato: 'Ação: Alterar tag [Tag: Nome da Tag]'`;
@@ -124,19 +130,62 @@ export const processPromptAiReplyActions = async (
         ticketId: ticket.id,
         companyId,
         provider: prompt.provider || "gemini",
-        maxMessages: Math.max(Number(prompt.maxMessages) || 12, 8)
+        maxMessages: 40,
+        destination
       });
-      await persistInternalNote(
-        ticket,
-        companyId,
-        `📋 RESUMO DA TRANSFERÊNCIA (${destination}):\n\n${summary}`
-      );
+      await persistInternalNote(ticket, companyId, summary);
       logger.info(`Resumo interno gravado na transferência do ticket ${ticket.id} para ${destination}`);
     } catch (err: any) {
       logger.error(`Erro ao gravar resumo da transferência: ${err.message}`);
     }
   };
-  let cleanedResponse = response || "";
+  const splitReply = splitCustomerAndInternalNote(response || "");
+  let cleanedResponse = splitReply.customer;
+  let transferredFromNote = false;
+  if (splitReply.internalNote && execute) {
+    const recommendedQueue = parseRecommendedQueueName(splitReply.internalNote);
+    const wantedQueue = (recommendedQueue || "").toLowerCase();
+    const exactQueue = availableQueues.find(queue => queue.name.toLowerCase() === wantedQueue);
+    const partialQueues = wantedQueue
+      ? availableQueues.filter(queue => queue.name.toLowerCase().includes(wantedQueue))
+      : [];
+    const matchedQueue = exactQueue || (partialQueues.length === 1 ? partialQueues[0] : undefined);
+    const alreadyRequested =
+      (response || "").includes("Ação: Transferir para o setor de atendimento") ||
+      (response || "").includes("Ação: Transferir para o atendente");
+    if (!alreadyRequested && matchedQueue && prompt.canTransferToAgent) {
+      await writeTransferSummary(`fila ${matchedQueue.name}`);
+      await UpdateTicketService({
+        ticketData: { queueId: matchedQueue.id },
+        ticketId: ticket.id,
+        companyId: ticket.companyId
+      });
+      logger.info(`Ticket ${ticket.id} transferido pela nota interna para a fila ${matchedQueue.id} (${matchedQueue.name})`);
+      transferredFromNote = true;
+    } else if (!alreadyRequested && (prompt.fallbackQueueId || prompt.fallbackUserId)) {
+      const fallbackQueueId = prompt.fallbackQueueId || null;
+      const fallbackUserId = prompt.fallbackUserId || null;
+      const fallbackQueue = availableQueues.find(queue => queue.id === fallbackQueueId);
+      const fallbackUser = availableUsers.find(user => user.id === fallbackUserId);
+      const destination = [
+        fallbackQueue ? `fila ${fallbackQueue.name}` : "",
+        fallbackUser ? `atendente ${fallbackUser.name}` : ""
+      ]
+        .filter(Boolean)
+        .join(" e ");
+      await writeTransferSummary(destination || "atendimento humano");
+      await UpdateTicketService({
+        ticketData: {
+          queueId: fallbackQueueId || ticket.queueId,
+          ...(fallbackUserId ? { userId: fallbackUserId, status: "open" } : {})
+        },
+        ticketId: ticket.id,
+        companyId: ticket.companyId
+      });
+      logger.info(`Ticket ${ticket.id} transferido para atendimento humano porque o setor não foi identificado`);
+      transferredFromNote = true;
+    }
+  }
   const pendingActions: PendingAction[] = [];
   const internalMessages: string[] = [];
   let strippedAnyInternal = false;
@@ -386,9 +435,7 @@ export const processPromptAiReplyActions = async (
 
   const requestedUserName = parseUserTransferName(response || "");
   if (requestedUserName !== null && prompt.canTransferToUser) {
-    const matchedUser = availableUsers.find(
-      user => user.name && requestedUserName && user.name.toLowerCase() === requestedUserName.toLowerCase()
-    );
+    const matchedUser = matchPersonByName(availableUsers, requestedUserName || "");
     pendingActions.push({
       type: "transfer_user",
       userId: matchedUser?.id || null,
@@ -420,7 +467,7 @@ export const processPromptAiReplyActions = async (
       .trim();
   }
 
-  const alreadyTransferring = pendingActions.some(
+  const alreadyTransferring = transferredFromNote || pendingActions.some(
     action => action.type === "transfer_queue" || action.type === "transfer_user" || action.type === "transfer_wait_only"
   );
   const alreadyScheduling = pendingActions.some(

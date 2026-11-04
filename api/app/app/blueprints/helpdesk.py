@@ -2755,7 +2755,12 @@ def internal_agent_context():
     if not internal_token_ok():
         return jsonify({"error": "Não autorizado"}), 401
     payload = request.get_json(silent=True) or {}
-    return jsonify(build_agent_context(payload.get("question") or "", payload.get("history") or ""))
+    include_knowledge = payload.get("include_knowledge")
+    return jsonify(build_agent_context(
+        payload.get("question") or "",
+        payload.get("history") or "",
+        include_knowledge=True if include_knowledge is None else bool(include_knowledge),
+    ))
 
 
 @helpdesk_bp.route("/api/ai-agents")

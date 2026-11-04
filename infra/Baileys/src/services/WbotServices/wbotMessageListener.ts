@@ -118,6 +118,7 @@ import {
   buildPromptActionFormattingInstructions
 } from "../AiServices/PromptReplyActionExecutor";
 import {
+  TRANSFER_RULES,
   completionTokenBudget,
   conversationTurns,
   formatAgentContext,
@@ -1532,13 +1533,18 @@ const handleOpenAi = async (
     tagsList = availableTags.map(t => `- ${t.name} (ID: ${t.id})`).join('\n');
   }
 
-  let availableUsers: User[] = [];
-  if (prompt.canTransferToUser || prompt.fallbackUserId) {
-    availableUsers = await User.findAll({
-      where: { companyId: ticket.companyId },
-      attributes: ["id", "name"]
-    });
-  }
+  let availableUsers: User[] = await User.findAll({
+    where: { companyId: ticket.companyId },
+    attributes: ["id", "name"]
+  });
+  const rememberPeople = (people: { name?: string; engine_user_id?: number | null }[]) => {
+    for (const person of people || []) {
+      const id = Number(person.engine_user_id);
+      const name = (person.name || "").trim();
+      if (!id || !name || availableUsers.some(user => user.id === id)) continue;
+      availableUsers.push({ id, name } as User);
+    }
+  };
   const usersList = availableUsers.map(user => `- ${user.name} (ID: ${user.id})`).join("\n");
 
   // Prompt do sistema otimizado e mais completo (igual ao Gemini)
@@ -1551,7 +1557,9 @@ const handleOpenAi = async (
 - Responda à última fala do cliente, em frases completas.
 - Não repita a saudação, não mostre raciocínio e não envie JSON, chaves ou marcadores de ação.
 - Não escreva seu nome no início. A assinatura é colocada automaticamente.
-- Se explicar um procedimento, escreva os passos até o fim.`;
+- Não mencione número de ticket, ID interno nem o título da fonte.
+- Não escreva mensagem interna na resposta. Para transferir, use só o formato de ação.
+${TRANSFER_RULES}`;
 
   const historyText = [...messages].reverse()
     .map(message => `${message.fromMe ? "Atendente" : "Cliente"}: ${message.body || ""}`)
@@ -1563,6 +1571,7 @@ const handleOpenAi = async (
   if (msg.message?.conversation || msg.message?.extendedTextMessage?.text) {
     messagesOpenAi = [];
     const textContext = await loadAgentContext(prompt, bodyMessage || "", historyText);
+    rememberPeople(textContext.technicians);
     messagesOpenAi.push({ role: "system", content: promptSystem + formatAgentContext(textContext) });
     messagesOpenAi.push(
       ...conversationTurns([...messages].reverse(), bodyMessage || "")
@@ -1660,6 +1669,7 @@ const handleOpenAi = async (
 
     messagesOpenAi = [];
     const audioContext = await loadAgentContext(prompt, transcriptionText || "", historyText);
+    rememberPeople(audioContext.technicians);
     messagesOpenAi.push({ role: "system", content: promptSystem + formatAgentContext(audioContext) });
     messagesOpenAi.push(...conversationTurns([...messages].reverse(), transcriptionText || ""));
 

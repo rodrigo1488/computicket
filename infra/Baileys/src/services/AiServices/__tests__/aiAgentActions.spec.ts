@@ -2,15 +2,26 @@ import {
   completionTokenBudget,
   conversationTurns,
   decideIdleAlert,
+  matchPersonByName,
   parseAgendaCommands,
   parseUserTransferName,
+  formatTransferNote,
+  parseRecommendedQueueName,
   sanitizeCustomerReply,
   shouldForceKnowledgeHandoff,
   signAgentMessage,
+  splitCustomerAndInternalNote,
   splitWhatsAppText
 } from "../aiAgentActions";
 
 describe("ações do agente de WhatsApp", () => {
+  it("encontra Rogério pelo primeiro nome, com ou sem acento", () => {
+    const people = [{ id: 3, name: "Rogério Silva" }, { id: 4, name: "Ana Técnica" }];
+    expect(matchPersonByName(people, "rogerio")?.id).toBe(3);
+    expect(matchPersonByName(people, "Rogério")?.id).toBe(3);
+    expect(matchPersonByName(people, "Ana")?.id).toBe(4);
+  });
+
   it("extrai o atendente pedido na transferência", () => {
     expect(
       parseUserTransferName("Claro. Ação: Transferir para o atendente [Usuário: Maria Souza]")
@@ -148,6 +159,40 @@ describe("alerta de conversa parada", () => {
   it("assina com o nome do agente e não duplica a assinatura", () => {
     expect(signAgentMessage("Olá, Rodrigo!", "Soraia")).toBe("*SORAIA*\nOlá, Rodrigo!");
     expect(signAgentMessage("*SORAIA*\nOlá, Rodrigo!", "Soraia")).toBe("*SORAIA*\nOlá, Rodrigo!");
+    expect(signAgentMessage("Soraia: Entendi, Rodrigo.", "Soraia")).toBe("*SORAIA*\nEntendi, Rodrigo.");
     expect(signAgentMessage("   ", "Soraia")).toBe("");
+  });
+
+  it("tira a nota interna e a citação de ticket da resposta do cliente", () => {
+    const raw = [
+      "Soraia: Siga os passos (segundo o ticket #1156 — IMPRESSORA TRAVADA).",
+      "",
+      "---",
+      "*Mensagem Interna de Transferência*",
+      "- *Setor Recomendado:* MANUTENÇÃO (ID: 3) ou SUPORTE (ID: 1)"
+    ].join("\n");
+    const split = splitCustomerAndInternalNote(raw);
+    expect(split.internalNote).toContain("MANUTENÇÃO");
+    expect(split.customer).not.toContain("Mensagem Interna");
+    expect(parseRecommendedQueueName(split.internalNote)).toBe("MANUTENÇÃO");
+    expect(sanitizeCustomerReply(raw)).toBe("Soraia: Siga os passos.");
+  });
+
+  it("monta a nota de encaminhamento sem inventar campo vazio", () => {
+    const note = formatTransferNote({
+      cliente: "Rodrigo",
+      sistema: "Impressora",
+      problema: "Impressora travada",
+      erros: "",
+      resumo: "O cliente disse que a impressora travou.",
+      motivo: "Problema técnico",
+      setor: "fila MANUTENÇÃO",
+      historico: "Cliente: a impressora travou"
+    });
+    expect(note).toContain("- *Cliente:* Rodrigo");
+    expect(note).toContain("- *Mensagens de erro:* Não informado");
+    expect(note).toContain("- *Setor recomendado:* fila MANUTENÇÃO");
+    expect(note).toContain("Cliente: a impressora travou");
+    expect(note).toContain("O histórico completo permanece neste atendimento.");
   });
 });

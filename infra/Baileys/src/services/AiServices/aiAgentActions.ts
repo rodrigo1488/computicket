@@ -13,6 +13,30 @@ export function looksLikeFactualQuestion(text: string): boolean {
   return FACTUAL_QUESTION.test((text || "").trim());
 }
 
+export function foldName(value: string): string {
+  return (value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+export function matchPersonByName<T extends { name?: string | null }>(
+  people: T[],
+  requested: string
+): T | undefined {
+  const wanted = foldName(requested);
+  if (!wanted) return undefined;
+  const exact = people.find(person => foldName(person.name || "") === wanted);
+  if (exact) return exact;
+  const first = wanted.split(" ")[0];
+  if (first.length < 3) return undefined;
+  const byFirst = people.filter(person => foldName(person.name || "").split(" ")[0] === first);
+  return byFirst.length === 1 ? byFirst[0] : undefined;
+}
+
 export function parseUserTransferName(response: string): string | null {
   if (!/Ação:\s*Transferir para o atendente/i.test(response || "")) return null;
   const match = (response || "").match(/\[Usuário:\s*([^\]]+)\]/i);
@@ -64,28 +88,26 @@ export function formatAgentContext(ctx: {
   sources?: { title?: string; snippet?: string }[];
   technicians?: { name?: string }[];
 }): string {
+  const people = (ctx.technicians || [])
+    .map(item => (item.name || "").trim())
+    .filter(Boolean)
+    .map(name => `- ${name}`)
+    .join("\n");
   const sources = (ctx.sources || [])
     .map((source, index) => {
       const title = source.title || "Fonte";
       return source.snippet ? `[${index + 1}] ${title}: ${source.snippet}` : `[${index + 1}] ${title}`;
     })
     .join("\n");
-  const technicians = (ctx.technicians || [])
-    .map(item => (item.name || "").trim())
-    .filter(Boolean)
-    .map(name => `- ${name}`)
-    .join("\n");
-  let block = `\n\nFONTES DA BASE DE CONHECIMENTO:\n${sources || "(nenhuma)"}`;
+  let block = `\n\nPESSOAS COM QUEM O CLIENTE PODE FALAR:\n${people || "(nenhuma)"}\nEstas pessoas existem. Se o cliente pedir uma delas, transfira para o nome completo da lista. Compare pelo primeiro nome, sem acento. Não diga que a pessoa não existe.`;
+  block += `\n\nFONTES DA BASE DE CONHECIMENTO:\n${sources || "(nenhuma)"}`;
   if (ctx.has_evidence && ctx.draft) {
     block += `\n\nRESPOSTA PERMITIDA PARA PERGUNTA FACTUAL:\n${ctx.draft}`;
-  }
-  if (technicians) {
-    block += `\n\nTÉCNICOS DA AGENDA:\n${technicians}`;
   }
   if (!ctx.has_evidence) {
     block += "\n\nSem fontes, não invente resposta factual. Transfira o atendimento.";
   } else {
-    block += "\n\nResponda perguntas factuais somente com as fontes acima.";
+    block += "\n\nResponda perguntas factuais somente com as fontes acima. Não cite número de ticket, ID nem o título interno da fonte.";
   }
   return block;
 }
@@ -161,24 +183,103 @@ export function conversationTurns(
 export function signAgentMessage(text: string, name?: string | null): string {
   const agent = (name || "").trim();
   let body = (text || "").replace(/\u200e/g, "").trim();
-  if (!body || !agent) return body;
+  if (!body) return "";
+  if (!agent) return body;
+  const escaped = agent.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  body = body.replace(new RegExp(`^(?:\\*${escaped}\\*|${escaped})\\s*[:\\-–]?\\s*`, "i"), "").trim();
+  if (!body) return "";
   const signature = `*${agent.toUpperCase()}*`;
-  if (body === signature) return body;
-  if (body.startsWith(`${signature}\n`)) {
-    body = body.slice(signature.length).replace(/^\n+/, "").trim();
-  }
-  if (!body) return signature;
   return `${signature}\n${body}`;
+}
+
+const INTERNAL_TRANSFER_HEADING =
+  /(?:^|\n)\s*(?:-{3,}\s*\n\s*)?\*{0,2}\s*Mensagem Interna[^\n]*\*{0,2}\s*(?:\n|$)/i;
+
+/** Separa a orientação do cliente da nota de transferência que o modelo escreveu. */
+export function splitCustomerAndInternalNote(text: string): { customer: string; internalNote: string } {
+  const source = text || "";
+  const match = INTERNAL_TRANSFER_HEADING.exec(source);
+  if (!match || match.index == null) {
+    return { customer: source.trim(), internalNote: "" };
+  }
+  return {
+    customer: source.slice(0, match.index).trim(),
+    internalNote: source.slice(match.index).replace(/^\s*-{3,}\s*/, "").trim()
+  };
+}
+
+export function parseRecommendedQueueName(note: string): string | null {
+  const match = (note || "").match(/Setor Recomendado:\*?\s*(.+)/i);
+  if (!match) return null;
+  const first = match[1].split(/\s+ou\s+/i)[0] || "";
+  const name = first.replace(/\(ID:\s*\d+\)/gi, "").replace(/\*/g, "").trim();
+  return name || null;
+}
+
+export function stripInternalCitations(text: string): string {
+  return (text || "")
+    .replace(/\s*\(segundo (?:o |a )?(?:ticket|artigo)[^)]*\)/gi, "")
+    .replace(/\s+segundo (?:o |a )?(?:ticket|artigo)\s+#?\d+[^\n.]*/gi, "")
+    .replace(/[ \t]{2,}/g, " ")
+    .replace(/\s+([,.;:])/g, "$1")
+    .trim();
 }
 
 /** Tira JSON, ação e chave solta que o modelo deixa na mensagem do cliente. */
 export function sanitizeCustomerReply(text: string): string {
-  let value = text || "";
+  let value = splitCustomerAndInternalNote(text).customer;
+  value = stripInternalCitations(value);
   value = value.replace(/\[(?:AGENDA|AGENDAR|INTERNA)\][\s\S]*$/gi, "");
   value = value.replace(/Ação:\s*Transferir[\s\S]*$/gi, "");
   value = value.replace(/\{\s*"(?:title|action|appointment_date|tecnico|profissional)"[\s\S]*$/gi, "");
   const lines = value.split("\n").filter(line => !/^\s*[{}\[\],]+\s*$/.test(line));
   return lines.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+}
+
+export const TRANSFER_RULES = `ENCAMINHAMENTO:
+- Nunca tente solucionar problema técnico. Reconheça o relato e transfira.
+- Nunca invente informações.
+- Não faça perguntas desnecessárias e não peça o que o cliente já disse.
+- Não prometa prazo de atendimento.
+- Se não identificar o setor, transfira para atendimento humano.
+- Não conte ao cliente a triagem, o setor interno nem o conteúdo da nota.
+- Ao cliente, diga apenas que vai encaminhar para um atendente.
+- Para transferir, use somente: Ação: Transferir para o setor de atendimento [Fila: Nome da Fila]
+A nota interna é gravada pela plataforma. Não escreva mensagem interna na resposta.`;
+
+export type TransferBrief = {
+  cliente: string;
+  sistema: string;
+  problema: string;
+  erros: string;
+  resumo: string;
+  motivo: string;
+  setor: string;
+  historico: string;
+};
+
+const briefValue = (value: string | undefined): string => {
+  const text = (value || "").replace(/\s+/g, " ").trim();
+  return text || "Não informado";
+};
+
+/** Nota interna do encaminhamento. O histórico do atendimento continua no ticket. */
+export function formatTransferNote(brief: TransferBrief): string {
+  return [
+    "*Mensagem Interna de Transferência*",
+    `- *Cliente:* ${briefValue(brief.cliente)}`,
+    `- *Sistema/Serviço:* ${briefValue(brief.sistema)}`,
+    `- *Problema relatado:* ${briefValue(brief.problema)}`,
+    `- *Mensagens de erro:* ${briefValue(brief.erros)}`,
+    `- *Resumo:* ${briefValue(brief.resumo)}`,
+    `- *Motivo do encaminhamento:* ${briefValue(brief.motivo)}`,
+    `- *Setor recomendado:* ${briefValue(brief.setor)}`,
+    "",
+    "O histórico completo permanece neste atendimento.",
+    brief.historico.trim()
+  ]
+    .join("\n")
+    .trim();
 }
 
 export function decideIdleAlert(input: {

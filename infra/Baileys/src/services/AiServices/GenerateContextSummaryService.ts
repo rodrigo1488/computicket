@@ -10,12 +10,14 @@ import { logger } from "../../utils/logger";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { AIProviderSelector } from "./AIProviderSelector";
+import { formatTransferNote } from "./aiAgentActions";
 
 interface GenerateContextSummaryParams {
   ticketId: number;
   companyId: number;
   provider?: string;
   maxMessages?: number;
+  destination?: string;
 }
 
 const formatDateTime = (date: Date | string): string => {
@@ -33,7 +35,8 @@ export const generateContextSummary = async ({
   ticketId,
   companyId,
   provider,
-  maxMessages = 12 // Reduzido de 20 para 12 para economizar tokens
+  maxMessages = 40,
+  destination
 }: GenerateContextSummaryParams): Promise<string> => {
   try {
     const ticket = await ShowTicketService(ticketId, companyId);
@@ -75,20 +78,22 @@ export const generateContextSummary = async ({
       .map((msg) => {
         const timestamp = formatDateTime(msg.createdAt);
         const sender = msg.fromMe ? "ATENDENTE" : "CLIENTE";
-        const body = (msg.body || "[Mídia]").slice(0, 200); // Limitar a 200 caracteres
+        const body = (msg.body || "[Mídia]").replace(/\s+/g, " ").trim().slice(0, 500);
         return `[${timestamp}] ${sender}: ${body}`;
       })
       .join("\n");
 
-    // Construir prompt para resumo (simplificado para economizar tokens)
-    const systemPrompt = `Resuma a situação atual deste atendimento para quem vai continuar a conversa (máximo 120 palavras).
+    const cliente = ticketData?.contact?.name || "Não informado";
+    const systemPrompt = `Preencha o encaminhamento somente com fatos das mensagens. Se um campo não aparecer na conversa, use "Não informado". Não invente.
 
-CLIENTE: ${ticketData.contact?.name || "Desconhecido"}
+CLIENTE CONHECIDO: ${cliente}
+SETOR JÁ DEFINIDO: ${destination || "Não informado"}
 
 MENSAGENS:
 ${messagesContext}
 
-Diga o que o cliente precisa, o que já foi respondido e o que falta resolver. Retorne só o texto do resumo.`;
+Retorne apenas este JSON:
+{"cliente":"","sistema":"","problema":"","erros":"","resumo":"","motivo":""}`;
 
     const selectedProvider = await AIProviderSelector.getProvider(
       companyId,
@@ -108,14 +113,51 @@ Diga o que o cliente precisa, o que já foi respondido e o que falta resolver. R
     }
 
     logger.info(`Resumo gerado com sucesso para ticket ${ticketId} usando ${selectedProvider.name} (${summary.length} caracteres)`);
-    return summary.trim();
+    return formatTransferNote({
+      ...parseTransferJson(summary, cliente),
+      setor: destination || "Não informado",
+      historico: messagesContext
+    });
   } catch (error: any) {
     logger.error(`Erro ao gerar resumo do contexto: ${error.message}`);
-    return fallbackTransferSummary(ticketId, companyId);
+    return fallbackTransferSummary(ticketId, companyId, destination);
   }
 };
 
-const fallbackTransferSummary = async (ticketId: number, companyId: number): Promise<string> => {
+const parseTransferJson = (
+  raw: string,
+  cliente: string
+): { cliente: string; sistema: string; problema: string; erros: string; resumo: string; motivo: string } => {
+  const match = (raw || "").match(/\{[\s\S]*\}/);
+  const empty = {
+    cliente,
+    sistema: "Não informado",
+    problema: "Não informado",
+    erros: "Não informado",
+    resumo: (raw || "").trim() || "Não informado",
+    motivo: "Não informado"
+  };
+  if (!match) return empty;
+  try {
+    const data = JSON.parse(match[0]);
+    return {
+      cliente: String(data.cliente || cliente),
+      sistema: String(data.sistema || ""),
+      problema: String(data.problema || ""),
+      erros: String(data.erros || ""),
+      resumo: String(data.resumo || ""),
+      motivo: String(data.motivo || "")
+    };
+  } catch {
+    return empty;
+  }
+};
+
+const fallbackTransferSummary = async (
+  ticketId: number,
+  companyId: number,
+  destination?: string
+): Promise<string> => {
   const messages = await Message.findAll({
     where: {
       ticketId,
@@ -134,7 +176,16 @@ const fallbackTransferSummary = async (ticketId: number, companyId: number): Pro
       return body ? `${who}: ${body}` : "";
     })
     .filter(Boolean);
-  return lines.join("\n") || "Sem mensagens anteriores nesta conversa.";
+  return formatTransferNote({
+    cliente: "Não informado",
+    sistema: "Não informado",
+    problema: "Não informado",
+    erros: "Não informado",
+    resumo: lines.join(" ") || "Sem mensagens anteriores nesta conversa.",
+    motivo: "Encaminhamento do atendimento",
+    setor: destination || "Não informado",
+    historico: lines.join("\n")
+  });
 };
 
 export default generateContextSummary;

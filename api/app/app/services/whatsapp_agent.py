@@ -5,7 +5,7 @@ import os
 
 from flask import request
 
-from ..models import User
+from ..models import HelpDeskAgentMap, User
 from .copilot import CopilotError, answer_question
 
 
@@ -19,11 +19,11 @@ def internal_token_ok() -> bool:
 	return bool(expected) and provided == expected
 
 
-def build_agent_context(question: str, history: str = "") -> dict:
+def build_agent_context(question: str, history: str = "", include_knowledge: bool = True) -> dict:
 	draft = ""
 	sources: list[dict] = []
 	text = (question or "").strip()
-	if text:
+	if include_knowledge and text:
 		try:
 			result = answer_question(text, history or "")
 			sources = list(result.get("sources") or [])
@@ -32,8 +32,16 @@ def build_agent_context(question: str, history: str = "") -> dict:
 		except CopilotError:
 			sources = []
 			draft = ""
+	engine_by_user = {
+		row.computicket_user_id: row.engine_user_id
+		for row in HelpDeskAgentMap.query.all()
+	}
 	technicians = [
-		{"id": user.id, "name": user.name}
+		{
+			"id": user.id,
+			"name": user.name,
+			"engine_user_id": engine_by_user.get(user.id),
+		}
 		for user in User.query.filter(User.status == "1").order_by(User.name.asc()).all()
 		if user.name
 	]

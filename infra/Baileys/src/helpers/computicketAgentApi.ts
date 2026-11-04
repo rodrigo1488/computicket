@@ -6,7 +6,7 @@ export type AgentContext = {
   draft: string;
   has_evidence: boolean;
   sources: { title?: string; snippet?: string; source_type?: string }[];
-  technicians: { id?: number; name?: string }[];
+  technicians: { id?: number; name?: string; engine_user_id?: number | null }[];
 };
 
 const emptyContext = (): AgentContext => ({
@@ -32,7 +32,8 @@ function computicketApiConfig() {
 
 export async function fetchComputicketAgentContext(
   question: string,
-  history: string
+  history: string,
+  includeKnowledge = true
 ): Promise<AgentContext> {
   const { base, token } = computicketApiConfig();
   if (!token) {
@@ -42,7 +43,7 @@ export async function fetchComputicketAgentContext(
   try {
     const res = await axios.post(
       `${base}/helpdesk/api/internal/agent/context`,
-      { question, history },
+      { question, history, include_knowledge: includeKnowledge },
       {
         headers: { "X-Internal-Token": token },
         timeout: 20000,
@@ -71,9 +72,10 @@ export async function loadAgentContext(
   userText: string,
   history: string
 ): Promise<AgentContext> {
-  const factual = !!prompt?.answerFromKnowledge && looksLikeFactualQuestion(userText || "");
-  if (!factual && !prompt?.permitirCriarAgendamentos) return emptyContext();
-  return fetchComputicketAgentContext(userText || "", history || "");
+  const includeKnowledge =
+    (!!prompt?.answerFromKnowledge && looksLikeFactualQuestion(userText || "")) ||
+    !!prompt?.permitirCriarAgendamentos;
+  return fetchComputicketAgentContext(userText || "", history || "", includeKnowledge);
 }
 
 export type AppointmentApiResult = {
