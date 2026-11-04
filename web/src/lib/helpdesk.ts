@@ -498,6 +498,21 @@ export const helpdesk = {
     if (queueIds?.length) q.set("queueIds", JSON.stringify(queueIds));
     return flask.get<ConversationListRes>(`/helpdesk/api/conversations?${q}`);
   },
+  /** A lista do motor vem em páginas de 40. A caixa precisa das seguintes para não esconder atendimentos. */
+  inbox: async (status: HelpdeskTab, search = "", queueIds?: number[]) => {
+    const tickets: HelpdeskConversation[] = [];
+    let count = 0;
+    let page = 1;
+    let hasMore = true;
+    while (hasMore && page <= 15) {
+      const data = await helpdesk.conversations(status, String(page), search, queueIds);
+      count = data.count ?? count;
+      tickets.push(...(data.tickets || []));
+      hasMore = !!data.hasMore && (data.tickets || []).length > 0;
+      page += 1;
+    }
+    return { tickets, count, hasMore: false };
+  },
   conversation: (id: number) => flask.get<HelpdeskConversation>(`/helpdesk/api/conversations/${id}`),
   conversationHistory: (id: number) =>
     flask.get<{ history: HelpdeskConversationHistoryItem[] }>(`/helpdesk/api/conversations/${id}/history`),

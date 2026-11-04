@@ -146,26 +146,32 @@ export class GeminiProvider implements IAIProvider {
           ? merged
           : [{ role: "user", parts: [{ text: "Olá" }] }]
       };
-      let data: any;
-      try {
-        data = await callGeminiGenerateContent(
-          { ...payload, generationConfig: generationConfigFor(temperature, topP, maxTokens, true) },
+      const outputTokens = Math.max(maxTokens, 1024);
+      const readReply = async (withThinking: boolean, tokens: number) => {
+        const data = await callGeminiGenerateContent(
+          { ...payload, generationConfig: generationConfigFor(temperature, topP, tokens, withThinking) },
           model,
           apiKey
         );
+        return {
+          text: extractGeminiText(data),
+          cut: data?.candidates?.[0]?.finishReason === "MAX_TOKENS"
+        };
+      };
+      let reply: { text: string; cut: boolean };
+      try {
+        reply = await readReply(options.thinking !== false, outputTokens);
       } catch (err: any) {
         if (err?.response?.status !== 400) throw err;
-        data = await callGeminiGenerateContent(
-          { ...payload, generationConfig: generationConfigFor(temperature, topP, maxTokens, false) },
-          model,
-          apiKey
-        );
+        reply = await readReply(false, outputTokens);
       }
-      const text = extractGeminiText(data);
-      if (!text) {
-        throw new AppError("A IA não retornou resposta válida", 500);
+      if (reply.cut) {
+        reply = await readReply(false, outputTokens);
       }
-      return text;
+      if (!reply.text || (reply.cut && reply.text.length < 120)) {
+        throw new AppError("A IA devolveu uma resposta cortada", 500);
+      }
+      return reply.text;
     } catch (err: any) {
       if (err instanceof AppError) throw err;
       throw new AppError(`Erro ao realizar chat com Gemini: ${interpretGeminiError(err)}`, 500);

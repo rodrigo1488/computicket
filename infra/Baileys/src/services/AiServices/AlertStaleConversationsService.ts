@@ -12,11 +12,13 @@ import { logger } from "../../utils/logger";
 import { AIProviderSelector } from "./AIProviderSelector";
 import {
   decideIdleScan,
+  completeGroupFallback,
   formatGroupAlertSummary,
   formatIdleAlertContext,
   formatIdleTranscript,
   parseIdleAlertDecision,
-  signAgentMessage
+  signAgentMessage,
+  summaryLooksComplete
 } from "./aiAgentActions";
 
 type LastRow = {
@@ -96,7 +98,7 @@ const askSilence = async (prompt: Prompt, ticket: Ticket, now: Date): Promise<bo
         },
         { role: "user", content: context }
       ],
-      { maxTokens: 180, temperature: 0.2 }
+      { maxTokens: 1024, temperature: 0.2, thinking: false }
     );
     const decision = parseIdleAlertDecision(String(text || ""));
     if (!decision) return null;
@@ -108,10 +110,22 @@ const askSilence = async (prompt: Prompt, ticket: Ticket, now: Date): Promise<bo
 };
 
 const summarizeForGroup = async (prompt: Prompt, ticket: Ticket, now: Date): Promise<string> => {
-  const context = await buildContext(ticket, now);
-  const fallback = formatGroupAlertSummary(
-    `${ticket.contact?.name || "Cliente"} está com a conversa parada e aguardando retorno.`
-  );
+  const history = await loadHistory(ticket.id);
+  const lastCustomer = [...history].reverse().find(message => !message.fromMe);
+  const lastAny = history[history.length - 1];
+  const context = formatIdleAlertContext({
+    contactName: ticket.contact?.name || "Cliente",
+    ticketStatus: ticket.status,
+    hasAssignee: !!ticket.userId,
+    minutesSinceAny: minutesBetween(lastAny?.createdAt, now) ?? 0,
+    minutesSinceCustomer: minutesBetween(lastCustomer?.createdAt, now),
+    transcript: formatIdleTranscript(history)
+  });
+  const fallback = completeGroupFallback({
+    contactName: ticket.contact?.name || "Cliente",
+    minutes: minutesBetween(lastCustomer?.createdAt, now),
+    lastCustomerText: lastCustomer?.body || ""
+  });
   try {
     const provider = await AIProviderSelector.getProvider(prompt.companyId, "summaries", prompt.provider);
     const text = await provider.chat(
@@ -119,15 +133,16 @@ const summarizeForGroup = async (prompt: Prompt, ticket: Ticket, now: Date): Pro
         {
           role: "system",
           content:
-            "Antes de avisar o grupo, escreva só um resumo curto do contexto, em português, em 2 a 4 linhas. " +
+            "Escreva um resumo curto do contexto, em português, em 2 a 4 frases completas. " +
             "Diga quem é o cliente, o que ele pediu, há quanto tempo está parado e por que o grupo está sendo avisado. " +
-            "Use apenas o histórico. Não invente, não cumprimente e não escreva título."
+            "Use apenas o histórico. Não invente, não cumprimente, não escreva título e termine com ponto final."
         },
         { role: "user", content: context }
       ],
-      { maxTokens: 220, temperature: 0.2 }
+      { maxTokens: 1024, temperature: 0.2, thinking: false }
     );
-    return formatGroupAlertSummary(String(text || "")) || fallback;
+    const summary = formatGroupAlertSummary(String(text || ""));
+    return summaryLooksComplete(summary) ? summary : fallback;
   } catch (err: any) {
     logger.warn(`AlertStaleConversations: resumo indisponível no ticket ${ticket.id} (${err.message})`);
     return fallback;
@@ -149,7 +164,8 @@ const remember = async (
         groupAlertMessageId: ticket.groupAlertMessageId
           ? ticket.groupAlertMessageId
           : { [Op.is]: null }
-      }
+      },
+      silent: true
     }
   );
   if (!affected) return false;
@@ -183,7 +199,8 @@ const scanPrompt = async (prompt: Prompt, now: Date): Promise<void> => {
         [Op.or]: scopes,
         groupAlertStatus: { [Op.not]: null },
         status: { [Op.notIn]: ["pending", "open"] }
-      }
+      },
+      silent: true
     }
   );
 
@@ -231,15 +248,14 @@ const scanPrompt = async (prompt: Prompt, now: Date): Promise<void> => {
 const settleClaim = async (ticketId: number, groupAlertStatus: number): Promise<void> => {
   await Ticket.update(
     { groupAlertStatus },
-    { where: { id: ticketId, groupAlertStatus: 3 } }
+    { where: { id: ticketId, groupAlertStatus: 3 }, silent: true }
   );
 };
 
 const dispatchQueued = async (now: Date): Promise<void> => {
-  const abandoned = new Date(now.getTime() - 5 * 60 * 1000);
   await Ticket.update(
     { groupAlertStatus: 0 },
-    { where: { groupAlertStatus: 3, updatedAt: { [Op.lt]: abandoned } } }
+    { where: { groupAlertStatus: 3 }, silent: true }
   );
   const prompts = await Prompt.findAll({ where: { idleAlertEnabled: true } });
   const promptById = new Map(prompts.map(prompt => [prompt.id, prompt]));
@@ -265,7 +281,7 @@ const dispatchQueued = async (now: Date): Promise<void> => {
   }
   const claimed = await Ticket.update(
     { groupAlertStatus: 3 },
-    { where: { id: ticket.id, groupAlertStatus: 0 } }
+    { where: { id: ticket.id, groupAlertStatus: 0 }, silent: true }
   );
   if (!claimed[0]) return;
   ticket.groupAlertStatus = 3;
@@ -282,7 +298,7 @@ const dispatchQueued = async (now: Date): Promise<void> => {
   if (!last || last.id !== ticket.groupAlertMessageId) {
     await Ticket.update(
       { groupAlertStatus: null, groupAlertMessageId: null },
-      { where: { id: ticket.id, groupAlertStatus: 3 } }
+      { where: { id: ticket.id, groupAlertStatus: 3 }, silent: true }
     );
     return;
   }

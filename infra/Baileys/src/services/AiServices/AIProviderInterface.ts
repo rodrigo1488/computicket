@@ -17,6 +17,7 @@ export interface ChatMessage {
 export interface ChatOptions extends GenerateTextOptions {
   model?: string;
   image?: { mimeType: string; data: string };
+  thinking?: boolean;
 }
 
 export interface TranscribeAudioOptions {

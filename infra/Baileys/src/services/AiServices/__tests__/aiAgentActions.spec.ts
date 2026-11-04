@@ -2,7 +2,9 @@ import {
   completionTokenBudget,
   conversationTurns,
   decideIdleScan,
+  completeGroupFallback,
   formatGroupAlertSummary,
+  summaryLooksComplete,
   formatIdleAlertContext,
   parseIdleAlertDecision,
   matchPersonByName,
@@ -159,6 +161,15 @@ describe("alerta de conversa parada", () => {
     })).toContain("Cliente: o sistema caiu");
     expect(formatGroupAlertSummary('{"resumo":"Ana espera há 40 min por causa de um erro no sistema."}'))
       .toBe("*Resumo do contexto*\nAna espera há 40 min por causa de um erro no sistema.");
+    expect(summaryLooksComplete("Cliente: Açougue São")).toBe(false);
+    const fallback = completeGroupFallback({
+      contactName: "Açougue São João",
+      minutes: 35,
+      lastCustomerText: "O sistema não abre o caixa desde cedo"
+    });
+    expect(fallback.endsWith(".")).toBe(true);
+    expect(fallback).toContain("O sistema não abre o caixa desde cedo.");
+    expect(summaryLooksComplete(fallback)).toBe(true);
   });
 
   it("reserva saída longa no Gemini mesmo com prompt gigante", () => {

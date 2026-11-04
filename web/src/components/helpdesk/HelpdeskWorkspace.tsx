@@ -999,7 +999,7 @@ export function HelpdeskWorkspace() {
 
   const countSource = useQuery({
     queryKey: ["hd-list-counts", tab, debouncedSearch],
-    queryFn: () => helpdesk.conversations(tab, "1", debouncedSearch),
+    queryFn: () => helpdesk.inbox(tab, debouncedSearch),
     enabled: !!health.data?.ok,
     refetchInterval: 15000,
   });
@@ -1007,7 +1007,7 @@ export function HelpdeskWorkspace() {
   const list = useQuery({
     queryKey: ["hd-list", tab, selectedQueues, includeUnassigned, debouncedSearch],
     queryFn: () =>
-      helpdesk.conversations(tab, "1", debouncedSearch, selectedQueues.length ? selectedQueues : undefined),
+      helpdesk.inbox(tab, debouncedSearch, selectedQueues.length ? selectedQueues : undefined),
     enabled: !!health.data?.ok,
     refetchInterval: 12000,
   });

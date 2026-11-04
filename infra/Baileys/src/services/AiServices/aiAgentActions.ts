@@ -341,6 +341,29 @@ export function parseIdleAlertDecision(text: string): { alert: boolean; summary:
   }
 }
 
+export function summaryLooksComplete(text: string): boolean {
+  const body = text.replace(/^\*Resumo do contexto\*\s*/i, "").trim();
+  return body.length >= 40 && /[.!?…]$/.test(body);
+}
+
+/** Resumo inteiro, cortando só em espaço quando a última fala é longa. */
+export function completeGroupFallback(input: {
+  contactName: string;
+  minutes: number | null;
+  lastCustomerText: string;
+}): string {
+  const name = (input.contactName || "Cliente").trim() || "Cliente";
+  const wait = input.minutes == null ? "" : ` Há ${input.minutes} min sem resposta.`;
+  let said = (input.lastCustomerText || "").replace(/\s+/g, " ").trim();
+  if (said.length > 400) {
+    const cut = said.lastIndexOf(" ", 400);
+    said = said.slice(0, cut > 120 ? cut : 400).trim();
+  }
+  if (said && !/[.!?…]$/.test(said)) said = `${said}.`;
+  const quote = said ? ` Última fala do cliente: ${said}` : "";
+  return `*Resumo do contexto*\n${name} está com a conversa parada.${wait}${quote}`;
+}
+
 /** Texto do grupo: um resumo curto do contexto, sem JSON nem título repetido. */
 export function formatGroupAlertSummary(text: string): string {
   const raw = String(text || "").trim();
