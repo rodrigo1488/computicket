@@ -133,9 +133,10 @@ const summarizeForGroup = async (prompt: Prompt, ticket: Ticket, now: Date): Pro
         {
           role: "system",
           content:
-            "Escreva um resumo curto do contexto, em português, em 2 a 4 frases completas. " +
-            "Diga quem é o cliente, o que ele pediu, há quanto tempo está parado e por que o grupo está sendo avisado. " +
-            "Use apenas o histórico. Não invente, não cumprimente, não escreva título e termine com ponto final."
+            "Escreva o alerta do grupo em português, em 2 a 4 frases completas, em tom grosso, rígido e ríspido, de cobrança. " +
+            "Cobre quem está no grupo para assumir este atendimento agora. " +
+            "Diga quem é o cliente, o que ele pediu e há quanto tempo está parado. " +
+            "Use apenas o histórico. Não invente, não cumprimente, não peça desculpa, não escreva título e termine com ponto final."
         },
         { role: "user", content: context }
       ],

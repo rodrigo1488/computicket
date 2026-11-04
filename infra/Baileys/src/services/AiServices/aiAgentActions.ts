@@ -243,7 +243,7 @@ export const TRANSFER_RULES = `ENCAMINHAMENTO:
 - Não prometa prazo de atendimento.
 - Se não identificar o setor, transfira para atendimento humano.
 - Não conte ao cliente a triagem, o setor interno nem o conteúdo da nota.
-- Ao cliente, diga apenas, em tom seco: "Vou encaminhar para um atendente. Aguarde. Não repita a mensagem."
+- Ao cliente, diga apenas que vai encaminhar para um atendente.
 - Para transferir, use somente: Ação: Transferir para o setor de atendimento [Fila: Nome da Fila]
 A nota interna é gravada pela plataforma. Não escreva mensagem interna na resposta.`;
 
@@ -361,7 +361,7 @@ export function completeGroupFallback(input: {
   }
   if (said && !/[.!?…]$/.test(said)) said = `${said}.`;
   const quote = said ? ` Última fala do cliente: ${said}` : "";
-  return `*Resumo do contexto*\n${name} está com a conversa parada.${wait}${quote}`;
+  return `*Resumo do contexto*\n${name} está parado e ninguém assumiu.${wait} Peguem isso agora.${quote}`;
 }
 
 /** Texto do grupo: um resumo curto do contexto, sem JSON nem título repetido. */
