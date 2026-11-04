@@ -8,6 +8,9 @@ import DeleteWhatsAppService from "../services/WhatsappService/DeleteWhatsAppSer
 import ListWhatsAppsService from "../services/WhatsappService/ListWhatsAppsService";
 import ShowWhatsAppService from "../services/WhatsappService/ShowWhatsAppService";
 import UpdateWhatsAppService from "../services/WhatsappService/UpdateWhatsAppService";
+import ListParticipatingGroupsService from "../services/WbotServices/ListParticipatingGroupsService";
+import Whatsapp from "../models/Whatsapp";
+import { Op } from "sequelize";
 
 interface WhatsappData {
   name: string;
@@ -41,6 +44,27 @@ interface WhatsappData {
 interface QueryParams {
   session?: number | string;
 }
+
+export const groups = async (req: Request, res: Response): Promise<Response> => {
+  const result = await ListParticipatingGroupsService(req.user.companyId);
+  return res.status(200).json(result);
+};
+
+export const assignPrompt = async (req: Request, res: Response): Promise<Response> => {
+  const { whatsappId } = req.params;
+  const { companyId } = req.user;
+  const raw = req.body?.promptId;
+  const promptId = raw === null || raw === "" || raw === undefined ? null : Number(raw);
+  const whatsapp = await ShowWhatsAppService(whatsappId, companyId);
+  if (promptId) {
+    await Whatsapp.update(
+      { promptId: null },
+      { where: { promptId, companyId, id: { [Op.not]: whatsapp.id } } }
+    );
+  }
+  await whatsapp.update({ promptId });
+  return res.status(200).json({ id: whatsapp.id, promptId: whatsapp.promptId });
+};
 
 export const index = async (req: Request, res: Response): Promise<Response> => {
   const { companyId } = req.user;

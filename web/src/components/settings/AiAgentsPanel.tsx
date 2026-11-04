@@ -7,17 +7,19 @@ import { Modal } from "@/components/ui/Modal";
 import { PrimaryButton, UnderlineField } from "@/components/ui/UnderlineField";
 import {
   helpdesk,
+  unwrapConnections,
   type AiWhatsappAgent,
   type AiWhatsappAgentPayload,
   type HelpdeskAssignee,
+  type HelpdeskConnection,
   type HelpdeskQueue,
-  type WhatsappGroupContact,
+  type WhatsappGroupList,
 } from "@/lib/helpdesk";
 
 type Draft = {
   name: string;
   prompt: string;
-  queueId: string;
+  whatsappId: string;
   canTransferToAgent: boolean;
   canTransferToUser: boolean;
   answerFromKnowledge: boolean;
@@ -32,7 +34,7 @@ type Draft = {
 const EMPTY: Draft = {
   name: "",
   prompt: "",
-  queueId: "",
+  whatsappId: "",
   canTransferToAgent: true,
   canTransferToUser: true,
   answerFromKnowledge: true,
@@ -48,7 +50,7 @@ function fromAgent(agent: AiWhatsappAgent): Draft {
   return {
     name: agent.name || "",
     prompt: agent.prompt || "",
-    queueId: agent.queueId ? String(agent.queueId) : "",
+    whatsappId: agent.whatsappId ? String(agent.whatsappId) : "",
     canTransferToAgent: !!agent.canTransferToAgent,
     canTransferToUser: !!agent.canTransferToUser,
     answerFromKnowledge: !!agent.answerFromKnowledge,
@@ -66,7 +68,7 @@ function toPayload(draft: Draft): AiWhatsappAgentPayload {
   return {
     name: draft.name.trim(),
     prompt: draft.prompt.trim(),
-    queueId: draft.queueId ? Number(draft.queueId) : null,
+    whatsappId: draft.whatsappId ? Number(draft.whatsappId) : null,
     canTransferToAgent: draft.canTransferToAgent,
     canTransferToUser: draft.canTransferToUser,
     answerFromKnowledge: draft.answerFromKnowledge,
@@ -134,14 +136,16 @@ function SelectField({
 function AgentForm({
   initial,
   queues,
+  connections,
   assignees,
   groups,
   onClose,
 }: {
   initial: AiWhatsappAgent | null;
   queues: HelpdeskQueue[];
+  connections: HelpdeskConnection[];
   assignees: HelpdeskAssignee[];
-  groups: WhatsappGroupContact[];
+  groups: WhatsappGroupList | undefined;
   onClose: () => void;
 }) {
   const qc = useQueryClient();
@@ -165,7 +169,7 @@ function AgentForm({
       className="space-y-5"
       onSubmit={(event) => {
         event.preventDefault();
-        if (draft.name.trim() && draft.prompt.trim() && draft.queueId && !idleMissingGroup) save.mutate();
+        if (draft.name.trim() && draft.prompt.trim() && draft.whatsappId && !idleMissingGroup) save.mutate();
       }}
     >
       <UnderlineField label="Nome" value={draft.name} onChange={(name) => patch({ name })} placeholder="Recepção" />
@@ -179,14 +183,17 @@ function AgentForm({
           className="mt-1 w-full resize-y border-0 border-b border-line bg-transparent py-2 text-[15px] text-ink placeholder:text-muted"
         />
       </label>
-      <SelectField label="Fila" value={draft.queueId} onChange={(queueId) => patch({ queueId })}>
-        <option value="">Selecione</option>
-        {queues.map((queue) => (
-          <option key={queue.id} value={queue.id}>
-            {queue.name}
+      <SelectField label="Conexão" value={draft.whatsappId} onChange={(whatsappId) => patch({ whatsappId })}>
+        <option value="">Selecione o número</option>
+        {connections.map((connection) => (
+          <option key={connection.id} value={connection.id}>
+            {connection.name}
           </option>
         ))}
       </SelectField>
+      <p className="text-xs text-muted">
+        O agente atende nesta conexão antes das filas e encaminha para o setor certo.
+      </p>
       <div className="space-y-3">
         <Check
           label="Transferir para filas"
@@ -257,14 +264,15 @@ function AgentForm({
             onChange={(idleAlertGroupJid) => patch({ idleAlertGroupJid })}
           >
             <option value="">Selecione</option>
-            {groups.map((group) => (
+            {(groups?.groups || []).map((group) => (
               <option key={group.id} value={group.number || ""}>
-                {group.name || group.number}
+                {group.whatsappName ? `${group.name} · ${group.whatsappName}` : group.name || group.number}
               </option>
             ))}
           </SelectField>
         </div>
       ) : null}
+      {draft.idleAlertEnabled && groups?.message ? <p className="text-sm text-muted">{groups.message}</p> : null}
       {idleMissingGroup ? (
         <p className="text-sm text-open">Escolha o grupo que recebe o alerta.</p>
       ) : null}
@@ -272,7 +280,7 @@ function AgentForm({
       <div className="flex justify-end">
         <PrimaryButton
           type="submit"
-          disabled={save.isPending || !draft.name.trim() || !draft.prompt.trim() || !draft.queueId || idleMissingGroup}
+          disabled={save.isPending || !draft.name.trim() || !draft.prompt.trim() || !draft.whatsappId || idleMissingGroup}
         >
           {save.isPending ? "Salvando…" : "Salvar agente"}
         </PrimaryButton>
@@ -300,13 +308,18 @@ export function AiAgentsPanel({ queues }: { queues: HelpdeskQueue[] }) {
     onSuccess: () => qc.invalidateQueries({ queryKey: ["hd-ai-agents"] }),
   });
 
-  const queueName = (id?: number | null) => queues.find((queue) => queue.id === id)?.name;
+  const connections = useQuery({
+    queryKey: ["hd-connections"],
+    queryFn: async () => unwrapConnections(await helpdesk.connections()),
+  });
+  const connectionName = (agent: AiWhatsappAgent) =>
+    agent.whatsappName || connections.data?.find((item) => item.id === agent.whatsappId)?.name || "sem conexão";
 
   return (
     <div>
       <div className="mb-4 flex items-center justify-between gap-3">
         <p className="text-sm text-muted">
-          O agente responde no WhatsApp enquanto ninguém assume a conversa. Perguntas sem fonte na base vão para a fila ou o usuário de fallback.
+          O agente fica na frente das filas, no número escolhido. Ele responde, cria visitas e transfere para o setor ou a pessoa certa.
         </p>
         <button
           type="button"
@@ -320,7 +333,7 @@ export function AiAgentsPanel({ queues }: { queues: HelpdeskQueue[] }) {
       {agents.error ? <p className="mb-3 text-sm text-open">{(agents.error as Error).message}</p> : null}
       {(agents.data || []).length === 0 ? (
         <p className="rounded-xl border border-dashed border-line px-4 py-10 text-center text-sm text-muted">
-          Nenhum agente de IA. Crie um e vincule a uma fila da conexão.
+          Nenhum agente de IA. Crie um e escolha o número que ele atende.
         </p>
       ) : (
         <ul className="space-y-2">
@@ -329,7 +342,7 @@ export function AiAgentsPanel({ queues }: { queues: HelpdeskQueue[] }) {
               <div className="min-w-0">
                 <p className="text-sm font-semibold text-ink">{agent.name}</p>
                 <p className="mt-1 text-xs text-muted">
-                  Fila: {queueName(agent.queueId) || "sem fila"}
+                  Conexão: {connectionName(agent)}
                   {agent.answerFromKnowledge ? " · base de conhecimento" : ""}
                   {agent.permitirCriarAgendamentos ? " · agenda" : ""}
                   {agent.idleAlertEnabled ? ` · alerta em ${agent.idleAlertMinutes} min` : ""}
@@ -364,8 +377,9 @@ export function AiAgentsPanel({ queues }: { queues: HelpdeskQueue[] }) {
           <AgentForm
             initial={editing}
             queues={queues}
+            connections={connections.data || []}
             assignees={assignees.data || []}
-            groups={groups.data || []}
+            groups={groups.data}
             onClose={() => setEditing(undefined)}
           />
         ) : null}

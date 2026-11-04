@@ -5,6 +5,7 @@ import Message from "../../models/Message";
 import Prompt from "../../models/Prompt";
 import Queue from "../../models/Queue";
 import Ticket from "../../models/Ticket";
+import Whatsapp from "../../models/Whatsapp";
 import { getWbot } from "../../libs/wbot";
 import { toWhatsAppGroupJid } from "../../helpers/chatJid";
 import { logger } from "../../utils/logger";
@@ -64,12 +65,20 @@ const AlertStaleConversationsService = async (): Promise<void> => {
     if (prompt.queueId && !queueIds.includes(prompt.queueId)) {
       queueIds.push(prompt.queueId);
     }
-    if (!queueIds.length) continue;
+    const connections = await Whatsapp.findAll({
+      where: { promptId: prompt.id, companyId: prompt.companyId },
+      attributes: ["id"]
+    });
+    const whatsappIds = connections.map(item => item.id);
+    const scopes: any[] = [];
+    if (queueIds.length) scopes.push({ queueId: { [Op.in]: queueIds } });
+    if (whatsappIds.length) scopes.push({ whatsappId: { [Op.in]: whatsappIds } });
+    if (!scopes.length) continue;
 
     const tickets = await Ticket.findAll({
       where: {
         companyId: prompt.companyId,
-        queueId: { [Op.in]: queueIds },
+        [Op.or]: scopes,
         status: "pending",
         userId: { [Op.is]: null },
         isGroup: false

@@ -7,7 +7,11 @@ const whatsappRoutes = express.Router();
 
 whatsappRoutes.get("/whatsapp/", isAuth, WhatsAppController.index);
 
+whatsappRoutes.get("/whatsapp/groups", isAuth, WhatsAppController.groups);
+
 whatsappRoutes.post("/whatsapp/", isAuth, WhatsAppController.store);
+
+whatsappRoutes.put("/whatsapp/:whatsappId/prompt", isAuth, WhatsAppController.assignPrompt);
 
 whatsappRoutes.get("/whatsapp/:whatsappId", isAuth, WhatsAppController.show);
 

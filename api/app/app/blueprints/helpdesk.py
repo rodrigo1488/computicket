@@ -2674,6 +2674,24 @@ def _ai_optional_int(value):
     return parsed if parsed > 0 else None
 
 
+def _ensure_engine_gemini_key() -> str | None:
+    """Copia a chave do Computicket para o motor. Devolve erro amigável se não houver chave."""
+    from ..services.gemini_client import api_key
+
+    key = api_key()
+    if not key:
+        return "Cadastre a chave do Gemini em Configurações → IA."
+    admin_request("PUT", "/settings/geminiApiKey", json={"value": key})
+    return None
+
+
+def _connection_for_prompt(prompt_id, connections: list) -> dict | None:
+    for item in connections:
+        if isinstance(item, dict) and _ai_optional_int(item.get("promptId")) == prompt_id:
+            return item
+    return None
+
+
 def _ai_agent_engine_body(payload: dict) -> dict:
     minutes = _ai_optional_int(payload.get("idleAlertMinutes")) or 30
     minutes = min(1440, max(5, minutes))
@@ -2684,7 +2702,7 @@ def _ai_agent_engine_body(payload: dict) -> dict:
         "maxMessages": 10,
         "maxTokens": 800,
         "temperature": 0.3,
-        "queueId": _ai_optional_int(payload.get("queueId")),
+        "queueId": None,
         "canTransferToAgent": _ai_flag(payload, "canTransferToAgent"),
         "canTransferToUser": _ai_flag(payload, "canTransferToUser"),
         "answerFromKnowledge": _ai_flag(payload, "answerFromKnowledge", True),
@@ -2714,6 +2732,8 @@ def _public_ai_agent(row: dict) -> dict:
         "idleAlertMinutes": row.get("idleAlertMinutes") or 30,
         "idleAlertGroupJid": row.get("idleAlertGroupJid") or "",
         "provider": row.get("provider") or "gemini",
+        "whatsappId": row.get("whatsappId"),
+        "whatsappName": row.get("whatsappName") or "",
     }
 
 
@@ -2745,7 +2765,17 @@ def list_ai_agents():
     if denied:
         return denied
     try:
-        return jsonify([_public_ai_agent(row) for row in _list_engine_prompts()])
+        connections = admin_request("GET", "/whatsapp/") or []
+        if isinstance(connections, dict):
+            connections = connections.get("whatsapps") or connections.get("connections") or []
+        agents = []
+        for row in _list_engine_prompts():
+            link = _connection_for_prompt(row.get("id"), connections if isinstance(connections, list) else [])
+            if link:
+                row["whatsappId"] = link.get("id")
+                row["whatsappName"] = link.get("name") or ""
+            agents.append(_public_ai_agent(row))
+        return jsonify(agents)
     except EngineError as exc:
         return _fail(exc)
 
@@ -2757,13 +2787,29 @@ def list_ai_agent_groups():
     if denied:
         return denied
     try:
-        data = admin_request("GET", "/contacts/groups") or []
-        groups = data if isinstance(data, list) else []
-        return jsonify([
-            {"id": item.get("id"), "name": item.get("name") or item.get("number"), "number": item.get("number")}
-            for item in groups
-            if isinstance(item, dict)
-        ])
+        data = admin_request("GET", "/whatsapp/groups", timeout=40) or {}
+        groups = data.get("groups") if isinstance(data, dict) else []
+        connected = int(data.get("connected") or 0) if isinstance(data, dict) else 0
+        message = ""
+        if connected <= 0:
+            message = "Nenhum número está conectado. Conecte o WhatsApp para listar os grupos."
+        elif not groups:
+            message = "Os números conectados não participam de nenhum grupo."
+        return jsonify({
+            "groups": [
+                {
+                    "id": item.get("id"),
+                    "name": item.get("name") or item.get("number"),
+                    "number": item.get("number"),
+                    "whatsappId": item.get("whatsappId"),
+                    "whatsappName": item.get("whatsappName") or "",
+                }
+                for item in (groups or [])
+                if isinstance(item, dict)
+            ],
+            "connected": connected,
+            "message": message,
+        })
     except EngineError as exc:
         return _fail(exc)
 
@@ -2776,12 +2822,20 @@ def create_ai_agent():
         return denied
     payload = request.get_json(silent=True) or {}
     body = _ai_agent_engine_body(payload)
+    whatsapp_id = _ai_optional_int(payload.get("whatsappId"))
     if not body["name"] or not body["prompt"]:
         return jsonify({"error": "Informe o nome e as instruções do agente."}), 400
-    if not body["queueId"]:
-        return jsonify({"error": "Escolha a fila que este agente atende."}), 400
+    if not whatsapp_id:
+        return jsonify({"error": "Escolha a conexão de WhatsApp que este agente atende."}), 400
     try:
+        missing_key = _ensure_engine_gemini_key()
+        if missing_key:
+            return jsonify({"error": missing_key}), 400
         created = admin_request("POST", "/prompt", json=body) or {}
+        prompt_id = created.get("id") if isinstance(created, dict) else None
+        if prompt_id:
+            admin_request("PUT", f"/whatsapp/{whatsapp_id}/prompt", json={"promptId": prompt_id})
+            created["whatsappId"] = whatsapp_id
         return jsonify(_public_ai_agent(created if isinstance(created, dict) else {})), 201
     except EngineError as exc:
         return _fail(exc)
@@ -2795,10 +2849,19 @@ def update_ai_agent(agent_id: int):
         return denied
     payload = request.get_json(silent=True) or {}
     body = _ai_agent_engine_body(payload)
+    whatsapp_id = _ai_optional_int(payload.get("whatsappId"))
     if not body["name"] or not body["prompt"]:
         return jsonify({"error": "Informe o nome e as instruções do agente."}), 400
+    if not whatsapp_id:
+        return jsonify({"error": "Escolha a conexão de WhatsApp que este agente atende."}), 400
     try:
+        missing_key = _ensure_engine_gemini_key()
+        if missing_key:
+            return jsonify({"error": missing_key}), 400
         updated = admin_request("PUT", f"/prompt/{agent_id}", json=body) or {}
+        admin_request("PUT", f"/whatsapp/{whatsapp_id}/prompt", json={"promptId": agent_id})
+        if isinstance(updated, dict):
+            updated["whatsappId"] = whatsapp_id
         return jsonify(_public_ai_agent(updated if isinstance(updated, dict) else {}))
     except EngineError as exc:
         return _fail(exc)

@@ -1292,8 +1292,8 @@ const handleOpenAi = async (
     logger.info(`handleOpenAi: Usando openAiSettings fornecido`);
   }
 
-  // Se não, buscar do WhatsApp
-  if (!prompt) {
+  // O prompt da conexão só atende enquanto o ticket ainda não tem fila.
+  if (!prompt && !ticket.queueId) {
     try {
       const whatsappData = await ShowWhatsAppService(wbot.id, ticket.companyId);
       prompt = whatsappData.prompt;
@@ -1328,7 +1328,7 @@ const handleOpenAi = async (
   }
 
   // Se ainda não encontrou, tentar buscar pelo promptId do WhatsApp diretamente
-  if (!prompt && wbot.id) {
+  if (!prompt && !ticket.queueId && wbot.id) {
     try {
       const whatsapp = await ShowWhatsAppService(wbot.id, ticket.companyId);
       if (whatsapp?.promptId) {
@@ -2285,6 +2285,10 @@ const verifyQueue = async (
   }
 
   const whatsappConn = await ShowWhatsAppService(wbot.id!, ticket.companyId);
+  // Sem fila, o agente da conexão escolhe o setor. Com fila, o menu da fila segue.
+  if (whatsappConn.promptId && !ticket.userId && !ticket.queueId) {
+    return;
+  }
   const { queues, greetingMessage, maxUseBotQueues, timeUseBotQueues } =
     whatsappConn;
 
@@ -4316,18 +4320,17 @@ const handleMessage = async (
       // Ignorar erro
     }
     
-    // Prioridade: 1. Fila (se ticket tem fila), 2. Ticket, 3. Conexão
-    // Se o ticket tem uma fila com prompt, usar o prompt da fila (prioridade)
-    const promptIdToUse = (ticket.queueId && queueWithPrompt?.promptId) 
-      ? queueWithPrompt.promptId 
-      : (ticket.promptId || whatsappPromptId);
+    // Sem fila: o agente da conexão fica na frente e escolhe o setor.
+    // Com fila: só continua o agente se a própria fila tiver um prompt.
+    const promptIdToUse = ticket.queueId
+      ? queueWithPrompt?.promptId || null
+      : whatsappPromptId || ticket.promptId;
     
     if (
       !isGroup &&
       !isFromMe &&
       !ticket.userId &&
-      !isNil(promptIdToUse) &&
-      (ticket.queueId || whatsappPromptId) // Pode ter prompt mesmo sem fila (prompt da conexão)
+      !isNil(promptIdToUse)
     ) {
       // Se o ticket não tem promptId mas a fila ou conexão tem, atualizar o ticket
       // OU se a fila tem um prompt diferente do ticket, atualizar o ticket

@@ -98,6 +98,8 @@ export type AiWhatsappAgent = {
   idleAlertMinutes: number;
   idleAlertGroupJid?: string;
   provider?: string;
+  whatsappId?: number | null;
+  whatsappName?: string;
 };
 
 export type AiWhatsappAgentPayload = {
@@ -113,12 +115,21 @@ export type AiWhatsappAgentPayload = {
   idleAlertEnabled: boolean;
   idleAlertMinutes: number;
   idleAlertGroupJid?: string | null;
+  whatsappId?: number | null;
 };
 
 export type WhatsappGroupContact = {
-  id: number;
+  id: string | number;
   name?: string;
   number?: string;
+  whatsappId?: number;
+  whatsappName?: string;
+};
+
+export type WhatsappGroupList = {
+  groups: WhatsappGroupContact[];
+  connected: number;
+  message?: string;
 };
 
 export type HelpdeskConnection = {
@@ -603,7 +614,7 @@ export const helpdesk = {
   deleteQueue: (id: number) => flask.delete(`/helpdesk/api/queues/${id}`),
   agents: () => flask.get<HelpdeskAgent[]>("/helpdesk/api/agents"),
   aiAgents: () => flask.get<AiWhatsappAgent[]>("/helpdesk/api/ai-agents"),
-  aiAgentGroups: () => flask.get<WhatsappGroupContact[]>("/helpdesk/api/ai-agents/groups"),
+  aiAgentGroups: () => flask.get<WhatsappGroupList>("/helpdesk/api/ai-agents/groups"),
   createAiAgent: (payload: AiWhatsappAgentPayload) =>
     flask.post<AiWhatsappAgent>("/helpdesk/api/ai-agents", payload),
   updateAiAgent: (id: number, payload: AiWhatsappAgentPayload) =>
