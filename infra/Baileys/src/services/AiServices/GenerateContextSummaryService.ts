@@ -18,6 +18,7 @@ interface GenerateContextSummaryParams {
   provider?: string;
   maxMessages?: number;
   destination?: string;
+  evidence?: string;
 }
 
 const formatDateTime = (date: Date | string): string => {
@@ -36,7 +37,8 @@ export const generateContextSummary = async ({
   companyId,
   provider,
   maxMessages = 40,
-  destination
+  destination,
+  evidence
 }: GenerateContextSummaryParams): Promise<string> => {
   try {
     const ticket = await ShowTicketService(ticketId, companyId);
@@ -84,16 +86,22 @@ export const generateContextSummary = async ({
       .join("\n");
 
     const cliente = ticketData?.contact?.name || "Não informado";
-    const systemPrompt = `Preencha o encaminhamento somente com fatos das mensagens. Se um campo não aparecer na conversa, use "Não informado". Não invente.
+    const fontes = (evidence || "").trim() || "(nenhuma)";
+    const systemPrompt = `Preencha o encaminhamento somente com fatos das mensagens e das fontes. Se um campo não aparecer, use "Não informado". Não invente.
 
 CLIENTE CONHECIDO: ${cliente}
 SETOR JÁ DEFINIDO: ${destination || "Não informado"}
 
+FONTES:
+${fontes}
+
 MENSAGENS:
 ${messagesContext}
 
+solucao: preencha só se as fontes ou as mensagens já trouxerem um jeito concreto de resolver. Se não houver, deixe vazio. Não invente procedimento.
+
 Retorne apenas este JSON:
-{"cliente":"","sistema":"","problema":"","erros":"","resumo":"","motivo":""}`;
+{"cliente":"","sistema":"","problema":"","erros":"","resumo":"","motivo":"","solucao":""}`;
 
     const selectedProvider = await AIProviderSelector.getProvider(
       companyId,
@@ -115,8 +123,7 @@ Retorne apenas este JSON:
     logger.info(`Resumo gerado com sucesso para ticket ${ticketId} usando ${selectedProvider.name} (${summary.length} caracteres)`);
     return formatTransferNote({
       ...parseTransferJson(summary, cliente),
-      setor: destination || "Não informado",
-      historico: messagesContext
+      setor: destination || "Não informado"
     });
   } catch (error: any) {
     logger.error(`Erro ao gerar resumo do contexto: ${error.message}`);
@@ -127,7 +134,7 @@ Retorne apenas este JSON:
 const parseTransferJson = (
   raw: string,
   cliente: string
-): { cliente: string; sistema: string; problema: string; erros: string; resumo: string; motivo: string } => {
+): { cliente: string; sistema: string; problema: string; erros: string; resumo: string; motivo: string; solucao: string } => {
   const match = (raw || "").match(/\{[\s\S]*\}/);
   const empty = {
     cliente,
@@ -135,7 +142,8 @@ const parseTransferJson = (
     problema: "Não informado",
     erros: "Não informado",
     resumo: (raw || "").trim() || "Não informado",
-    motivo: "Não informado"
+    motivo: "Não informado",
+    solucao: ""
   };
   if (!match) return empty;
   try {
@@ -146,7 +154,8 @@ const parseTransferJson = (
       problema: String(data.problema || ""),
       erros: String(data.erros || ""),
       resumo: String(data.resumo || ""),
-      motivo: String(data.motivo || "")
+      motivo: String(data.motivo || ""),
+      solucao: String(data.solucao || "").replace(/\s+/g, " ").trim().slice(0, 800)
     };
   } catch {
     return empty;
@@ -176,15 +185,15 @@ const fallbackTransferSummary = async (
       return body ? `${who}: ${body}` : "";
     })
     .filter(Boolean);
+  const last = lines[lines.length - 1] || "";
   return formatTransferNote({
     cliente: "Não informado",
     sistema: "Não informado",
     problema: "Não informado",
     erros: "Não informado",
-    resumo: lines.join(" ") || "Sem mensagens anteriores nesta conversa.",
+    resumo: last || "Sem mensagens anteriores nesta conversa.",
     motivo: "Encaminhamento do atendimento",
-    setor: destination || "Não informado",
-    historico: lines.join("\n")
+    setor: destination || "Não informado"
   });
 };
 

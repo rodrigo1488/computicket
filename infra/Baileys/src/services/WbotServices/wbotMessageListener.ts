@@ -1652,7 +1652,12 @@ ${TRANSFER_RULES}`;
       execute: true,
       channel: "whatsapp",
       sendWhatsAppToCustomer,
-      knowledge: { hasEvidence: !!textContext.has_evidence, userText }
+      knowledge: {
+        hasEvidence: !!textContext.has_evidence,
+        userText,
+        draft: textContext.draft,
+        sources: textContext.sources
+      }
     });
     const cleanedResponse = sanitizeCustomerReply(rawCleanedResponse);
 
@@ -1748,7 +1753,12 @@ ${TRANSFER_RULES}`;
       execute: true,
       channel: "whatsapp",
       sendWhatsAppToCustomer: sendWhatsAppAudio,
-      knowledge: { hasEvidence: !!audioContext.has_evidence, userText: transcriptionText || "" }
+      knowledge: {
+        hasEvidence: !!audioContext.has_evidence,
+        userText: transcriptionText || "",
+        draft: audioContext.draft,
+        sources: audioContext.sources
+      }
     });
     const cleanedAudioResponse = sanitizeCustomerReply(rawAudioResponse);
 

@@ -255,7 +255,7 @@ export type TransferBrief = {
   resumo: string;
   motivo: string;
   setor: string;
-  historico: string;
+  solucao?: string;
 };
 
 const briefValue = (value: string | undefined): string => {
@@ -263,9 +263,16 @@ const briefValue = (value: string | undefined): string => {
   return text || "Não informado";
 };
 
-/** Nota interna do encaminhamento. O histórico do atendimento continua no ticket. */
+/** Solução só entra na nota quando já existe. Vazio, "não informado" e texto inventado de ausência ficam de fora. */
+export function statedSolution(value: string | undefined): string {
+  const text = (value || "").replace(/\s+/g, " ").trim();
+  if (!text || /^(não informado|nenhuma|sem solução|n\/a)$/i.test(text)) return "";
+  return text;
+}
+
+/** Nota interna do encaminhamento, sem o histórico. A solução só aparece quando houver. */
 export function formatTransferNote(brief: TransferBrief): string {
-  return [
+  const lines = [
     "*Mensagem Interna de Transferência*",
     `- *Cliente:* ${briefValue(brief.cliente)}`,
     `- *Sistema/Serviço:* ${briefValue(brief.sistema)}`,
@@ -273,13 +280,11 @@ export function formatTransferNote(brief: TransferBrief): string {
     `- *Mensagens de erro:* ${briefValue(brief.erros)}`,
     `- *Resumo:* ${briefValue(brief.resumo)}`,
     `- *Motivo do encaminhamento:* ${briefValue(brief.motivo)}`,
-    `- *Setor recomendado:* ${briefValue(brief.setor)}`,
-    "",
-    "O histórico completo permanece neste atendimento.",
-    brief.historico.trim()
-  ]
-    .join("\n")
-    .trim();
+    `- *Setor recomendado:* ${briefValue(brief.setor)}`
+  ];
+  const solution = statedSolution(brief.solucao);
+  if (solution) lines.push(`- *Solução:* ${solution}`);
+  return lines.join("\n").trim();
 }
 
 const OPEN_TICKET_STATUSES = new Set(["pending", "open"]);

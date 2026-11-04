@@ -43,7 +43,12 @@ export interface ProcessPromptReplyActionsParams {
   /** Obrigatório no modo WhatsApp quando `canTransferToAgent` é false (mensagem de espera). */
   sendWhatsAppToCustomer?: (text: string) => Promise<void>;
   availableUsers?: Array<Pick<User, "id" | "name">>;
-  knowledge?: { hasEvidence: boolean; userText: string };
+  knowledge?: {
+    hasEvidence: boolean;
+    userText: string;
+    draft?: string;
+    sources?: { snippet?: string }[];
+  };
 }
 
 export interface ProcessPromptReplyActionsResult {
@@ -63,7 +68,7 @@ export const buildPromptActionFormattingInstructions = (
   if (!prompt) return "";
   let extra = "";
   if (prompt.canTransferToAgent) {
-    extra += `\n\nFILAS DISPONÍVEIS PARA TRANSFERÊNCIA:\n${queuesList}\n\nPara transferir, use somente: 'Ação: Transferir para o setor de atendimento [Fila: Nome da Fila]'. A plataforma grava a nota interna com cliente, sistema, problema, erros, resumo, motivo e setor. Não escreva essa nota na resposta.`;
+    extra += `\n\nFILAS DISPONÍVEIS PARA TRANSFERÊNCIA:\n${queuesList}\n\nPara transferir, use somente: 'Ação: Transferir para o setor de atendimento [Fila: Nome da Fila]'. A plataforma grava a nota interna com cliente, sistema, problema, erros, resumo, motivo, setor e a solução quando houver. Não escreva essa nota na resposta.`;
   }
   if (usersList || prompt.canTransferToUser) {
     extra += `\n\nATENDENTES DISPONÍVEIS:\n${usersList || "(nenhum)"}\n\nEstas pessoas existem. Compare pelo primeiro nome, sem acento. Não diga que a pessoa não existe.`;
@@ -126,12 +131,19 @@ export const processPromptAiReplyActions = async (
   const companyId = ticket.companyId;
   const writeTransferSummary = async (destination: string): Promise<void> => {
     try {
+      const evidence = knowledge?.hasEvidence
+        ? [knowledge.draft || "", ...(knowledge.sources || []).map(source => source.snippet || "")]
+            .map(part => part.replace(/\s+/g, " ").trim())
+            .filter(Boolean)
+            .join("\n")
+        : "";
       const summary = await generateContextSummary({
         ticketId: ticket.id,
         companyId,
         provider: prompt.provider || "gemini",
         maxMessages: 40,
-        destination
+        destination,
+        evidence
       });
       await persistInternalNote(ticket, companyId, summary);
       logger.info(`Resumo interno gravado na transferência do ticket ${ticket.id} para ${destination}`);

@@ -240,12 +240,22 @@ describe("alerta de conversa parada", () => {
       resumo: "O cliente disse que a impressora travou.",
       motivo: "Problema técnico",
       setor: "fila MANUTENÇÃO",
-      historico: "Cliente: a impressora travou"
+      solucao: "Reinicie o serviço de impressão."
     });
     expect(note).toContain("- *Cliente:* Rodrigo");
     expect(note).toContain("- *Mensagens de erro:* Não informado");
     expect(note).toContain("- *Setor recomendado:* fila MANUTENÇÃO");
-    expect(note).toContain("Cliente: a impressora travou");
-    expect(note).toContain("O histórico completo permanece neste atendimento.");
+    expect(note).toContain("- *Solução:* Reinicie o serviço de impressão.");
+    expect(note).not.toContain("histórico");
+    expect(formatTransferNote({
+      cliente: "Rodrigo",
+      sistema: "Impressora",
+      problema: "Impressora travada",
+      erros: "",
+      resumo: "O cliente disse que a impressora travou.",
+      motivo: "Problema técnico",
+      setor: "fila MANUTENÇÃO",
+      solucao: "Não informado"
+    })).not.toContain("*Solução:*");
   });
 });
