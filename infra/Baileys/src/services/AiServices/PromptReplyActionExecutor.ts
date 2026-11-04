@@ -371,7 +371,7 @@ export const processPromptAiReplyActions = async (
         const company = await Company.findByPk(ticket.companyId);
         const language = company?.language || "pt";
         const waitMessage = {
-          pt: "Aguarde que algum de nossos atendentes já irá lhe atender.",
+          pt: "Encaminhado. Aguarde o atendente. Não repita a mensagem.",
           en: "Please wait, one of our attendants will assist you shortly.",
           es: "Por favor espere, uno de nuestros atendentes le atenderá en breve."
         };
@@ -519,7 +519,7 @@ export const processPromptAiReplyActions = async (
       });
       logger.info(`Ticket ${ticket.id} transferido por falta de evidência na base`);
     }
-    cleanedResponse = "Não tenho essa informação confirmada. Vou transferir você para um atendente.";
+    cleanedResponse = "Não tenho essa informação. Encaminho agora para um atendente. Aguarde.";
   }
 
   if (cleanedResponse.includes("[INTERNA]") || cleanedResponse.includes("[/INTERNA]")) {
@@ -532,7 +532,7 @@ export const processPromptAiReplyActions = async (
 
   if (!cleanedResponse.trim() && strippedAnyInternal) {
     logger.warn(`Resposta limpa vazia após remover mensagens internas.`);
-    cleanedResponse = "Entendi sua solicitação. Estou verificando e em breve retorno com mais informações.";
+    cleanedResponse = "Recebi. Estou verificando. Não mande de novo enquanto eu não responder.";
   }
 
   return { cleanedResponse, pendingActions };

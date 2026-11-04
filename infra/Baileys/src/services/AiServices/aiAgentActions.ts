@@ -243,7 +243,7 @@ export const TRANSFER_RULES = `ENCAMINHAMENTO:
 - Não prometa prazo de atendimento.
 - Se não identificar o setor, transfira para atendimento humano.
 - Não conte ao cliente a triagem, o setor interno nem o conteúdo da nota.
-- Ao cliente, diga apenas que vai encaminhar para um atendente.
+- Ao cliente, diga apenas, em tom seco: "Vou encaminhar para um atendente. Aguarde. Não repita a mensagem."
 - Para transferir, use somente: Ação: Transferir para o setor de atendimento [Fila: Nome da Fila]
 A nota interna é gravada pela plataforma. Não escreva mensagem interna na resposta.`;
 

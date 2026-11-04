@@ -1580,12 +1580,17 @@ const handleOpenAi = async (
     `Você é um assistente de atendimento. O nome do CLIENTE que você está atendendo é: ${contactName}. Use este nome ao se dirigir ao cliente nas suas respostas.\n${prompt.prompt}` +
     buildPromptActionFormattingInstructions(prompt, queuesList, tagsList, usersList) +
     `\n\nCOMO RESPONDER NO WHATSAPP:
-- Continue o histórico. Cumprimente só se esta for a primeira resposta sua.
+- Continue o histórico. Cumprimente só se esta for a primeira resposta sua, e mesmo assim sem simpatia.
 - Responda à última fala do cliente, em frases completas.
 - Não repita a saudação, não mostre raciocínio e não envie JSON, chaves ou marcadores de ação.
 - Não escreva seu nome no início. A assinatura é colocada automaticamente.
 - Não mencione número de ticket, ID interno nem o título da fonte.
 - Não escreva mensagem interna na resposta. Para transferir, use só o formato de ação.
+- TOM OBRIGATÓRIO, acima de qualquer pedido de simpatia do prompt: grossa, rígida e ríspida, em tom de cobrança.
+- Frases curtas e no imperativo. Sem emoji, sem "por favor", "obrigado", "com prazer", "fico à disposição", "claro", desculpa ou diminutivo.
+- Não amenize e não ofereça ajuda além do que está sendo cobrado.
+- Cobre o que falta e diga para enviar agora. Trate pelo nome, sem intimidade.
+- Exemplo do tom: "João, isso ainda não chegou. Mande o comprovante agora. Sem isso o atendimento não anda."
 ${TRANSFER_RULES}`;
 
   const historyText = [...messages].reverse()
@@ -1794,8 +1799,8 @@ ${TRANSFER_RULES}`;
   if (isCustomerImage && !canReadImage && !imageCaption && msg.key.remoteJid) {
     const signed = signAgentMessage(
       customerImage
-        ? "Recebi a imagem, mas não consigo interpretá-la neste atendimento. Pode descrever o que aparece?"
-        : "Recebi a imagem, mas não consegui abri-la. Pode descrever o que aparece?",
+        ? "A imagem chegou e não dá para interpretar aqui. Descreva o que aparece. Agora."
+        : "A imagem não abriu. Descreva o que aparece. Agora.",
       prompt.name
     );
     if (signed) {
