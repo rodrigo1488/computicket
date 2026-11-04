@@ -157,6 +157,20 @@ export function conversationTurns(
   return turns;
 }
 
+/** Assinatura no mesmo formato do atendente: *NOME* e o texto em seguida. */
+export function signAgentMessage(text: string, name?: string | null): string {
+  const agent = (name || "").trim();
+  let body = (text || "").replace(/\u200e/g, "").trim();
+  if (!body || !agent) return body;
+  const signature = `*${agent.toUpperCase()}*`;
+  if (body === signature) return body;
+  if (body.startsWith(`${signature}\n`)) {
+    body = body.slice(signature.length).replace(/^\n+/, "").trim();
+  }
+  if (!body) return signature;
+  return `${signature}\n${body}`;
+}
+
 /** Tira JSON, ação e chave solta que o modelo deixa na mensagem do cliente. */
 export function sanitizeCustomerReply(text: string): string {
   let value = text || "";

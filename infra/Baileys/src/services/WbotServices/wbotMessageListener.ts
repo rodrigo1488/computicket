@@ -122,6 +122,7 @@ import {
   conversationTurns,
   formatAgentContext,
   sanitizeCustomerReply,
+  signAgentMessage,
   splitWhatsAppText
 } from "../AiServices/aiAgentActions";
 import { loadAgentContext } from "../../helpers/computicketAgentApi";
@@ -1549,6 +1550,7 @@ const handleOpenAi = async (
 - Continue o histórico. Cumprimente só se esta for a primeira resposta sua.
 - Responda à última fala do cliente, em frases completas.
 - Não repita a saudação, não mostre raciocínio e não envie JSON, chaves ou marcadores de ação.
+- Não escreva seu nome no início. A assinatura é colocada automaticamente.
 - Se explicar um procedimento, escreva os passos até o fim.`;
 
   const historyText = [...messages].reverse()
@@ -1580,7 +1582,9 @@ const handleOpenAi = async (
     });
 
     const sendWhatsAppToCustomer = async (text: string): Promise<void> => {
-      const sentMessage = await wbot.sendMessage(msg.key.remoteJid!, { text });
+      const signed = signAgentMessage(text, prompt.name);
+      if (!signed) return;
+      const sentMessage = await wbot.sendMessage(msg.key.remoteJid!, { text: signed });
       await verifyMessage(sentMessage!, ticket, contact);
     };
 
@@ -1625,8 +1629,10 @@ const handleOpenAi = async (
       }
 
       for (const part of splitWhatsAppText(cleanedResponse)) {
+        const signed = signAgentMessage(part, prompt.name);
+        if (!signed) continue;
         const sentMessage = await wbot.sendMessage(msg.key.remoteJid!, {
-          text: part
+          text: signed
         });
         await verifyMessage(sentMessage!, ticket, contact);
       }
@@ -1671,7 +1677,9 @@ const handleOpenAi = async (
     });
 
     const sendWhatsAppAudio = async (text: string): Promise<void> => {
-      const sentMessage = await wbot.sendMessage(msg.key.remoteJid!, { text });
+      const signed = signAgentMessage(text, prompt.name);
+      if (!signed) return;
+      const sentMessage = await wbot.sendMessage(msg.key.remoteJid!, { text: signed });
       await verifyMessage(sentMessage!, ticket, contact);
     };
 
@@ -1715,8 +1723,10 @@ const handleOpenAi = async (
         }
       }
       for (const part of splitWhatsAppText(cleanedAudioResponse)) {
+        const signed = signAgentMessage(part, prompt.name);
+        if (!signed) continue;
         const sentMessage = await wbot.sendMessage(msg.key.remoteJid!, {
-          text: part
+          text: signed
         });
         await verifyMessage(sentMessage!, ticket, contact);
       }

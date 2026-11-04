@@ -6,6 +6,7 @@ import {
   parseUserTransferName,
   sanitizeCustomerReply,
   shouldForceKnowledgeHandoff,
+  signAgentMessage,
   splitWhatsAppText
 } from "../aiAgentActions";
 
@@ -142,5 +143,11 @@ describe("alerta de conversa parada", () => {
       sanitizeCustomerReply("Entendi, Rodrigo.\n\nSiga estes passos: 1. Abra o Clipp.\n}")
     ).toBe("Entendi, Rodrigo.\n\nSiga estes passos: 1. Abra o Clipp.");
     expect(sanitizeCustomerReply("}")).toBe("");
+  });
+
+  it("assina com o nome do agente e não duplica a assinatura", () => {
+    expect(signAgentMessage("Olá, Rodrigo!", "Soraia")).toBe("*SORAIA*\nOlá, Rodrigo!");
+    expect(signAgentMessage("*SORAIA*\nOlá, Rodrigo!", "Soraia")).toBe("*SORAIA*\nOlá, Rodrigo!");
+    expect(signAgentMessage("   ", "Soraia")).toBe("");
   });
 });

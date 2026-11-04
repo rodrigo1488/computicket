@@ -10,7 +10,7 @@ import { getWbot } from "../../libs/wbot";
 import { toWhatsAppGroupJid } from "../../helpers/chatJid";
 import { logger } from "../../utils/logger";
 import { AIProviderSelector } from "./AIProviderSelector";
-import { decideIdleAlert } from "./aiAgentActions";
+import { decideIdleAlert, signAgentMessage } from "./aiAgentActions";
 
 const summarizeWait = async (
   prompt: Prompt,
@@ -116,7 +116,8 @@ const AlertStaleConversationsService = async (): Promise<void> => {
         Math.round((now.getTime() - new Date(last.createdAt).getTime()) / 60000)
       );
       const contactName = ticket.contact?.name || "Cliente";
-      const body = await summarizeWait(prompt, contactName, minutes, last.body || "");
+      const summary = await summarizeWait(prompt, contactName, minutes, last.body || "");
+      const body = signAgentMessage(summary, prompt.name);
       try {
         const wbot = getWbot(ticket.whatsappId);
         await wbot.sendMessage(toWhatsAppGroupJid(prompt.idleAlertGroupJid), { text: body });
