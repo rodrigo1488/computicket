@@ -2458,14 +2458,6 @@ export function HelpdeskWorkspace() {
                 }}
               />
 
-              {(current.history || []).length > 0 ? (
-                <ConversationHistoryStrip
-                  key={current.id}
-                  items={current.history || []}
-                  onOpen={(id) => setHistoryViewId(id)}
-                />
-              ) : null}
-
               <div
                 ref={threadRef}
                 className="min-h-0 flex-1 basis-0 space-y-3 overflow-y-auto overscroll-contain px-4 py-4 [overflow-anchor:none]"
@@ -2941,6 +2933,8 @@ export function HelpdeskWorkspace() {
             clientLinkLoading={contactClientLink.isLoading}
             onClose={() => setContactOpen(false)}
             onSave={(payload) => saveContact.mutate(payload)}
+            history={current.history || []}
+            onOpenHistory={(id) => setHistoryViewId(id)}
             onLinked={() => {
               qc.invalidateQueries({ queryKey: ["hd-contact-client-link", contactId] });
             }}
@@ -3968,46 +3962,38 @@ function ClientSummaryList({ clientId }: { clientId: number }) {
   );
 }
 
-function ConversationHistoryStrip({
+function ConversationHistoryList({
   items,
   onOpen,
 }: {
   items: HelpdeskConversationHistoryItem[];
   onOpen: (id: number) => void;
 }) {
-  const [open, setOpen] = useState(false);
+  if (!items.length) return null;
   return (
-    <div className="shrink-0 border-b border-chat-border bg-wash px-4 py-2">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        aria-expanded={open}
-        className="flex w-full items-center justify-between gap-2 text-left"
-      >
-        <span className="inline-flex items-center gap-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-muted">
-          <History className="h-3 w-3" />
-          Histórico
-          <span className="font-normal normal-case tracking-normal">({items.length})</span>
-        </span>
-        <ChevronDown className={cn("h-3.5 w-3.5 text-muted transition-transform", open && "rotate-180")} />
-      </button>
-      {open ? (
-        <div className="mt-1.5 flex gap-2 overflow-x-auto pb-0.5">
-          {items.map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              onClick={() => onOpen(item.id)}
-              className="min-w-[11rem] max-w-[14rem] shrink-0 rounded-lg border border-chat-border bg-surface px-2.5 py-1.5 text-left hover:border-brand/40"
-              title="Ver mensagens deste ciclo"
-            >
-              <span className="flex items-center justify-between gap-2 text-[11px] font-semibold text-ink">
-                <span>#{item.id}</span>
-                <span className="font-normal text-muted">{formatDay(item.updatedAt)}</span>
-              </span>
-              <span className="mt-0.5 block truncate text-[11px] text-muted">
-                {snippet(item.ai_summary?.problema) || snippet(item.lastMessage) || "Sem última mensagem"}
-              </span>
+    <div className="space-y-2 border-t border-line pt-4">
+      <span className="inline-flex items-center gap-1 text-[11px] font-medium uppercase tracking-[0.08em] text-muted">
+        <History className="h-3 w-3" />
+        Conversas anteriores
+        <span className="font-normal normal-case tracking-normal">({items.length})</span>
+      </span>
+      <div className="max-h-72 space-y-1 overflow-y-auto">
+        {items.map((item) => (
+          <button
+            key={item.id}
+            type="button"
+            onClick={() => onOpen(item.id)}
+            className="w-full rounded-lg border border-line bg-wash px-2.5 py-1.5 text-left hover:border-brand/40"
+            title="Ver mensagens deste ciclo"
+          >
+            <span className="flex items-center justify-between gap-2 text-[11px] font-semibold text-ink">
+              <span>#{item.id}</span>
+              <span className="font-normal text-muted">{formatDay(item.updatedAt)}</span>
+            </span>
+            <span className="mt-0.5 block truncate text-[11px] text-muted">
+              {snippet(item.ai_summary?.problema) || snippet(item.lastMessage) || "Sem última mensagem"}
+            </span>
+            {item.computicket_ticket_id || (item.rating?.answered && item.rating.score != null) ? (
               <span className="mt-0.5 flex items-center gap-2 text-[10px] text-muted">
                 {item.computicket_ticket_id ? <span>Chamado #{item.computicket_ticket_id}</span> : null}
                 {item.rating?.answered && item.rating.score != null ? (
@@ -4017,10 +4003,10 @@ function ConversationHistoryStrip({
                   </span>
                 ) : null}
               </span>
-            </button>
-          ))}
-        </div>
-      ) : null}
+            ) : null}
+          </button>
+        ))}
+      </div>
     </div>
   );
 }
@@ -4108,6 +4094,8 @@ function ContactDrawer({
   onClose,
   onSave,
   onLinked,
+  history,
+  onOpenHistory,
 }: {
   conversation: HelpdeskConversation;
   detail?: {
@@ -4125,6 +4113,8 @@ function ContactDrawer({
   onClose: () => void;
   onSave: (payload: { name: string; email: string; notes: string }) => void;
   onLinked: () => void;
+  history: HelpdeskConversationHistoryItem[];
+  onOpenHistory: (id: number) => void;
 }) {
   const [name, setName] = useState(detail?.name || conversation.contact?.name || "");
   const [email, setEmail] = useState(detail?.email || conversation.contact?.email || "");
@@ -4338,6 +4328,8 @@ function ContactDrawer({
           )}
           {linkError ? <p className="text-xs text-open">{linkError}</p> : null}
         </div>
+
+        <ConversationHistoryList items={history} onOpen={onOpenHistory} />
 
         <button
           type="submit"
