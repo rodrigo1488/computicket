@@ -2430,10 +2430,28 @@ export function HelpdeskWorkspace() {
 
               <ConversationSummaryCard summary={aiSummary.data} loading={aiSummary.isFetching && aiSummary.data?.status === "pending"} />
               <ConversationTriageCard
+                key={current.id}
                 triage={aiSummary.data?.triage}
                 loading={aiSummary.data?.triage?.status === "pending"}
                 queues={queues.data || []}
                 assignees={assignees.data || []}
+                ticketHref={linkedTicketId ? `/tickets/${linkedTicketId}` : null}
+                onOpenTicket={
+                  !linkedTicketId && current.status !== "closed"
+                    ? () => {
+                        const triage = aiSummary.data?.triage;
+                        setTicketDefaults(
+                          ticketDefaultsFromConversation(current, contactClientLink.data?.link || null, {
+                            title: triage?.categoria
+                              ? `${triage.categoria}${triage.sistema ? ` · ${triage.sistema}` : ""}`
+                              : undefined,
+                            description: triage?.motivo || undefined,
+                          }),
+                        );
+                        setCreateOpen(true);
+                      }
+                    : undefined
+                }
                 onSave={async (payload) => {
                   await helpdesk.correctAiTriage(current.id, payload);
                   await qc.invalidateQueries({ queryKey: ["hd-ai-summary", current.id] });
@@ -3742,13 +3760,18 @@ function ConversationTriageCard({
   queues,
   assignees,
   onSave,
+  onOpenTicket,
+  ticketHref,
 }: {
   triage?: HelpdeskTriage | null;
   loading?: boolean;
   queues: HelpdeskQueue[];
   assignees: HelpdeskAssignee[];
   onSave: (payload: { categoria: string; setor: string; tecnico: string }) => Promise<void>;
+  onOpenTicket?: () => void;
+  ticketHref?: string | null;
 }) {
+  const [open, setOpen] = useState(true);
   const [categoria, setCategoria] = useState(triage?.categoria || "");
   const [setor, setSetor] = useState(triage?.setor || "");
   const [tecnico, setTecnico] = useState(triage?.tecnico || "");
@@ -3783,15 +3806,47 @@ function ConversationTriageCard({
     ["Intenção", triage.intencao],
     ["Técnico", triage.tecnico || "não sugerido"],
   ];
+  const summaryLine = [triage.categoria, triage.sistema, triage.setor || triage.tecnico].filter(Boolean).join(" · ");
   return (
     <div className="shrink-0 space-y-2 border-b border-chat-border bg-wash px-4 py-2 text-xs">
-      <p className="font-semibold uppercase tracking-[0.08em] text-muted">Análise automática do chamado</p>
-      {rows.filter(([, value]) => (value || "").trim()).map(([label, value]) => (
+      <div className="flex items-center justify-between gap-2">
+        <p className="font-semibold uppercase tracking-[0.08em] text-muted">Análise automática do chamado</p>
+        <div className="flex shrink-0 items-center gap-1.5">
+          {ticketHref ? (
+            <Link href={ticketHref} className="rounded-md bg-progress-bg px-2 py-1 text-[11px] font-semibold text-brand hover:underline">
+              Abrir chamado
+            </Link>
+          ) : null}
+          {onOpenTicket ? (
+            <button
+              type="button"
+              onClick={onOpenTicket}
+              className="inline-flex items-center gap-1 rounded-md border border-line px-2 py-1 text-[11px] font-semibold text-ink hover:bg-surface"
+            >
+              <Ticket className="h-3.5 w-3.5" />
+              Abrir chamado
+            </button>
+          ) : null}
+          <button
+            type="button"
+            onClick={() => setOpen((value) => !value)}
+            className="inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-[11px] font-semibold text-muted hover:bg-surface hover:text-ink"
+            aria-expanded={open}
+            aria-label={open ? "Recolher análise" : "Expandir análise"}
+          >
+            {open ? "Recolher" : "Expandir"}
+            <ChevronDown className={cn("h-3.5 w-3.5 transition", open && "rotate-180")} />
+          </button>
+        </div>
+      </div>
+      {!open && summaryLine ? <p className="truncate text-ink">{summaryLine}</p> : null}
+      {open ? rows.filter(([, value]) => (value || "").trim()).map(([label, value]) => (
         <p key={label} className="text-ink">
           <span className="font-semibold">{label}: </span>
           {value}
         </p>
-      ))}
+      )) : null}
+      {open ? (
       <form
         className="flex flex-wrap items-end gap-2 pt-1"
         onSubmit={(event) => {
@@ -3841,7 +3896,8 @@ function ConversationTriageCard({
           {saving ? "Salvando…" : "Corrigir"}
         </button>
       </form>
-      {error ? <p className="text-open">{error}</p> : null}
+      ) : null}
+      {open && error ? <p className="text-open">{error}</p> : null}
     </div>
   );
 }
