@@ -39,6 +39,7 @@ import Files from "../models/Files";
 import FilesOptions from "../models/FilesOptions";
 import Prompt from "../models/Prompt";
 import AiIdleAlert from "../models/AiIdleAlert";
+import AiTemporaryContext from "../models/AiTemporaryContext";
 import QueueIntegrations from "../models/QueueIntegrations";
 import { FlowDefaultModel } from "../models/FlowDefault";
 import { FlowBuilderModel } from "../models/FlowBuilder";
@@ -120,6 +121,7 @@ const models = [
   FilesOptions,
   Prompt,
   AiIdleAlert,
+  AiTemporaryContext,
   QueueIntegrations,
   FlowDefaultModel,
   FlowBuilderModel,

@@ -139,6 +139,8 @@ import Tag from "../../models/Tag";
 import ExecuteAppointmentFunction from "../AppointmentAIService/ExecuteAppointmentFunction";
 import DashboardCommandService from "../AiServices/DashboardCommandService";
 import { AIProviderSelector } from "../AiServices/AIProviderSelector";
+import { observeLinkedGroupMessage } from "../AiServices/GroupMentionReplyService";
+import { temporaryNoticeBlock } from "../AiServices/temporaryContext";
 
 import { IConnections, INodes } from "../WebhookService/DispatchWebHookService";
 import { ActionsWebhookService } from "../WebhookService/ActionsWebhookService";
@@ -587,6 +589,25 @@ const msgLocation = (image, latitude, longitude) => {
     let data = `data:image/png;base64, ${b64} | https://maps.google.com/maps?q=${latitude}%2C${longitude}&z=17&hl=pt-BR|${latitude}, ${longitude} `;
     return data;
   }
+};
+
+const mentionedJidsOf = (msg: proto.IWebMessageInfo): string[] => {
+  const bags = [
+    msg.message?.extendedTextMessage?.contextInfo?.mentionedJid,
+    msg.message?.imageMessage?.contextInfo?.mentionedJid,
+    msg.message?.videoMessage?.contextInfo?.mentionedJid,
+    msg.message?.documentMessage?.contextInfo?.mentionedJid,
+    msg.message?.audioMessage?.contextInfo?.mentionedJid,
+    msg.message?.ephemeralMessage?.message?.extendedTextMessage?.contextInfo?.mentionedJid
+  ];
+  const jids: string[] = [];
+  for (const bag of bags) {
+    if (!Array.isArray(bag)) continue;
+    for (const item of bag) {
+      if (typeof item === "string" && item.trim()) jids.push(item);
+    }
+  }
+  return jids;
 };
 
 export const getBodyMessage = (msg: proto.IWebMessageInfo): string | null => {
@@ -1591,6 +1612,7 @@ ${TRANSFER_RULES}`;
   const historyText = [...messages].reverse()
     .map(message => `${message.fromMe ? "Atendente" : "Cliente"}: ${message.body || ""}`)
     .join("\n");
+  const noticeBlock = await temporaryNoticeBlock(ticket.companyId, prompt.id);
 
 
   let messagesOpenAi: Array<{ role: "system" | "user" | "assistant"; content: string }> = [];
@@ -1615,7 +1637,7 @@ ${TRANSFER_RULES}`;
     const userText = canReadImage ? imageUserText : imageCaption || bodyMessage || "";
     const textContext = await loadAgentContext(prompt, userText, historyText);
     rememberPeople(textContext.technicians);
-    messagesOpenAi.push({ role: "system", content: promptSystem + imageRules + formatAgentContext(textContext) });
+    messagesOpenAi.push({ role: "system", content: promptSystem + imageRules + formatAgentContext(textContext) + noticeBlock });
     messagesOpenAi.push(
       ...conversationTurns([...messages].reverse(), userText)
     );
@@ -1719,7 +1741,7 @@ ${TRANSFER_RULES}`;
     messagesOpenAi = [];
     const audioContext = await loadAgentContext(prompt, transcriptionText || "", historyText);
     rememberPeople(audioContext.technicians);
-    messagesOpenAi.push({ role: "system", content: promptSystem + formatAgentContext(audioContext) });
+    messagesOpenAi.push({ role: "system", content: promptSystem + formatAgentContext(audioContext) + noticeBlock });
     messagesOpenAi.push(...conversationTurns([...messages].reverse(), transcriptionText || ""));
 
     const max_tokens_audio = (prompt.provider || "").toLowerCase() === "gemini"
@@ -3700,6 +3722,28 @@ const handleMessage = async (
     // Segurança: se a configuração estiver ausente/inválida, manter bloqueio de grupos por padrão.
     const shouldIgnoreGroupMessages =
       isGroup && msgIsGroupBlock?.value !== "disabled";
+
+    if (isGroup && !isBroadcast && chatId) {
+      const me = getMeSocket(wbot);
+      const sessionUser = (wbot as WASocket).user as { id?: string; lid?: string } | undefined;
+      try {
+        await observeLinkedGroupMessage({
+          wbot,
+          companyId,
+          chatId,
+          fromMe: !!isFromMe || !!msg.key.fromMe,
+          senderName: msg.pushName || "Participante",
+          body: bodyMessage || "",
+          mentionedJids: mentionedJidsOf(msg),
+          profileName: me.name || "",
+          phoneJids: [me.id, sessionUser?.lid, sessionUser?.id].filter((item): item is string => !!item),
+          messageId: msg.key.id || "",
+          isReaction: !!msg.message?.reactionMessage
+        });
+      } catch (err: any) {
+        logger.warn(`Menção no grupo vinculado: ${err?.message || err}`);
+      }
+    }
 
     if (shouldIgnoreGroupMessages) return;
 

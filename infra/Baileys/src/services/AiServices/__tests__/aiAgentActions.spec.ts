@@ -7,6 +7,12 @@ import {
   summaryLooksComplete,
   formatIdleAlertContext,
   parseIdleAlertDecision,
+  formatTemporaryNotices,
+  noticeTextFromMention,
+  groupMessageAddressesAgent,
+  noticeSubjectMatches,
+  parseTemporaryNotice,
+  temporaryNoticeExpiry,
   matchPersonByName,
   parseAgendaCommands,
   parseUserTransferName,
@@ -20,6 +26,74 @@ import {
 } from "../aiAgentActions";
 
 describe("ações do agente de WhatsApp", () => {
+  it("reconhece nome, número e menção do WhatsApp vinculado", () => {
+    const identity = {
+      names: ["Soraia", "Suporte Computicket"],
+      phoneJids: ["5511999887766:12@s.whatsapp.net", "999@lid"]
+    };
+    expect(groupMessageAddressesAgent({
+      ...identity,
+      body: "Soraia, o CLIPP não emite",
+      mentionedJids: []
+    })).toBe(true);
+    expect(groupMessageAddressesAgent({
+      ...identity,
+      body: "soraia pode ver?",
+      mentionedJids: []
+    })).toBe(true);
+    expect(groupMessageAddressesAgent({
+      ...identity,
+      body: "liga no (11) 99988-7766",
+      mentionedJids: []
+    })).toBe(true);
+    expect(groupMessageAddressesAgent({
+      ...identity,
+      body: "alguém vê isso?",
+      mentionedJids: ["5511999887766@s.whatsapp.net"]
+    })).toBe(true);
+    expect(groupMessageAddressesAgent({
+      ...identity,
+      body: "alguém vê isso?",
+      mentionedJids: ["999@lid"]
+    })).toBe(true);
+    expect(groupMessageAddressesAgent({
+      ...identity,
+      body: "Soraiana perguntou do chamado",
+      mentionedJids: []
+    })).toBe(false);
+    expect(groupMessageAddressesAgent({
+      ...identity,
+      body: "só respondendo a mensagem dela",
+      mentionedJids: ["5511888777666@s.whatsapp.net"]
+    })).toBe(false);
+    expect(groupMessageAddressesAgent({
+      names: ["IA"],
+      phoneJids: identity.phoneJids,
+      body: "a IA do grupo",
+      mentionedJids: []
+    })).toBe(false);
+  });
+
+  it("guarda o aviso temporário só até o fim do dia em Brasília", () => {
+    const notice = parseTemporaryNotice('{"acao":"guardar","texto":"A SEFAZ MG está fora do ar hoje.","validade":"hoje"}');
+    expect(notice).toEqual({
+      action: "guardar",
+      text: "A SEFAZ MG está fora do ar hoje.",
+      days: 0
+    });
+    const now = new Date("2026-11-05T13:00:00.000Z");
+    expect(temporaryNoticeExpiry(0, now).toISOString()).toBe("2026-11-06T02:59:59.000Z");
+    expect(temporaryNoticeExpiry(1, now).toISOString()).toBe("2026-11-07T02:59:59.000Z");
+    expect(parseTemporaryNotice("sem json")).toBeNull();
+    expect(noticeSubjectMatches("A SEFAZ MG está fora do ar hoje.", "a sefaz voltou")).toBe(true);
+    expect(noticeSubjectMatches("A SEFAZ MG está fora do ar hoje.", "hoje acabou")).toBe(false);
+    expect(formatTemporaryNotices([])).toBe("");
+    expect(formatTemporaryNotices([{ body: "A SEFAZ MG está fora do ar hoje." }])).toContain("SEFAZ MG");
+    expect(noticeTextFromMention("Soraia, a SEFAZ MG está fora do ar hoje", ["Soraia"])).toBe(
+      "a SEFAZ MG está fora do ar hoje"
+    );
+  });
+
   it("encontra Rogério pelo primeiro nome, com ou sem acento", () => {
     const people = [{ id: 3, name: "Rogério Silva" }, { id: 4, name: "Ana Técnica" }];
     expect(matchPersonByName(people, "rogerio")?.id).toBe(3);

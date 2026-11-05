@@ -23,6 +23,118 @@ export function foldName(value: string): string {
     .trim();
 }
 
+const jidParts = (value: string): { user: string; domain: string; digits: string } => {
+  const raw = (value || "").trim().toLowerCase();
+  const [left, domain = ""] = raw.split("@");
+  const user = (left || "").split(":")[0];
+  return { user, domain, digits: user.replace(/\D/g, "") };
+};
+
+const sameWhatsAppIdentity = (left: string, right: string): boolean => {
+  const a = jidParts(left);
+  const b = jidParts(right);
+  if (!a.user || !b.user) return false;
+  if (a.user === b.user && (!a.domain || !b.domain || a.domain === b.domain)) return true;
+  return a.digits.length >= 8 && a.digits === b.digits;
+};
+
+const textHasLinkedPhone = (body: string, phoneJids: string[]): boolean => {
+  const bodyDigits = (body || "").replace(/\D/g, "");
+  if (bodyDigits.length < 10) return false;
+  return phoneJids.some(jid => {
+    const phone = jidParts(jid).digits;
+    if (phone.length < 10) return false;
+    const national = phone.startsWith("55") && phone.length > 11 ? phone.slice(2) : phone;
+    return bodyDigits.includes(phone) || (national.length >= 10 && bodyDigits.includes(national));
+  });
+};
+
+const textHasLinkedName = (body: string, names: string[]): boolean => {
+  const foldedBody = ` ${foldName(body)} `;
+  return names.some(name => {
+    const folded = foldName(name || "");
+    return folded.length >= 3 && foldedBody.includes(` ${folded} `);
+  });
+};
+
+/** A mensagem cita o nome ou o número do WhatsApp vinculado ao agente. */
+export function groupMessageAddressesAgent(input: {
+  body?: string | null;
+  mentionedJids?: Array<string | null | undefined> | null;
+  names?: Array<string | null | undefined> | null;
+  phoneJids?: Array<string | null | undefined> | null;
+}): boolean {
+  const phoneJids = (input.phoneJids || []).map(item => (item || "").trim()).filter(Boolean);
+  const mentioned = (input.mentionedJids || []).map(item => (item || "").trim()).filter(Boolean);
+  if (mentioned.some(jid => phoneJids.some(identity => sameWhatsAppIdentity(jid, identity)))) {
+    return true;
+  }
+  const body = input.body || "";
+  if (textHasLinkedPhone(body, phoneJids)) return true;
+  return textHasLinkedName(body, (input.names || []).map(item => item || ""));
+}
+
+const NOTICE_STOPWORDS = new Set([
+  "hoje", "amanha", "semana", "aviso", "avisos", "fora", "esta", "estao",
+  "voltou", "voltar", "pode", "podem", "esquecer", "encerra", "encerrar",
+  "anota", "anote", "cliente", "clientes", "sistema"
+]);
+
+/** Fim do dia pedido, no horário de Brasília. 0 = hoje, 1 = amanhã, outro = fim da semana. */
+export function temporaryNoticeExpiry(days: number, now = new Date()): Date {
+  const extra = days <= 0 ? 0 : days === 1 ? 1 : 6;
+  const wall = new Date(now.getTime() - 3 * 60 * 60 * 1000);
+  const endUtc = Date.UTC(
+    wall.getUTCFullYear(),
+    wall.getUTCMonth(),
+    wall.getUTCDate() + extra,
+    23,
+    59,
+    59
+  );
+  return new Date(endUtc + 3 * 60 * 60 * 1000);
+}
+
+export function parseTemporaryNotice(raw: string): { action: "guardar" | "encerrar" | "responder"; text: string; days: number } | null {
+  const match = (raw || "").match(/\{[\s\S]*\}/);
+  if (!match) return null;
+  try {
+    const data = JSON.parse(match[0]);
+    const action = String(data?.acao || data?.action || "").trim().toLowerCase();
+    if (action !== "guardar" && action !== "encerrar" && action !== "responder") return null;
+    const text = String(data?.texto || data?.text || "").replace(/\s+/g, " ").trim().slice(0, 300);
+    const validade = String(data?.validade || "hoje").trim().toLowerCase();
+    const days = validade.startsWith("semana") ? 6 : validade.startsWith("amanh") ? 1 : 0;
+    if (action !== "responder" && text.length < 5) return null;
+    return { action, text, days };
+  } catch {
+    return null;
+  }
+}
+
+export function noticeSubjectMatches(body: string, subject: string): boolean {
+  const foldedBody = foldName(body);
+  const words = foldName(subject).split(" ").filter(word => word.length >= 4 && !NOTICE_STOPWORDS.has(word));
+  return words.some(word => foldedBody.includes(word));
+}
+
+export function noticeTextFromMention(body: string, names: Array<string | null | undefined> = []): string {
+  let text = body || "";
+  for (const name of names) {
+    const folded = (name || "").trim();
+    if (folded.length < 3) continue;
+    const escaped = folded.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    text = text.replace(new RegExp(`@?${escaped}`, "ig"), " ");
+  }
+  return text.replace(/@\S+/g, " ").replace(/^[\s,.:;-]+/, "").replace(/\s+/g, " ").trim().slice(0, 300);
+}
+
+export function formatTemporaryNotices(notes: { body?: string | null }[]): string {
+  const lines = (notes || []).map(note => (note.body || "").trim()).filter(Boolean);
+  if (!lines.length) return "";
+  return `\n\nAVISOS TEMPORÁRIOS DA EQUIPE:\n${lines.map(line => `- ${line}`).join("\n")}\nUse um aviso somente se o assunto do cliente tiver relação com ele. Repita só o que está escrito, sem ampliar. Se não tiver relação, não mencione. O aviso não substitui o encaminhamento quando o caso for técnico.`;
+}
+
 export function matchPersonByName<T extends { name?: string | null }>(
   people: T[],
   requested: string
