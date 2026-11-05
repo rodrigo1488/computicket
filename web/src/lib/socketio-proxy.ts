@@ -25,7 +25,7 @@ export async function proxySocketIo(request: NextRequest, backendOrigin: string)
   const method = request.method.toUpperCase();
 
   const headers = new Headers();
-  for (const key of ["cookie", "content-type", "accept"]) {
+  for (const key of ["cookie", "content-type", "accept", "authorization", "x-device-id"]) {
     const value = request.headers.get(key);
     if (value) headers.set(key, value);
   }

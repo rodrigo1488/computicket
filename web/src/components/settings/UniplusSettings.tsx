@@ -141,9 +141,9 @@ export function UniplusSettings() {
 
       {!connected && data?.token_configured ? (
         <p className="text-sm text-open">
-          Agente offline: confira se o Device ID e o token no agente são iguais aos salvos aqui, e se
-          a URL do Computicket no agente aponta para este servidor. No agente, o status só fica
-          &quot;autenticado&quot; após o evento ready (token aceito).
+          Agente offline: confira se o Device ID e o token no agente são iguais aos salvos aqui.
+          A URL pode ser a deste site (https) ou a API direta (http://servidor:5000). No agente, o
+          status só fica &quot;autenticado&quot; após o evento ready (token aceito).
         </p>
       ) : null}
 

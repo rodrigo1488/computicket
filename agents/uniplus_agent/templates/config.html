@@ -30,14 +30,18 @@
     {% endif %}
   {% endwith %}
   <form method="post" class="card">
-    <label>URL do Computicket (HTTP, ex. http://192.168.x.x:5000)
-      <input name="ws_url" value="{{ cfg.ws_url }}" />
+    <label>URL do Computicket
+      <input name="ws_url" value="{{ cfg.ws_url }}" placeholder="https://seu-dominio ou http://192.168.x.x:5000" />
     </label>
+    <p style="font-size:0.8rem;color:#9aa7b5;margin-top:0.35rem">
+      No site (https, sem porta) o agente usa <code>/flask-sio</code>. Na API direta, porta 5000, usa <code>/socket.io</code>.
+      Para forçar um dos dois, termine a URL com <code>/flask-sio</code> ou <code>/socket.io</code>.
+    </p>
     <label>Device ID
       <input name="device_id" value="{{ cfg.device_id }}" />
     </label>
-    <label>Token
-      <input name="token" value="{{ cfg.token }}" type="password" />
+    <label>Token (em branco mantém o atual)
+      <input name="token" value="" type="password" placeholder="{% if cfg.token %}••••••••{% endif %}" autocomplete="new-password" />
     </label>
     <hr style="border-color:#2a3540;margin:1.25rem 0" />
     <label>Postgres host
@@ -52,8 +56,8 @@
     <label>User
       <input name="pg_user" value="{{ cfg.pg_user }}" />
     </label>
-    <label>Password
-      <input name="pg_password" value="{{ cfg.pg_password }}" type="password" />
+    <label>Password (em branco mantém a atual)
+      <input name="pg_password" value="" type="password" placeholder="{% if cfg.pg_password %}••••••••{% endif %}" autocomplete="new-password" />
     </label>
     <label style="display:flex;align-items:center;gap:0.5rem;margin-top:1rem">
       <input type="checkbox" name="agent_enabled" {% if cfg.agent_enabled in ['true','1','on','yes'] %}checked{% endif %} style="width:auto" />

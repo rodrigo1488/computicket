@@ -287,6 +287,13 @@ def connected_device_ids() -> list[str]:
 	return sorted({d for d in _sid_devices.values() if d})
 
 
+def connected_session(sid: str) -> str | None:
+	"""Device id da sessão autenticada, ou None se o sid não passou no connect."""
+	if sid not in _connected_sids:
+		return None
+	return _sid_devices.get(sid) or ""
+
+
 def enqueue_uniplus_job(
 	job_type: str,
 	payload: dict[str, Any] | None = None,
@@ -318,9 +325,14 @@ def enqueue_uniplus_job(
 
 
 def push_job_to_agents(job: UniplusJob) -> None:
-	"""Envia job para todos os agentes conectados no namespace /uniplus."""
+	"""Envia job para os agentes autenticados na sala do namespace /uniplus."""
 	try:
-		socketio.emit("uniplus_job", job.to_agent_event(), namespace=UNIPLUS_NS)
+		socketio.emit(
+			"uniplus_job",
+			job.to_agent_event(),
+			room=AGENTS_ROOM,
+			namespace=UNIPLUS_NS,
+		)
 	except Exception as e:
 		try:
 			current_app.logger.warning("Falha ao emitir uniplus_job %s: %s", job.id, e)

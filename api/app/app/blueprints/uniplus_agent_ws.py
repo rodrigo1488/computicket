@@ -9,6 +9,7 @@ from ..uniplus_jobs import (
 	AGENTS_ROOM,
 	UNIPLUS_NS,
 	apply_ack,
+	connected_session,
 	mark_running,
 	push_pending_jobs,
 	register_sid,
@@ -112,3 +113,19 @@ def uniplus_job_started(data):
 @socketio.on("ping_agent", namespace=UNIPLUS_NS)
 def uniplus_ping(_data=None):
 	emit("pong_agent", {"ok": True})
+
+
+@socketio.on("hello", namespace=UNIPLUS_NS)
+def uniplus_hello(_data=None):
+	"""Reenvia ready e a fila depois que o cliente já está escutando.
+
+	O emit feito dentro do connect às vezes chega antes do handler do agente.
+	"""
+	sid = request.sid
+	device_id = connected_session(sid)
+	if device_id is None:
+		return
+	emit("ready", {"event": "ready", "message": "conectado", "device_id": device_id})
+	n = push_pending_jobs(sid=sid)
+	if n:
+		print(f"[uniplus] hello: reenviados {n} jobs pendentes para sid={sid}")
