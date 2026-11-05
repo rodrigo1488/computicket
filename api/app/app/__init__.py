@@ -905,6 +905,10 @@ def create_app() -> Flask:
 	from .rag_hooks import register_rag
 	register_rag(app)
 
+	if not _cli_mode:
+		from .services.ai_queue import start_ai_queue
+		start_ai_queue(app)
+
 	@app.route("/")
 	def index():
 		return redirect(url_for("dashboard.index"))

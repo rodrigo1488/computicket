@@ -83,6 +83,45 @@ export type AppointmentApiResult = {
   message: string;
 };
 
+export async function requestConversationTriage(engineTicketId: number): Promise<void> {
+  const { base, token } = computicketApiConfig();
+  if (!token || !engineTicketId) return;
+  try {
+    await axios.post(
+      `${base}/helpdesk/api/internal/ai/classify`,
+      { engine_ticket_id: engineTicketId, ticket_status: "pending" },
+      {
+        headers: { "X-Internal-Token": token },
+        timeout: 8000,
+        validateStatus: () => true
+      }
+    );
+  } catch (err: any) {
+    logger.warn(`requestConversationTriage: ${err.message}`);
+  }
+}
+
+export async function persistHelpdeskSummary(
+  engineTicketId: number,
+  fields: Record<string, string>
+): Promise<void> {
+  const { base, token } = computicketApiConfig();
+  if (!token || !engineTicketId) return;
+  try {
+    await axios.post(
+      `${base}/helpdesk/api/internal/ai/summary`,
+      { engine_ticket_id: engineTicketId, ...fields, post_note: false },
+      {
+        headers: { "X-Internal-Token": token },
+        timeout: 15000,
+        validateStatus: () => true
+      }
+    );
+  } catch (err: any) {
+    logger.warn(`persistHelpdeskSummary: ${err.message}`);
+  }
+}
+
 export async function createComputicketAppointment(payload: {
   engine_contact_id: number;
   contact_number?: string | null;

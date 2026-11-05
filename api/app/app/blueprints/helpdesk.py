@@ -36,6 +36,7 @@ from ..support_routing import is_support_ticket
 from ..models import (
     AIAuditLog,
     HelpDeskAgentMap,
+    HelpDeskAiInsight,
     HelpDeskContactClientLink,
     HelpDeskRating,
     HelpDeskTicketLink,
@@ -43,7 +44,9 @@ from ..models import (
     User,
 )
 from ..timezone_utils import brasilia_to_utc, get_brasilia_now
+from ..services.ai_queue import enqueue_ai_job
 from ..services.copilot import CopilotError, answer_question, improve_draft, suggest_reply, suggest_ticket
+from ..services.conversation_summary import apply_summary_fields
 from ..services.whatsapp_agent import build_agent_context, internal_token_ok
 
 helpdesk_bp = Blueprint("helpdesk", __name__, url_prefix="/helpdesk")
@@ -498,6 +501,7 @@ def _history_for_contact(contact_id, current_ticket_id) -> list[dict]:
         rows.append(session)
     links = _links_by_engine_ids(ids)
     ratings = _ratings_by_engine_ids(ids)
+    insights = _insights_by_engine_ids(ids)
     history: list[dict] = []
     for session in rows:
         sid = int(session["id"])
@@ -508,8 +512,92 @@ def _history_for_contact(contact_id, current_ticket_id) -> list[dict]:
             "updatedAt": session.get("updatedAt") or session.get("finishedAt"),
             "rating": ratings.get(sid),
             "computicket_ticket_id": links.get(sid),
+            "ai_summary": insights.get(sid),
         })
     return history
+
+
+def _insights_by_engine_ids(ids: list[int]) -> dict[int, dict]:
+    if not ids:
+        return {}
+    rows = HelpDeskAiInsight.query.filter(HelpDeskAiInsight.engine_ticket_id.in_(ids)).all()
+    return {row.engine_ticket_id: row.to_dict() for row in rows}
+
+
+def _enqueue_conversation_summary(engine_ticket_id: int, reason: str) -> None:
+    """Não bloqueia a transferência nem o fechamento se a fila falhar."""
+    try:
+        row = HelpDeskAiInsight.query.filter_by(engine_ticket_id=int(engine_ticket_id)).first()
+        if row is None:
+            row = HelpDeskAiInsight(engine_ticket_id=int(engine_ticket_id), status="pending")
+            db.session.add(row)
+        else:
+            row.status = "pending"
+            row.error_message = None
+        db.session.commit()
+        queued = enqueue_ai_job(
+            "summarize_conversation",
+            {"engine_ticket_id": int(engine_ticket_id), "reason": reason, "post_note": True},
+        )
+        if queued:
+            return
+        app = current_app._get_current_object()
+
+        def _run() -> None:
+            with app.app_context():
+                try:
+                    from ..services.conversation_summary import run_summarize
+
+                    run_summarize(int(engine_ticket_id), post_note=True)
+                except Exception:
+                    app.logger.exception("Resumo da conversa %s falhou fora da fila", engine_ticket_id)
+
+        threading.Thread(target=_run, name=f"ai-summary-{engine_ticket_id}", daemon=True).start()
+    except Exception:
+        db.session.rollback()
+        current_app.logger.exception("Não foi possível enfileirar o resumo da conversa %s", engine_ticket_id)
+
+
+def _enqueue_conversation_triage(engine_ticket_id: int) -> None:
+    """Classifica sem mudar fila, técnico ou status do chamado."""
+    try:
+        from ..services.ai_queue import _client
+
+        try:
+            locked = _client().set(
+                f"computicket:ai:classify-lock:{int(engine_ticket_id)}",
+                "1",
+                nx=True,
+                ex=20,
+            )
+        except Exception:
+            locked = True
+        if not locked:
+            return
+        from ..services.conversation_triage import _empty_triage, _save_triage
+
+        _save_triage(int(engine_ticket_id), _empty_triage("pending"))
+        queued = enqueue_ai_job(
+            "classify_conversation",
+            {"engine_ticket_id": int(engine_ticket_id)},
+        )
+        if queued:
+            return
+        app = current_app._get_current_object()
+
+        def _run() -> None:
+            with app.app_context():
+                try:
+                    from ..services.conversation_triage import run_classify
+
+                    run_classify(int(engine_ticket_id))
+                except Exception:
+                    app.logger.exception("Triagem da conversa %s falhou fora da fila", engine_ticket_id)
+
+        threading.Thread(target=_run, name=f"ai-triage-{engine_ticket_id}", daemon=True).start()
+    except Exception:
+        db.session.rollback()
+        current_app.logger.exception("Não foi possível enfileirar a triagem da conversa %s", engine_ticket_id)
 
 
 def _with_link(ticket: dict | None, *, include_history: bool = False) -> dict | None:
@@ -530,6 +618,8 @@ def _with_link(ticket: dict | None, *, include_history: bool = False) -> dict | 
         ticket.get("status"),
     )
     ticket["rating"] = _visible_rating(rating.to_dict() if rating else None, ticket.get("status"))
+    insight = HelpDeskAiInsight.query.filter_by(engine_ticket_id=int(engine_id)).first()
+    ticket["ai_summary"] = insight.to_dict() if insight else None
     if include_history:
         contact = ticket.get("contact") if isinstance(ticket.get("contact"), dict) else {}
         contact_id = contact.get("id") or ticket.get("contactId")
@@ -1500,6 +1590,7 @@ def transfer_conversation(ticket_id: int):
                 pass
         if "userId" in body:
             _assign_linked_ticket(ticket_id, _computicket_user_for_engine(body.get("userId")))
+        _enqueue_conversation_summary(ticket_id, "transfer")
         return jsonify(_with_link(updated or ticket))
     except EngineError as exc:
         return _fail(exc)
@@ -1519,6 +1610,7 @@ def reject_conversation(ticket_id: int):
 
 		dismiss_helpdesk_notifications(ticket_id)
 		result = ticket.get("ticket") if isinstance(ticket, dict) and "ticket" in ticket else ticket
+		_enqueue_conversation_summary(ticket_id, "close")
 		return jsonify(_with_link(result))
 	except EngineError as exc:
 		return _fail(exc)
@@ -1687,6 +1779,7 @@ def resolve_conversation(ticket_id: int):
         from app.notification_service import dismiss_helpdesk_notifications
 
         dismiss_helpdesk_notifications(ticket_id)
+        _enqueue_conversation_summary(ticket_id, "close")
         result = ticket.get("ticket") if isinstance(ticket, dict) and "ticket" in ticket else ticket
         result = _with_link(result)
         result = dict(result or {})
@@ -2748,6 +2841,94 @@ def _list_engine_prompts() -> list[dict]:
             break
         page += 1
     return rows
+
+
+@helpdesk_bp.route("/api/conversations/<int:ticket_id>/ai/summary", methods=["GET", "POST"])
+@login_required
+def conversation_ai_summary(ticket_id: int):
+    if request.method == "POST":
+        _enqueue_conversation_summary(ticket_id, "manual")
+    row = HelpDeskAiInsight.query.filter_by(engine_ticket_id=int(ticket_id)).first()
+    if row is None:
+        return jsonify({"status": "absent", "engine_ticket_id": ticket_id})
+    return jsonify(row.to_dict())
+
+
+@helpdesk_bp.route("/api/conversations/<int:ticket_id>/ai/triage", methods=["POST", "PUT"])
+@login_required
+def conversation_ai_triage(ticket_id: int):
+    if request.method == "POST":
+        _enqueue_conversation_triage(ticket_id)
+        row = HelpDeskAiInsight.query.filter_by(engine_ticket_id=int(ticket_id)).first()
+        triage = row.to_dict().get("triage") if row else None
+        return jsonify(triage or {"status": "pending", "engine_ticket_id": ticket_id})
+    payload = request.get_json(silent=True) or {}
+    try:
+        from ..services.conversation_triage import apply_triage_correction
+
+        triage = apply_triage_correction(ticket_id, payload)
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    return jsonify(triage)
+
+
+@helpdesk_bp.route("/api/internal/ai/classify", methods=["POST"])
+def internal_ai_classify():
+    if not internal_token_ok():
+        return jsonify({"error": "Não autorizado"}), 401
+    payload = request.get_json(silent=True) or {}
+    try:
+        engine_ticket_id = int(payload.get("engine_ticket_id") or 0)
+    except (TypeError, ValueError):
+        return jsonify({"error": "engine_ticket_id inválido"}), 400
+    if engine_ticket_id <= 0:
+        return jsonify({"error": "engine_ticket_id é obrigatório"}), 400
+    status = str(payload.get("ticket_status") or "pending").strip().lower()
+    if status != "pending":
+        return jsonify({"ok": True, "skipped": True})
+    _enqueue_conversation_triage(engine_ticket_id)
+    return jsonify({"ok": True})
+
+
+@helpdesk_bp.route("/api/clients/<int:client_id>/ai/summaries", methods=["GET"])
+@login_required
+def client_ai_summaries(client_id: int):
+    rows = (
+        HelpDeskAiInsight.query.filter_by(external_client_id=int(client_id))
+        .order_by(HelpDeskAiInsight.updated_at.desc())
+        .limit(20)
+        .all()
+    )
+    return jsonify({"summaries": [row.to_dict() for row in rows]})
+
+
+@helpdesk_bp.route("/api/internal/ai/summary", methods=["POST"])
+def internal_ai_summary():
+    """Grava um resumo já produzido pelo motor, sem chamar o Gemini de novo."""
+    if not internal_token_ok():
+        return jsonify({"error": "Não autorizado"}), 401
+    payload = request.get_json(silent=True) or {}
+    try:
+        engine_ticket_id = int(payload.get("engine_ticket_id") or 0)
+    except (TypeError, ValueError):
+        return jsonify({"error": "engine_ticket_id inválido"}), 400
+    if engine_ticket_id <= 0:
+        return jsonify({"error": "engine_ticket_id é obrigatório"}), 400
+    row = apply_summary_fields(
+        engine_ticket_id,
+        payload,
+        transcript=payload.get("transcript"),
+        client_name=payload.get("client_name"),
+    )
+    queued = enqueue_ai_job("index_conversation", {"engine_ticket_id": engine_ticket_id})
+    if not queued:
+        try:
+            from ..services.rag import index_source
+
+            index_source("helpdesk_conversation", engine_ticket_id)
+        except Exception:
+            db.session.rollback()
+    return jsonify(row.to_dict())
 
 
 @helpdesk_bp.route("/api/internal/agent/context", methods=["POST"])

@@ -11,6 +11,7 @@ import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { AIProviderSelector } from "./AIProviderSelector";
 import { formatTransferNote } from "./aiAgentActions";
+import { persistHelpdeskSummary } from "../../helpers/computicketAgentApi";
 
 interface GenerateContextSummaryParams {
   ticketId: number;
@@ -99,9 +100,10 @@ MENSAGENS:
 ${messagesContext}
 
 solucao: preencha só se as fontes ou as mensagens já trouxerem um jeito concreto de resolver. Se não houver, deixe vazio. Não invente procedimento.
+diagnostico, procedimentos, pendencias e proxima_acao: preencha só com o que já aconteceu na conversa. Se não houver, deixe vazio.
 
 Retorne apenas este JSON:
-{"cliente":"","sistema":"","problema":"","erros":"","resumo":"","motivo":"","solucao":""}`;
+{"cliente":"","sistema":"","problema":"","erros":"","resumo":"","motivo":"","solucao":"","diagnostico":"","procedimentos":"","pendencias":"","proxima_acao":""}`;
 
     const selectedProvider = await AIProviderSelector.getProvider(
       companyId,
@@ -121,8 +123,18 @@ Retorne apenas este JSON:
     }
 
     logger.info(`Resumo gerado com sucesso para ticket ${ticketId} usando ${selectedProvider.name} (${summary.length} caracteres)`);
+    const parsed = parseTransferJson(summary, cliente);
+    await persistHelpdeskSummary(ticketId, {
+      ...parsed,
+      transcript: messagesContext,
+      client_name: cliente
+    });
     return formatTransferNote({
-      ...parseTransferJson(summary, cliente),
+      ...parsed,
+      diagnostico: parsed.diagnostico,
+      procedimentos: parsed.procedimentos,
+      pendencias: parsed.pendencias,
+      proximaAcao: parsed.proximaAcao,
       setor: destination || "Não informado"
     });
   } catch (error: any) {
@@ -134,7 +146,19 @@ Retorne apenas este JSON:
 const parseTransferJson = (
   raw: string,
   cliente: string
-): { cliente: string; sistema: string; problema: string; erros: string; resumo: string; motivo: string; solucao: string } => {
+): {
+  cliente: string;
+  sistema: string;
+  problema: string;
+  erros: string;
+  resumo: string;
+  motivo: string;
+  solucao: string;
+  diagnostico: string;
+  procedimentos: string;
+  pendencias: string;
+  proximaAcao: string;
+} => {
   const match = (raw || "").match(/\{[\s\S]*\}/);
   const empty = {
     cliente,
@@ -143,7 +167,11 @@ const parseTransferJson = (
     erros: "Não informado",
     resumo: (raw || "").trim() || "Não informado",
     motivo: "Não informado",
-    solucao: ""
+    solucao: "",
+    diagnostico: "",
+    procedimentos: "",
+    pendencias: "",
+    proximaAcao: ""
   };
   if (!match) return empty;
   try {
@@ -155,7 +183,11 @@ const parseTransferJson = (
       erros: String(data.erros || ""),
       resumo: String(data.resumo || ""),
       motivo: String(data.motivo || ""),
-      solucao: String(data.solucao || "").replace(/\s+/g, " ").trim().slice(0, 800)
+      solucao: String(data.solucao || "").replace(/\s+/g, " ").trim().slice(0, 800),
+      diagnostico: String(data.diagnostico || "").replace(/\s+/g, " ").trim().slice(0, 800),
+      procedimentos: String(data.procedimentos || "").replace(/\s+/g, " ").trim().slice(0, 800),
+      pendencias: String(data.pendencias || "").replace(/\s+/g, " ").trim().slice(0, 800),
+      proximaAcao: String(data.proxima_acao || data.proximaAcao || "").replace(/\s+/g, " ").trim().slice(0, 800)
     };
   } catch {
     return empty;

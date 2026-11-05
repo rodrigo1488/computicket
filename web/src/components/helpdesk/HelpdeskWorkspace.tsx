@@ -68,7 +68,10 @@ import {
   type ConversationListRes,
   type EngineSession,
   type HelpdeskAiSource,
+  type HelpdeskAiSummary,
+  type HelpdeskTriage,
   type HelpdeskAiTicketDraft,
+  type HelpdeskAssignee,
   type HelpdeskContact,
   type HelpdeskContactClientLink,
   type HelpdeskConversation,
@@ -838,7 +841,7 @@ export function HelpdeskWorkspace() {
   const [ticketFlowLoading, setTicketFlowLoading] = useState(false);
   const [knowledgeOpen, setKnowledgeOpen] = useState(false);
   const [knowledgeQuestion, setKnowledgeQuestion] = useState("");
-  const [aiAction, setAiAction] = useState<"reply" | "improve" | "query" | "ticket" | null>(null);
+  const [aiAction, setAiAction] = useState<"reply" | "improve" | "query" | "ticket" | "summary" | "triage" | null>(null);
   const [aiMenuAnchor, setAiMenuAnchor] = useState<HTMLElement | null>(null);
   const [aiResult, setAiResult] = useState<AiResult | null>(null);
   const [aiError, setAiError] = useState<string | null>(null);
@@ -853,6 +856,7 @@ export function HelpdeskWorkspace() {
   const threadRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const socketRef = useRef<Socket | null>(null);
+  const triageWatchUntil = useRef(0);
   const activeIdRef = useRef<number | null>(null);
   const tabRef = useRef<HelpdeskTab>(tab);
   const pendingResolveChatId = useRef<number | null>(null);
@@ -1018,6 +1022,18 @@ export function HelpdeskWorkspace() {
     seededExistingConversations.current = true;
     for (const row of list.data.tickets) rememberHelpdeskConversation(row.id);
   }, [list.data?.tickets]);
+
+  const aiSummary = useQuery({
+    queryKey: ["hd-ai-summary", activeId],
+    queryFn: () => helpdesk.aiSummary(activeId as number),
+    enabled: !!activeId && !!health.data?.ok,
+    refetchInterval: query => {
+      const data = query.state.data;
+      if (data?.status === "pending" || data?.triage?.status === "pending") return 4000;
+      if (Date.now() < triageWatchUntil.current) return 4000;
+      return false;
+    },
+  });
 
   const conversation = useQuery({
     queryKey: ["hd-conversation", activeId],
@@ -1377,6 +1393,7 @@ export function HelpdeskWorkspace() {
         setActiveId(ticket.id);
       }
       invalidateInbox(ticket?.id);
+      if (ticket?.id) qc.invalidateQueries({ queryKey: ["hd-ai-summary", ticket.id] });
     },
     onError: (e: Error) => setError(e.message),
   });
@@ -1783,6 +1800,10 @@ export function HelpdeskWorkspace() {
       }
 
       refresh();
+      if (ticketId && fromClient && ticketStatus === "pending") {
+        triageWatchUntil.current = Date.now() + 25000;
+        void qc.invalidateQueries({ queryKey: ["hd-ai-summary", ticketId] });
+      }
       if (ticketId && openId && ticketId === openId && incoming?.id) {
         qc.setQueryData<MessagesCache>(["hd-messages", openId], (prev) => ({
           ...prev,
@@ -2407,6 +2428,18 @@ export function HelpdeskWorkspace() {
                 </div>
               ) : null}
 
+              <ConversationSummaryCard summary={aiSummary.data} loading={aiSummary.isFetching && aiSummary.data?.status === "pending"} />
+              <ConversationTriageCard
+                triage={aiSummary.data?.triage}
+                loading={aiSummary.data?.triage?.status === "pending"}
+                queues={queues.data || []}
+                assignees={assignees.data || []}
+                onSave={async (payload) => {
+                  await helpdesk.correctAiTriage(current.id, payload);
+                  await qc.invalidateQueries({ queryKey: ["hd-ai-summary", current.id] });
+                }}
+              />
+
               {(current.history || []).length > 0 ? (
                 <ConversationHistoryStrip
                   key={current.id}
@@ -2746,6 +2779,32 @@ export function HelpdeskWorkspace() {
                           onClick={() => {
                             setAiMenuAnchor(null);
                             void improveText();
+                          }}
+                        />
+                        <AiMenuItem
+                          label="Gerar resumo"
+                          pending={aiAction === "summary"}
+                          disabled={aiAction !== null}
+                          onClick={() => {
+                            setAiMenuAnchor(null);
+                            setAiAction("summary");
+                            void helpdesk.requestAiSummary(current.id)
+                              .then(() => qc.invalidateQueries({ queryKey: ["hd-ai-summary", current.id] }))
+                              .catch((e: Error) => setAiError(e.message))
+                              .finally(() => setAiAction(null));
+                          }}
+                        />
+                        <AiMenuItem
+                          label="Classificar"
+                          pending={aiAction === "triage"}
+                          disabled={aiAction !== null}
+                          onClick={() => {
+                            setAiMenuAnchor(null);
+                            setAiAction("triage");
+                            void helpdesk.requestAiTriage(current.id)
+                              .then(() => qc.invalidateQueries({ queryKey: ["hd-ai-summary", current.id] }))
+                              .catch((e: Error) => setAiError(e.message))
+                              .finally(() => setAiAction(null));
                           }}
                         />
                         <AiMenuItem
@@ -3677,6 +3736,182 @@ function TransferDialog({
   );
 }
 
+function ConversationTriageCard({
+  triage,
+  loading,
+  queues,
+  assignees,
+  onSave,
+}: {
+  triage?: HelpdeskTriage | null;
+  loading?: boolean;
+  queues: HelpdeskQueue[];
+  assignees: HelpdeskAssignee[];
+  onSave: (payload: { categoria: string; setor: string; tecnico: string }) => Promise<void>;
+}) {
+  const [categoria, setCategoria] = useState(triage?.categoria || "");
+  const [setor, setSetor] = useState(triage?.setor || "");
+  const [tecnico, setTecnico] = useState(triage?.tecnico || "");
+  const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
+  useEffect(() => {
+    setCategoria(triage?.categoria || "");
+    setSetor(triage?.setor || "");
+    setTecnico(triage?.tecnico || "");
+  }, [triage?.categoria, triage?.setor, triage?.tecnico, triage?.status]);
+  if (!triage) return null;
+  if (triage.status === "pending" || loading) {
+    return (
+      <p className="shrink-0 border-b border-chat-border bg-wash px-4 py-2 text-xs text-muted">
+        Classificando o chamado…
+      </p>
+    );
+  }
+  if (triage.status === "error") {
+    return (
+      <p className="shrink-0 border-b border-chat-border bg-open-bg/40 px-4 py-2 text-xs text-open">
+        {triage.error || "Não foi possível classificar o chamado."}
+      </p>
+    );
+  }
+  const rows: Array<[string, string | undefined]> = [
+    ["Categoria", triage.categoria],
+    ["Sistema", triage.sistema],
+    ["Prioridade", triage.prioridade],
+    ["Setor", triage.setor || "sem fila correspondente"],
+    ["Motivo", triage.motivo],
+    ["Intenção", triage.intencao],
+    ["Técnico", triage.tecnico || "não sugerido"],
+  ];
+  return (
+    <div className="shrink-0 space-y-2 border-b border-chat-border bg-wash px-4 py-2 text-xs">
+      <p className="font-semibold uppercase tracking-[0.08em] text-muted">Análise automática do chamado</p>
+      {rows.filter(([, value]) => (value || "").trim()).map(([label, value]) => (
+        <p key={label} className="text-ink">
+          <span className="font-semibold">{label}: </span>
+          {value}
+        </p>
+      ))}
+      <form
+        className="flex flex-wrap items-end gap-2 pt-1"
+        onSubmit={(event) => {
+          event.preventDefault();
+          setSaving(true);
+          setError("");
+          void onSave({ categoria, setor, tecnico })
+            .catch((err: Error) => setError(err.message))
+            .finally(() => setSaving(false));
+        }}
+      >
+        <label className="block">
+          <span className="text-[10px] uppercase text-muted">Categoria</span>
+          <input
+            value={categoria}
+            onChange={(event) => setCategoria(event.target.value)}
+            className="mt-0.5 w-36 border-0 border-b border-line bg-transparent py-1 text-xs"
+          />
+        </label>
+        <label className="block">
+          <span className="text-[10px] uppercase text-muted">Fila</span>
+          <select
+            value={setor}
+            onChange={(event) => setSetor(event.target.value)}
+            className="mt-0.5 w-36 border-0 border-b border-line bg-transparent py-1 text-xs"
+          >
+            <option value="">Sem fila</option>
+            {queues.map((queue) => (
+              <option key={queue.id} value={queue.name}>{queue.name}</option>
+            ))}
+          </select>
+        </label>
+        <label className="block">
+          <span className="text-[10px] uppercase text-muted">Técnico</span>
+          <select
+            value={tecnico}
+            onChange={(event) => setTecnico(event.target.value)}
+            className="mt-0.5 w-36 border-0 border-b border-line bg-transparent py-1 text-xs"
+          >
+            <option value="">Ninguém</option>
+            {assignees.map((person) => (
+              <option key={person.id} value={person.name}>{person.name}</option>
+            ))}
+          </select>
+        </label>
+        <button type="submit" disabled={saving} className="rounded-md bg-brand px-2 py-1 text-[11px] font-semibold text-white disabled:opacity-40">
+          {saving ? "Salvando…" : "Corrigir"}
+        </button>
+      </form>
+      {error ? <p className="text-open">{error}</p> : null}
+    </div>
+  );
+}
+
+function ConversationSummaryCard({
+  summary,
+  loading,
+}: {
+  summary?: HelpdeskAiSummary | null;
+  loading?: boolean;
+}) {
+  if (!summary || summary.status === "absent") return null;
+  if (summary.status === "pending" || loading) {
+    return (
+      <p className="shrink-0 border-b border-chat-border bg-wash px-4 py-2 text-xs text-muted">
+        Gerando o resumo do atendimento…
+      </p>
+    );
+  }
+  if (summary.status === "error") {
+    return (
+      <p className="shrink-0 border-b border-chat-border bg-open-bg/40 px-4 py-2 text-xs text-open">
+        {summary.error || "Não foi possível gerar o resumo."}
+      </p>
+    );
+  }
+  const rows: Array<[string, string | undefined]> = [
+    ["Problema", summary.problema],
+    ["Diagnóstico", summary.diagnostico],
+    ["Procedimentos", summary.procedimentos],
+    ["Solução", summary.solucao],
+    ["Pendências", summary.pendencias],
+    ["Próxima ação", summary.proxima_acao],
+  ];
+  const filled = rows.filter(([, value]) => (value || "").trim());
+  if (!filled.length) return null;
+  return (
+    <div className="shrink-0 space-y-1 border-b border-chat-border bg-wash px-4 py-2 text-xs">
+      <p className="font-semibold uppercase tracking-[0.08em] text-muted">Resumo do atendimento</p>
+      {filled.map(([label, value]) => (
+        <p key={label} className="text-ink">
+          <span className="font-semibold">{label}: </span>
+          {value}
+        </p>
+      ))}
+    </div>
+  );
+}
+
+function ClientSummaryList({ clientId }: { clientId: number }) {
+  const summaries = useQuery({
+    queryKey: ["hd-client-summaries", clientId],
+    queryFn: () => helpdesk.clientAiSummaries(clientId),
+    enabled: clientId > 0,
+  });
+  const rows = (summaries.data?.summaries || []).filter(item => (item.problema || "").trim());
+  if (!rows.length) return null;
+  return (
+    <div className="space-y-1 pt-1">
+      <p className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted">Resumos deste cliente</p>
+      {rows.map(item => (
+        <p key={item.engine_ticket_id} className="text-xs text-ink">
+          <span className="font-semibold">#{item.engine_ticket_id} </span>
+          {item.problema}
+        </p>
+      ))}
+    </div>
+  );
+}
+
 function ConversationHistoryStrip({
   items,
   onOpen,
@@ -3715,7 +3950,7 @@ function ConversationHistoryStrip({
                 <span className="font-normal text-muted">{formatDay(item.updatedAt)}</span>
               </span>
               <span className="mt-0.5 block truncate text-[11px] text-muted">
-                {snippet(item.lastMessage) || "Sem última mensagem"}
+                {snippet(item.ai_summary?.problema) || snippet(item.lastMessage) || "Sem última mensagem"}
               </span>
               <span className="mt-0.5 flex items-center gap-2 text-[10px] text-muted">
                 {item.computicket_ticket_id ? <span>Chamado #{item.computicket_ticket_id}</span> : null}
@@ -3985,6 +4220,7 @@ function ContactDrawer({
             <div className="space-y-2">
               <p className="text-sm text-ink">{clientLink.external_client_name}</p>
               <p className="text-xs text-muted">ID #{clientLink.external_client_id}</p>
+              <ClientSummaryList clientId={clientLink.external_client_id} />
               <button
                 type="button"
                 disabled={linkBusy || !conversation.contact?.id}

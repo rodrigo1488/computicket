@@ -9,6 +9,7 @@ import * as Sentry from "@sentry/node";
 import TicketTraking from "../../models/TicketTraking";
 import transcribeAndPersistAudioMessage from "../AiServices/TranscribeAndPersistAudioService";
 import { notifyComputicketInboundMessage } from "../../helpers/notifyComputicketInboundMessage";
+import { requestConversationTriage } from "../../helpers/computicketAgentApi";
 import { isSupportTicket } from "../../helpers/supportContactRouting";
 import { isAudioMediaType } from "../../helpers/isAudioMediaType";
 
@@ -192,6 +193,9 @@ const CreateMessageService = async ({
               contactName,
               ticketStatus: inboundStatus || null
             });
+            if (inboundStatus === "pending" && !payload.isInternal) {
+              void requestConversationTriage(message.ticketId);
+            }
           }
         }
 

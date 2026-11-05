@@ -1081,6 +1081,62 @@ class HelpDeskRating(db.Model):
 		return data
 
 
+class HelpDeskAiInsight(db.Model):
+	"""Resultado estruturado da IA sobre uma conversa do WhatsApp.
+
+	A tela lê estes campos. O histórico integral fica no atendimento e,
+	sanitizado, no índice helpdesk_conversation.
+	"""
+	__tablename__ = "helpdesk_ai_insight"
+
+	id = db.Column(db.Integer, primary_key=True)
+	engine_ticket_id = db.Column(db.Integer, unique=True, nullable=False, index=True)
+	external_client_id = db.Column(db.Integer, nullable=True, index=True)
+	client_name = db.Column(db.String(200), nullable=True)
+	transcript = db.Column(db.Text, nullable=True)
+	problema = db.Column(db.Text, nullable=True)
+	diagnostico = db.Column(db.Text, nullable=True)
+	procedimentos = db.Column(db.Text, nullable=True)
+	solucao = db.Column(db.Text, nullable=True)
+	pendencias = db.Column(db.Text, nullable=True)
+	proxima_acao = db.Column(db.Text, nullable=True)
+	triage = db.Column(db.Text, nullable=True)
+	sentiment = db.Column(db.Text, nullable=True)
+	status = db.Column(db.String(20), nullable=False, default="pending", index=True)
+	error_message = db.Column(db.String(300), nullable=True)
+	updated_at = db.Column(db.DateTime, default=get_brasilia_now, onupdate=get_brasilia_now)
+
+	def to_dict(self) -> Dict[str, Any]:
+		solution = (self.solucao or "").strip()
+		if solution.lower() in {"não informado", "nao informado", "nenhuma", "sem solução", "sem solucao", "n/a"}:
+			solution = ""
+		return {
+			"engine_ticket_id": self.engine_ticket_id,
+			"external_client_id": self.external_client_id,
+			"client_name": self.client_name or "",
+			"problema": self.problema or "",
+			"diagnostico": self.diagnostico or "",
+			"procedimentos": self.procedimentos or "",
+			"solucao": solution,
+			"pendencias": self.pendencias or "",
+			"proxima_acao": self.proxima_acao or "",
+			"triage": _parse_insight_json(self.triage),
+			"status": self.status or "pending",
+			"error": self.error_message or "",
+			"updated_at": self.updated_at.isoformat() if self.updated_at else None,
+		}
+
+
+def _parse_insight_json(raw: str | None):
+	if not raw:
+		return None
+	try:
+		data = json.loads(raw)
+	except (TypeError, json.JSONDecodeError):
+		return None
+	return data if isinstance(data, dict) else None
+
+
 class PasswordVault(db.Model):
 	"""Modelo para armazenar credenciais de máquinas dos clientes"""
 	id = db.Column(db.Integer, primary_key=True)

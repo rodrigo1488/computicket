@@ -171,6 +171,35 @@ export type HelpdeskRatingSummary = {
   recent: HelpdeskRating[];
 };
 
+export type HelpdeskTriage = {
+  status?: string;
+  error?: string;
+  categoria?: string;
+  sistema?: string;
+  prioridade?: string;
+  setor?: string;
+  motivo?: string;
+  intencao?: string;
+  tecnico?: string;
+  corrected?: boolean;
+};
+
+export type HelpdeskAiSummary = {
+  engine_ticket_id: number;
+  external_client_id?: number | null;
+  client_name?: string;
+  problema?: string;
+  diagnostico?: string;
+  procedimentos?: string;
+  solucao?: string;
+  pendencias?: string;
+  proxima_acao?: string;
+  triage?: HelpdeskTriage | null;
+  status?: string;
+  error?: string;
+  updated_at?: string | null;
+};
+
 export type HelpdeskConversationHistoryItem = {
   id: number;
   status?: string;
@@ -178,6 +207,7 @@ export type HelpdeskConversationHistoryItem = {
   updatedAt?: string;
   rating?: HelpdeskRating | null;
   computicket_ticket_id?: number | null;
+  ai_summary?: HelpdeskAiSummary | null;
 };
 
 export type HelpdeskConversation = {
@@ -198,6 +228,7 @@ export type HelpdeskConversation = {
   rating?: HelpdeskRating | null;
   rating_warning?: string;
   history?: HelpdeskConversationHistoryItem[];
+  ai_summary?: HelpdeskAiSummary | null;
 };
 
 export type HelpdeskMessage = {
@@ -609,6 +640,16 @@ export const helpdesk = {
     flask.post<HelpdeskAiDraftRes>(`/helpdesk/api/conversations/${id}/ai/improve`, { text }),
   aiSuggestTicket: (id: number) =>
     flask.post<HelpdeskAiTicketRes>(`/helpdesk/api/conversations/${id}/ai/suggest-ticket`),
+  aiSummary: (id: number) =>
+    flask.get<HelpdeskAiSummary>(`/helpdesk/api/conversations/${id}/ai/summary`),
+  requestAiSummary: (id: number) =>
+    flask.post<HelpdeskAiSummary>(`/helpdesk/api/conversations/${id}/ai/summary`, {}),
+  requestAiTriage: (id: number) =>
+    flask.post<HelpdeskTriage>(`/helpdesk/api/conversations/${id}/ai/triage`, {}),
+  correctAiTriage: (id: number, payload: { categoria?: string; setor?: string; tecnico?: string }) =>
+    flask.put<HelpdeskTriage>(`/helpdesk/api/conversations/${id}/ai/triage`, payload),
+  clientAiSummaries: (clientId: number) =>
+    flask.get<{ summaries: HelpdeskAiSummary[] }>(`/helpdesk/api/clients/${clientId}/ai/summaries`),
   transcribeMessage: (conversationId: number, messageId: string, force = false) =>
     flask.post<{ transcription?: string; messageId: string; cached?: boolean; skipped?: boolean }>(
       `/helpdesk/api/conversations/${conversationId}/messages/${encodeURIComponent(messageId)}/transcribe`,

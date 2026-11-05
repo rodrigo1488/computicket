@@ -12,14 +12,15 @@ from typing import Iterable
 from sqlalchemy import or_, type_coerce
 
 from .. import db
-from ..models import Budget, KnowledgeArticle, KnowledgeChunk, PasswordVault, Ticket
+from ..models import Budget, HelpDeskAiInsight, KnowledgeArticle, KnowledgeChunk, PasswordVault, Ticket
 from .gemini_client import GeminiConfigError, GeminiError, embed_texts
 
 SOURCE_ARTICLE = "knowledge_article"
 SOURCE_TICKET = "ticket"
 SOURCE_VAULT = "password_vault"
 SOURCE_BUDGET = "budget"
-ALLOWED_SOURCES = {SOURCE_ARTICLE, SOURCE_TICKET, SOURCE_VAULT, SOURCE_BUDGET}
+SOURCE_HELPDESK = "helpdesk_conversation"
+ALLOWED_SOURCES = {SOURCE_ARTICLE, SOURCE_TICKET, SOURCE_VAULT, SOURCE_BUDGET, SOURCE_HELPDESK}
 TICKET_INDEX_STATUSES = {"aberto", "em_andamento", "fechado"}
 
 _EMAIL = re.compile(r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", re.I)
@@ -204,6 +205,25 @@ def _source_data(source_type: str, source_id: int) -> tuple[str, str] | None:
 		if not row:
 			return None
 		return _budget_payload(row)
+	if source_type == SOURCE_HELPDESK:
+		row = HelpDeskAiInsight.query.filter_by(engine_ticket_id=source_id).first()
+		transcript = (row.transcript or "").strip() if row else ""
+		if not row or not transcript:
+			return None
+		title = (row.client_name or "").strip() or f"Conversa #{source_id}"
+		parts = [transcript]
+		for label, value in (
+			("Problema", row.problema),
+			("Diagnóstico", row.diagnostico),
+			("Procedimentos", row.procedimentos),
+			("Solução", row.solucao),
+			("Pendências", row.pendencias),
+			("Próxima ação", row.proxima_acao),
+		):
+			text = (value or "").strip()
+			if text:
+				parts.append(f"{label}: {text}")
+		return title, "\n".join(parts)
 	raise ValueError("Tipo de fonte não permitido.")
 
 
@@ -269,11 +289,17 @@ def reindex_all(remove_stale: bool = True, progress=None) -> dict:
 	]
 	vault_ids = [row.id for row in PasswordVault.query.all()]
 	budget_ids = [row.id for row in Budget.query.all()]
+	conversation_ids = [
+		row.engine_ticket_id
+		for row in HelpDeskAiInsight.query.filter(HelpDeskAiInsight.transcript.isnot(None)).all()
+		if (row.transcript or "").strip()
+	]
 	jobs = (
 		[(SOURCE_ARTICLE, item) for item in article_ids]
 		+ [(SOURCE_TICKET, item) for item in ticket_ids]
 		+ [(SOURCE_VAULT, item) for item in vault_ids]
 		+ [(SOURCE_BUDGET, item) for item in budget_ids]
+		+ [(SOURCE_HELPDESK, item) for item in conversation_ids]
 	)
 	valid = set(jobs)
 	results = []
@@ -370,6 +396,8 @@ def _source_link(row: KnowledgeChunk) -> dict:
 			return {"href": href, "client_id": client_id or None}
 	if row.source_type == SOURCE_BUDGET:
 		return {"href": f"/orcamentos/{row.source_id}"}
+	if row.source_type == SOURCE_HELPDESK:
+		return {"href": f"/helpdesk?conversa={row.source_id}"}
 	return {}
 
 

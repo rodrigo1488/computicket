@@ -256,6 +256,10 @@ export type TransferBrief = {
   motivo: string;
   setor: string;
   solucao?: string;
+  diagnostico?: string;
+  procedimentos?: string;
+  pendencias?: string;
+  proximaAcao?: string;
 };
 
 const briefValue = (value: string | undefined): string => {
@@ -284,6 +288,16 @@ export function formatTransferNote(brief: TransferBrief): string {
   ];
   const solution = statedSolution(brief.solucao);
   if (solution) lines.push(`- *Solução:* ${solution}`);
+  const extra: Array<[string, string | undefined]> = [
+    ["Diagnóstico", brief.diagnostico],
+    ["Procedimentos", brief.procedimentos],
+    ["Pendências", brief.pendencias],
+    ["Próxima ação", brief.proximaAcao]
+  ];
+  for (const [label, value] of extra) {
+    const text = statedSolution(value);
+    if (text) lines.push(`- *${label}:* ${text}`);
+  }
   return lines.join("\n").trim();
 }
 
