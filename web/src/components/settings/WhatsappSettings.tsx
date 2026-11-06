@@ -456,6 +456,7 @@ function BusinessHoursPanel() {
   const [autoCloseWarning, setAutoCloseWarning] = useState("");
   const [autoCloseOn, setAutoCloseOn] = useState(true);
   const [sectorMenuOn, setSectorMenuOn] = useState(true);
+  const [autoAnalysisOn, setAutoAnalysisOn] = useState(true);
 
   useEffect(() => {
     if (!hours.data) return;
@@ -467,6 +468,7 @@ function BusinessHoursPanel() {
     setAutoCloseWarning(hours.data.autoCloseWarningMessage || "");
     setAutoCloseOn(hours.data.autoCloseEnabled !== false);
     setSectorMenuOn(hours.data.sectorMenuEnabled !== false);
+    setAutoAnalysisOn(hours.data.autoAnalysisEnabled !== false);
   }, [hours.data]);
 
   const save = useMutation({
@@ -480,6 +482,7 @@ function BusinessHoursPanel() {
         autoCloseWarningMessage: autoCloseWarning,
         autoCloseEnabled: autoCloseOn,
         sectorMenuEnabled: sectorMenuOn,
+        autoAnalysisEnabled: autoAnalysisOn,
       };
       return helpdesk.updateBusinessHours(payload);
     },
@@ -561,6 +564,21 @@ function BusinessHoursPanel() {
                 />
               </>
             ) : null}
+            <label className="flex items-start gap-2 text-sm text-ink">
+              <input
+                type="checkbox"
+                className="mt-1"
+                checked={autoAnalysisOn}
+                onChange={(e) => setAutoAnalysisOn(e.target.checked)}
+              />
+              <span>
+                Análise automática do chamado
+                <span className="mt-0.5 block text-xs text-muted">
+                  Desligada, uma mensagem nova em chamado pendente não classifica categoria, fila nem técnico. A opção
+                  Classificar do copiloto continua manual.
+                </span>
+              </span>
+            </label>
             <label className="flex items-start gap-2 text-sm text-ink">
               <input
                 type="checkbox"

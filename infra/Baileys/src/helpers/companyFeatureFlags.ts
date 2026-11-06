@@ -3,6 +3,7 @@ import { isFeatureEnabled } from "./helpdeskAutomationGuards";
 
 export const AUTO_CLOSE_SETTING = "autoCloseEnabled";
 export const SECTOR_MENU_SETTING = "sectorMenuEnabled";
+export const AUTO_ANALYSIS_SETTING = "autoAnalysisEnabled";
 
 export const readCompanyFeature = async (
   companyId: number,
@@ -17,6 +18,10 @@ export const isAutoCloseEnabled = (companyId: number): Promise<boolean> =>
 
 export const isSectorMenuEnabled = (companyId: number): Promise<boolean> =>
   readCompanyFeature(companyId, SECTOR_MENU_SETTING);
+
+/** Ausente no banco permanece ligada. Só "disabled" interrompe a classificação automática. */
+export const isAutoAnalysisEnabled = (companyId: number): Promise<boolean> =>
+  readCompanyFeature(companyId, AUTO_ANALYSIS_SETTING);
 
 export const companyIdsWithAutoCloseDisabled = async (): Promise<number[]> => {
   const rows = await Setting.findAll({

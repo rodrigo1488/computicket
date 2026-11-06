@@ -248,6 +248,11 @@ const CreateCompanyService = async (
     defaults: { companyId: company.id, key: "sectorMenuEnabled", value: "enabled" },
   });
 
+  await Setting.findOrCreate({
+    where: { companyId: company.id, key: "autoAnalysisEnabled" },
+    defaults: { companyId: company.id, key: "autoAnalysisEnabled", value: "enabled" },
+  });
+
  // Limitar saudação da conexão (1x / 24h ou ao reabrir chat encerrado)
     await Setting.findOrCreate({
 	where:{

@@ -871,6 +871,16 @@ def _feature_enabled(settings: dict[str, str], key: str) -> bool:
     return raw != "disabled"
 
 
+def _auto_analysis_enabled() -> bool:
+    """Ausente no engine significa ligada. Só 'disabled' impede a classificação automática."""
+    try:
+        settings = _settings_by_key(admin_request("GET", "/settings") or [])
+    except Exception:
+        current_app.logger.exception("Não foi possível ler o interruptor da análise automática")
+        return True
+    return _feature_enabled(settings, "autoAnalysisEnabled")
+
+
 def _company_ooh_message(settings: dict[str, str]) -> str:
     for key in _COMPANY_OOH_KEYS:
         value = (settings.get(key) or "").strip()
@@ -903,6 +913,7 @@ def _business_hours_payload(company_id: int) -> dict:
         "autoCloseWarningMessage": (settings.get("autoCloseWarningMessage") or "").strip(),
         "autoCloseEnabled": _feature_enabled(settings, "autoCloseEnabled"),
         "sectorMenuEnabled": _feature_enabled(settings, "sectorMenuEnabled"),
+        "autoAnalysisEnabled": _feature_enabled(settings, "autoAnalysisEnabled"),
     }
 
 
@@ -2155,6 +2166,7 @@ def update_business_hours():
         warning = str(payload.get("autoCloseWarningMessage") or "").strip()
         auto_close_enabled = payload.get("autoCloseEnabled", True)
         sector_menu_enabled = payload.get("sectorMenuEnabled", True)
+        auto_analysis_enabled = payload.get("autoAnalysisEnabled", True)
         admin_request("PUT", "/settings/autoCloseMinutes", json={"value": str(auto_close_minutes)})
         admin_request("PUT", "/settings/autoCloseWarningMessage", json={"value": warning})
         admin_request(
@@ -2166,6 +2178,11 @@ def update_business_hours():
             "PUT",
             "/settings/sectorMenuEnabled",
             json={"value": "enabled" if sector_menu_enabled else "disabled"},
+        )
+        admin_request(
+            "PUT",
+            "/settings/autoAnalysisEnabled",
+            json={"value": "enabled" if auto_analysis_enabled else "disabled"},
         )
         return jsonify(_business_hours_payload(company_id))
     except EngineError as exc:
@@ -2886,6 +2903,8 @@ def internal_ai_classify():
     status = str(payload.get("ticket_status") or "pending").strip().lower()
     if status != "pending":
         return jsonify({"ok": True, "skipped": True})
+    if not _auto_analysis_enabled():
+        return jsonify({"ok": True, "skipped": True, "reason": "disabled"})
     _enqueue_conversation_triage(engine_ticket_id)
     return jsonify({"ok": True})
 

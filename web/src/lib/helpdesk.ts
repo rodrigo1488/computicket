@@ -399,6 +399,7 @@ export type BusinessHours = {
   autoCloseWarningMessage?: string;
   autoCloseEnabled?: boolean;
   sectorMenuEnabled?: boolean;
+  autoAnalysisEnabled?: boolean;
 };
 
 export type BusinessHoursPayload = {
@@ -409,6 +410,7 @@ export type BusinessHoursPayload = {
   autoCloseWarningMessage?: string;
   autoCloseEnabled?: boolean;
   sectorMenuEnabled?: boolean;
+  autoAnalysisEnabled?: boolean;
 };
 
 export type TransferPayload = {

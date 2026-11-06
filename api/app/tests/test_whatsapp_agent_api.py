@@ -63,6 +63,32 @@ class WhatsappAgentApiTest(unittest.TestCase):
 		self.assertEqual(body["draft"], "")
 		self.assertEqual(body["technicians"][0]["name"], "Ana Técnica")
 
+	@patch("app.blueprints.helpdesk._enqueue_conversation_triage")
+	@patch("app.blueprints.helpdesk._auto_analysis_enabled", return_value=False)
+	def test_classify_skips_when_auto_analysis_disabled(self, _enabled, enqueue):
+		response = self.client.post(
+			"/helpdesk/api/internal/ai/classify",
+			json={"engine_ticket_id": 12, "ticket_status": "pending"},
+			headers=self.headers,
+		)
+		self.assertEqual(response.status_code, 200, response.get_data(as_text=True))
+		body = response.get_json()
+		self.assertTrue(body["skipped"])
+		self.assertEqual(body["reason"], "disabled")
+		enqueue.assert_not_called()
+
+	@patch("app.blueprints.helpdesk._enqueue_conversation_triage")
+	@patch("app.blueprints.helpdesk._auto_analysis_enabled", return_value=True)
+	def test_classify_runs_when_auto_analysis_enabled(self, _enabled, enqueue):
+		response = self.client.post(
+			"/helpdesk/api/internal/ai/classify",
+			json={"engine_ticket_id": 12, "ticket_status": "pending"},
+			headers=self.headers,
+		)
+		self.assertEqual(response.status_code, 200, response.get_data(as_text=True))
+		self.assertNotIn("reason", response.get_json())
+		enqueue.assert_called_once_with(12)
+
 	def test_context_rejects_missing_token(self):
 		response = self.client.post(
 			"/helpdesk/api/internal/agent/context",

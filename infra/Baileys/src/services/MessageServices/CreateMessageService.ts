@@ -10,6 +10,7 @@ import TicketTraking from "../../models/TicketTraking";
 import transcribeAndPersistAudioMessage from "../AiServices/TranscribeAndPersistAudioService";
 import { notifyComputicketInboundMessage } from "../../helpers/notifyComputicketInboundMessage";
 import { requestConversationTriage } from "../../helpers/computicketAgentApi";
+import { isAutoAnalysisEnabled } from "../../helpers/companyFeatureFlags";
 import { isSupportTicket } from "../../helpers/supportContactRouting";
 import { isAudioMediaType } from "../../helpers/isAudioMediaType";
 
@@ -194,7 +195,10 @@ const CreateMessageService = async ({
               ticketStatus: inboundStatus || null
             });
             if (inboundStatus === "pending" && !payload.isInternal) {
-              void requestConversationTriage(message.ticketId);
+              const analysisOn = await isAutoAnalysisEnabled(companyId).catch(() => true);
+              if (analysisOn) {
+                void requestConversationTriage(message.ticketId);
+              }
             }
           }
         }
