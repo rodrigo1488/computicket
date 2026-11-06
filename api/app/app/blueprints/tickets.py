@@ -2250,6 +2250,7 @@ def api_vendas_avulsas_list():
 		return jsonify({"success": False, "error": "Erro de conexão com o banco de faturamento"}), 500
 	cursor = conn.cursor()
 	try:
+		from app.services.faturamento_products import parse_avulso_historico
 		# Query financeiro records with observacaoboleto = 'Avulso'
 		query = """
 			SELECT 
@@ -2290,28 +2291,12 @@ def api_vendas_avulsas_list():
 			seller_name = r[10] or "Não Informado"
 			cancel_reason = r[11]
 			
-			# Parse do historico
-			pname = "Produto Avulso"
-			qty = 1.0
-			uprice = valor
-			
-			if historico:
-				import re
-				match = re.match(r"^(.+?)\s+x\s+([\d\.,]+)\s+\(R\$\s+([\d\.,\s]+)\)$", historico.strip())
-				if match:
-					pname = match.group(1).strip()
-					try:
-						qty = float(match.group(2).replace(",", "."))
-					except ValueError:
-						qty = 1.0
-					try:
-						uprice = float(match.group(3).replace(",", ".").replace(" ", ""))
-					except ValueError:
-						uprice = valor / qty if qty > 0 else valor
-				else:
-					continue
-			else:
+			parsed = parse_avulso_historico(historico, valor)
+			if not parsed:
 				continue
+			pname = parsed["product_name"]
+			qty = parsed["quantity"]
+			uprice = parsed["unit_price"]
 			
 			sales.append({
 				"id": fid,
@@ -2534,39 +2519,28 @@ def api_produto_fora_estoque_direto():
 	cursor = conn.cursor()
 	try:
 		# Map local user to PostgreSQL representative ID
-		from app.services.faturamento_products import get_external_user_data, create_out_of_stock_finance_record
+		from app.services.faturamento_products import (
+			create_standalone_sale_finance_record,
+			get_external_user_data,
+		)
 		_, rep_id = get_external_user_data(cursor, local_user)
-		
-		finance_ids = []
-		for item in items:
-			pname = item.get("product_name", "").strip()
-			if not pname:
-				continue
-			try:
-				qty = float(item.get("quantity", 1))
-			except (ValueError, TypeError):
-				qty = 1.0
-			try:
-				price = float(item.get("unit_price", 0))
-			except (ValueError, TypeError):
-				price = 0.0
-				
-			fid = create_out_of_stock_finance_record(
-				cursor,
-				client_id=int(client_id),
-				product_name=pname,
-				quantity=qty,
-				unit_price=price,
-				idrepresentante=rep_id
-			)
-			finance_ids.append(fid)
-			
+
+		fid = create_standalone_sale_finance_record(
+			cursor,
+			client_id=int(client_id),
+			items=items,
+			idrepresentante=rep_id,
+		)
+
 		conn.commit()
 		return jsonify({
-			"success": True, 
-			"message": "Venda lançada com sucesso!", 
-			"finance_ids": finance_ids
+			"success": True,
+			"message": "Venda lançada com sucesso!",
+			"finance_ids": [fid],
 		})
+	except ValueError as e:
+		conn.rollback()
+		return jsonify({"success": False, "error": str(e)}), 400
 	except Exception as e:
 		conn.rollback()
 		print("Erro ao lançar produto fora de estoque direto:", e)

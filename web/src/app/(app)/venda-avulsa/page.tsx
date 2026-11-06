@@ -75,10 +75,11 @@ export default function VendaAvulsaPage() {
         onSearch={setQ}
         onFiltersChange={onFiltersChange}
         columnMeta={{ Status: { filter: "select" }, Ações: { sortable: false, filter: false } }}
-        columns={["Cliente", "Documento", "Valor", "Status", "Ações"]}
+        columns={["Cliente", "Documento", "Itens", "Valor", "Status", "Ações"]}
         rows={rows.map((s) => [
           s.client_name || "—",
           s.documento || "—",
+          s.product_name || "—",
           formatBRL(s.valor ?? s.value ?? s.total_price),
           statusLabel(s.status),
           <RowActions key={s.id}>

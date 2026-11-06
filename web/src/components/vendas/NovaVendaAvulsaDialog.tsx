@@ -134,6 +134,19 @@ export function NovaVendaAvulsaDialog({
           setFormError("");
           create.mutate();
         }}
+        onKeyDown={(e) => {
+          if (e.key !== "Enter" || e.nativeEvent.isComposing) return;
+          const target = e.target as HTMLElement;
+          if (target instanceof HTMLButtonElement || target instanceof HTMLTextAreaElement) return;
+          if (target.closest("[data-sale-draft]")) {
+            e.preventDefault();
+            addItem();
+            return;
+          }
+          if (target instanceof HTMLInputElement || target instanceof HTMLSelectElement) {
+            e.preventDefault();
+          }
+        }}
       >
         <div className="grid gap-4 sm:grid-cols-2">
           <label className="block">
@@ -170,7 +183,7 @@ export function NovaVendaAvulsaDialog({
           </label>
         </div>
 
-        <div className="space-y-3 rounded-xl border border-line p-4">
+        <div data-sale-draft className="space-y-3 rounded-xl border border-line p-4">
           <p className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted">Adicionar produto</p>
           <UnderlineField
             label="Nome do produto"

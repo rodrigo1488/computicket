@@ -447,16 +447,62 @@ def _create_dav(p: dict) -> dict:
 		conn.close()
 
 
+def _avulso_sale_lines(p: dict) -> list[tuple[str, float, float]]:
+	raw_items = p.get("items")
+	lines: list[tuple[str, float, float]] = []
+	if isinstance(raw_items, list) and raw_items:
+		for item in raw_items:
+			name = (item.get("product_name") or "").strip().replace(";", ",")
+			if not name:
+				continue
+			try:
+				quantity = float(item.get("quantity") or 1)
+			except (TypeError, ValueError):
+				quantity = 1.0
+			try:
+				unit_price = float(item.get("unit_price") or 0)
+			except (TypeError, ValueError):
+				unit_price = 0.0
+			if quantity <= 0:
+				quantity = 1.0
+			lines.append((name, quantity, unit_price))
+		return lines
+
+	product_name = (p.get("product_name") or "").strip()
+	if not product_name:
+		return []
+	try:
+		quantity = float(p.get("quantity") or 1)
+	except (TypeError, ValueError):
+		quantity = 1.0
+	try:
+		unit_price = float(p.get("unit_price") or 0)
+	except (TypeError, ValueError):
+		unit_price = 0.0
+	if quantity <= 0:
+		quantity = 1.0
+	return [(product_name, quantity, unit_price)]
+
+
 def _insert_finance_avulso(p: dict) -> dict:
 	client_id = int(p["client_id"])
-	product_name = (p.get("product_name") or "").strip()
-	quantity = float(p.get("quantity") or 1)
-	unit_price = float(p.get("unit_price") or 0)
 	idrepresentante = p.get("idrepresentante")
-	if not product_name:
+	lines = _avulso_sale_lines(p)
+	if not lines:
 		raise UniplusPermanentError("Nome do produto não informado")
 
-	base_name = product_name
+	if len(lines) == 1:
+		product_name, quantity, unit_price = lines[0]
+		base_name = product_name
+		historico = f"{product_name} x {quantity} (R$ {unit_price:.2f})"
+		total_price = round(quantity * unit_price, 2)
+	else:
+		base_name = f"{lines[0][0]} +{len(lines) - 1}"
+		historico = "; ".join(
+			f"{name} x {quantity} (R$ {unit_price:.2f})" for name, quantity, unit_price in lines
+		)
+		total_price = round(sum(quantity * unit_price for _, quantity, unit_price in lines), 2)
+
 	pattern = f"%{base_name}%" if len(base_name) <= 50 else "%venda produto%"
 	conn = _connect()
 	try:
@@ -474,10 +520,8 @@ def _insert_finance_avulso(p: dict) -> dict:
 				seq_num += 1
 				doc_name = (f"{seq_num} {base_name}" if len(base_name) <= 50 else f"{seq_num} venda produto")[:60]
 
-			total_price = round(quantity * unit_price, 2)
 			today = date.today()
 			tomorrow = today + timedelta(days=1)
-			historico = f"{product_name} x {quantity} (R$ {unit_price:.2f})"
 			cur.execute(
 				"""
 				INSERT INTO financeiro (

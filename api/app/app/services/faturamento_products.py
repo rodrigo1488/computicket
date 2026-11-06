@@ -1,5 +1,6 @@
 """Lógica compartilhada de produtos e DAV (pedido de faturamento) no PostgreSQL."""
 
+import re
 from datetime import date, timedelta
 from typing import Any
 
@@ -356,6 +357,193 @@ def products_summary(product_details: list[dict]) -> str:
 	return f"Produtos: {resumo}"
 
 
+_AVULSO_ITEM_RE = re.compile(r"^(.+?)\s+x\s+([\d\.,]+)\s+\(R\$\s+([\d\.,\s]+)\)$")
+
+
+def _avulso_line(name: str, quantity: float, unit_price: float) -> str:
+	return f"{name} x {quantity} (R$ {unit_price:.2f})"
+
+
+def _parse_avulso_item(text: str, valor: float) -> dict[str, Any] | None:
+	match = _AVULSO_ITEM_RE.match(text.strip())
+	if not match:
+		return None
+	try:
+		qty = float(match.group(2).replace(",", "."))
+	except ValueError:
+		qty = 1.0
+	try:
+		uprice = float(match.group(3).replace(",", ".").replace(" ", ""))
+	except ValueError:
+		uprice = valor / qty if qty > 0 else valor
+	return {
+		"product_name": match.group(1).strip(),
+		"quantity": qty,
+		"unit_price": uprice,
+	}
+
+
+def parse_avulso_historico(historico: str | None, valor: float) -> dict[str, Any] | None:
+	"""Lê o histórico de uma venda avulsa (um item ou vários separados por '; ')."""
+	text = (historico or "").strip()
+	if not text:
+		return None
+	parts = [part.strip() for part in text.split("; ") if part.strip()]
+	parsed = [_parse_avulso_item(part, valor) for part in parts]
+	if not parsed or any(item is None for item in parsed):
+		return None
+	items = [item for item in parsed if item is not None]
+	if len(items) == 1:
+		return items[0]
+	return {
+		"product_name": ", ".join(item["product_name"] for item in items),
+		"quantity": 1.0,
+		"unit_price": float(valor or 0),
+	}
+
+
+def _normalize_sale_items(items: list[dict]) -> list[dict]:
+	normalized = []
+	for item in items or []:
+		name = str(item.get("product_name") or "").strip()
+		if not name:
+			continue
+		try:
+			qty = float(item.get("quantity", 1))
+		except (TypeError, ValueError):
+			qty = 1.0
+		try:
+			price = float(item.get("unit_price", 0))
+		except (TypeError, ValueError):
+			price = 0.0
+		if qty <= 0:
+			qty = 1.0
+		normalized.append({"product_name": name, "quantity": qty, "unit_price": price})
+	return normalized
+
+
+def _unique_avulso_documento(cursor, base_name: str) -> str:
+	base_name = base_name.strip()
+	pattern = f"%{base_name}%" if len(base_name) <= 50 else "%venda produto%"
+	cursor.execute("SELECT COUNT(*) FROM financeiro WHERE documento ILIKE %s", (pattern,))
+	row = cursor.fetchone()
+	seq_num = (row[0] if row else 0) + 1
+
+	if len(base_name) <= 50:
+		doc_name = f"{seq_num} {base_name}"[:60]
+	else:
+		doc_name = f"{seq_num} venda produto"[:60]
+
+	while True:
+		cursor.execute("SELECT 1 FROM financeiro WHERE documento = %s", (doc_name,))
+		if not cursor.fetchone():
+			break
+		seq_num += 1
+		if len(base_name) <= 50:
+			doc_name = f"{seq_num} {base_name}"[:60]
+		else:
+			doc_name = f"{seq_num} venda produto"[:60]
+	return doc_name
+
+
+def _insert_avulso_finance_row(
+	cursor,
+	*,
+	client_id: int,
+	documento: str,
+	total_price: float,
+	historico: str,
+	idrepresentante: int | None,
+) -> int:
+	today_date = date.today()
+	tomorrow_date = today_date + timedelta(days=1)
+	cursor.execute(
+		"""
+		INSERT INTO financeiro (
+			idfilial, identidade, tipo, documento, idtipodocumentofinanceiro,
+			status, emissao, vencimento,
+			valor, saldo, historico, idcodigocontabil, observacaoboleto, idrepresentante
+		) VALUES (
+			%s, %s, 'R', %s, 8,
+			'A', %s, %s,
+			%s, %s, %s, 71, 'Avulso', %s
+		) RETURNING id
+		""",
+		(
+			1,
+			client_id,
+			documento,
+			today_date.isoformat(),
+			tomorrow_date.isoformat(),
+			total_price,
+			total_price,
+			historico,
+			idrepresentante,
+		),
+	)
+	row = cursor.fetchone()
+	if not row or not row[0]:
+		raise RuntimeError("Erro ao inserir lançamento de produto fora de estoque no financeiro")
+	return row[0]
+
+
+def create_standalone_sale_finance_record(
+	cursor,
+	*,
+	client_id: int,
+	items: list[dict],
+	idrepresentante: int | None = None,
+) -> int:
+	"""
+	Lança um único título de crediário para a venda avulsa inteira.
+	Vários itens da lista entram no mesmo histórico e no mesmo valor.
+	"""
+	from ..uniplus_jobs import agent_enabled, enqueue_and_wait
+
+	normalized = _normalize_sale_items(items)
+	if not normalized:
+		raise ValueError("É necessário ao menos um produto.")
+	if not client_id:
+		raise ValueError("Cliente não informado para o lançamento do produto fora de estoque.")
+
+	if len(normalized) == 1:
+		only = normalized[0]
+		return create_out_of_stock_finance_record(
+			cursor,
+			client_id=int(client_id),
+			product_name=only["product_name"],
+			quantity=only["quantity"],
+			unit_price=only["unit_price"],
+			idrepresentante=idrepresentante,
+		)
+
+	if agent_enabled():
+		result = enqueue_and_wait("insert_finance_avulso", {
+			"client_id": int(client_id),
+			"items": normalized,
+			"idrepresentante": idrepresentante,
+		})
+		return int(result["finance_id"])
+
+	historico = "; ".join(
+		_avulso_line(item["product_name"].replace(";", ","), item["quantity"], item["unit_price"])
+		for item in normalized
+	)
+	total_price = round(sum(item["quantity"] * item["unit_price"] for item in normalized), 2)
+	documento = _unique_avulso_documento(
+		cursor,
+		f"{normalized[0]['product_name'].replace(';', ',')} +{len(normalized) - 1}",
+	)
+	return _insert_avulso_finance_row(
+		cursor,
+		client_id=int(client_id),
+		documento=documento,
+		total_price=total_price,
+		historico=historico,
+		idrepresentante=idrepresentante,
+	)
+
+
 def create_out_of_stock_finance_record(
 	cursor,
 	*,
@@ -388,64 +576,14 @@ def create_out_of_stock_finance_record(
 		})
 		return int(result["finance_id"])
 
-	base_name = product_name.strip()
-	pattern = f"%{base_name}%" if len(base_name) <= 50 else "%venda produto%"
-
-	cursor.execute("SELECT COUNT(*) FROM financeiro WHERE documento ILIKE %s", (pattern,))
-	row = cursor.fetchone()
-	seq_num = (row[0] if row else 0) + 1
-
-	if len(base_name) <= 50:
-		doc_name = f"{seq_num} {base_name}"[:60]
-	else:
-		doc_name = f"{seq_num} venda produto"[:60]
-
-	# Garantir unicidade absoluta no campo documento
-	while True:
-		cursor.execute("SELECT 1 FROM financeiro WHERE documento = %s", (doc_name,))
-		if not cursor.fetchone():
-			break
-		seq_num += 1
-		if len(base_name) <= 50:
-			doc_name = f"{seq_num} {base_name}"[:60]
-		else:
-			doc_name = f"{seq_num} venda produto"[:60]
-
-	total_price = round(quantity * unit_price, 2)
-	today_date = date.today()
-	tomorrow_date = today_date + timedelta(days=1)
-	today_str = today_date.isoformat()
-	tomorrow_str = tomorrow_date.isoformat()
-	historico_str = f"{product_name} x {quantity} (R$ {unit_price:.2f})"
-
-	cursor.execute(
-		"""
-		INSERT INTO financeiro (
-			idfilial, identidade, tipo, documento, idtipodocumentofinanceiro,
-			status, emissao, vencimento,
-			valor, saldo, historico, idcodigocontabil, observacaoboleto, idrepresentante
-		) VALUES (
-			%s, %s, 'R', %s, 8,
-			'A', %s, %s,
-			%s, %s, %s, 71, 'Avulso', %s
-		) RETURNING id
-		""",
-		(
-			1,
-			client_id,
-			doc_name,
-			today_str,
-			tomorrow_str,
-			total_price,
-			total_price,
-			historico_str,
-			idrepresentante,
-		),
+	return _insert_avulso_finance_row(
+		cursor,
+		client_id=int(client_id),
+		documento=_unique_avulso_documento(cursor, product_name),
+		total_price=round(quantity * unit_price, 2),
+		historico=_avulso_line(product_name, quantity, unit_price),
+		idrepresentante=idrepresentante,
 	)
-	row = cursor.fetchone()
-	if not row or not row[0]:
-		raise RuntimeError("Erro ao inserir lançamento de produto fora de estoque no financeiro")
-	return row[0]
 
 
 def process_out_of_stock_products(cursor, produtos: list[dict], default_client_id: int | None = None) -> list[dict]:
