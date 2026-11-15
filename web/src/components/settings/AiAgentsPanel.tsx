@@ -258,6 +258,7 @@ function AgentForm({
         onChange={(idleAlertEnabled) => patch({ idleAlertEnabled })}
       />
       {draft.idleAlertEnabled ? (
+        <>
         <div className="grid gap-4 sm:grid-cols-2">
           <UnderlineField
             label="Minutos sem resposta"
@@ -295,6 +296,7 @@ function AgentForm({
         <p className="text-xs text-muted">
           Quem citar o agente nesse grupo pode pedir aviso nos chats abertos. Com agendamentos ligados, também pode pedir uma visita. Às 18:30 o grupo recebe o que está pendente e a análise das conversas do dia.
         </p>
+        </>
       ) : null}
       {draft.idleAlertEnabled && groupsError ? <p className="text-sm text-open">{groupsError}</p> : null}
       {draft.idleAlertEnabled && groups?.message ? <p className="text-sm text-muted">{groups.message}</p> : null}
