@@ -5,6 +5,10 @@
 !agents/remote_monitor_agent/
 !agents/remote_monitor_agent/dist/
 !agents/remote_monitor_agent/dist/ComputicketMonitorAgent.exe
+!mcp/
+!mcp/computicket_db/
+!mcp/computicket_db/guard.py
+!mcp/computicket_db/dbtools.py
 
 api/**/__pycache__/
 api/**/*.py[cod]
