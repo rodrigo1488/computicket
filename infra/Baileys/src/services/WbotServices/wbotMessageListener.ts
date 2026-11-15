@@ -1695,6 +1695,9 @@ const handleOpenAi = async (
 - Não escreva seu nome no início. A assinatura é colocada automaticamente.
 - Não mencione número de ticket, ID interno nem o título da fonte.
 - Não escreva mensagem interna na resposta. Para transferir, use só o formato de ação.
+- Fale só sobre o atendimento desta pessoa.
+- Nunca informe outros clientes, empresas, chamados, atendimentos abertos, agenda interna ou dados da operação.
+- Se pedirem essa lista, diga que não pode passar informação de outras pessoas e pergunte como ajudar no problema dela.
 ${TRANSFER_RULES}`;
 
   const historyText = [...messages].reverse()
@@ -1723,7 +1726,7 @@ ${TRANSFER_RULES}`;
   ) {
     messagesOpenAi = [];
     const userText = canReadImage ? imageUserText : imageCaption || bodyMessage || "";
-    const textContext = await loadAgentContext(prompt, userText, historyText);
+    const textContext = await loadAgentContext(prompt, userText, historyText, "customer");
     rememberPeople(textContext.technicians);
     messagesOpenAi.push({ role: "system", content: promptSystem + imageRules + formatAgentContext(textContext) + noticeBlock });
     messagesOpenAi.push(
@@ -1827,7 +1830,7 @@ ${TRANSFER_RULES}`;
         : (txRes as any)?.text ?? (txRes as any)?.data?.text ?? "";
 
     messagesOpenAi = [];
-    const audioContext = await loadAgentContext(prompt, transcriptionText || "", historyText);
+    const audioContext = await loadAgentContext(prompt, transcriptionText || "", historyText, "customer");
     rememberPeople(audioContext.technicians);
     messagesOpenAi.push({ role: "system", content: promptSystem + formatAgentContext(audioContext) + noticeBlock });
     messagesOpenAi.push(...conversationTurns([...messages].reverse(), transcriptionText || ""));

@@ -614,12 +614,15 @@ export function shouldForceKnowledgeHandoff(input: {
   return looksLikeFactualQuestion(input.userText);
 }
 
-export function formatAgentContext(ctx: {
-  has_evidence?: boolean;
-  draft?: string;
-  sources?: { title?: string; snippet?: string }[];
-  technicians?: { name?: string }[];
-}): string {
+export function formatAgentContext(
+  ctx: {
+    has_evidence?: boolean;
+    draft?: string;
+    sources?: { title?: string; snippet?: string }[];
+    technicians?: { name?: string }[];
+  },
+  audience: "customer" | "staff" = "customer"
+): string {
   const people = (ctx.technicians || [])
     .map(item => (item.name || "").trim())
     .filter(Boolean)
@@ -631,6 +634,17 @@ export function formatAgentContext(ctx: {
       return source.snippet ? `[${index + 1}] ${title}: ${source.snippet}` : `[${index + 1}] ${title}`;
     })
     .join("\n");
+  if (audience === "staff") {
+    let block = `\n\nCOLEGAS DA EQUIPE:\n${people || "(nenhum)"}\nSão colegas neste grupo. Não os trate como cliente e não ofereça transferência.`;
+    block += `\n\nREGISTROS INTERNOS:\n${sources || "(nenhum)"}`;
+    if (ctx.has_evidence && ctx.draft) {
+      block += `\n\nO QUE OS REGISTROS DIZEM:\n${ctx.draft}`;
+    }
+    block += ctx.has_evidence
+      ? "\n\nResponda a equipe com esses registros. Não cite número de ticket, ID nem título interno."
+      : "\n\nSem registro, diga que não encontrou. Não invente e não transfira.";
+    return block;
+  }
   let block = `\n\nPESSOAS COM QUEM O CLIENTE PODE FALAR:\n${people || "(nenhuma)"}\nEstas pessoas existem. Se o cliente pedir uma delas, transfira para o nome completo da lista. Compare pelo primeiro nome, sem acento. Não diga que a pessoa não existe.`;
   block += `\n\nFONTES DA BASE DE CONHECIMENTO:\n${sources || "(nenhuma)"}`;
   if (ctx.has_evidence && ctx.draft) {
@@ -642,6 +656,24 @@ export function formatAgentContext(ctx: {
     block += "\n\nResponda perguntas factuais somente com as fontes acima. Não cite número de ticket, ID nem o título interno da fonte.";
   }
   return block;
+}
+
+/** Conversa do grupo interno. O roteiro do cliente não transforma o colega em atendimento. */
+export function staffGroupVoice(name: string, persona?: string | null): string {
+  const voice = (persona || "").trim();
+  return (
+    `Você é ${name || "o agente"}, no grupo interno da equipe. Esta conversa é com colegas, não é um atendimento.\n` +
+    "Quem escreve aqui trabalha na empresa. O cliente é só a pessoa citada na operação, nunca o colega que está falando.\n" +
+    (voice ? `\nTom de voz, sem aplicar regras de saudação, transferência ou atendimento:\n${voice}\n` : "") +
+    `\nNESTA FALA DE GRUPO:
+- Responda ao colega pelo nome, direto, como quem trabalha junto.
+- Não cumprimente como atendimento, não pergunte como pode ajudar e não diga que vai encaminhar quem falou.
+- Não abra chamado, não transfira, não mude fila e não escreva nota interna.
+- Sem registro na base, diga que não encontrou. Não invente número de chamado, cliente ou procedimento.
+- Pedido de agendamento ou de aviso nos chats abertos usa só os blocos indicados.
+- Se a pessoa responde a uma mensagem sua, interprete a resposta nesse contexto. Não diga que não achou aviso quando ela só conclui, agradece ou atualiza o que você escreveu.
+- Não escreva seu nome no início. A assinatura é colocada automaticamente.`
+  );
 }
 
 const GEMINI_CONTEXT_TOKENS = 1_048_576;

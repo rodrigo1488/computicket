@@ -8,6 +8,7 @@ import {
   completionTokenBudget,
   conversationTurns,
   formatAgentContext,
+  staffGroupVoice,
   groupMessageAddressesAgent,
   attendanceCustomerName,
   idleAlertSource,
@@ -37,7 +38,7 @@ import {
 
 const MAX_LINES = 12;
 const WAIT_MS = 500;
-const HANDOFF = "Uma pessoa da equipe vai ver isso.";
+const NO_RECORD = "Não achei esse registro na base.";
 
 type TrackLine = { fromAgent: boolean; sender: string; body: string; quotedAgentBody?: string };
 type ReplySocket = {
@@ -164,28 +165,18 @@ const replyToMention = async (input: {
             customerName
           })
         : "Qual cliente eu encerro?";
-    } else if (factual && !operational && !context.has_evidence && !noticeBlock) {
-      text = HANDOFF;
     } else {
       const messages = [
         {
           role: "system" as const,
           content:
-            `Você é ${input.prompt.name || "o agente"}. Alguém citou você no grupo de WhatsApp.\n${input.prompt.prompt || ""}` +
-            formatAgentContext(context) +
+            staffGroupVoice(input.prompt.name, input.prompt.prompt) +
+            formatAgentContext(context, "staff") +
             noticeBlock +
             staffGroupActionInstructions({
               canSchedule: !!input.prompt.permitirCriarAgendamentos,
               technicians: (context.technicians || []).map(person => person.name || "")
-            }) +
-            `\n\nNESTA FALA DE GRUPO:
-- Responda à pessoa que citou você, em frases completas.
-- Não transfira, não mude fila e não escreva nota interna.
-- Não tente solucionar problema técnico e não invente.
-- Sem fonte para uma pergunta factual, diga apenas que uma pessoa da equipe vai ver.
-- Pedido de agendamento ou de aviso nos chats abertos usa só os blocos indicados.
-- Não escreva seu nome no início. A assinatura é colocada automaticamente.
-- Se a pessoa responde a uma mensagem sua, interprete a resposta nesse contexto. Não diga que não achou aviso quando ela só conclui, agradece ou atualiza o que você escreveu.`
+            })
         },
         ...conversationTurns(
           history.map(line => ({
@@ -222,7 +213,7 @@ const replyToMention = async (input: {
         }
       }
       text = [sanitizeCustomerReply(raw), ...results].filter(Boolean).join("\n\n");
-      if (!text && factual) text = HANDOFF;
+      if (!text && factual) text = NO_RECORD;
     }
     const signed = signAgentMessage(text, input.prompt.name);
     if (!signed) return;

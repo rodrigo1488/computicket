@@ -428,7 +428,7 @@ def _source_link(row: KnowledgeChunk) -> dict:
 	return {}
 
 
-def hybrid_search(query: str, limit: int = 6) -> list[dict]:
+def hybrid_search(query: str, limit: int = 6, source_types: Iterable[str] | None = None) -> list[dict]:
 	clean = sanitize_for_rag(query)
 	if not clean:
 		return []
@@ -457,12 +457,15 @@ def hybrid_search(query: str, limit: int = 6) -> list[dict]:
 			rows = KnowledgeChunk.query.limit(scan_limit).all()
 	else:
 		rows = KnowledgeChunk.query.limit(scan_limit).all()
+	allowed = {item for item in (source_types or []) if item} or None
 	scored: list[tuple[float, KnowledgeChunk]] = []
 	try:
 		min_score = max(0.0, min(float(os.environ.get("RAG_MIN_SCORE") or "0.35"), 1.0))
 	except ValueError:
 		min_score = 0.35
 	for row in rows:
+		if allowed and row.source_type not in allowed:
+			continue
 		lexical = _lexical_score(clean, terms, row)
 		vector = vector_scores.get(row.id)
 		if vector is None:

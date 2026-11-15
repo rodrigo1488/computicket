@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from .gemini_client import GeminiConfigError, generation_model, get_client
-from .rag import hybrid_search, sanitize_for_rag
+from .rag import SOURCE_ARTICLE, hybrid_search, sanitize_for_rag
 
 MAX_INPUT_CHARS = 12000
 MAX_HISTORY_CHARS = 16000
@@ -88,17 +88,28 @@ def _generate(
 	return data
 
 
-def _prepare(query: str, history: str = "") -> tuple[str, str, list[dict]]:
+def _prepare(query: str, history: str = "", source_types: set[str] | None = None) -> tuple[str, str, list[dict]]:
 	query = _trim(query, MAX_INPUT_CHARS)
 	history = _trim(history, MAX_HISTORY_CHARS)
 	if not query:
 		raise CopilotError("Informe um texto para o Copiloto.", "validation", 400)
 	search_query = f"{query} {history[-3000:]}".strip()
-	return query, history, hybrid_search(search_query)
+	return query, history, hybrid_search(search_query, source_types=source_types)
 
 
-def answer_question(question: str, history: str = "") -> dict:
-	question, history, sources = _prepare(question, history)
+_CUSTOMER_ANSWER_RULES = (
+	"Você responde um cliente final da Computicket. Use só o procedimento geral do artigo. "
+	"Não cite outros clientes, empresas, chamados, atendimentos abertos, agenda ou dado interno. "
+	"Se a pergunta pede lista de clientes ou de atendimentos, diga que essa informação não pode ser passada."
+)
+
+
+def answer_question(question: str, history: str = "", public_only: bool = False) -> dict:
+	question, history, sources = _prepare(
+		question,
+		history,
+		{SOURCE_ARTICLE} if public_only else None,
+	)
 	if not sources:
 		return {
 			"draft": (
@@ -107,20 +118,21 @@ def answer_question(question: str, history: str = "") -> dict:
 			),
 			"sources": [],
 		}
+	staff_rules = (
+		"Você é o Copiloto de suporte do Computicket. Responda em português do Brasil, "
+		"objetivamente. Use as fontes como base factual e não invente credenciais, procedimentos "
+		"ou fatos ausentes. Priorize artigos da base de conhecimento quando existirem. "
+		"Cite no texto os artigos usados pelo título (ex.: segundo o artigo X). "
+		"Retorne JSON com draft e cited: lista dos números [1], [2] das FONTES realmente usadas. "
+		"Fontes podem ser artigos, tickets, metadados do cofre de senhas "
+		"(máquina/AnyDesk/cliente) e orçamentos. "
+		"Nunca peça nem reproduza senhas, tokens ou dados pessoais. "
+		"Se a fonte for do cofre, indique a máquina/cliente e oriente abrir o Cofre — "
+		"nunca invente nem cite a senha."
+	)
 	data = _generate(
 		f"PERGUNTA:\n{question}\n\nHISTÓRICO MÍNIMO:\n{history}\n\nFONTES:\n{_source_context(sources)}",
-		(
-			"Você é o Copiloto de suporte do Computicket. Responda em português do Brasil, "
-			"objetivamente. Use as fontes como base factual e não invente credenciais, procedimentos "
-			"ou fatos ausentes. Priorize artigos da base de conhecimento quando existirem. "
-			"Cite no texto os artigos usados pelo título (ex.: segundo o artigo X). "
-			"Retorne JSON com draft e cited: lista dos números [1], [2] das FONTES realmente usadas. "
-			"Fontes podem ser artigos, tickets, metadados do cofre de senhas "
-			"(máquina/AnyDesk/cliente) e orçamentos. "
-			"Nunca peça nem reproduza senhas, tokens ou dados pessoais. "
-			"Se a fonte for do cofre, indique a máquina/cliente e oriente abrir o Cofre — "
-			"nunca invente nem cite a senha."
-		),
+		_CUSTOMER_ANSWER_RULES if public_only else staff_rules,
 		{
 			"type": "object",
 			"properties": {

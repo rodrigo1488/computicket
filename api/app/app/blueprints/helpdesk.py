@@ -2970,10 +2970,14 @@ def internal_agent_context():
         return jsonify({"error": "Não autorizado"}), 401
     payload = request.get_json(silent=True) or {}
     include_knowledge = payload.get("include_knowledge")
+    audience = str(payload.get("audience") or "staff").strip().lower()
+    if audience not in {"customer", "staff"}:
+        audience = "staff"
     return jsonify(build_agent_context(
         payload.get("question") or "",
         payload.get("history") or "",
         include_knowledge=True if include_knowledge is None else bool(include_knowledge),
+        audience=audience,
     ))
 
 

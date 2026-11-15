@@ -33,6 +33,20 @@ def find_technician_by_phone(phone: str) -> dict | None:
 	return None
 
 
+_PRIVATE_ROSTER = re.compile(
+	r"(?i)(?:"
+	r"\b(?:quais|quem|liste|lista|listar|mostra|mostre|me passa|me fala|quero ver)\b[\s\S]{0,80}\b(?:atendimentos?|chamados?|clientes?|empresas?|conversas?)\b"
+	r"|\b(?:atendimentos?|chamados?|clientes?|empresas?)\b[\s\S]{0,50}\b(?:abert\w*|em andamento|pendentes?|de hoje|da empresa|cadastrad\w*)\b"
+	r"|\b(?:outros?|demais|todos os|todas as)\s+(?:clientes?|atendimentos?|chamados?|empresas?)\b"
+	r")"
+)
+
+
+def customer_asks_for_private_records(text: str) -> bool:
+	"""Pedido de lista da operação: outros clientes, chamados ou atendimentos."""
+	return bool(_PRIVATE_ROSTER.search(text or ""))
+
+
 def internal_token_ok() -> bool:
 	expected = (
 		os.environ.get("COMPUTICKET_INTERNAL_TOKEN")
@@ -43,14 +57,27 @@ def internal_token_ok() -> bool:
 	return bool(expected) and provided == expected
 
 
-def build_agent_context(question: str, history: str = "", include_knowledge: bool = True) -> dict:
+def build_agent_context(
+	question: str,
+	history: str = "",
+	include_knowledge: bool = True,
+	audience: str = "staff",
+) -> dict:
 	draft = ""
 	sources: list[dict] = []
 	text = (question or "").strip()
+	customer = (audience or "staff").strip().lower() == "customer"
+	# O cliente final não recebe chamados, cofre, orçamentos nem conversas de outras pessoas.
+	if customer and customer_asks_for_private_records(text):
+		include_knowledge = False
 	if include_knowledge and text:
 		try:
-			result = answer_question(text, history or "")
-			sources = list(result.get("sources") or [])
+			result = answer_question(text, history or "", public_only=customer)
+			sources = [
+				item
+				for item in (result.get("sources") or [])
+				if isinstance(item, dict) and (not customer or item.get("source_type") == "knowledge_article")
+			]
 			if sources:
 				draft = str(result.get("draft") or "").strip()
 		except CopilotError:

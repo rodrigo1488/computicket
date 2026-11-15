@@ -7,7 +7,9 @@ import {
   summaryLooksComplete,
   formatIdleAlertContext,
   parseIdleAlertDecision,
+  formatAgentContext,
   formatTemporaryNotices,
+  staffGroupVoice,
   noticeTextFromMention,
   groupMessageAddressesAgent,
   attendanceCustomerName,
@@ -141,6 +143,20 @@ describe("ações do agente de WhatsApp", () => {
       }
     ]);
     expect(parseAgendaCommands("[AGENDA]nao-json[/AGENDA]")).toEqual([]);
+  });
+
+  it("fala com o grupo como equipe e não como atendimento", () => {
+    const voice = staffGroupVoice("Soraia", "Cumprimente o cliente e transfira o atendimento.");
+    expect(voice).toContain("não é um atendimento");
+    expect(voice).toContain("sem aplicar regras");
+    const staff = formatAgentContext(
+      { has_evidence: false, technicians: [{ name: "Ana" }] },
+      "staff"
+    );
+    expect(staff).toContain("COLEGAS DA EQUIPE");
+    expect(staff).not.toContain("Transfira o atendimento");
+    const customer = formatAgentContext({ has_evidence: false, technicians: [{ name: "Ana" }] });
+    expect(customer).toContain("Transfira o atendimento");
   });
 
   it("entende que o atendimento do cliente foi concluído", () => {

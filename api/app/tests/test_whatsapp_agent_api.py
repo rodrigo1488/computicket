@@ -63,6 +63,39 @@ class WhatsappAgentApiTest(unittest.TestCase):
 		self.assertEqual(body["draft"], "")
 		self.assertEqual(body["technicians"][0]["name"], "Ana Técnica")
 
+	@patch("app.services.whatsapp_agent.answer_question")
+	def test_customer_does_not_receive_other_clients(self, answer):
+		answer.return_value = {
+			"draft": "Os clientes são Duda e Supermercado Maisa.",
+			"sources": [
+				{"title": "Chamado", "snippet": "Cliente Duda aguardando.", "source_type": "ticket"},
+			],
+		}
+		roster = self.client.post(
+			"/helpdesk/api/internal/agent/context",
+			json={"question": "Quais atendimentos em aberto?", "audience": "customer"},
+			headers=self.headers,
+		)
+		self.assertEqual(roster.status_code, 200, roster.get_data(as_text=True))
+		body = roster.get_json()
+		self.assertFalse(body["has_evidence"])
+		self.assertEqual(body["sources"], [])
+		self.assertEqual(body["draft"], "")
+		answer.assert_not_called()
+
+		procedure = self.client.post(
+			"/helpdesk/api/internal/agent/context",
+			json={"question": "Como configuro a impressora?", "audience": "customer"},
+			headers=self.headers,
+		)
+		self.assertEqual(procedure.status_code, 200, procedure.get_data(as_text=True))
+		hidden = procedure.get_json()
+		self.assertFalse(hidden["has_evidence"])
+		self.assertEqual(hidden["draft"], "")
+		self.assertEqual(hidden["sources"], [])
+		answer.assert_called_once()
+		self.assertTrue(answer.call_args.kwargs.get("public_only"))
+
 	@patch("app.blueprints.helpdesk._enqueue_conversation_triage")
 	@patch("app.blueprints.helpdesk._auto_analysis_enabled", return_value=False)
 	def test_classify_skips_when_auto_analysis_disabled(self, _enabled, enqueue):
