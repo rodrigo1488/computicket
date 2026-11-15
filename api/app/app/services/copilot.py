@@ -271,7 +271,8 @@ _ASSISTANT_SYSTEM = (
 	"Para agendar, use create_appointment só com cliente, data e horário claros. Se faltar um deles, pergunte. "
 	"Não diga que a visita foi marcada se a ferramenta não devolver ok. Sem técnico citado, vale a pessoa logada. "
 	"Quando a equipe trouxer um problema de suporte — texto, erro ou print — e também a solução, "
-	"use save_support_solution. Problema e solução são obrigatórios. "
+	"use save_support_solution. Problema e solução são obrigatórios e vão em texto corrido, sem HTML. "
+	"O print desta conversa é anexado sozinho: no problem, descreva o erro que aparece na imagem. "
 	"Se chegar só o print ou só o erro, descreva o que você leu e peça a resolução. Não salve ainda. "
 	"Quando a solução vier depois, use o problema já descrito na conversa e a solução nova. "
 	"Não invente a solução e não grave senha, token ou dado de cofre."
@@ -465,6 +466,10 @@ def answer_assistant(
 	if image:
 		prompt += "\n\nO usuário anexou um print nesta mensagem. Leia o erro na imagem."
 	notes: list[str] = []
+	from .assistant_actions import begin_saved_article, last_saved_article, remember_chat_image
+
+	remember_chat_image(_decode_chat_image(image) if image else None)
+	begin_saved_article()
 	token = _assistant_actor.set(int(actor_id) if actor_id else None)
 	try:
 		try:
@@ -477,8 +482,13 @@ def answer_assistant(
 			draft = _plain_assistant_draft(prompt, notes)
 		if not draft:
 			raise CopilotError("O assistente não devolveu uma resposta.", "invalid_response")
-		return {"draft": draft, "sources": []}
+		result = {"draft": draft, "sources": []}
+		saved = last_saved_article()
+		if saved:
+			result["saved_article"] = saved
+		return result
 	finally:
+		remember_chat_image(None)
 		_assistant_actor.reset(token)
 
 

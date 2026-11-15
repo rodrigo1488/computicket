@@ -331,7 +331,38 @@ const QUOTED_ALERT_CLOSE =
 /** Resposta curta a um alerta do agente, dizendo que o atendimento acabou. */
 export function replyClosesQuotedAlert(quoted: string, reply: string): boolean {
   if (!quotedLooksLikeIdleAlert(quoted)) return false;
+  if (dismissesNoticeOnly(reply)) return false;
   return looksLikeAttendanceClosure(reply) || QUOTED_ALERT_CLOSE.test(reply || "");
+}
+
+/** Alerta de atendimento parado citado ou enviado agora há pouco pelo agente. */
+export function idleAlertSource(quoted: string, agentLines: string[] = []): string {
+  const candidates = [quoted, ...[...agentLines].reverse()];
+  for (const source of candidates) {
+    if (quotedLooksLikeIdleAlert(source || "")) return source;
+  }
+  return "";
+}
+
+function dismissesNoticeOnly(text: string): boolean {
+  return /\bavisos?\b/i.test(text || "") && !/\batendimentos?\b/i.test(text || "");
+}
+
+/**
+ * A equipe pediu para encerrar o atendimento do alerta, mesmo numa frase curta
+ * como "pode encerrar", e mesmo se a citação sumiu na mensagem editada.
+ */
+export function staffReplyClosesAttendance(
+  reply: string,
+  quoted: string,
+  agentLines: string[] = []
+): boolean {
+  const body = reply || "";
+  if (dismissesNoticeOnly(body)) return false;
+  if (looksLikeAttendanceClosure(body)) return true;
+  const alert = idleAlertSource(quoted, agentLines);
+  if (!alert) return false;
+  return replyClosesQuotedAlert(alert, body);
 }
 
 function readPersonName(fragment: string, ignored: Set<string>): string {

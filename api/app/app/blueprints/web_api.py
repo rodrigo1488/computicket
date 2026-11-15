@@ -2076,10 +2076,12 @@ def knowledge_attachment_download(attachment_id: int):
 	path = _kb_disk_path(att)
 	if not path:
 		return jsonify({"error": "Arquivo não encontrado no servidor."}), 404
-	att.increment_downloads()
+	inline = request.args.get("inline") == "1"
+	if not inline:
+		att.increment_downloads()
 	return send_file(
 		path,
-		as_attachment=True,
+		as_attachment=not inline,
 		download_name=att.original_filename,
 		mimetype=att.file_type or "application/octet-stream",
 	)

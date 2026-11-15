@@ -132,6 +132,7 @@ export function DashboardAiChat() {
   const [open, setOpen] = useState(false);
   const [input, setInput] = useState("");
   const [attachment, setAttachment] = useState<ChatAttachment | null>(null);
+  const [heldPrint, setHeldPrint] = useState<ChatAttachment | null>(null);
   const [attachError, setAttachError] = useState("");
   const [pending, setPending] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -173,14 +174,15 @@ export function DashboardAiChat() {
 
   async function send(questionRaw?: string) {
     const question = (questionRaw ?? input).trim();
-    const image = questionRaw ? undefined : attachment?.dataUrl;
+    const freshImage = questionRaw ? undefined : attachment?.dataUrl;
+    const image = freshImage || (questionRaw ? undefined : heldPrint?.dataUrl);
     if ((!question && !image) || pending) return;
 
     const userMsg: ChatMessage = {
       id: `u-${Date.now()}`,
       role: "user",
       content: question || "Print enviado",
-      imageUrl: image,
+      imageUrl: freshImage,
     };
     const history = [...messages, userMsg]
       .filter((m) => !m.error)
@@ -189,6 +191,7 @@ export function DashboardAiChat() {
 
     setMessages((prev) => [...prev, userMsg]);
     setInput("");
+    if (image) setHeldPrint({ dataUrl: image, name: attachment?.name || heldPrint?.name || "print" });
     setAttachment(null);
     setAttachError("");
     setPending(true);
@@ -199,6 +202,7 @@ export function DashboardAiChat() {
         history.slice(0, -1).length ? history.slice(0, -1) : undefined,
         image,
       );
+      if (result.saved_article) setHeldPrint(null);
       setMessages((prev) => [
         ...prev,
         {
@@ -232,6 +236,7 @@ export function DashboardAiChat() {
     setMessages([]);
     setInput("");
     setAttachment(null);
+    setHeldPrint(null);
     setAttachError("");
   }
 
@@ -357,6 +362,23 @@ export function DashboardAiChat() {
             </div>
 
             <footer className="border-t border-line bg-surface p-3">
+              {heldPrint && !attachment ? (
+                <div className="mb-2 flex items-center gap-2 rounded-xl border border-line bg-canvas px-2 py-1.5">
+                  <img src={heldPrint.dataUrl} alt="" className="h-8 w-8 rounded-md object-cover" />
+                  <p className="min-w-0 flex-1 truncate text-[11px] text-muted">
+                    Este print entra no artigo quando a solução for salva.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setHeldPrint(null)}
+                    className="rounded-md p-1 text-muted hover:bg-surface hover:text-ink"
+                    aria-label="Não anexar este print"
+                    disabled={pending}
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              ) : null}
               {attachment ? (
                 <div className="mb-2 flex items-center gap-2 rounded-xl border border-line bg-canvas p-2">
                   <img src={attachment.dataUrl} alt="" className="h-12 w-12 rounded-lg object-cover" />

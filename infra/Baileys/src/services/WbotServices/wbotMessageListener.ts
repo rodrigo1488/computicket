@@ -611,18 +611,31 @@ const mentionedJidsOf = (msg: proto.IWebMessageInfo): string[] => {
   return jids;
 };
 
+const editedPayloadOf = (msg: proto.IWebMessageInfo): any =>
+  msg.message?.editedMessage?.message?.protocolMessage?.editedMessage || null;
+
+const quoteContextsOf = (msg: proto.IWebMessageInfo): any[] => {
+  const content = extractMessageContent(msg.message) || msg.message;
+  const edited = editedPayloadOf(msg);
+  return [
+    content?.extendedTextMessage?.contextInfo,
+    content?.imageMessage?.contextInfo,
+    content?.videoMessage?.contextInfo,
+    content?.documentMessage?.contextInfo,
+    content?.audioMessage?.contextInfo,
+    content?.ephemeralMessage?.message?.extendedTextMessage?.contextInfo,
+    edited?.extendedTextMessage?.contextInfo,
+    edited?.imageMessage?.contextInfo,
+    edited?.videoMessage?.contextInfo,
+    edited?.documentMessage?.contextInfo,
+    msg.message?.extendedTextMessage?.contextInfo
+  ].filter(Boolean);
+};
+
 const quotedContextOf = (
   msg: proto.IWebMessageInfo
 ): { body: string; participant: string } | null => {
-  const content = extractMessageContent(msg.message) || msg.message;
-  const info =
-    content?.extendedTextMessage?.contextInfo ||
-    content?.imageMessage?.contextInfo ||
-    content?.videoMessage?.contextInfo ||
-    content?.documentMessage?.contextInfo ||
-    content?.audioMessage?.contextInfo ||
-    content?.ephemeralMessage?.message?.extendedTextMessage?.contextInfo ||
-    msg.message?.extendedTextMessage?.contextInfo;
+  const info = quoteContextsOf(msg).find(item => item?.quotedMessage || item?.participant);
   const quoted = info?.quotedMessage;
   if (!quoted && !info?.participant) return null;
   const inner = quoted ? extractMessageContent(quoted) || quoted : null;
@@ -638,6 +651,30 @@ const quotedContextOf = (
   return { body: body.slice(0, 1500), participant: info?.participant || "" };
 };
 
+/** Edição costuma chegar sem a citação. Recupera o texto citado já gravado. */
+const quotedContextOfMessage = async (
+  msg: proto.IWebMessageInfo
+): Promise<{ body: string; participant: string } | null> => {
+  const direct = quotedContextOf(msg);
+  if (direct?.body) return direct;
+  const stanzaId = getQuotedMessageId(msg);
+  if (stanzaId) {
+    const stored = await Message.findOne({ where: { id: String(stanzaId) } });
+    if (stored?.body) {
+      return { body: String(stored.body).slice(0, 1500), participant: direct?.participant || "" };
+    }
+  }
+  const originalId = msg.message?.editedMessage?.message?.protocolMessage?.key?.id;
+  if (!originalId) return direct;
+  const original = await Message.findOne({
+    where: { id: String(originalId) },
+    include: [{ model: Message, as: "quotedMsg" }]
+  });
+  const quotedBody = (original as Message & { quotedMsg?: Message })?.quotedMsg?.body;
+  if (!quotedBody) return direct;
+  return { body: String(quotedBody).slice(0, 1500), participant: direct?.participant || "" };
+};
+
 export const getBodyMessage = (msg: proto.IWebMessageInfo): string | null => {
   try {
     let type = getTypeMessage(msg);
@@ -646,7 +683,9 @@ export const getBodyMessage = (msg: proto.IWebMessageInfo): string | null => {
       conversation: msg?.message?.conversation,
       editedMessage:
         msg?.message?.editedMessage?.message?.protocolMessage?.editedMessage
-          ?.conversation,
+          ?.conversation ||
+        msg?.message?.editedMessage?.message?.protocolMessage?.editedMessage
+          ?.extendedTextMessage?.text,
       imageMessage: msg.message?.imageMessage?.caption,
       videoMessage: msg.message?.videoMessage?.caption,
       extendedTextMessage: msg.message?.extendedTextMessage?.text,
@@ -731,7 +770,11 @@ export const getQuotedMessageId = (msg: proto.IWebMessageInfo) => {
   const body = extractMessageContent(msg.message)[
     Object.keys(msg?.message).values().next().value
   ];
-  return body?.contextInfo?.stanzaId ?? null;
+  return (
+    body?.contextInfo?.stanzaId ||
+    quoteContextsOf(msg).map(item => item?.stanzaId).find(Boolean) ||
+    null
+  );
 };
 
 const getMeSocket = (wbot: Session): IMe => {
@@ -3772,7 +3815,7 @@ const handleMessage = async (
       const me = getMeSocket(wbot);
       const sessionUser = (wbot as WASocket).user as { id?: string; lid?: string } | undefined;
       try {
-        const quoted = quotedContextOf(msg);
+        const quoted = await quotedContextOfMessage(msg);
         await observeLinkedGroupMessage({
           wbot,
           companyId,

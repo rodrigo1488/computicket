@@ -10,6 +10,7 @@ from html.parser import HTMLParser
 from typing import Iterable
 
 from sqlalchemy import or_, type_coerce
+from sqlalchemy.exc import IntegrityError
 
 from .. import db
 from ..models import Budget, HelpDeskAiInsight, KnowledgeArticle, KnowledgeChunk, PasswordVault, Ticket
@@ -227,12 +228,49 @@ def _source_data(source_type: str, source_id: int) -> tuple[str, str] | None:
 	raise ValueError("Tipo de fonte não permitido.")
 
 
+def _chunks_for(source_type: str, source_id: int) -> list[KnowledgeChunk]:
+	return KnowledgeChunk.query.filter_by(source_type=source_type, source_id=source_id).all()
+
+
+def _replace_chunks(
+	source_type: str,
+	source_id: int,
+	clean_title: str,
+	source_hash: str,
+	parts: list[str],
+	vectors: list[list[float] | None],
+) -> dict:
+	"""Grava os trechos. Se outro processo inseriu o mesmo índice, atualiza a linha existente."""
+	existing = _chunks_for(source_type, source_id)
+	by_index = {row.chunk_index: row for row in existing}
+	for index, content in enumerate(parts):
+		row = by_index.pop(index, None)
+		if row is None:
+			row = KnowledgeChunk(source_type=source_type, source_id=source_id, chunk_index=index)
+			db.session.add(row)
+		row.title = clean_title
+		row.content = content
+		row.fingerprint = fingerprint(content)
+		row.source_fingerprint = source_hash
+		row.embedding = vectors[index]
+	for stale in by_index.values():
+		db.session.delete(stale)
+	db.session.commit()
+	return {
+		"source_type": source_type,
+		"source_id": source_id,
+		"removed": len(by_index),
+		"indexed": len(parts),
+		"embedded": sum(vector is not None for vector in vectors),
+	}
+
+
 def index_source(source_type: str, source_id: int) -> dict:
 	"""Atualiza uma fonte atomicamente; sem Gemini mantém índice lexical."""
 	if source_type not in ALLOWED_SOURCES:
 		raise ValueError("Tipo de fonte não permitido.")
 	data = _source_data(source_type, source_id)
-	existing = KnowledgeChunk.query.filter_by(source_type=source_type, source_id=source_id).all()
+	existing = _chunks_for(source_type, source_id)
 	if data is None:
 		for row in existing:
 			db.session.delete(row)
@@ -258,27 +296,16 @@ def index_source(source_type: str, source_id: int) -> dict:
 	except (GeminiConfigError, GeminiError):
 		vectors = [None] * len(parts)
 
-	by_index = {row.chunk_index: row for row in existing}
-	for index, content in enumerate(parts):
-		row = by_index.pop(index, None)
-		if row is None:
-			row = KnowledgeChunk(source_type=source_type, source_id=source_id, chunk_index=index)
-			db.session.add(row)
-		row.title = clean_title
-		row.content = content
-		row.fingerprint = fingerprint(content)
-		row.source_fingerprint = source_hash
-		row.embedding = vectors[index]
-	for stale in by_index.values():
-		db.session.delete(stale)
-	db.session.commit()
-	return {
-		"source_type": source_type,
-		"source_id": source_id,
-		"removed": len(by_index),
-		"indexed": len(parts),
-		"embedded": sum(vector is not None for vector in vectors),
-	}
+	try:
+		return _replace_chunks(source_type, source_id, clean_title, source_hash, parts, vectors)
+	except IntegrityError:
+		# A indexação automática pode inserir o mesmo trecho enquanto esta grava.
+		db.session.rollback()
+		try:
+			return _replace_chunks(source_type, source_id, clean_title, source_hash, parts, vectors)
+		except Exception:
+			db.session.rollback()
+			raise
 
 
 def reindex_all(remove_stale: bool = True, progress=None) -> dict:

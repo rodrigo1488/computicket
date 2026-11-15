@@ -448,6 +448,7 @@ export type HelpdeskAiSource = {
 export type HelpdeskAiDraftRes = {
   draft: string;
   sources?: HelpdeskAiSource[];
+  saved_article?: { article_id: number; title: string; category_id?: number };
 };
 
 export type HelpdeskAiTicketDraft = {

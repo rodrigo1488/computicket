@@ -12,7 +12,9 @@ import {
   groupMessageAddressesAgent,
   attendanceCustomerName,
   looksLikeAppointmentRequest,
+  idleAlertSource,
   looksLikeAttendanceClosure,
+  staffReplyClosesAttendance,
   looksLikeOpenChatNotice,
   quotedLooksLikeIdleAlert,
   replyClosesQuotedAlert,
@@ -159,6 +161,15 @@ describe("ações do agente de WhatsApp", () => {
     expect(replyClosesQuotedAlert(summary, "qual o horário?")).toBe(false);
     expect(attendanceCustomerName("concluído, obrigado", [summary], ["junior"])).toBe("Carol");
     expect(quotedLooksLikeIdleAlert("A SEFAZ está fora hoje")).toBe(false);
+    const rodrigo =
+      "*JUNIOR*\n*Resumo do contexto*\nO cliente Rodrigo Gomes está aguardando retorno há 30 minutos após relatar que o seu Clipp não está abrindo. Responsável: ninguém.";
+    expect(staffReplyClosesAttendance("Estava testando. Pode encerrar", rodrigo)).toBe(true);
+    expect(staffReplyClosesAttendance("Estava testando. Pode encerrar", "", [rodrigo])).toBe(true);
+    expect(attendanceCustomerName("Estava testando. Pode encerrar", [rodrigo], ["junior"])).toBe(
+      "Rodrigo Gomes"
+    );
+    expect(staffReplyClosesAttendance("pode encerrar o aviso", rodrigo)).toBe(false);
+    expect(idleAlertSource("", [rodrigo])).toBe(rodrigo);
   });
 
   it("entende pedido de visita e aviso para chats abertos", () => {

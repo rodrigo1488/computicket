@@ -27,10 +27,15 @@ type Cat = {
 type Attachment = {
   id: number;
   filename: string;
+  file_type?: string;
   file_size_label?: string;
   available?: boolean;
   download_count?: number;
 };
+
+function attachmentIsImage(att: Attachment) {
+  return (att.file_type || "").startsWith("image/") || /\.(png|jpe?g|webp|gif)$/i.test(att.filename);
+}
 
 type Art = {
   id: number;
@@ -291,6 +296,14 @@ export default function ConhecimentoCategoriaPage() {
         </p>
         {view?.summary ? <p className="mt-2 text-sm italic text-muted">{view.summary}</p> : null}
         <p className="mt-3 whitespace-pre-wrap text-sm text-ink">{view?.content || "—"}</p>
+        {(view?.attachments || []).filter(attachmentIsImage).map((att) => (
+          <img
+            key={att.id}
+            src={`/flask/api/web/knowledge/attachments/${att.id}/download?inline=1`}
+            alt={att.filename}
+            className="mt-3 max-h-80 rounded-xl border border-line"
+          />
+        ))}
         <button
           type="button"
           onClick={() =>

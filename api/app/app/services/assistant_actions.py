@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
-import html
+import contextvars
+import os
+import uuid
 from datetime import datetime, timedelta, timezone
 
+from flask import current_app
 from flask_login import current_user
 
 from ..blueprints.agenda import (
@@ -13,11 +16,31 @@ from ..blueprints.agenda import (
 	enviar_email_confirmacao,
 	notify_appointment_whatsapp,
 )
-from ..models import Appointment, KnowledgeArticle, KnowledgeCategory, db
+from ..models import Appointment, KnowledgeArticle, KnowledgeAttachment, KnowledgeCategory, db
 from .rag import index_source, sanitize_for_rag
 
 _SUPPORT_CATEGORY = "Suporte"
 _BRASILIA = timezone(timedelta(hours=-3))
+_IMAGE_EXT = {"image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "image/gif": "gif"}
+_chat_image: contextvars.ContextVar[tuple[bytes, str] | None] = contextvars.ContextVar(
+	"assistant_chat_image", default=None
+)
+_saved_article: contextvars.ContextVar[dict | None] = contextvars.ContextVar(
+	"assistant_saved_article", default=None
+)
+
+
+def remember_chat_image(image: tuple[bytes, str] | None) -> None:
+	"""Print da mensagem atual. A gravação do conhecimento anexa este arquivo."""
+	_chat_image.set(image)
+
+
+def begin_saved_article() -> None:
+	_saved_article.set(None)
+
+
+def last_saved_article() -> dict | None:
+	return _saved_article.get()
 
 
 def _user_id(explicit: int | None) -> int | None:
@@ -129,31 +152,77 @@ def save_support_solution(args: dict, user_id: int | None = None) -> dict:
 			"message": "Falta a solução. Pergunte como foi resolvido e só salve quando a pessoa responder.",
 		}
 	category = _support_category(actor_id)
+	category_id = int(category.id)
 	heading = (title or problem.splitlines()[0])[:180]
-	content = (
-		"<p><strong>Problema</strong></p>"
-		f"<p>{html.escape(problem).replace(chr(10), '<br>')}</p>"
-		"<p><strong>Solução</strong></p>"
-		f"<p>{html.escape(solution).replace(chr(10), '<br>')}</p>"
-	)
+	content = f"Problema\n{problem}\n\nSolução\n{solution}"
 	article = KnowledgeArticle(
 		title=heading,
 		content=content,
 		summary=problem[:300],
 		tags="suporte, solução",
-		category_id=category.id,
+		category_id=category_id,
 		status="published",
 		created_by_id=actor_id,
 	)
 	db.session.add(article)
 	db.session.commit()
+	article_id = int(article.id)
 	try:
-		index_source("knowledge_article", article.id)
+		attached = _attach_chat_image(article_id, actor_id)
 	except Exception:
-		pass
-	return {
+		db.session.rollback()
+		attached = False
+	if attached:
+		content = f"{content}\n\nO print do erro está anexado neste artigo."
+		article.content = content
+		db.session.commit()
+	try:
+		index_source("knowledge_article", article_id)
+	except Exception:
+		db.session.rollback()
+	payload = {
 		"ok": True,
-		"article_id": article.id,
-		"title": article.title,
-		"message": f"Salvei no conhecimento, categoria Suporte: {article.title}.",
+		"article_id": article_id,
+		"title": heading,
+		"category_id": category_id,
+		"attachment": attached,
+		"message": (
+			f"Salvei no conhecimento, com o print anexado: {heading}."
+			if attached
+			else f"Salvei no conhecimento, categoria Suporte: {heading}."
+		),
 	}
+	_saved_article.set(
+		{"article_id": article_id, "title": heading, "category_id": category_id}
+	)
+	return payload
+
+
+def _attach_chat_image(article_id: int, user_id: int) -> bool:
+	image = _chat_image.get()
+	if not image:
+		return False
+	data, mime = image
+	if not data:
+		return False
+	ext = _IMAGE_EXT.get(mime, "png")
+	folder = os.path.join(current_app.instance_path, "knowledge_uploads")
+	os.makedirs(folder, exist_ok=True)
+	unique = f"{uuid.uuid4()}_print-do-erro.{ext}"
+	path = os.path.join(folder, unique)
+	with open(path, "wb") as handle:
+		handle.write(data)
+	db.session.add(
+		KnowledgeAttachment(
+			article_id=article_id,
+			filename=unique,
+			original_filename=f"print-do-erro.{ext}",
+			file_path=unique,
+			file_size=len(data),
+			file_type=mime,
+			description="Print enviado no assistente",
+			created_by_id=user_id,
+		)
+	)
+	db.session.commit()
+	return True

@@ -192,6 +192,47 @@ class RAGServiceTest(unittest.TestCase):
 		index_source("knowledge_article", article.id)
 		self.assertEqual(KnowledgeChunk.query.count(), 0)
 
+	def test_index_reuses_a_chunk_inserted_while_it_was_embedding(self):
+		from app.services import rag as rag_module
+
+		user = User(name="Teste", email="corrida@example.invalid", password_hash="x")
+		db.session.add(user)
+		db.session.flush()
+		category = KnowledgeCategory(name="Suporte", created_by_id=user.id)
+		db.session.add(category)
+		db.session.flush()
+		article = KnowledgeArticle(
+			title="Erro no Clipp",
+			content="<p>Não foi possível acessar este módulo. Solução: atualizar o Clipp.</p>",
+			category_id=category.id,
+			status="published",
+			created_by_id=user.id,
+		)
+		db.session.add(article)
+		db.session.commit()
+		with patch("app.services.rag.embed_texts", side_effect=GeminiError("offline")):
+			index_source("knowledge_article", article.id)
+		real = rag_module._chunks_for
+		calls = {"n": 0}
+
+		def hidden(source_type, source_id):
+			calls["n"] += 1
+			if calls["n"] <= 2:
+				return []
+			return real(source_type, source_id)
+
+		with (
+			patch("app.services.rag.embed_texts", side_effect=GeminiError("offline")),
+			patch("app.services.rag._chunks_for", side_effect=hidden),
+		):
+			result = index_source("knowledge_article", article.id)
+		self.assertEqual(result["indexed"], 1)
+		self.assertEqual(
+			KnowledgeChunk.query.filter_by(source_type="knowledge_article", source_id=article.id).count(),
+			1,
+		)
+		self.assertIsNotNone(db.session.get(KnowledgeArticle, article.id))
+
 	def test_vault_indexes_metadata_without_password(self):
 		from app.models import PasswordVault
 
@@ -297,13 +338,40 @@ class RAGServiceTest(unittest.TestCase):
 		article = db.session.get(KnowledgeArticle, result["article_id"])
 		self.assertEqual(article.title, "Clipp não abre")
 		self.assertEqual(article.status, "published")
-		self.assertIn("Problema", article.content)
-		self.assertIn("Solução", article.content)
+		self.assertIn("Problema\n", article.content)
+		self.assertIn("Solução\n", article.content)
 		self.assertIn("Reiniciei o serviço", article.content)
+		self.assertNotIn("<p>", article.content)
+		self.assertNotIn("&#", article.content)
 		self.assertEqual(
 			KnowledgeChunk.query.filter_by(source_type="knowledge_article", source_id=article.id).count(),
 			1,
 		)
+
+	def test_support_solution_attaches_the_print(self):
+		from app.models import KnowledgeAttachment
+		from app.services.assistant_actions import remember_chat_image, save_support_solution
+
+		user = self._staff_user("print@example.invalid")
+		remember_chat_image((b"\x89PNG\r\n\x1a\nprint", "image/png"))
+		try:
+			with patch("app.services.rag.embed_texts", side_effect=GeminiError("offline")):
+				result = save_support_solution(
+					{
+						"problem": "O módulo do Clipp não abre e pede para verificar a internet",
+						"solution": "Atualizei o Clipp para a versão mais recente",
+					},
+					user.id,
+				)
+		finally:
+			remember_chat_image(None)
+		self.assertTrue(result["attachment"])
+		article = db.session.get(KnowledgeArticle, result["article_id"])
+		self.assertNotIn("<p>", article.content)
+		self.assertIn("print do erro está anexado", article.content)
+		row = KnowledgeAttachment.query.filter_by(article_id=article.id).one()
+		self.assertEqual(row.file_type, "image/png")
+		self.assertTrue(row.original_filename.endswith(".png"))
 
 	def test_dashboard_appointment_requires_a_linked_client(self):
 		from app.models import Appointment

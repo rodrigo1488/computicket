@@ -10,14 +10,14 @@ import {
   formatAgentContext,
   groupMessageAddressesAgent,
   attendanceCustomerName,
+  idleAlertSource,
   looksLikeAppointmentRequest,
-  looksLikeAttendanceClosure,
   looksLikeFactualQuestion,
   looksLikeOpenChatNotice,
   looksLikeStaffOperation,
   quotedLooksLikeIdleAlert,
-  replyClosesQuotedAlert,
   replyTargetsAgent,
+  staffReplyClosesAttendance,
   noticeTextFromMention,
   parseAgendaCommands,
   parseOpenChatNotices,
@@ -88,7 +88,10 @@ const replyToMention = async (input: {
   if (!latest || latest.fromAgent) return;
   try {
     const history = lines.slice(0, -1);
-    const quoted = (latest.quotedAgentBody || "").trim();
+    const earlierQuote = [...history].reverse().find(line => line.quotedAgentBody)?.quotedAgentBody || "";
+    const quoted = (latest.quotedAgentBody || earlierQuote || "").trim();
+    const agentLines = history.filter(line => line.fromAgent).map(line => line.body);
+    const alert = idleAlertSource(quoted, agentLines);
     const userText = quoted
       ? `${latest.sender} responde à mensagem que você enviou:\n${quoted}\n\nResposta de ${latest.sender}: ${latest.body}`
       : `${latest.sender}: ${latest.body}`;
@@ -97,8 +100,7 @@ const replyToMention = async (input: {
       .join("\n");
     const context = await loadAgentContext(input.prompt, userText, historyText);
     const factual = looksLikeFactualQuestion(latest.body);
-    const closingAttendance =
-      looksLikeAttendanceClosure(latest.body) || replyClosesQuotedAlert(quoted, latest.body);
+    const closingAttendance = staffReplyClosesAttendance(latest.body, quoted, agentLines);
     const operational =
       looksLikeStaffOperation(`${historyText}\n${latest.body}`) ||
       closingAttendance ||
@@ -152,7 +154,7 @@ const replyToMention = async (input: {
     } else if (closingAttendance) {
       const customerName = attendanceCustomerName(
         latest.body,
-        [quoted, ...history.filter(line => line.fromAgent).map(line => line.body)].filter(Boolean),
+        [alert, ...agentLines].filter(Boolean),
         [input.prompt.name]
       );
       text = input.wbot.id
