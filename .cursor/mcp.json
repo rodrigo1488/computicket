@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "computicket-db": {
+      "command": "mcp/computicket_db/.venv/Scripts/python.exe",
+      "args": ["mcp/computicket_db/server.py"],
+      "env": {
+        "PYTHONIOENCODING": "utf-8",
+        "PYTHONUTF8": "1"
+      }
+    }
+  }
+}

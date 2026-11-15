@@ -219,6 +219,7 @@ function AgentForm({
         />
         <Check
           label="Criar agendamentos na agenda"
+          hint="No chat do cliente, no grupo vinculado ou no WhatsApp cadastrado de um técnico."
           checked={draft.permitirCriarAgendamentos}
           onChange={(permitirCriarAgendamentos) => patch({ permitirCriarAgendamentos })}
         />
@@ -291,6 +292,9 @@ function AgentForm({
             </select>
           </div>
         </div>
+        <p className="text-xs text-muted">
+          Quem citar o agente nesse grupo pode pedir aviso nos chats abertos. Com agendamentos ligados, também pode pedir uma visita. Às 18:30 o grupo recebe o que está pendente e a análise das conversas do dia.
+        </p>
       ) : null}
       {draft.idleAlertEnabled && groupsError ? <p className="text-sm text-open">{groupsError}</p> : null}
       {draft.idleAlertEnabled && groups?.message ? <p className="text-sm text-muted">{groups.message}</p> : null}

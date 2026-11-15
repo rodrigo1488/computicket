@@ -79,8 +79,8 @@ export function temporaryNoticeInstruction(): string {
   return `A mensagem é de um colega no grupo interno.
 Decida uma ação:
 - guardar: ele informa um fato temporário para os clientes, como sistema fora ou expediente especial. Não é pergunta.
-- encerrar: ele diz que o fato acabou ou pede para esquecer o aviso.
-- responder: pergunta ou conversa que não é um aviso.
+- encerrar: ele pede para apagar um aviso temporário, como um sistema que voltou. Não use quando ele diz que o atendimento de um cliente foi concluído.
+- responder: pergunta, conversa ou conclusão de atendimento de um cliente.
 texto: uma frase curta só com o que ele disse, sem completar e sem inventar. No encerrar, o assunto a apagar.
 validade: hoje, amanha ou semana. Se ele não disser o prazo, use hoje.
 Retorne somente JSON: {"acao":"guardar","texto":"...","validade":"hoje"}`;

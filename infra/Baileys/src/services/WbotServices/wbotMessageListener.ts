@@ -140,6 +140,7 @@ import ExecuteAppointmentFunction from "../AppointmentAIService/ExecuteAppointme
 import DashboardCommandService from "../AiServices/DashboardCommandService";
 import { AIProviderSelector } from "../AiServices/AIProviderSelector";
 import { observeLinkedGroupMessage } from "../AiServices/GroupMentionReplyService";
+import { handleTechnicianAppointmentRequest } from "../AiServices/StaffAppointmentService";
 import { temporaryNoticeBlock } from "../AiServices/temporaryContext";
 
 import { IConnections, INodes } from "../WebhookService/DispatchWebHookService";
@@ -1297,6 +1298,23 @@ const handleOpenAi = async (
     return;
   }
 
+  if (!ticket.isGroup) {
+    const staffBody = getBodyMessage(msg) || "";
+    if (staffBody) {
+      try {
+        const handled = await handleTechnicianAppointmentRequest({
+          ticket,
+          contact,
+          body: staffBody,
+          messageId: msg.key.id || ""
+        });
+        if (handled) return;
+      } catch (err: any) {
+        logger.warn(`Agendamento pelo número do técnico: ${err?.message || err}`);
+      }
+    }
+  }
+
   if (ticket.userId || ticket.isGroup) {
     logger.info(`handleOpenAi: bot parado no ticket ${ticket.id} (atendente humano ou grupo)`);
     return;
@@ -1624,7 +1642,7 @@ ${TRANSFER_RULES}`;
     ? `O cliente enviou uma imagem com a legenda: ${imageCaption}. Descreva só o que estiver visível e continue o atendimento.`
     : "O cliente enviou uma imagem. Descreva só o que estiver visível e continue o atendimento.";
   const imageRules = canReadImage
-    ? "\n- Nesta mensagem há uma imagem do cliente. Use apenas o que estiver visível. Se mostrar um problema técnico, descreva o que aparece e encaminhe; não tente resolver."
+    ? "\n- Nesta mensagem há uma imagem do cliente. Use apenas o que estiver visível. Se mostrar um problema técnico, descreva o que aparece. Se ainda faltar o relato, pergunte e espere a próxima mensagem. Se o problema já estiver claro, encaminhe. Não tente resolver."
     : "";
 
   if (

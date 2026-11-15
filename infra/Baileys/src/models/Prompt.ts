@@ -102,6 +102,11 @@ class Prompt extends Model<Prompt> {
   @Column
   idleAlertGroupJid: string;
 
+  /** YYYY-MM-DD em Brasília do último relatório das 18:30 já enviado. */
+  @AllowNull
+  @Column
+  dailyReportSentOn: string;
+
   @Column({ defaultValue: null })
   tipoAgente: string;
 

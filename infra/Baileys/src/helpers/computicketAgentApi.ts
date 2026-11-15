@@ -1,6 +1,6 @@
 import axios from "axios";
 import { logger } from "../utils/logger";
-import { looksLikeFactualQuestion } from "../services/AiServices/aiAgentActions";
+import { AgendaCommand, looksLikeFactualQuestion } from "../services/AiServices/aiAgentActions";
 
 export type AgentContext = {
   draft: string;
@@ -122,9 +122,37 @@ export async function persistHelpdeskSummary(
   }
 }
 
+export async function findTechnicianByPhone(
+  phone: string
+): Promise<{ id: number; name: string } | null> {
+  const { base, token } = computicketApiConfig();
+  if (!token || !phone) return null;
+  try {
+    const res = await axios.post(
+      `${base}/helpdesk/api/internal/agent/technician`,
+      { phone },
+      {
+        headers: { "X-Internal-Token": token },
+        timeout: 8000,
+        validateStatus: () => true
+      }
+    );
+    if (res.status < 200 || res.status >= 300) return null;
+    const technician = res.data?.technician;
+    const id = Number(technician?.id || 0);
+    const name = String(technician?.name || "").trim();
+    if (!id || !name) return null;
+    return { id, name };
+  } catch (err: any) {
+    logger.warn(`findTechnicianByPhone: ${err.message}`);
+    return null;
+  }
+}
+
 export async function createComputicketAppointment(payload: {
-  engine_contact_id: number;
+  engine_contact_id?: number;
   contact_number?: string | null;
+  cliente?: string;
   title: string;
   appointment_date: string;
   tecnico?: string;
@@ -135,8 +163,20 @@ export async function createComputicketAppointment(payload: {
   if (!token) {
     return { ok: false, message: "A agenda está indisponível no momento." };
   }
+  const body: Record<string, unknown> = {
+    title: payload.title,
+    appointment_date: payload.appointment_date
+  };
+  if (payload.engine_contact_id && payload.engine_contact_id > 0) {
+    body.engine_contact_id = payload.engine_contact_id;
+  }
+  if (payload.contact_number) body.contact_number = payload.contact_number;
+  if (payload.cliente) body.cliente = payload.cliente;
+  if (payload.tecnico) body.tecnico = payload.tecnico;
+  if (payload.user_id) body.user_id = payload.user_id;
+  if (payload.description) body.description = payload.description;
   try {
-    const res = await axios.post(`${base}/agenda/api/internal/from-whatsapp`, payload, {
+    const res = await axios.post(`${base}/agenda/api/internal/from-whatsapp`, body, {
       headers: { "X-Internal-Token": token },
       timeout: 20000,
       validateStatus: () => true
@@ -151,4 +191,24 @@ export async function createComputicketAppointment(payload: {
     logger.error(`createComputicketAppointment: ${err.message}`);
     return { ok: false, message: "Não consegui criar o agendamento agora. Pode repetir a data e o técnico?" };
   }
+}
+
+export async function createStaffAppointments(
+  commands: AgendaCommand[],
+  fallback?: { userId?: number; name?: string }
+): Promise<string[]> {
+  const messages: string[] = [];
+  for (const command of commands) {
+    const result = await createComputicketAppointment({
+      title: command.title,
+      appointment_date: command.appointment_date,
+      tecnico: command.tecnico || fallback?.name,
+      user_id: command.user_id || (command.tecnico ? undefined : fallback?.userId),
+      description: command.description,
+      cliente: command.cliente,
+      contact_number: command.contact_number
+    });
+    messages.push(result.message);
+  }
+  return messages;
 }

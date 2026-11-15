@@ -38,6 +38,15 @@ export function getBrazilISODateString(now: Date = new Date()): string {
   return `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
 }
 
+/** Hora de Brasília em minutos desde a meia-noite, junto com a data. */
+export function getBrazilClock(now: Date = new Date()): { date: string; minuteOfDay: number } {
+  const brazil = new Date(now.getTime() - BRASIL_UTC_OFFSET_HOURS * 60 * 60 * 1000);
+  return {
+    date: getBrazilISODateString(now),
+    minuteOfDay: brazil.getUTCHours() * 60 + brazil.getUTCMinutes()
+  };
+}
+
 /** Retorna YYYY-MM-01 (início do mês) no fuso de Brasília. */
 export function getBrazilMonthStartString(now: Date = new Date()): string {
   const ms = now.getTime() - BRASIL_UTC_OFFSET_HOURS * 60 * 60 * 1000;

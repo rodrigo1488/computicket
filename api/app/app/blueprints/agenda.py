@@ -6,10 +6,12 @@ from app.models import User, Client, Service, Ticket, Appointment, ShiftSwap, He
 from app.timezone_utils import get_brasilia_now, brasilia_to_utc, utc_to_brasilia, format_datetime_brasilia
 from app.external_pg import fetch_external_clients
 import json
+import os
+import re
 import smtplib
+import unicodedata
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
-import os
 
 agenda_bp = Blueprint('agenda', __name__, url_prefix='/agenda')
 
@@ -430,6 +432,74 @@ def calendario():
         print(f"❌ Erro na API calendário: {e}")
         return jsonify({'error': str(e)}), 500
 
+def _fold_client_name(value: str) -> str:
+	text = unicodedata.normalize("NFD", value or "")
+	text = "".join(ch for ch in text if unicodedata.category(ch) != "Mn")
+	text = re.sub(r"[^a-z0-9\s]", " ", text.lower())
+	return re.sub(r"\s+", " ", text).strip()
+
+
+def _client_links_by_company():
+	found = {}
+	for link in HelpDeskContactClientLink.query.order_by(HelpDeskContactClientLink.external_client_name.asc()).all():
+		found.setdefault(link.external_client_id, link)
+	return list(found.values())
+
+
+def _link_by_phone(number: str):
+	from ..services.whatsapp_agent import phone_key
+
+	wanted = phone_key(number)
+	if not wanted:
+		return None
+	for link in HelpDeskContactClientLink.query.filter(HelpDeskContactClientLink.contact_number.isnot(None)).all():
+		if phone_key(link.contact_number or "") == wanted:
+			return link
+	return None
+
+
+def _link_by_name(name: str):
+	wanted = _fold_client_name(name)
+	if len(wanted) < 3:
+		return None, "Informe o nome do cliente para eu agendar."
+	clients = _client_links_by_company()
+	exact = [client for client in clients if _fold_client_name(client.external_client_name) == wanted]
+	if len(exact) == 1:
+		return exact[0], None
+	if len(exact) > 1:
+		return None, "Encontrei mais de um cliente com esse nome. Pode repetir o nome completo?"
+	contained = [client for client in clients if wanted in _fold_client_name(client.external_client_name)]
+	if len(contained) == 1:
+		return contained[0], None
+	if len(contained) > 1:
+		return None, "Encontrei mais de um cliente parecido. Pode repetir o nome completo?"
+	first = wanted.split(" ")[0]
+	if len(first) >= 3:
+		by_first = [
+			client for client in clients
+			if _fold_client_name(client.external_client_name).split(" ")[0] == first
+		]
+		if len(by_first) == 1:
+			return by_first[0], None
+		if len(by_first) > 1:
+			return None, "Encontrei mais de um cliente parecido. Pode repetir o nome completo?"
+	return None, "Não encontrei esse cliente vinculado a um WhatsApp. Pode repetir o nome da empresa?"
+
+
+def _resolve_staff_client(data: dict):
+	number = (data.get("contact_number") or data.get("numero") or data.get("telefone") or "").strip()
+	name = (data.get("cliente") or data.get("client_name") or data.get("empresa") or "").strip()
+	if number:
+		link = _link_by_phone(number)
+		if link:
+			return link, None
+	if name:
+		return _link_by_name(name)
+	if number:
+		return None, "Não encontrei um cliente com esse telefone."
+	return None, "Informe o nome do cliente para eu agendar."
+
+
 def _resolve_agenda_technician(user_id=None, name=None):
 	if user_id not in (None, ""):
 		try:
@@ -460,16 +530,21 @@ def create_appointment_from_whatsapp(data: dict) -> tuple[dict, int]:
 		engine_contact_id = int(data.get("engine_contact_id") or 0)
 	except (TypeError, ValueError):
 		engine_contact_id = 0
-	if not title or not raw_date or engine_contact_id <= 0:
+	if not title or not raw_date:
 		return {"ok": False, "error": "Informe título, data e contato."}, 400
 
-	link = HelpDeskContactClientLink.query.filter_by(engine_contact_id=engine_contact_id).first()
-	if not link:
-		return {
-			"ok": False,
-			"code": "client_unlinked",
-			"message": "Não encontrei este WhatsApp vinculado a um cliente. Pode me passar o CNPJ ou o nome da empresa?",
-		}, 422
+	if engine_contact_id > 0:
+		link = HelpDeskContactClientLink.query.filter_by(engine_contact_id=engine_contact_id).first()
+		if not link:
+			return {
+				"ok": False,
+				"code": "client_unlinked",
+				"message": "Não encontrei este WhatsApp vinculado a um cliente. Pode me passar o CNPJ ou o nome da empresa?",
+			}, 422
+	else:
+		link, client_error = _resolve_staff_client(data)
+		if not link:
+			return {"ok": False, "message": client_error}, 422
 
 	technician = _resolve_agenda_technician(data.get("user_id"), data.get("tecnico") or data.get("technician"))
 	if not technician:

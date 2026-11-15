@@ -5,10 +5,38 @@ from flask import Flask
 
 from app import db
 from app.models import KnowledgeArticle, KnowledgeCategory, KnowledgeChunk, User
-from app.services.copilot import CopilotError, answer_question
+from app.services.copilot import CopilotError, answer_assistant, answer_question
 from app.services.config_secrets import decrypt_secret, encrypt_secret
 from app.services.gemini_client import GeminiError
 from app.services.rag import chunk_text, hybrid_search, index_source, sanitize_for_rag
+
+
+class _ToolCall:
+	def __init__(self, name, args):
+		self.name = name
+		self.args = args
+
+
+class _GeminiReply:
+	def __init__(self, text, calls=None):
+		self.text = text
+		self.function_calls = calls or []
+		self.candidates = []
+
+
+class _FakeModels:
+	def __init__(self, replies):
+		self._replies = list(replies)
+		self.configs = []
+
+	def generate_content(self, **kwargs):
+		self.configs.append(kwargs.get("config") or {})
+		return self._replies.pop(0)
+
+
+class _FakeGemini:
+	def __init__(self, replies):
+		self.models = _FakeModels(replies)
 
 
 class RAGServiceTest(unittest.TestCase):
@@ -69,6 +97,42 @@ class RAGServiceTest(unittest.TestCase):
 		self.assertEqual(result["draft"], "Use o artigo RH ID.")
 		self.assertEqual(len(result["sources"]), 1)
 		self.assertEqual(result["sources"][0]["source_id"], 11)
+
+	def test_dashboard_assistant_answers_without_copying_the_base(self):
+		client = _FakeGemini([_GeminiReply("Olha a fila pelos mais antigos e me diz qual cliente está parado.")])
+		with (
+			patch("app.services.copilot.hybrid_search", return_value=[]),
+			patch("app.services.copilot.get_client", return_value=client),
+		):
+			result = answer_assistant("como eu priorizo os atendimentos de hoje?")
+		self.assertNotIn("Não encontrei evidências", result["draft"])
+		self.assertIn("fila", result["draft"])
+		self.assertEqual(result["sources"], [])
+		self.assertIn("tools", client.models.configs[0])
+
+	def test_dashboard_assistant_queries_the_database_before_answering(self):
+		call = _ToolCall("query", {"sql": "SELECT id, status FROM ticket WHERE status = 'aberto'", "database": "computicket"})
+		client = _FakeGemini([
+			_GeminiReply("", [call]),
+			_GeminiReply("Há 2 chamados abertos. O mais antigo é o 18."),
+		])
+		seen = {}
+
+		def dispatch(name, args):
+			seen["name"] = name
+			seen["sql"] = args.get("sql")
+			return '{"rows": [{"id": 18, "status": "aberto"}]}'
+
+		with (
+			patch("app.services.copilot.hybrid_search", return_value=[]),
+			patch("app.services.copilot.get_client", return_value=client),
+			patch("app.services.copilot._dispatch_database_tool", side_effect=dispatch),
+		):
+			result = answer_assistant("quantos chamados estão abertos?")
+		self.assertEqual(seen["name"], "query")
+		self.assertIn("ticket", seen["sql"])
+		self.assertIn("18", result["draft"])
+		self.assertEqual(len(client.models.configs), 2)
 
 	def test_index_keeps_lexical_fallback_and_removes_unpublished(self):
 		user = User(name="Teste", email="teste@example.invalid", password_hash="x")

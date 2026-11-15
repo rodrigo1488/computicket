@@ -45,9 +45,9 @@ from ..models import (
 )
 from ..timezone_utils import brasilia_to_utc, get_brasilia_now
 from ..services.ai_queue import enqueue_ai_job
-from ..services.copilot import CopilotError, answer_question, improve_draft, suggest_reply, suggest_ticket
+from ..services.copilot import CopilotError, answer_assistant, answer_question, improve_draft, suggest_reply, suggest_ticket
 from ..services.conversation_summary import apply_summary_fields
-from ..services.whatsapp_agent import build_agent_context, internal_token_ok
+from ..services.whatsapp_agent import build_agent_context, find_technician_by_phone, internal_token_ok
 
 helpdesk_bp = Blueprint("helpdesk", __name__, url_prefix="/helpdesk")
 
@@ -1299,8 +1299,10 @@ def ai_query():
     def run():
         if conversation_id:
             history = _conversation_ai_context(conversation_id)[0]
-        else:
-            history = session_history
+            return answer_question(question, history)
+        history = session_history
+        if request.path.rstrip("/").endswith("/chat"):
+            return answer_assistant(question, history)
         return answer_question(question, history)
 
     operation = "chat" if request.path.rstrip("/").endswith("/chat") else "query"
@@ -2961,6 +2963,14 @@ def internal_agent_context():
         payload.get("history") or "",
         include_knowledge=True if include_knowledge is None else bool(include_knowledge),
     ))
+
+
+@helpdesk_bp.route("/api/internal/agent/technician", methods=["POST"])
+def internal_agent_technician():
+    if not internal_token_ok():
+        return jsonify({"error": "Não autorizado"}), 401
+    payload = request.get_json(silent=True) or {}
+    return jsonify({"technician": find_technician_by_phone(payload.get("phone") or "")})
 
 
 @helpdesk_bp.route("/api/ai-agents")

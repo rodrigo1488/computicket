@@ -16,8 +16,10 @@ import {
   parseAgendaCommands,
   parseRecommendedQueueName,
   parseUserTransferName,
+  shouldDeferCustomerTransfer,
   shouldForceKnowledgeHandoff,
-  splitCustomerAndInternalNote
+  splitCustomerAndInternalNote,
+  withoutTransferPromise
 } from "./aiAgentActions";
 
 export type PromptReplyChannel = "whatsapp" | "agent_panel";
@@ -154,7 +156,14 @@ export const processPromptAiReplyActions = async (
   const splitReply = splitCustomerAndInternalNote(response || "");
   let cleanedResponse = splitReply.customer;
   let transferredFromNote = false;
-  if (splitReply.internalNote && execute) {
+  const deferTransfer = shouldDeferCustomerTransfer({
+    userText: knowledge?.userText || "",
+    customerReply: cleanedResponse
+  });
+  if (deferTransfer) {
+    logger.info(`Ticket ${ticket.id} permanece com o agente até a próxima mensagem do cliente`);
+  }
+  if (splitReply.internalNote && execute && !deferTransfer) {
     const recommendedQueue = parseRecommendedQueueName(splitReply.internalNote);
     const wantedQueue = (recommendedQueue || "").toLowerCase();
     const exactQueue = availableQueues.find(queue => queue.name.toLowerCase() === wantedQueue);
@@ -378,17 +387,19 @@ export const processPromptAiReplyActions = async (
 
   if (response?.includes("Ação: Transferir para o setor de atendimento")) {
     if (!prompt.canTransferToAgent) {
-      pendingActions.push({ type: "transfer_wait_only" });
-      if (execute && channel === "whatsapp" && sendWhatsAppToCustomer) {
-        const company = await Company.findByPk(ticket.companyId);
-        const language = company?.language || "pt";
-        const waitMessage = {
-          pt: "Aguarde que algum de nossos atendentes já irá lhe atender.",
-          en: "Please wait, one of our attendants will assist you shortly.",
-          es: "Por favor espere, uno de nuestros atendentes le atenderá en breve."
-        };
-        const messageText = waitMessage[language as keyof typeof waitMessage] || waitMessage.pt;
-        await sendWhatsAppToCustomer(messageText);
+      if (!deferTransfer) {
+        pendingActions.push({ type: "transfer_wait_only" });
+        if (execute && channel === "whatsapp" && sendWhatsAppToCustomer) {
+          const company = await Company.findByPk(ticket.companyId);
+          const language = company?.language || "pt";
+          const waitMessage = {
+            pt: "Aguarde que algum de nossos atendentes já irá lhe atender.",
+            en: "Please wait, one of our attendants will assist you shortly.",
+            es: "Por favor espere, uno de nuestros atendentes le atenderá en breve."
+          };
+          const messageText = waitMessage[language as keyof typeof waitMessage] || waitMessage.pt;
+          await sendWhatsAppToCustomer(messageText);
+        }
       }
       cleanedResponse = cleanedResponse
         .replace(/Ação: Transferir para o setor de atendimento\s*\[Fila:[^\]]+\]/gi, "")
@@ -420,22 +431,23 @@ export const processPromptAiReplyActions = async (
         }
       }
 
-      pendingActions.push({
-        type: "transfer_queue",
-        queueId: targetQueueId,
-        queueName: targetQueueName
-      });
-
-      if (execute && targetQueueId) {
-        await writeTransferSummary(`fila ${targetQueueName || targetQueueId}`);
-        await UpdateTicketService({
-          ticketData: { queueId: targetQueueId },
-          ticketId: ticket.id,
-          companyId: ticket.companyId
+      if (!deferTransfer) {
+        pendingActions.push({
+          type: "transfer_queue",
+          queueId: targetQueueId,
+          queueName: targetQueueName
         });
-        logger.info(`Ticket ${ticket.id} transferido para fila ${targetQueueId} (${targetQueueName})`);
-      } else if (execute && !targetQueueId) {
-        logger.error(`Nenhuma fila disponível para transferência do ticket ${ticket.id}`);
+        if (execute && targetQueueId) {
+          await writeTransferSummary(`fila ${targetQueueName || targetQueueId}`);
+          await UpdateTicketService({
+            ticketData: { queueId: targetQueueId },
+            ticketId: ticket.id,
+            companyId: ticket.companyId
+          });
+          logger.info(`Ticket ${ticket.id} transferido para fila ${targetQueueId} (${targetQueueName})`);
+        } else if (execute && !targetQueueId) {
+          logger.error(`Nenhuma fila disponível para transferência do ticket ${ticket.id}`);
+        }
       }
 
       cleanedResponse = cleanedResponse
@@ -448,25 +460,27 @@ export const processPromptAiReplyActions = async (
   const requestedUserName = parseUserTransferName(response || "");
   if (requestedUserName !== null && prompt.canTransferToUser) {
     const matchedUser = matchPersonByName(availableUsers, requestedUserName || "");
-    pendingActions.push({
-      type: "transfer_user",
-      userId: matchedUser?.id || null,
-      userName: matchedUser?.name || requestedUserName || null
-    });
-    if (execute && matchedUser) {
-      await writeTransferSummary(`atendente ${matchedUser.name}`);
-      await UpdateTicketService({
-        ticketData: {
-          queueId: ticket.queueId,
-          userId: matchedUser.id,
-          status: "open"
-        },
-        ticketId: ticket.id,
-        companyId: ticket.companyId
+    if (!deferTransfer) {
+      pendingActions.push({
+        type: "transfer_user",
+        userId: matchedUser?.id || null,
+        userName: matchedUser?.name || requestedUserName || null
       });
-      logger.info(`Ticket ${ticket.id} transferido para o usuário ${matchedUser.id} (${matchedUser.name})`);
-    } else if (execute && requestedUserName) {
-      logger.warn(`Atendente informado pela IA não encontrado: "${requestedUserName}"`);
+      if (execute && matchedUser) {
+        await writeTransferSummary(`atendente ${matchedUser.name}`);
+        await UpdateTicketService({
+          ticketData: {
+            queueId: ticket.queueId,
+            userId: matchedUser.id,
+            status: "open"
+          },
+          ticketId: ticket.id,
+          companyId: ticket.companyId
+        });
+        logger.info(`Ticket ${ticket.id} transferido para o usuário ${matchedUser.id} (${matchedUser.name})`);
+      } else if (execute && requestedUserName) {
+        logger.warn(`Atendente informado pela IA não encontrado: "${requestedUserName}"`);
+      }
     }
     cleanedResponse = cleanedResponse
       .replace(/Ação:\s*Transferir para o atendente\s*\[Usuário:[^\]]+\]/gi, "")
@@ -492,7 +506,8 @@ export const processPromptAiReplyActions = async (
       hasEvidence: !!knowledge.hasEvidence,
       userText: knowledge.userText || "",
       alreadyTransferring,
-      alreadyScheduling
+      alreadyScheduling,
+      waitingForCustomer: deferTransfer
     })
   ) {
     const fallbackQueueId = prompt.fallbackQueueId || prompt.transferQueueId || prompt.queueId || null;
@@ -545,6 +560,13 @@ export const processPromptAiReplyActions = async (
   if (!cleanedResponse.trim() && strippedAnyInternal) {
     logger.warn(`Resposta limpa vazia após remover mensagens internas.`);
     cleanedResponse = "Entendi sua solicitação. Estou verificando e em breve retorno com mais informações.";
+  }
+
+  if (deferTransfer) {
+    cleanedResponse = withoutTransferPromise(cleanedResponse);
+    if (!cleanedResponse.trim()) {
+      cleanedResponse = "Pode me contar o que aconteceu?";
+    }
   }
 
   return { cleanedResponse, pendingActions };

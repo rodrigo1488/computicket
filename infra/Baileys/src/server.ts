@@ -19,6 +19,7 @@ import {
 } from "./utils/dbUnavailable";
 import runMinuteCronJobs from "./services/MinuteCronJobsService";
 import AlertStaleConversationsService from "./services/AiServices/AlertStaleConversationsService";
+import DailyConversationReportService from "./services/AiServices/DailyConversationReportService";
 import {
   isWhatsAppEnabled,
   isBullWorkersEnabled,
@@ -113,6 +114,12 @@ const server = listenHost
 // Jobs por minuto unificados (transferência, lembretes, pedidos, impressão)
 cron.schedule("* * * * *", async () => {
   await runMinuteCronJobs();
+  try {
+    await DailyConversationReportService();
+  } catch (error: any) {
+    if (isDbUnavailableError(error)) logCronDbUnavailable("DailyConversationReport");
+    else logger.error("DailyConversationReport:", error);
+  }
 });
 
 cron.schedule("*/5 * * * * *", async () => {

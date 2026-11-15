@@ -1,7 +1,10 @@
 """Serviço de geração assistida com contexto RAG."""
 from __future__ import annotations
 
+import importlib
 import json
+import sys
+from pathlib import Path
 from typing import Any
 
 from .gemini_client import GeminiConfigError, generation_model, get_client
@@ -52,7 +55,12 @@ def _filter_cited_sources(sources: list[dict], cited: Any) -> list[dict]:
 	return picked or sources
 
 
-def _generate(contents: str, system: str, schema: dict[str, Any]) -> dict[str, Any]:
+def _generate(
+	contents: str,
+	system: str,
+	schema: dict[str, Any],
+	temperature: float = 0.25,
+) -> dict[str, Any]:
 	try:
 		response = get_client().models.generate_content(
 			model=generation_model(),
@@ -61,7 +69,7 @@ def _generate(contents: str, system: str, schema: dict[str, Any]) -> dict[str, A
 				"system_instruction": system,
 				"response_mime_type": "application/json",
 				"response_json_schema": schema,
-				"temperature": 0.25,
+				"temperature": temperature,
 			},
 		)
 	except GeminiConfigError as exc:
@@ -124,6 +132,258 @@ def answer_question(question: str, history: str = "") -> dict:
 		"draft": str(data.get("draft") or "").strip(),
 		"sources": _filter_cited_sources(sources, data.get("cited")),
 	}
+
+
+_ASSISTANT_SCHEMA = {
+	"type": "object",
+	"properties": {
+		"draft": {"type": "string"},
+		"cited": {"type": "array", "items": {"type": "integer"}},
+	},
+	"required": ["draft", "cited"],
+}
+
+
+def _cited_sources(sources: list[dict], cited: Any) -> list[dict]:
+	"""Fontes que o assistente declarou ter usado. Lista vazia não puxa o restante."""
+	if not isinstance(cited, list) or not cited:
+		return []
+	return _filter_cited_sources(sources, cited)
+
+
+_DB_TOOL_ROUNDS = 3
+_DB_RESULT_CHARS = 12000
+
+_DB_TOOLS = [
+	{
+		"function_declarations": [
+			{
+				"name": "list_tables",
+				"description": "Lista tabelas do Postgres. database: computicket (aplicação) ou whatsapp.",
+				"parameters": {
+					"type": "OBJECT",
+					"properties": {
+						"database": {"type": "STRING", "description": "computicket ou whatsapp"},
+						"schema": {"type": "STRING", "description": "Padrão public"},
+					},
+				},
+			},
+			{
+				"name": "describe_table",
+				"description": "Mostra colunas, chave primária e chaves estrangeiras de uma tabela.",
+				"parameters": {
+					"type": "OBJECT",
+					"properties": {
+						"table": {"type": "STRING"},
+						"database": {"type": "STRING", "description": "computicket ou whatsapp"},
+						"schema": {"type": "STRING"},
+					},
+					"required": ["table"],
+				},
+			},
+			{
+				"name": "find_columns",
+				"description": "Procura colunas pelo nome para saber em qual tabela um campo está.",
+				"parameters": {
+					"type": "OBJECT",
+					"properties": {
+						"term": {"type": "STRING"},
+						"database": {"type": "STRING", "description": "computicket ou whatsapp"},
+					},
+					"required": ["term"],
+				},
+			},
+			{
+				"name": "query",
+				"description": (
+					"Executa uma consulta somente leitura (SELECT, WITH, EXPLAIN, SHOW ou TABLE). "
+					"Senha, token, hash e embedding voltam redigidos."
+				),
+				"parameters": {
+					"type": "OBJECT",
+					"properties": {
+						"sql": {"type": "STRING"},
+						"database": {"type": "STRING", "description": "computicket ou whatsapp"},
+						"limit": {"type": "INTEGER", "description": "Máximo de linhas, até 200"},
+					},
+					"required": ["sql"],
+				},
+			},
+		]
+	}
+]
+
+_ASSISTANT_SYSTEM = (
+	"Você é o assistente da equipe Computicket no dashboard. "
+	"Converse como um colega técnico, em português do Brasil, e responda à última fala. "
+	"Quando a resposta depender de um fato da operação — chamado, cliente, agenda, conversa, "
+	"orçamento, estoque, cofre — consulte o banco com as ferramentas antes de afirmar. "
+	"Não invente número de chamado, valor, nome de cliente, senha ou procedimento interno. "
+	"Se a consulta não achar a linha ou falhar, diga isso e continue ajudando. "
+	"Senha, token e hash já vêm redigidos; não tente revelá-los. "
+	"Se a fonte for do cofre, indique a máquina ou o cliente e oriente abrir o Cofre. "
+	"O material interno é apoio, não um roteiro: não copie trechos nem comece com 'segundo o artigo'. "
+	"Se a pergunta não precisa do banco, responda direto. Seja direto, em parágrafos curtos."
+)
+
+
+def _database_module():
+	here = Path(__file__).resolve()
+	folders = [
+		here.parents[4] / "mcp" / "computicket_db",
+		here.parents[2] / "computicket_db",
+	]
+	for folder in folders:
+		if not (folder / "dbtools.py").exists():
+			continue
+		folder_text = str(folder)
+		if folder_text not in sys.path:
+			sys.path.insert(0, folder_text)
+		return importlib.import_module("dbtools")
+	raise CopilotError("Consulta ao banco não está disponível neste ambiente.", "db_tools", 503)
+
+
+def _dispatch_database_tool(name: str, args: dict) -> str:
+	try:
+		result = _database_module().dispatch(name, args)
+	except CopilotError as exc:
+		result = json.dumps({"error": str(exc)}, ensure_ascii=False)
+	except Exception as exc:  # noqa: BLE001
+		result = json.dumps({"error": str(exc)[:500]}, ensure_ascii=False)
+	if len(result) > _DB_RESULT_CHARS:
+		return result[:_DB_RESULT_CHARS] + "… [truncado]"
+	return result
+
+
+def _tool_args(call) -> dict:
+	raw = getattr(call, "args", None) or {}
+	if isinstance(raw, dict):
+		return raw
+	try:
+		return dict(raw)
+	except (TypeError, ValueError):
+		return {}
+
+
+def _function_calls(response) -> list:
+	calls = getattr(response, "function_calls", None)
+	if calls:
+		return list(calls)
+	found = []
+	for candidate in getattr(response, "candidates", None) or []:
+		content = getattr(candidate, "content", None)
+		for part in getattr(content, "parts", None) or []:
+			call = getattr(part, "function_call", None)
+			if call is not None and getattr(call, "name", None):
+				found.append(call)
+	return found
+
+
+def _assistant_text(response) -> str:
+	try:
+		text = getattr(response, "text", None)
+		if text:
+			return str(text).strip()
+	except Exception:
+		pass
+	chunks: list[str] = []
+	for candidate in getattr(response, "candidates", None) or []:
+		content = getattr(candidate, "content", None)
+		for part in getattr(content, "parts", None) or []:
+			part_text = getattr(part, "text", None)
+			if part_text:
+				chunks.append(str(part_text))
+	return "".join(chunks).strip()
+
+
+def _draft_from_text(text: str) -> str:
+	stripped = (text or "").strip()
+	if stripped.startswith("{"):
+		try:
+			data = json.loads(stripped)
+		except json.JSONDecodeError:
+			return stripped
+		if isinstance(data, dict) and str(data.get("draft") or "").strip():
+			return str(data["draft"]).strip()
+	return stripped
+
+
+def _model_content(response, text: str):
+	candidates = getattr(response, "candidates", None) or []
+	if candidates:
+		content = getattr(candidates[0], "content", None)
+		if content is not None:
+			return content
+	return {"role": "model", "parts": [{"text": text}]}
+
+
+def _function_payload(raw: str) -> dict:
+	try:
+		data = json.loads(raw)
+	except json.JSONDecodeError:
+		return {"result": raw}
+	if isinstance(data, dict):
+		return data
+	return {"result": data}
+
+
+def answer_assistant(question: str, history: str = "") -> dict:
+	"""Conversa do dashboard. Consulta o Postgres quando o fato é da operação."""
+	question = _trim(question, MAX_INPUT_CHARS)
+	history = _trim(history, MAX_HISTORY_CHARS)
+	if not question:
+		raise CopilotError("Informe um texto para o assistente.", "validation", 400)
+	sources = hybrid_search(f"{question} {history[-3000:]}".strip())
+	material = _source_context(sources) if sources else "(nada relevante na base interna)"
+	prompt = f"PEDIDO:\n{question}\n\nCONVERSA:\n{history or '(início)'}\n\nMATERIAL INTERNO:\n{material}"
+	try:
+		draft = _converse_with_database(prompt)
+	except CopilotError as exc:
+		if exc.code != "gemini_error":
+			raise
+		data = _generate(prompt, _ASSISTANT_SYSTEM, _ASSISTANT_SCHEMA, temperature=0.6)
+		draft = str(data.get("draft") or "").strip()
+		if not draft:
+			raise
+		return {"draft": draft, "sources": _cited_sources(sources, data.get("cited"))}
+	if not draft:
+		raise CopilotError("O assistente não devolveu uma resposta.", "invalid_response")
+	return {"draft": draft, "sources": []}
+
+
+def _converse_with_database(prompt: str) -> str:
+	contents: list[Any] = [{"role": "user", "parts": [{"text": prompt}]}]
+	client = get_client()
+	for round_index in range(_DB_TOOL_ROUNDS + 1):
+		config: dict[str, Any] = {
+			"system_instruction": _ASSISTANT_SYSTEM,
+			"temperature": 0.4,
+			"automatic_function_calling": {"disable": True},
+		}
+		if round_index < _DB_TOOL_ROUNDS:
+			config["tools"] = _DB_TOOLS
+		try:
+			response = client.models.generate_content(
+				model=generation_model(),
+				contents=contents,
+				config=config,
+			)
+		except GeminiConfigError as exc:
+			raise CopilotError(str(exc), "gemini_config", 503) from exc
+		except Exception as exc:
+			raise CopilotError(f"Falha ao consultar o Gemini: {exc}") from exc
+		calls = _function_calls(response)
+		text = _assistant_text(response)
+		if not calls or round_index >= _DB_TOOL_ROUNDS:
+			return _draft_from_text(text)
+		contents.append(_model_content(response, text))
+		parts = []
+		for call in calls:
+			name = str(getattr(call, "name", "") or "")
+			raw = _dispatch_database_tool(name, _tool_args(call))
+			parts.append({"function_response": {"name": name, "response": _function_payload(raw)}})
+		contents.append({"role": "user", "parts": parts})
+	return ""
 
 
 def suggest_reply(instruction: str, history: str) -> dict:

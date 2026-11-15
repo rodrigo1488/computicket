@@ -627,7 +627,7 @@ export const helpdesk = {
       question,
       ...(conversationId ? { conversation_id: conversationId } : {}),
     }),
-  /** Chat RAG do dashboard: histórico curto da sessão + knowledge_chunk. */
+  /** Chat do dashboard: conversa com apoio da base, não uma resposta pronta do RAG. */
   aiChat: (
     question: string,
     history?: { role: "user" | "assistant"; content: string }[],

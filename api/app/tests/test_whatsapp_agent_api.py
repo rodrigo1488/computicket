@@ -146,3 +146,92 @@ class WhatsappAgentApiTest(unittest.TestCase):
 		self.assertEqual(appointment.client_id, 55)
 		self.assertEqual(appointment.user_id, self.user_id)
 		self.assertEqual(appointment.title, "Visita")
+
+	@patch("app.blueprints.agenda.notify_appointment_whatsapp", return_value={})
+	@patch("app.blueprints.agenda.enviar_email_confirmacao", return_value=False)
+	@patch("app.notification_service.create_notifications")
+	def test_agenda_creates_visit_named_by_staff(self, _notify, _email, _whatsapp):
+		db.session.add(
+			HelpDeskContactClientLink(
+				engine_contact_id=8,
+				contact_number="5511988880000",
+				external_client_id=56,
+				external_client_name="Padaria Central",
+			)
+		)
+		db.session.commit()
+		response = self.client.post(
+			"/agenda/api/internal/from-whatsapp",
+			json={
+				"title": "Visita",
+				"appointment_date": "2026-11-04T14:00:00",
+				"cliente": "Padaria",
+				"tecnico": "Ana Técnica",
+			},
+			headers=self.headers,
+		)
+		self.assertEqual(response.status_code, 201, response.get_data(as_text=True))
+		self.assertEqual(Appointment.query.one().client_id, 56)
+
+	@patch("app.blueprints.agenda.notify_appointment_whatsapp", return_value={})
+	@patch("app.blueprints.agenda.enviar_email_confirmacao", return_value=False)
+	@patch("app.notification_service.create_notifications")
+	def test_agenda_refuses_ambiguous_client_name(self, _notify, _email, _whatsapp):
+		db.session.add_all([
+			HelpDeskContactClientLink(
+				engine_contact_id=8,
+				external_client_id=56,
+				external_client_name="Padaria Central",
+			),
+			HelpDeskContactClientLink(
+				engine_contact_id=9,
+				external_client_id=57,
+				external_client_name="Padaria do Bairro",
+			),
+		])
+		db.session.commit()
+		response = self.client.post(
+			"/agenda/api/internal/from-whatsapp",
+			json={
+				"title": "Visita",
+				"appointment_date": "2026-11-04T14:00:00",
+				"cliente": "Padaria",
+				"tecnico": "Ana Técnica",
+			},
+			headers=self.headers,
+		)
+		self.assertEqual(response.status_code, 422, response.get_data(as_text=True))
+		self.assertEqual(Appointment.query.count(), 0)
+
+	def test_technician_phone_identifies_active_staff(self):
+		tech = db.session.get(User, self.user_id)
+		tech.phone = "(11) 98888-7777"
+		db.session.add(
+			User(
+				name="Consulta",
+				email="consulta@example.invalid",
+				password_hash=generate_password_hash("secret12"),
+				role="viewer",
+				status="1",
+				phone="11977776666",
+			)
+		)
+		db.session.commit()
+		found = self.client.post(
+			"/helpdesk/api/internal/agent/technician",
+			json={"phone": "5511988887777"},
+			headers=self.headers,
+		)
+		self.assertEqual(found.status_code, 200, found.get_data(as_text=True))
+		self.assertEqual(found.get_json()["technician"]["name"], "Ana Técnica")
+		viewer = self.client.post(
+			"/helpdesk/api/internal/agent/technician",
+			json={"phone": "11977776666"},
+			headers=self.headers,
+		)
+		self.assertIsNone(viewer.get_json()["technician"])
+		denied = self.client.post(
+			"/helpdesk/api/internal/agent/technician",
+			json={"phone": "5511988887777"},
+		)
+		self.assertEqual(denied.status_code, 401)

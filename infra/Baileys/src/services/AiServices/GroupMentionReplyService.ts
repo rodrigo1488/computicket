@@ -1,6 +1,6 @@
 import { logger } from "../../utils/logger";
 import { getLmStudioDefaultModel } from "../../config/openai";
-import { loadAgentContext } from "../../helpers/computicketAgentApi";
+import { createStaffAppointments, loadAgentContext } from "../../helpers/computicketAgentApi";
 import ShowWhatsAppService from "../WhatsappService/ShowWhatsAppService";
 import { AIProviderSelector } from "./AIProviderSelector";
 import { normalizeGroupJid } from "../PromptServices/promptAgentFields";
@@ -9,11 +9,21 @@ import {
   conversationTurns,
   formatAgentContext,
   groupMessageAddressesAgent,
+  attendanceCustomerName,
+  looksLikeAppointmentRequest,
+  looksLikeAttendanceClosure,
   looksLikeFactualQuestion,
+  looksLikeOpenChatNotice,
+  looksLikeStaffOperation,
   noticeTextFromMention,
+  parseAgendaCommands,
+  parseOpenChatNotices,
   sanitizeCustomerReply,
-  signAgentMessage
+  signAgentMessage,
+  staffGroupActionInstructions
 } from "./aiAgentActions";
+import { closeGroupAttendance } from "./CloseGroupAttendanceService";
+import { deliverOpenChatNotice } from "./OpenChatNoticeService";
 import {
   clearTemporaryContexts,
   rememberTemporaryContext,
@@ -79,24 +89,33 @@ const replyToMention = async (input: {
       .join("\n");
     const context = await loadAgentContext(input.prompt, userText, historyText);
     const factual = looksLikeFactualQuestion(latest.body);
+    const closingAttendance = looksLikeAttendanceClosure(latest.body);
+    const operational = looksLikeStaffOperation(`${historyText}\n${latest.body}`) || closingAttendance;
     const noticeBlock = await temporaryNoticeBlock(input.companyId, input.prompt.id);
     const provider = await AIProviderSelector.getProvider(
       input.companyId,
       "chat",
       input.prompt.provider
     );
-    const decisionRaw = await provider.chat(
-      [
-        { role: "system", content: temporaryNoticeInstruction() },
-        { role: "user", content: latest.body }
-      ],
-      {
-        model: input.prompt.model || getLmStudioDefaultModel(),
-        maxTokens: 256,
-        temperature: 0
-      }
-    );
-    const decision = temporaryNoticeReply(typeof decisionRaw === "string" ? decisionRaw : "");
+    let decision: { action: "guardar" | "encerrar" | "responder"; text: string; days: number } = {
+      action: "responder",
+      text: "",
+      days: 0
+    };
+    if (!operational) {
+      const decisionRaw = await provider.chat(
+        [
+          { role: "system", content: temporaryNoticeInstruction() },
+          { role: "user", content: latest.body }
+        ],
+        {
+          model: input.prompt.model || getLmStudioDefaultModel(),
+          maxTokens: 256,
+          temperature: 0
+        }
+      );
+      decision = temporaryNoticeReply(typeof decisionRaw === "string" ? decisionRaw : "");
+    }
     let text = "";
     if (decision.action === "guardar") {
       const stated = noticeTextFromMention(latest.body, [input.prompt.name]);
@@ -118,7 +137,20 @@ const replyToMention = async (input: {
       text = cleared
         ? `Encerrei o aviso sobre ${decision.text}.`
         : "Não encontrei um aviso ativo sobre isso.";
-    } else if (factual && !context.has_evidence && !noticeBlock) {
+    } else if (closingAttendance) {
+      const customerName = attendanceCustomerName(
+        latest.body,
+        history.filter(line => line.fromAgent).map(line => line.body),
+        [input.prompt.name]
+      );
+      text = input.wbot.id
+        ? await closeGroupAttendance({
+            companyId: input.companyId,
+            whatsappId: input.wbot.id,
+            customerName
+          })
+        : "Qual cliente eu encerro?";
+    } else if (factual && !operational && !context.has_evidence && !noticeBlock) {
       text = HANDOFF;
     } else {
       const messages = [
@@ -128,11 +160,16 @@ const replyToMention = async (input: {
             `Você é ${input.prompt.name || "o agente"}. Alguém citou você no grupo de WhatsApp.\n${input.prompt.prompt || ""}` +
             formatAgentContext(context) +
             noticeBlock +
+            staffGroupActionInstructions({
+              canSchedule: !!input.prompt.permitirCriarAgendamentos,
+              technicians: (context.technicians || []).map(person => person.name || "")
+            }) +
             `\n\nNESTA FALA DE GRUPO:
 - Responda à pessoa que citou você, em frases completas.
-- Não transfira, não mude fila e não escreva ação, JSON ou nota interna.
+- Não transfira, não mude fila e não escreva nota interna.
 - Não tente solucionar problema técnico e não invente.
 - Sem fonte para uma pergunta factual, diga apenas que uma pessoa da equipe vai ver.
+- Pedido de agendamento ou de aviso nos chats abertos usa só os blocos indicados.
 - Não escreva seu nome no início. A assinatura é colocada automaticamente.`
         },
         ...conversationTurns(
@@ -149,7 +186,27 @@ const replyToMention = async (input: {
         maxTokens: completionTokenBudget(input.prompt.provider, input.prompt.maxTokens, messages),
         temperature: input.prompt.temperature
       });
-      text = sanitizeCustomerReply(typeof response === "string" ? response : "");
+      const raw = typeof response === "string" ? response : "";
+      const recent = `${historyText}\n${latest.body}`;
+      const results: string[] = [];
+      if (input.prompt.permitirCriarAgendamentos && looksLikeAppointmentRequest(recent)) {
+        const agenda = parseAgendaCommands(raw);
+        if (agenda.length) results.push(...(await createStaffAppointments(agenda)));
+      }
+      if (input.wbot.id && looksLikeOpenChatNotice(recent)) {
+        for (const notice of parseOpenChatNotices(raw)) {
+          results.push(
+            await deliverOpenChatNotice({
+              companyId: input.companyId,
+              whatsappId: input.wbot.id,
+              target: notice.target,
+              text: notice.text,
+              agentName: input.prompt.name
+            })
+          );
+        }
+      }
+      text = [sanitizeCustomerReply(raw), ...results].filter(Boolean).join("\n\n");
       if (!text && factual) text = HANDOFF;
     }
     const signed = signAgentMessage(text, input.prompt.name);

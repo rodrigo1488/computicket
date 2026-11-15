@@ -17,9 +17,9 @@ type ChatMessage = {
 };
 
 const SUGGESTIONS = [
-  "Qual a senha/AnyDesk da máquina do cliente X? (abrir no cofre)",
+  "O que está travando os atendimentos de hoje?",
+  "Como explico ao cliente que a nota não saiu, sem prometer prazo?",
   "Há orçamento aberto para o cliente Y?",
-  "Resuma o ticket mais recente sobre impressora",
 ];
 
 function sourceHref(source: HelpdeskAiSource) {
@@ -218,7 +218,7 @@ export function DashboardAiChat() {
                   Assistente IA
                 </p>
                 <p className="mt-0.5 text-xs text-muted">
-                  Respostas com base nos artigos do conhecimento, tickets, orçamentos e cofre.
+                  Conversa com a equipe e consulta o banco quando o fato é da operação.
                 </p>
               </div>
               <div className="flex items-center gap-1">
@@ -251,7 +251,7 @@ export function DashboardAiChat() {
                   </div>
                   <p className="text-sm font-semibold text-navy">Como posso ajudar?</p>
                   <p className="mt-1 max-w-xs text-xs text-muted">
-                    Pergunte sobre procedimentos, clientes, SLA ou artigos do conhecimento.
+                    Pode pedir uma análise, um texto para o cliente ou um dado da operação.
                   </p>
                   <div className="mt-4 flex w-full flex-col gap-2">
                     {SUGGESTIONS.map((item) => (
@@ -294,7 +294,7 @@ export function DashboardAiChat() {
                     <div className="flex justify-start">
                       <div className="inline-flex items-center gap-2 rounded-2xl border border-[#e5ebf5] bg-surface px-3.5 py-2.5 text-xs text-muted shadow-sm">
                         <LoaderCircle className="h-3.5 w-3.5 animate-spin text-brand" />
-                        Consultando a base de conhecimento…
+                        Pensando…
                       </div>
                     </div>
                   ) : null}

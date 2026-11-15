@@ -4,6 +4,13 @@ export type AgendaCommand = {
   tecnico?: string;
   user_id?: number;
   description?: string;
+  cliente?: string;
+  contact_number?: string;
+};
+
+export type OpenChatNotice = {
+  target: string;
+  text: string;
 };
 
 const FACTUAL_QUESTION =
@@ -11,6 +18,76 @@ const FACTUAL_QUESTION =
 
 export function looksLikeFactualQuestion(text: string): boolean {
   return FACTUAL_QUESTION.test((text || "").trim());
+}
+
+const GREETING_WORDS = new Set([
+  "oi", "ola", "hey", "opa", "e", "ai", "bom", "dia", "boa", "tarde", "noite",
+  "tudo", "bem", "td"
+]);
+
+/** Cumprimento ou confirmação curta, ainda sem um pedido. */
+export function messageIsOnlyGreeting(text: string): boolean {
+  const value = foldName(text);
+  if (!value) return true;
+  const words = value.split(" ").filter(Boolean);
+  if (!words.length || words.length > 4) return false;
+  return words.every(word => GREETING_WORDS.has(word));
+}
+
+export function customerAskedForPerson(text: string): boolean {
+  return /\b(?:falar com (?:um |uma )?(?:atendente|humano|pessoa|gente)|quero (?:falar com )?(?:um |uma )?(?:atendente|humano)|me (?:transfere|passa para|chama))\b/i.test(
+    text || ""
+  );
+}
+
+const PROBLEM_SIGNAL =
+  /\b(?:erro|erros|falha|falhou|travou|travando|parou|caiu|lento|bug|problema|problemas|sistema|nota|notas|impressora|impressao|quebrou|acesso|senha|boleto|emissao|emite|emitir)\b|\bn[aã]o\b/i;
+
+/** Mensagem curta que ainda não descreve um problema. */
+export function messageLacksProblem(text: string): boolean {
+  const value = (text || "").trim();
+  if (!value) return true;
+  if (PROBLEM_SIGNAL.test(value)) return false;
+  return foldName(value).split(" ").filter(Boolean).length <= 8;
+}
+
+/** A resposta ainda espera a próxima mensagem do cliente. */
+export function replyAsksTheCustomer(text: string): boolean {
+  const body = (text || "").trim();
+  if (!body) return false;
+  if (body.includes("?")) return true;
+  return /\b(?:me (?:conta|conte|diz|diga|fala|fale|informa|informe)|pode (?:me )?dizer|o que aconteceu)\b/i.test(body);
+}
+
+const CONFIRMATION = /^(?:sim|ok|certo|entendi|pode|isso|isso mesmo|foi isso|so isso|beleza|blz|valeu|obrigado|obrigada)$/;
+
+/** Resposta curta à pergunta anterior. Essa fala já é a próxima interação. */
+export function messageIsConfirmation(text: string): boolean {
+  return CONFIRMATION.test(foldName(text));
+}
+
+/**
+ * Não transfere neste turno quando o cliente ainda não pediu atendimento
+ * ou a resposta faz uma pergunta e precisa esperar a próxima fala.
+ */
+export function shouldDeferCustomerTransfer(input: {
+  userText: string;
+  customerReply: string;
+}): boolean {
+  const userText = input.userText || "";
+  const customerReply = input.customerReply || "";
+  if (customerAskedForPerson(userText)) return false;
+  if (replyAsksTheCustomer(customerReply)) return true;
+  if (looksLikeFactualQuestion(userText)) return false;
+  if (messageIsConfirmation(userText)) return false;
+  return messageIsOnlyGreeting(userText) || messageLacksProblem(userText);
+}
+
+export function withoutTransferPromise(text: string): string {
+  return (text || "")
+    .replace(/[^.?\n]*\b(?:vou|iremos|vamos)\s+(?:te\s+|lhe\s+|você\s+)?(?:encaminhar|transferir|direcionar)\b[^.?\n]*[.!]?\s*/gi, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }
 
 export function foldName(value: string): string {
@@ -167,12 +244,16 @@ export function parseAgendaCommands(response: string): AgendaCommand[] {
       if (!title || !appointmentDate) continue;
       const tecnico = String(data?.tecnico || data?.profissional || "").trim();
       const description = String(data?.description || data?.descricao || "").trim();
+      const cliente = String(data?.cliente || data?.client || data?.client_name || data?.empresa || "").trim();
+      const contactNumber = String(data?.contact_number || data?.numero || data?.telefone || "").replace(/\D/g, "");
       const userId = Number(data?.user_id || data?.userId || 0);
       commands.push({
         title,
         appointment_date: appointmentDate,
         tecnico: tecnico || undefined,
         description: description || undefined,
+        cliente: cliente || undefined,
+        contact_number: contactNumber.length >= 10 ? contactNumber : undefined,
         user_id: Number.isFinite(userId) && userId > 0 ? userId : undefined
       });
     } catch {
@@ -182,13 +263,288 @@ export function parseAgendaCommands(response: string): AgendaCommand[] {
   return commands;
 }
 
+const APPOINTMENT_REQUEST =
+  /\b(?:agende|agendar|agendamento|agendamentos|agenda|marcar\s+(?:uma\s+)?(?:visita|hor[aá]rio|compromisso)|colocar\s+na\s+agenda|coloca\s+na\s+agenda)\b/i;
+
+const OPEN_CHAT_NOTICE =
+  /\b(?:avisa|avise|avisar|avisem|comunica|comunique|comunicar|manda|mande|mandar|envia|envie|enviar|fala|fale|falar)\b[\s\S]{0,80}\b(?:chat|chats|atendimento|atendimentos|cliente|clientes|conversa|conversas)\b|\b(?:chats?|atendimentos?|conversas?)\s+abert[oa]s?\b/i;
+
+/** Pedido de visita, para o grupo ou para o WhatsApp de um técnico. */
+export function looksLikeAppointmentRequest(text: string): boolean {
+  return APPOINTMENT_REQUEST.test(text || "");
+}
+
+/** Pedido do grupo para escrever em chats que já estão em atendimento. */
+export function looksLikeOpenChatNotice(text: string): boolean {
+  return OPEN_CHAT_NOTICE.test(text || "");
+}
+
+export function looksLikeStaffOperation(text: string): boolean {
+  return looksLikeAppointmentRequest(text) || looksLikeOpenChatNotice(text);
+}
+
+const ATTENDANCE_CLOSURE =
+  /\b(?:conclu[ií]d[oa]|conclu[ií]mos|concluir|encerre|encerrou|encerrado|encerrar|encerramos|finaliz\w*|resolvid[oa]|pode fechar|fechar o atendimento|j[aá]\s+(?:foi\s+)?atendid[oa]|foi atendid[oa])\b/i;
+
+const NAME_SKIP = new Set(["da", "do", "de", "das", "dos", "a", "o", "os", "as", "um", "uma", "e"]);
+const NAME_BREAK = new Set([
+  "foi", "esta", "estao", "ja", "pode", "podem", "ser", "ter", "que", "com", "para", "por",
+  "pelo", "pela", "esse", "essa", "este", "atendimento", "atendimentos", "cliente", "clientes",
+  "conversa", "chamado", "concluido", "concluida", "obrigado", "obrigada", "parado", "parada"
+]);
+
+/** A equipe avisou que o atendimento de um cliente acabou, não que um aviso temporário expirou. */
+export function looksLikeAttendanceClosure(text: string): boolean {
+  const body = text || "";
+  if (!ATTENDANCE_CLOSURE.test(body)) return false;
+  if (/\bavisos?\b/i.test(body) && !/\batendimentos?\b/i.test(body)) return false;
+  return /\b(?:atendimento|atendimentos|conversa|conversas|chamado|chamados|cliente|clientes)\b/i.test(body);
+}
+
+function readPersonName(fragment: string, ignored: Set<string>): string {
+  const words = (fragment || "").replace(/[.…,;:!?]+/g, " ").split(/\s+/).filter(Boolean);
+  const kept: string[] = [];
+  for (const word of words) {
+    const folded = foldName(word);
+    if (!folded || NAME_SKIP.has(folded)) continue;
+    if (folded.length < 2 || NAME_BREAK.has(folded) || ignored.has(folded)) {
+      if (kept.length) break;
+      continue;
+    }
+    kept.push(word.replace(/^[^\p{L}]+|[^\p{L}'-]+$/gu, ""));
+    if (kept.length === 3) break;
+  }
+  return kept.filter(Boolean).join(" ");
+}
+
+/** Nome do cliente na fala ou no resumo de contexto mais recente do grupo. */
+export function attendanceCustomerName(
+  message: string,
+  agentLines: string[] = [],
+  ignoredNames: Array<string | null | undefined> = []
+): string {
+  const ignored = new Set(
+    ignoredNames.map(name => foldName(name || "")).filter(name => name.length >= 3)
+  );
+  const sources = [message, ...[...agentLines].reverse()];
+  for (const source of sources) {
+    const named =
+      (source || "").match(/(?:atendimento|conversa|chamado)\s+d[aeo]s?\s+(.+)/i) ||
+      (source || "").match(/\bcliente\s+(.+)/i);
+    if (!named) continue;
+    const name = readPersonName(named[1], ignored);
+    if (name) return name;
+  }
+  for (const source of [...agentLines].reverse()) {
+    const stripped = (source || "").replace(/^\*?resumo do contexto\*?\s*/i, "");
+    const name = readPersonName(stripped, ignored);
+    if (name) return name;
+  }
+  return "";
+}
+
+const ALL_OPEN_CHATS = new Set([
+  "abertos",
+  "aberto",
+  "todos",
+  "todas",
+  "todos os chats",
+  "todos os chats abertos",
+  "chats abertos",
+  "chat aberto",
+  "atendimentos abertos",
+  "conversas abertas"
+]);
+
+export function openChatNoticeReachesAll(target: string): boolean {
+  return ALL_OPEN_CHATS.has(foldName(target));
+}
+
+export function parseOpenChatNotices(response: string): OpenChatNotice[] {
+  const notices: OpenChatNotice[] = [];
+  const regex = /\[AVISAR\]([\s\S]*?)\[\/AVISAR\]/gi;
+  let match: RegExpExecArray | null;
+  while ((match = regex.exec(response || "")) !== null) {
+    try {
+      const data = JSON.parse(match[1].trim());
+      const text = String(data?.texto || data?.text || data?.mensagem || "").replace(/\s+/g, " ").trim().slice(0, 1000);
+      const target = String(data?.destino || data?.target || "").replace(/\s+/g, " ").trim().slice(0, 120);
+      if (text.length < 2 || !target) continue;
+      notices.push({ target, text });
+    } catch {
+      continue;
+    }
+  }
+  return notices;
+}
+
+export function selectOpenChats<T extends { name?: string | null; number?: string | null }>(
+  chats: T[],
+  target: string
+): { matches: T[]; ambiguous: boolean } {
+  if (openChatNoticeReachesAll(target)) return { matches: chats, ambiguous: false };
+  const wanted = foldName(target);
+  if (!wanted) return { matches: [], ambiguous: false };
+  const exact = chats.filter(chat => foldName(chat.name || "") === wanted);
+  if (exact.length === 1) return { matches: exact, ambiguous: false };
+  if (exact.length > 1) return { matches: [], ambiguous: true };
+  const first = wanted.split(" ")[0];
+  if (first.length >= 3) {
+    const byFirst = chats.filter(chat => foldName(chat.name || "").split(" ")[0] === first);
+    if (byFirst.length === 1) return { matches: byFirst, ambiguous: false };
+    if (byFirst.length > 1) return { matches: [], ambiguous: true };
+    const contained = chats.filter(chat => foldName(chat.name || "").includes(wanted));
+    if (contained.length === 1) return { matches: contained, ambiguous: false };
+    if (contained.length > 1) return { matches: [], ambiguous: true };
+  }
+  const digits = (target || "").replace(/\D/g, "");
+  const key = digits.startsWith("55") && digits.length > 11 ? digits.slice(2) : digits;
+  if (key.length >= 10) {
+    const tail = key.slice(-11);
+    const byPhone = chats.filter(chat => {
+      const phone = (chat.number || "").replace(/\D/g, "");
+      const phoneKey = phone.startsWith("55") && phone.length > 11 ? phone.slice(2) : phone;
+      return phoneKey.length >= 10 && phoneKey.slice(-11) === tail;
+    });
+    if (byPhone.length === 1) return { matches: byPhone, ambiguous: false };
+    if (byPhone.length > 1) return { matches: [], ambiguous: true };
+  }
+  return { matches: [], ambiguous: false };
+}
+
+export function staffGroupActionInstructions(input: {
+  canSchedule: boolean;
+  technicians: string[];
+}): string {
+  const people = input.technicians.map(name => name.trim()).filter(Boolean).join(", ") || "(nenhum)";
+  let text = `\n\nAÇÕES DA EQUIPE NESTE GRUPO:
+- Use um bloco só quando a mensagem pedir a ação.
+- Para avisar chats abertos: [AVISAR]{"destino":"abertos","texto":"texto pedido pela equipe"}[/AVISAR]
+- Para avisar um cliente que já está em atendimento, coloque o nome dele em destino.
+- Não invente o texto do aviso e não use o bloco numa pergunta comum.`;
+  if (input.canSchedule) {
+    text += `
+- Técnicos da agenda: ${people}.
+- Para criar uma visita: [AGENDA]{"title":"Título","appointment_date":"YYYY-MM-DDTHH:mm:ss","tecnico":"Nome completo","cliente":"Nome da empresa","description":"Detalhe"}[/AGENDA]
+- Sem cliente, data, horário e técnico, pergunte e não inclua o bloco. Não diga que a visita foi marcada sem o bloco.`;
+  }
+  return text;
+}
+
+export function staffAppointmentInstructions(technicians: string[], requesterName: string): string {
+  const people = technicians.map(name => name.trim()).filter(Boolean).join(", ") || requesterName;
+  return `Quem pediu é o técnico ${requesterName}, pelo WhatsApp vinculado a ele.
+Técnicos da agenda: ${people}.
+Se o técnico não for dito, use ${requesterName}.
+Inclua [AGENDA]{"title":"Título","appointment_date":"YYYY-MM-DDTHH:mm:ss","tecnico":"Nome","cliente":"Nome da empresa","description":"Detalhe"}[/AGENDA] só quando cliente, data e horário estiverem claros.
+Se faltar algo, pergunte só o que falta. Não diga que marcou sem o bloco. Não avise outros chats.`;
+}
+
+/** Relatório diário: da 18:30 até antes das 19:30, uma vez por dia. */
+export function shouldSendDailyReport(input: {
+  date: string;
+  minuteOfDay: number;
+  sentOn?: string | null;
+}): boolean {
+  if (!input.date || input.sentOn === input.date) return false;
+  const minute = Number(input.minuteOfDay);
+  if (!Number.isFinite(minute)) return false;
+  return minute >= 18 * 60 + 30 && minute < 19 * 60 + 30;
+}
+
+export type DailyReportFacts = {
+  dateLabel: string;
+  pending: { name: string; status: string; assignee: string; wait: string }[];
+  hiddenPending: number;
+  dayCount: number;
+  closedCount: number;
+  samples: string[];
+};
+
+export function formatDailyReportFacts(facts: DailyReportFacts): string {
+  const listed = facts.pending.length
+    ? facts.pending
+        .map(item => {
+          const assignee = item.assignee || "sem responsável";
+          return `- ${item.name} (${item.status}, ${assignee}). ${item.wait}`;
+        })
+        .join("\n")
+    : "- Nenhuma.";
+  const extra = facts.hiddenPending > 0 ? `\n- E mais ${facts.hiddenPending} atendimento(s).` : "";
+  const samples = facts.samples.length
+    ? facts.samples.map(line => `- ${line}`).join("\n")
+    : "- Sem fala de cliente hoje.";
+  return [
+    `Data: ${facts.dateLabel}`,
+    `Conversas com mensagem hoje: ${facts.dayCount}`,
+    `Encerradas entre elas: ${facts.closedCount}`,
+    `Pendências agora: ${facts.pending.length + facts.hiddenPending}`,
+    "",
+    "Pendências:",
+    `${listed}${extra}`,
+    "",
+    "Últimas falas de clientes hoje:",
+    samples
+  ].join("\n");
+}
+
+export function formatDailyReportFallback(facts: DailyReportFacts): string {
+  const totalPending = facts.pending.length + facts.hiddenPending;
+  const lines = ["*Relatório das 18:30*", facts.dateLabel, "", "*Pendências*"];
+  if (!totalPending) {
+    lines.push("Não há atendimento pendente.");
+  } else {
+    for (const item of facts.pending) {
+      const assignee = item.assignee || "ninguém";
+      lines.push(`- ${item.name}: ${item.status}, responsável ${assignee}. ${item.wait}`);
+    }
+    if (facts.hiddenPending > 0) lines.push(`- E mais ${facts.hiddenPending}.`);
+  }
+  lines.push("", "*Conversas do dia*");
+  if (!facts.dayCount) {
+    lines.push("Não houve conversa hoje.");
+  } else {
+    lines.push(`${facts.dayCount} conversa(s) com mensagem hoje. ${facts.closedCount} já encerrada(s).`);
+    if (facts.samples.length) {
+      lines.push("Alguns assuntos ditos pelos clientes:");
+      for (const sample of facts.samples.slice(0, 8)) lines.push(`- ${sample}`);
+    }
+  }
+  return lines.join("\n");
+}
+
+export function dailyReportInstruction(): string {
+  return `Escreva o relatório das 18:30 para o grupo interno.
+Use somente o material. Não invente nome, número, problema ou volume.
+Duas partes, nesta ordem:
+*Pendências*
+Quem ainda está em atendimento, o responsável e o que ficou em aberto. Se não houver, diga que não há pendência.
+*Conversas do dia*
+O volume, o que se repetiu nas falas e o que já foi encerrado. Agrupe. Não liste todos se forem muitos.
+Frases curtas. Sem JSON e sem saudação.`;
+}
+
+export function dailyReportLooksUsable(text: string): boolean {
+  const body = (text || "").trim();
+  return body.length >= 40 && /pend[eê]n/i.test(body) && /convers/i.test(body);
+}
+
+export function withDailyReportHeading(text: string, dateLabel: string): string {
+  const body = (text || "").trim();
+  if (!body) return "";
+  if (/relat[oó]rio das 18:30/i.test(body) || (dateLabel && body.includes(dateLabel))) return body;
+  return `*Relatório das 18:30*\n${dateLabel}\n\n${body}`;
+}
+
 export function shouldForceKnowledgeHandoff(input: {
   answerFromKnowledge: boolean;
   hasEvidence: boolean;
   userText: string;
   alreadyTransferring: boolean;
   alreadyScheduling: boolean;
+  waitingForCustomer?: boolean;
 }): boolean {
+  if (input.waitingForCustomer) return false;
   if (!input.answerFromKnowledge || input.hasEvidence) return false;
   if (input.alreadyTransferring || input.alreadyScheduling) return false;
   return looksLikeFactualQuestion(input.userText);
@@ -341,22 +697,24 @@ export function stripInternalCitations(text: string): string {
 export function sanitizeCustomerReply(text: string): string {
   let value = splitCustomerAndInternalNote(text).customer;
   value = stripInternalCitations(value);
-  value = value.replace(/\[(?:AGENDA|AGENDAR|INTERNA)\][\s\S]*$/gi, "");
+  value = value.replace(/\[(?:AGENDA|AGENDAR|INTERNA|AVISAR)\][\s\S]*?\[\/(?:AGENDA|AGENDAR|INTERNA|AVISAR)\]/gi, "");
+  value = value.replace(/\[(?:AGENDA|AGENDAR|INTERNA|AVISAR)\][\s\S]*$/gi, "");
   value = value.replace(/Ação:\s*Transferir[\s\S]*$/gi, "");
-  value = value.replace(/\{\s*"(?:title|action|appointment_date|tecnico|profissional)"[\s\S]*$/gi, "");
+  value = value.replace(/\{\s*"(?:title|action|appointment_date|tecnico|profissional|cliente|destino)"[\s\S]*$/gi, "");
   const lines = value.split("\n").filter(line => !/^\s*[{}\[\],]+\s*$/.test(line));
   return lines.join("\n").replace(/\n{3,}/g, "\n\n").trim();
 }
 
 export const TRANSFER_RULES = `ENCAMINHAMENTO:
-- Nunca tente solucionar problema técnico. Reconheça o relato e transfira.
-- Nunca invente informações.
-- Não faça perguntas desnecessárias e não peça o que o cliente já disse.
+- Se o cliente só cumprimentou ou ainda não contou o problema, pergunte o que aconteceu e espere a próxima mensagem. Não transfira nesse turno.
+- Se precisar de um dado que ele ainda não disse, faça uma pergunta e espere. Não transfira na mesma resposta em que houver pergunta.
+- Quando o problema já estiver contado, reconheça e transfira. Não tente resolver problema técnico.
+- Se ele pedir para falar com uma pessoa, transfira nesta resposta.
+- Não faça mais de uma pergunta e não peça o que ele já disse.
 - Não prometa prazo de atendimento.
-- Se não identificar o setor, transfira para atendimento humano.
-- Não conte ao cliente a triagem, o setor interno nem o conteúdo da nota.
-- Ao cliente, diga apenas que vai encaminhar para um atendente.
+- Ao transferir, diga apenas que vai encaminhar para um atendente.
 - Para transferir, use somente: Ação: Transferir para o setor de atendimento [Fila: Nome da Fila]
+- Não escreva essa ação enquanto ainda estiver esperando a resposta dele.
 A nota interna é gravada pela plataforma. Não escreva mensagem interna na resposta.`;
 
 export type TransferBrief = {

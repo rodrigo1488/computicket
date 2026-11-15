@@ -2,11 +2,35 @@
 from __future__ import annotations
 
 import os
+import re
 
 from flask import request
 
 from ..models import HelpDeskAgentMap, User
 from .copilot import CopilotError, answer_question
+
+
+def phone_key(value: str) -> str:
+	digits = re.sub(r"\D", "", value or "")
+	if digits.startswith("55") and len(digits) > 11:
+		digits = digits[2:]
+	if len(digits) < 10:
+		return ""
+	return digits[-11:]
+
+
+def find_technician_by_phone(phone: str) -> dict | None:
+	wanted = phone_key(phone)
+	if not wanted:
+		return None
+	staff_roles = {"tecnico", "admin", "administrador", "administrator"}
+	for user in User.query.filter(User.status == "1", User.phone.isnot(None)).all():
+		role = (user.role or "tecnico").strip().lower()
+		if role not in staff_roles:
+			continue
+		if phone_key(user.phone or "") == wanted:
+			return {"id": user.id, "name": user.name}
+	return None
 
 
 def internal_token_ok() -> bool:

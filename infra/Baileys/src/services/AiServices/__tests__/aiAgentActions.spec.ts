@@ -10,20 +10,32 @@ import {
   formatTemporaryNotices,
   noticeTextFromMention,
   groupMessageAddressesAgent,
+  attendanceCustomerName,
+  looksLikeAppointmentRequest,
+  looksLikeAttendanceClosure,
+  looksLikeOpenChatNotice,
   noticeSubjectMatches,
   parseTemporaryNotice,
   temporaryNoticeExpiry,
   matchPersonByName,
   parseAgendaCommands,
+  parseOpenChatNotices,
   parseUserTransferName,
+  formatDailyReportFallback,
+  dailyReportLooksUsable,
+  shouldSendDailyReport,
+  withDailyReportHeading,
   formatTransferNote,
   parseRecommendedQueueName,
   sanitizeCustomerReply,
+  selectOpenChats,
+  shouldDeferCustomerTransfer,
   shouldForceKnowledgeHandoff,
   signAgentMessage,
   splitCustomerAndInternalNote,
   splitWhatsAppText
 } from "../aiAgentActions";
+import { getBrazilClock } from "../../../helpers/BrazilTimezone";
 
 describe("ações do agente de WhatsApp", () => {
   it("reconhece nome, número e menção do WhatsApp vinculado", () => {
@@ -118,10 +130,80 @@ describe("ações do agente de WhatsApp", () => {
         appointment_date: "2026-11-04T14:00:00",
         tecnico: "Ana",
         description: "Troca de nobreak",
+        cliente: undefined,
+        contact_number: undefined,
         user_id: undefined
       }
     ]);
     expect(parseAgendaCommands("[AGENDA]nao-json[/AGENDA]")).toEqual([]);
+  });
+
+  it("entende que o atendimento do cliente foi concluído", () => {
+    const said = "O atendimento da Carol foi concluído junior... obrigado";
+    const summary =
+      "A cliente Carol está com o atendimento parado há 30 minutos. Ela informou que seguiu as recomendações enviadas. Responsável: Rodrigo Gomes.";
+    expect(looksLikeAttendanceClosure(said)).toBe(true);
+    expect(looksLikeAttendanceClosure("pode esquecer o aviso, a SEFAZ voltou")).toBe(false);
+    expect(attendanceCustomerName(said, [summary], ["junior"])).toBe("Carol");
+    expect(attendanceCustomerName("pode encerrar esse atendimento", [summary], ["junior"])).toBe("Carol");
+  });
+
+  it("entende pedido de visita e aviso para chats abertos", () => {
+    expect(looksLikeAppointmentRequest("Soraia, agenda a Padaria amanhã às 14h")).toBe(true);
+    expect(looksLikeAppointmentRequest("qual o horário de atendimento?")).toBe(false);
+    expect(looksLikeOpenChatNotice("avisa os chats abertos que a SEFAZ voltou")).toBe(true);
+    expect(looksLikeOpenChatNotice("a SEFAZ voltou")).toBe(false);
+    const notices = parseOpenChatNotices(
+      'Certo. [AVISAR]{"destino":"Padaria","texto":"O técnico está a caminho."}[/AVISAR]'
+    );
+    expect(notices).toEqual([{ target: "Padaria", text: "O técnico está a caminho." }]);
+    expect(parseOpenChatNotices("[AVISAR]{}[/AVISAR]")).toEqual([]);
+    const chats = [
+      { name: "Padaria Central", number: "5511988880000" },
+      { name: "Mercado Silva", number: "5511977770000" }
+    ];
+    expect(selectOpenChats(chats, "abertos").matches).toHaveLength(2);
+    expect(selectOpenChats(chats, "Padaria").matches[0].name).toBe("Padaria Central");
+    expect(selectOpenChats(chats, "11977770000").matches[0].name).toBe("Mercado Silva");
+    expect(selectOpenChats(
+      [{ name: "Ana Costa" }, { name: "Ana Souza" }],
+      "Ana"
+    ).ambiguous).toBe(true);
+    expect(sanitizeCustomerReply('Vou avisar. [AVISAR]{"destino":"abertos","texto":"oi"}[/AVISAR]')).toBe(
+      "Vou avisar."
+    );
+  });
+
+  it("monta o relatório das 18:30 só dentro da janela e sem repetir o dia", () => {
+    const clock = getBrazilClock(new Date("2026-11-15T21:30:00.000Z"));
+    expect(clock).toEqual({ date: "2026-11-15", minuteOfDay: 18 * 60 + 30 });
+    expect(shouldSendDailyReport({ date: clock.date, minuteOfDay: clock.minuteOfDay, sentOn: null })).toBe(true);
+    expect(shouldSendDailyReport({
+      date: clock.date,
+      minuteOfDay: getBrazilClock(new Date("2026-11-15T21:29:00.000Z")).minuteOfDay,
+      sentOn: null
+    })).toBe(false);
+    expect(shouldSendDailyReport({
+      date: clock.date,
+      minuteOfDay: getBrazilClock(new Date("2026-11-15T22:30:00.000Z")).minuteOfDay,
+      sentOn: null
+    })).toBe(false);
+    expect(shouldSendDailyReport({ date: clock.date, minuteOfDay: clock.minuteOfDay, sentOn: clock.date })).toBe(false);
+
+    const report = formatDailyReportFallback({
+      dateLabel: "15/11/2026",
+      pending: [{ name: "Padaria Central", status: "na fila", assignee: "", wait: "Última mensagem há 2 h." }],
+      hiddenPending: 0,
+      dayCount: 4,
+      closedCount: 2,
+      samples: ["Padaria Central: a nota não sai"]
+    });
+    expect(report).toContain("*Pendências*");
+    expect(report).toContain("Padaria Central");
+    expect(report).toContain("responsável ninguém");
+    expect(report).toContain("4 conversa(s)");
+    expect(dailyReportLooksUsable("*Pendências*\nNinguém esperando.\n*Conversas do dia*\nDuas conversas sobre nota.")).toBe(true);
+    expect(withDailyReportHeading("*Pendências*\nNada.\n*Conversas do dia*\nCalmo.", "15/11/2026")).toContain("15/11/2026");
   });
 
   it("transfere pergunta factual quando a base não tem fonte", () => {
@@ -152,6 +234,47 @@ describe("ações do agente de WhatsApp", () => {
         alreadyScheduling: false
       })
     ).toBe(false);
+    expect(
+      shouldForceKnowledgeHandoff({
+        answerFromKnowledge: true,
+        hasEvidence: false,
+        userText: "Qual o horário de atendimento?",
+        alreadyTransferring: false,
+        alreadyScheduling: false,
+        waitingForCustomer: true
+      })
+    ).toBe(false);
+  });
+
+  it("segura a transferência enquanto o cliente ainda não concluiu a fala", () => {
+    expect(shouldDeferCustomerTransfer({
+      userText: "Oi, bom dia",
+      customerReply: "Vou encaminhar você para um atendente."
+    })).toBe(true);
+    expect(shouldDeferCustomerTransfer({
+      userText: "preciso de ajuda",
+      customerReply: "Certo, vou transferir."
+    })).toBe(true);
+    expect(shouldDeferCustomerTransfer({
+      userText: "o caixa não abre",
+      customerReply: "Qual sistema apresenta isso?"
+    })).toBe(true);
+    expect(shouldDeferCustomerTransfer({
+      userText: "o caixa não abre",
+      customerReply: "Vou encaminhar para um atendente."
+    })).toBe(false);
+    expect(shouldDeferCustomerTransfer({
+      userText: "sim",
+      customerReply: "Vou encaminhar para um atendente."
+    })).toBe(false);
+    expect(shouldDeferCustomerTransfer({
+      userText: "quero falar com um atendente",
+      customerReply: "Pode me contar o que aconteceu?"
+    })).toBe(false);
+    expect(shouldDeferCustomerTransfer({
+      userText: "Qual o horário de atendimento?",
+      customerReply: "Vou encaminhar para um atendente."
+    })).toBe(false);
   });
 });
 

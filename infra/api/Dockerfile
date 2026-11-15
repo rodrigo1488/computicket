@@ -23,6 +23,9 @@ RUN pip install --no-cache-dir -r /tmp/requirements.txt \
 # Código: api/app contém o pacote Flask (app/) + templates/static
 COPY api/app/ /app/
 
+# Consultas do assistente do dashboard (o Gemini não acessa o MCP do Cursor).
+COPY mcp/computicket_db/guard.py mcp/computicket_db/dbtools.py /app/computicket_db/
+
 # run.py na raiz da imagem
 COPY api/run.py /app/run.py
 
