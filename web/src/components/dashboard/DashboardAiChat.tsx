@@ -1,6 +1,6 @@
 "use client";
 
-import { Bot, LoaderCircle, MessageCircle, Send, Sparkles, X } from "lucide-react";
+import { Bot, ImagePlus, LoaderCircle, MessageCircle, Send, Sparkles, X } from "lucide-react";
 import { Link } from "@/components/tabs/navigation";
 import { useEffect, useRef, useState } from "react";
 import { helpdesk, type HelpdeskAiSource } from "@/lib/helpdesk";
@@ -12,15 +12,41 @@ type ChatMessage = {
   id: string;
   role: ChatRole;
   content: string;
+  imageUrl?: string;
   sources?: HelpdeskAiSource[];
   error?: boolean;
+};
+
+type ChatAttachment = {
+  dataUrl: string;
+  name: string;
 };
 
 const SUGGESTIONS = [
   "O que está travando os atendimentos de hoje?",
   "Como explico ao cliente que a nota não saiu, sem prometer prazo?",
-  "Há orçamento aberto para o cliente Y?",
+  "Agende uma visita para o cliente amanhã às 14h",
 ];
+
+const IMAGE_TYPES = ["image/png", "image/jpeg", "image/webp", "image/gif"];
+const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
+
+function readImage(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    if (!IMAGE_TYPES.includes(file.type)) {
+      reject(new Error("Envie uma imagem PNG, JPEG ou WebP."));
+      return;
+    }
+    if (file.size > MAX_IMAGE_BYTES) {
+      reject(new Error("A imagem passa de 4 MB."));
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(new Error("Não consegui ler a imagem."));
+    reader.readAsDataURL(file);
+  });
+}
 
 function sourceHref(source: HelpdeskAiSource) {
   const explicit = source.href || source.url;
@@ -105,10 +131,13 @@ function Sources({ sources }: { sources: HelpdeskAiSource[] }) {
 export function DashboardAiChat() {
   const [open, setOpen] = useState(false);
   const [input, setInput] = useState("");
+  const [attachment, setAttachment] = useState<ChatAttachment | null>(null);
+  const [attachError, setAttachError] = useState("");
   const [pending, setPending] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const listRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -131,14 +160,27 @@ export function DashboardAiChat() {
     el.scrollTop = el.scrollHeight;
   }, [messages, pending, open]);
 
+  async function attachFile(file: File | undefined) {
+    if (!file || pending) return;
+    try {
+      const dataUrl = await readImage(file);
+      setAttachment({ dataUrl, name: file.name || "print" });
+      setAttachError("");
+    } catch (err) {
+      setAttachError(err instanceof Error ? err.message : "Não consegui ler a imagem.");
+    }
+  }
+
   async function send(questionRaw?: string) {
     const question = (questionRaw ?? input).trim();
-    if (!question || pending) return;
+    const image = questionRaw ? undefined : attachment?.dataUrl;
+    if ((!question && !image) || pending) return;
 
     const userMsg: ChatMessage = {
       id: `u-${Date.now()}`,
       role: "user",
-      content: question,
+      content: question || "Print enviado",
+      imageUrl: image,
     };
     const history = [...messages, userMsg]
       .filter((m) => !m.error)
@@ -147,12 +189,15 @@ export function DashboardAiChat() {
 
     setMessages((prev) => [...prev, userMsg]);
     setInput("");
+    setAttachment(null);
+    setAttachError("");
     setPending(true);
 
     try {
       const result = await helpdesk.aiChat(
         question,
         history.slice(0, -1).length ? history.slice(0, -1) : undefined,
+        image,
       );
       setMessages((prev) => [
         ...prev,
@@ -186,6 +231,8 @@ export function DashboardAiChat() {
     if (pending) return;
     setMessages([]);
     setInput("");
+    setAttachment(null);
+    setAttachError("");
   }
 
   return (
@@ -218,7 +265,7 @@ export function DashboardAiChat() {
                   Assistente IA
                 </p>
                 <p className="mt-0.5 text-xs text-muted">
-                  Conversa com a equipe e consulta o banco quando o fato é da operação.
+                  Agenda visita, consulta a operação e guarda problema com solução no conhecimento.
                 </p>
               </div>
               <div className="flex items-center gap-1">
@@ -251,7 +298,7 @@ export function DashboardAiChat() {
                   </div>
                   <p className="text-sm font-semibold text-navy">Como posso ajudar?</p>
                   <p className="mt-1 max-w-xs text-xs text-muted">
-                    Pode pedir uma análise, um texto para o cliente ou um dado da operação.
+                    Pode pedir uma visita, colar um print do erro ou mandar o problema junto com a solução.
                   </p>
                   <div className="mt-4 flex w-full flex-col gap-2">
                     {SUGGESTIONS.map((item) => (
@@ -283,6 +330,13 @@ export function DashboardAiChat() {
                               : "border border-[#e5ebf5] bg-surface text-ink",
                         )}
                       >
+                        {msg.imageUrl ? (
+                          <img
+                            src={msg.imageUrl}
+                            alt="Print enviado"
+                            className="mb-2 max-h-40 rounded-lg border border-white/20"
+                          />
+                        ) : null}
                         <p className="whitespace-pre-wrap">{msg.content}</p>
                         {msg.role === "assistant" && msg.sources?.length ? (
                           <Sources sources={msg.sources} />
@@ -303,6 +357,21 @@ export function DashboardAiChat() {
             </div>
 
             <footer className="border-t border-line bg-surface p-3">
+              {attachment ? (
+                <div className="mb-2 flex items-center gap-2 rounded-xl border border-line bg-canvas p-2">
+                  <img src={attachment.dataUrl} alt="" className="h-12 w-12 rounded-lg object-cover" />
+                  <p className="min-w-0 flex-1 truncate text-xs text-ink">{attachment.name}</p>
+                  <button
+                    type="button"
+                    onClick={() => setAttachment(null)}
+                    className="rounded-md p-1 text-muted hover:bg-surface hover:text-ink"
+                    aria-label="Remover print"
+                    disabled={pending}
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              ) : null}
               <form
                 className="flex items-end gap-2"
                 onSubmit={(e) => {
@@ -310,10 +379,38 @@ export function DashboardAiChat() {
                   void send();
                 }}
               >
+                <input
+                  ref={fileRef}
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp,image/gif"
+                  className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    e.target.value = "";
+                    void attachFile(file);
+                  }}
+                />
+                <button
+                  type="button"
+                  onClick={() => fileRef.current?.click()}
+                  disabled={pending}
+                  className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-line text-muted hover:text-ink disabled:opacity-40"
+                  aria-label="Anexar print"
+                >
+                  <ImagePlus className="h-4 w-4" />
+                </button>
                 <textarea
                   ref={inputRef}
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
+                  onPaste={(e) => {
+                    const file = Array.from(e.clipboardData.files).find((item) =>
+                      item.type.startsWith("image/"),
+                    );
+                    if (!file) return;
+                    e.preventDefault();
+                    void attachFile(file);
+                  }}
                   onKeyDown={(e) => {
                     if (e.key === "Enter" && !e.shiftKey) {
                       e.preventDefault();
@@ -322,20 +419,21 @@ export function DashboardAiChat() {
                   }}
                   rows={2}
                   disabled={pending}
-                  placeholder="Pergunte sobre procedimentos, clientes…"
+                  placeholder="Mensagem, print ou erro com a solução…"
                   className="max-h-28 flex-1 resize-none rounded-xl border border-line bg-canvas px-3 py-2 text-sm outline-none focus:border-brand disabled:opacity-60"
                 />
                 <button
                   type="submit"
-                  disabled={pending || !input.trim()}
+                  disabled={pending || (!input.trim() && !attachment)}
                   className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-brand text-white disabled:opacity-40"
                   aria-label="Enviar pergunta"
                 >
                   {pending ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
                 </button>
               </form>
+              {attachError ? <p className="mt-2 text-[10px] text-open">{attachError}</p> : null}
               <p className="mt-2 text-[10px] text-muted">
-                Conteúdo gerado por IA com RAG. Revise antes de usar com clientes.
+                Cole um print do erro. A solução só entra no conhecimento quando você também contar como resolveu.
               </p>
             </footer>
           </aside>

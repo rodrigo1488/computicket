@@ -14,6 +14,9 @@ import {
   looksLikeAppointmentRequest,
   looksLikeAttendanceClosure,
   looksLikeOpenChatNotice,
+  quotedLooksLikeIdleAlert,
+  replyClosesQuotedAlert,
+  replyTargetsAgent,
   noticeSubjectMatches,
   parseTemporaryNotice,
   temporaryNoticeExpiry,
@@ -146,6 +149,16 @@ describe("ações do agente de WhatsApp", () => {
     expect(looksLikeAttendanceClosure("pode esquecer o aviso, a SEFAZ voltou")).toBe(false);
     expect(attendanceCustomerName(said, [summary], ["junior"])).toBe("Carol");
     expect(attendanceCustomerName("pode encerrar esse atendimento", [summary], ["junior"])).toBe("Carol");
+  });
+
+  it("interpreta a resposta citada ao alerta que o agente enviou", () => {
+    const summary = "*JUNIOR*\n*Resumo do contexto*\nA cliente Carol está com o atendimento parado há 30 minutos.";
+    expect(replyTargetsAgent({ quotedBody: summary, names: ["junior"] })).toBe(true);
+    expect(replyTargetsAgent({ quotedBody: "Rogério: vou ver isso", names: ["junior"] })).toBe(false);
+    expect(replyClosesQuotedAlert(summary, "concluído, obrigado")).toBe(true);
+    expect(replyClosesQuotedAlert(summary, "qual o horário?")).toBe(false);
+    expect(attendanceCustomerName("concluído, obrigado", [summary], ["junior"])).toBe("Carol");
+    expect(quotedLooksLikeIdleAlert("A SEFAZ está fora hoje")).toBe(false);
   });
 
   it("entende pedido de visita e aviso para chats abertos", () => {

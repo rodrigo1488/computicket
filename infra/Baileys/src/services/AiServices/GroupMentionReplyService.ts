@@ -15,6 +15,9 @@ import {
   looksLikeFactualQuestion,
   looksLikeOpenChatNotice,
   looksLikeStaffOperation,
+  quotedLooksLikeIdleAlert,
+  replyClosesQuotedAlert,
+  replyTargetsAgent,
   noticeTextFromMention,
   parseAgendaCommands,
   parseOpenChatNotices,
@@ -36,7 +39,7 @@ const MAX_LINES = 12;
 const WAIT_MS = 500;
 const HANDOFF = "Uma pessoa da equipe vai ver isso.";
 
-type TrackLine = { fromAgent: boolean; sender: string; body: string };
+type TrackLine = { fromAgent: boolean; sender: string; body: string; quotedAgentBody?: string };
 type ReplySocket = {
   id?: number;
   sendMessage: (jid: string, content: { text: string }) => Promise<unknown>;
@@ -59,6 +62,8 @@ export type LinkedGroupObservation = {
   phoneJids: string[];
   messageId: string;
   isReaction: boolean;
+  quotedBody?: string;
+  quotedParticipant?: string;
 };
 
 const rememberAnswered = (messageId: string): void => {
@@ -83,14 +88,21 @@ const replyToMention = async (input: {
   if (!latest || latest.fromAgent) return;
   try {
     const history = lines.slice(0, -1);
-    const userText = `${latest.sender}: ${latest.body}`;
+    const quoted = (latest.quotedAgentBody || "").trim();
+    const userText = quoted
+      ? `${latest.sender} responde à mensagem que você enviou:\n${quoted}\n\nResposta de ${latest.sender}: ${latest.body}`
+      : `${latest.sender}: ${latest.body}`;
     const historyText = history
       .map(line => `${line.fromAgent ? "Atendente" : line.sender}: ${line.body}`)
       .join("\n");
     const context = await loadAgentContext(input.prompt, userText, historyText);
     const factual = looksLikeFactualQuestion(latest.body);
-    const closingAttendance = looksLikeAttendanceClosure(latest.body);
-    const operational = looksLikeStaffOperation(`${historyText}\n${latest.body}`) || closingAttendance;
+    const closingAttendance =
+      looksLikeAttendanceClosure(latest.body) || replyClosesQuotedAlert(quoted, latest.body);
+    const operational =
+      looksLikeStaffOperation(`${historyText}\n${latest.body}`) ||
+      closingAttendance ||
+      quotedLooksLikeIdleAlert(quoted);
     const noticeBlock = await temporaryNoticeBlock(input.companyId, input.prompt.id);
     const provider = await AIProviderSelector.getProvider(
       input.companyId,
@@ -140,7 +152,7 @@ const replyToMention = async (input: {
     } else if (closingAttendance) {
       const customerName = attendanceCustomerName(
         latest.body,
-        history.filter(line => line.fromAgent).map(line => line.body),
+        [quoted, ...history.filter(line => line.fromAgent).map(line => line.body)].filter(Boolean),
         [input.prompt.name]
       );
       text = input.wbot.id
@@ -170,7 +182,8 @@ const replyToMention = async (input: {
 - Não tente solucionar problema técnico e não invente.
 - Sem fonte para uma pergunta factual, diga apenas que uma pessoa da equipe vai ver.
 - Pedido de agendamento ou de aviso nos chats abertos usa só os blocos indicados.
-- Não escreva seu nome no início. A assinatura é colocada automaticamente.`
+- Não escreva seu nome no início. A assinatura é colocada automaticamente.
+- Se a pessoa responde a uma mensagem sua, interprete a resposta nesse contexto. Não diga que não achou aviso quando ela só conclui, agradece ou atualiza o que você escreveu.`
         },
         ...conversationTurns(
           history.map(line => ({
@@ -244,11 +257,18 @@ export async function observeLinkedGroupMessage(input: LinkedGroupObservation): 
   }
 
   const trackKey = `${input.wbot.id}:${linked}`;
+  const quotesAgent = replyTargetsAgent({
+    quotedBody: input.quotedBody,
+    quotedParticipant: input.quotedParticipant,
+    phoneJids: input.phoneJids,
+    names: [input.profileName, whatsapp.name, prompt.name]
+  });
   const lines = tracks.get(trackKey) || [];
   lines.push({
     fromAgent: input.fromMe,
     sender: input.fromMe ? (prompt.name || "Agente") : (input.senderName || "Participante"),
-    body: body || "(menção)"
+    body: body || "(menção)",
+    quotedAgentBody: quotesAgent ? (input.quotedBody || "").trim() : undefined
   });
   tracks.set(trackKey, lines.slice(-MAX_LINES));
   if (input.fromMe) return;
@@ -258,7 +278,7 @@ export async function observeLinkedGroupMessage(input: LinkedGroupObservation): 
     mentionedJids,
     names: [input.profileName, whatsapp.name, prompt.name],
     phoneJids: input.phoneJids
-  });
+  }) || quotesAgent;
   if (!addressed) return;
   if (input.messageId && (scheduled.has(input.messageId) || answered.has(input.messageId))) return;
   if (input.messageId) {

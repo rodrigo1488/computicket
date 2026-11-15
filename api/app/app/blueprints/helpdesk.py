@@ -1284,10 +1284,17 @@ def _format_ai_chat_history(raw) -> str:
 def ai_query():
     payload = request.get_json(silent=True) or {}
     question = str(payload.get("question") or payload.get("message") or "").strip()
-    if not question:
+    is_chat = request.path.rstrip("/").endswith("/chat")
+    image = payload.get("image") if is_chat else None
+    image = image.strip() if isinstance(image, str) else ""
+    if image and len(image) > 6_000_000:
+        return jsonify({"error": "A imagem é grande demais. Envie até 4 MB."}), 400
+    if not question and not image:
         return jsonify({"error": "question é obrigatório"}), 400
     if len(question) > 12000:
         return jsonify({"error": "question excede o limite de 12000 caracteres"}), 400
+    if not question:
+        question = "Analise o print de suporte enviado."
     raw_conversation_id = payload.get("conversation_id")
     try:
         conversation_id = int(raw_conversation_id) if raw_conversation_id not in (None, "") else None
@@ -1301,8 +1308,13 @@ def ai_query():
             history = _conversation_ai_context(conversation_id)[0]
             return answer_question(question, history)
         history = session_history
-        if request.path.rstrip("/").endswith("/chat"):
-            return answer_assistant(question, history)
+        if is_chat:
+            return answer_assistant(
+                question,
+                history,
+                image=image or None,
+                actor_id=getattr(current_user, "id", None),
+            )
         return answer_question(question, history)
 
     operation = "chat" if request.path.rstrip("/").endswith("/chat") else "query"

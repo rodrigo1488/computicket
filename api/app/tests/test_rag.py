@@ -134,6 +134,29 @@ class RAGServiceTest(unittest.TestCase):
 		self.assertIn("18", result["draft"])
 		self.assertEqual(len(client.models.configs), 2)
 
+	def test_dashboard_assistant_answers_when_the_tool_round_is_silent(self):
+		call = _ToolCall("query", {"sql": "SELECT id FROM ticket", "database": "computicket"})
+		client = _FakeGemini([
+			_GeminiReply("", [call]),
+			_GeminiReply(""),
+		])
+		with (
+			patch("app.services.copilot.hybrid_search", return_value=[]),
+			patch("app.services.copilot.get_client", return_value=client),
+			patch("app.services.copilot._dispatch_database_tool", return_value='{"rows": []}'),
+			patch(
+				"app.services.copilot._generate",
+				return_value={
+					"draft": "A mensagem do Clipp aponta falha de rede ao abrir o módulo. Confira internet, DNS e se o servidor do Clipp responde.",
+					"cited": [],
+				},
+			) as generate,
+		):
+			result = answer_assistant("o sistema clipp não abre, verifique a internet")
+		self.assertIn("Clipp", result["draft"])
+		self.assertNotIn("não devolveu uma resposta", result["draft"])
+		self.assertIn("CONSULTAS JÁ FEITAS", generate.call_args.args[0])
+
 	def test_index_keeps_lexical_fallback_and_removes_unpublished(self):
 		user = User(name="Teste", email="teste@example.invalid", password_hash="x")
 		db.session.add(user)
@@ -236,6 +259,160 @@ class RAGServiceTest(unittest.TestCase):
 		self.assertTrue(results)
 		self.assertEqual(results[0]["source_type"], "budget")
 		self.assertEqual(results[0]["href"], f"/orcamentos/{budget.id}")
+
+	def _staff_user(self, email="assistente@example.invalid"):
+		user = User(name="Ana Técnica", email=email, password_hash="x", status="1")
+		db.session.add(user)
+		db.session.commit()
+		return user
+
+	def test_support_solution_is_not_saved_without_the_fix(self):
+		from app.services.assistant_actions import save_support_solution
+
+		user = self._staff_user()
+		result = save_support_solution(
+			{
+				"problem": "O módulo do Clipp não abre e pede para verificar a internet",
+				"solution": "reiniciei",
+			},
+			user.id,
+		)
+		self.assertFalse(result["ok"])
+		self.assertEqual(KnowledgeArticle.query.count(), 0)
+
+	def test_support_solution_is_saved_and_indexed(self):
+		from app.services.assistant_actions import save_support_solution
+
+		user = self._staff_user("solucao@example.invalid")
+		with patch("app.services.rag.embed_texts", side_effect=GeminiError("offline")):
+			result = save_support_solution(
+				{
+					"title": "Clipp não abre",
+					"problem": "O módulo do Clipp não abre e pede para verificar a internet",
+					"solution": "Reiniciei o serviço do Clipp e a internet do caixa voltou",
+				},
+				user.id,
+			)
+		self.assertTrue(result["ok"])
+		article = db.session.get(KnowledgeArticle, result["article_id"])
+		self.assertEqual(article.title, "Clipp não abre")
+		self.assertEqual(article.status, "published")
+		self.assertIn("Problema", article.content)
+		self.assertIn("Solução", article.content)
+		self.assertIn("Reiniciei o serviço", article.content)
+		self.assertEqual(
+			KnowledgeChunk.query.filter_by(source_type="knowledge_article", source_id=article.id).count(),
+			1,
+		)
+
+	def test_dashboard_appointment_requires_a_linked_client(self):
+		from app.models import Appointment
+		from app.services.assistant_actions import create_appointment
+
+		user = self._staff_user("agenda@example.invalid")
+		result = create_appointment(
+			{
+				"title": "Visita Clipp",
+				"appointment_date": "2026-11-16T14:00:00",
+				"cliente": "Loja Fantasma",
+			},
+			user.id,
+		)
+		self.assertFalse(result["ok"])
+		self.assertEqual(Appointment.query.count(), 0)
+
+	def test_dashboard_appointment_is_created_for_a_linked_client(self):
+		from app.models import Appointment, HelpDeskContactClientLink
+		from app.services.assistant_actions import create_appointment
+
+		user = self._staff_user("agenda-ok@example.invalid")
+		db.session.add(
+			HelpDeskContactClientLink(
+				engine_contact_id=41,
+				external_client_id=77,
+				external_client_name="Padaria do João",
+			)
+		)
+		db.session.commit()
+		with (
+			patch("app.notification_service.create_notifications"),
+			patch("app.services.assistant_actions.enviar_email_confirmacao"),
+			patch("app.services.assistant_actions.notify_appointment_whatsapp"),
+		):
+			result = create_appointment(
+				{
+					"title": "Visita Clipp",
+					"appointment_date": "2026-11-16T14:00:00",
+					"cliente": "Padaria do João",
+					"description": "Módulo não abre",
+				},
+				user.id,
+			)
+		self.assertTrue(result["ok"])
+		row = db.session.get(Appointment, result["appointment_id"])
+		self.assertEqual(row.client_id, 77)
+		self.assertEqual(row.user_id, user.id)
+		self.assertEqual(row.created_by, user.id)
+		self.assertIn("Padaria do João", result["message"])
+
+	def test_dashboard_assistant_saves_the_solution_from_the_tool(self):
+		user = self._staff_user("ferramenta@example.invalid")
+		call = _ToolCall(
+			"save_support_solution",
+			{
+				"title": "Clipp não abre",
+				"problem": "O módulo do Clipp não abre e pede para verificar a internet",
+				"solution": "Reiniciei o serviço do Clipp e a internet do caixa voltou",
+			},
+		)
+		client = _FakeGemini([
+			_GeminiReply("", [call]),
+			_GeminiReply("Salvei no conhecimento: Clipp não abre."),
+		])
+		with (
+			patch("app.services.copilot.hybrid_search", return_value=[]),
+			patch("app.services.copilot.get_client", return_value=client),
+			patch("app.services.rag.embed_texts", side_effect=GeminiError("offline")),
+		):
+			result = answer_assistant(
+				"o clipp não abre. resolvi reiniciando o serviço do caixa",
+				actor_id=user.id,
+			)
+		self.assertIn("conhecimento", result["draft"])
+		article = KnowledgeArticle.query.filter_by(title="Clipp não abre").one()
+		self.assertEqual(article.created_by_id, user.id)
+		self.assertIn("verificar a internet", article.content)
+
+	def test_dashboard_assistant_sends_the_print_to_the_model(self):
+		import base64
+
+		client = _FakeGemini([_GeminiReply("O print mostra o Clipp sem acesso ao módulo.")])
+		seen = {}
+		original = client.models.generate_content
+
+		def wrapped(**kwargs):
+			seen["contents"] = kwargs.get("contents")
+			return original(**kwargs)
+
+		client.models.generate_content = wrapped
+		png = base64.b64encode(b"\x89PNG\r\n\x1a\nprint").decode("ascii")
+		with (
+			patch("app.services.copilot.hybrid_search", return_value=[]),
+			patch("app.services.copilot.get_client", return_value=client),
+		):
+			result = answer_assistant("", image=f"data:image/png;base64,{png}")
+		self.assertIn("Clipp", result["draft"])
+		parts = seen["contents"][0]["parts"]
+		self.assertEqual(len(parts), 2)
+		self.assertIn("print", parts[0]["text"])
+
+		with (
+			patch("app.services.copilot.hybrid_search", return_value=[]),
+			patch("app.services.copilot.get_client", return_value=client),
+		):
+			with self.assertRaises(CopilotError) as raised:
+				answer_assistant("oi", image="data:text/plain;base64,YQ==")
+		self.assertEqual(raised.exception.status_code, 400)
 
 
 if __name__ == "__main__":

@@ -301,6 +301,39 @@ export function looksLikeAttendanceClosure(text: string): boolean {
   return /\b(?:atendimento|atendimentos|conversa|conversas|chamado|chamados|cliente|clientes)\b/i.test(body);
 }
 
+/** O texto citado é um alerta de atendimento parado enviado pelo agente. */
+export function quotedLooksLikeIdleAlert(text: string): boolean {
+  return /resumo do contexto|atendimento parado|est[aá] parado/i.test(text || "");
+}
+
+/** A pessoa respondeu uma mensagem do próprio agente, citando-a no WhatsApp. */
+export function replyTargetsAgent(input: {
+  quotedBody?: string | null;
+  quotedParticipant?: string | null;
+  phoneJids?: Array<string | null | undefined> | null;
+  names?: Array<string | null | undefined> | null;
+}): boolean {
+  const participant = (input.quotedParticipant || "").trim();
+  const phoneJids = (input.phoneJids || []).map(item => (item || "").trim()).filter(Boolean);
+  if (participant && phoneJids.some(jid => sameWhatsAppIdentity(participant, jid))) return true;
+  const body = (input.quotedBody || "").trim();
+  if (!body) return false;
+  if (quotedLooksLikeIdleAlert(body)) return true;
+  return (input.names || []).some(name => {
+    const token = (name || "").trim();
+    return token.length >= 3 && body.includes(`*${token.toUpperCase()}*`);
+  });
+}
+
+const QUOTED_ALERT_CLOSE =
+  /\b(?:conclu[ií]d[oa]|conclu[ií]|resolvid[oa]|resolvi|encerre|encerrado|encerrar|pode encerrar|pode fechar|j[aá] (?:falei|atendi|resolvi|fechei)|foi atendid[oa]|pode deixar)\b/i;
+
+/** Resposta curta a um alerta do agente, dizendo que o atendimento acabou. */
+export function replyClosesQuotedAlert(quoted: string, reply: string): boolean {
+  if (!quotedLooksLikeIdleAlert(quoted)) return false;
+  return looksLikeAttendanceClosure(reply) || QUOTED_ALERT_CLOSE.test(reply || "");
+}
+
 function readPersonName(fragment: string, ignored: Set<string>): string {
   const words = (fragment || "").replace(/[.…,;:!?]+/g, " ").split(/\s+/).filter(Boolean);
   const kept: string[] = [];

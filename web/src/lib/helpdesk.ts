@@ -631,10 +631,12 @@ export const helpdesk = {
   aiChat: (
     question: string,
     history?: { role: "user" | "assistant"; content: string }[],
+    image?: string,
   ) =>
     flask.post<HelpdeskAiDraftRes>("/helpdesk/api/ai/chat", {
       question,
       ...(history?.length ? { history } : {}),
+      ...(image ? { image } : {}),
     }),
   aiSuggestReply: (id: number) =>
     flask.post<HelpdeskAiDraftRes>(`/helpdesk/api/conversations/${id}/ai/suggest-reply`),

@@ -1,6 +1,8 @@
 """Serviço de geração assistida com contexto RAG."""
 from __future__ import annotations
 
+import base64
+import contextvars
 import importlib
 import json
 import sys
@@ -209,9 +211,51 @@ _DB_TOOLS = [
 					"required": ["sql"],
 				},
 			},
+			{
+				"name": "create_appointment",
+				"description": (
+					"Cria uma visita na agenda. Só chame quando cliente, data e horário já estiverem claros. "
+					"Sem esses dados a ferramenta não grava e devolve o que falta."
+				),
+				"parameters": {
+					"type": "OBJECT",
+					"properties": {
+						"title": {"type": "STRING", "description": "Título curto da visita"},
+						"appointment_date": {
+							"type": "STRING",
+							"description": "Data e hora no formato ISO, por exemplo 2026-11-16T14:00:00",
+						},
+						"cliente": {"type": "STRING", "description": "Nome da empresa já vinculada a um WhatsApp"},
+						"tecnico": {"type": "STRING", "description": "Nome do técnico. Vazio usa a pessoa logada"},
+						"description": {"type": "STRING", "description": "Detalhe opcional"},
+					},
+					"required": ["title", "appointment_date", "cliente"],
+				},
+			},
+			{
+				"name": "save_support_solution",
+				"description": (
+					"Grava no conhecimento um problema de suporte e a solução que a equipe informou. "
+					"Exige os dois. Print ou erro sem a resolução não deve ser salvo."
+				),
+				"parameters": {
+					"type": "OBJECT",
+					"properties": {
+						"title": {"type": "STRING", "description": "Título curto. Opcional"},
+						"problem": {"type": "STRING", "description": "Erro, print ou relato do problema"},
+						"solution": {"type": "STRING", "description": "Como o problema foi resolvido"},
+					},
+					"required": ["problem", "solution"],
+				},
+			},
 		]
 	}
 ]
+
+_STAFF_ACTIONS = {"create_appointment", "save_support_solution"}
+_assistant_actor: contextvars.ContextVar[int | None] = contextvars.ContextVar("assistant_actor_id", default=None)
+_IMAGE_MIMES = {"image/png", "image/jpeg", "image/webp", "image/gif"}
+_IMAGE_BYTES = 4_000_000
 
 _ASSISTANT_SYSTEM = (
 	"Você é o assistente da equipe Computicket no dashboard. "
@@ -223,7 +267,14 @@ _ASSISTANT_SYSTEM = (
 	"Senha, token e hash já vêm redigidos; não tente revelá-los. "
 	"Se a fonte for do cofre, indique a máquina ou o cliente e oriente abrir o Cofre. "
 	"O material interno é apoio, não um roteiro: não copie trechos nem comece com 'segundo o artigo'. "
-	"Se a pergunta não precisa do banco, responda direto. Seja direto, em parágrafos curtos."
+	"Se a pergunta não precisa do banco, responda direto. Seja direto, em parágrafos curtos. "
+	"Para agendar, use create_appointment só com cliente, data e horário claros. Se faltar um deles, pergunte. "
+	"Não diga que a visita foi marcada se a ferramenta não devolver ok. Sem técnico citado, vale a pessoa logada. "
+	"Quando a equipe trouxer um problema de suporte — texto, erro ou print — e também a solução, "
+	"use save_support_solution. Problema e solução são obrigatórios. "
+	"Se chegar só o print ou só o erro, descreva o que você leu e peça a resolução. Não salve ainda. "
+	"Quando a solução vier depois, use o problema já descrito na conversa e a solução nova. "
+	"Não invente a solução e não grave senha, token ou dado de cofre."
 )
 
 
@@ -243,9 +294,23 @@ def _database_module():
 	raise CopilotError("Consulta ao banco não está disponível neste ambiente.", "db_tools", 503)
 
 
+def _dispatch_staff_action(name: str, args: dict) -> str:
+	from .assistant_actions import create_appointment, save_support_solution
+
+	actor = _assistant_actor.get()
+	if name == "create_appointment":
+		payload = create_appointment(args, actor)
+	else:
+		payload = save_support_solution(args, actor)
+	return json.dumps(payload, ensure_ascii=False)
+
+
 def _dispatch_database_tool(name: str, args: dict) -> str:
 	try:
-		result = _database_module().dispatch(name, args)
+		if name in _STAFF_ACTIONS:
+			result = _dispatch_staff_action(name, args)
+		else:
+			result = _database_module().dispatch(name, args)
 	except CopilotError as exc:
 		result = json.dumps({"error": str(exc)}, ensure_ascii=False)
 	except Exception as exc:  # noqa: BLE001
@@ -256,7 +321,8 @@ def _dispatch_database_tool(name: str, args: dict) -> str:
 
 
 def _tool_args(call) -> dict:
-	raw = getattr(call, "args", None) or {}
+	raw = call.get("args") if isinstance(call, dict) else getattr(call, "args", None)
+	raw = raw or {}
 	if isinstance(raw, dict):
 		return raw
 	try:
@@ -265,16 +331,28 @@ def _tool_args(call) -> dict:
 		return {}
 
 
+def _call_name(call) -> str:
+	if isinstance(call, dict):
+		return str(call.get("name") or "")
+	return str(getattr(call, "name", "") or "")
+
+
 def _function_calls(response) -> list:
 	calls = getattr(response, "function_calls", None)
 	if calls:
-		return list(calls)
+		named = [call for call in list(calls) if _call_name(call)]
+		if named:
+			return named
 	found = []
 	for candidate in getattr(response, "candidates", None) or []:
 		content = getattr(candidate, "content", None)
-		for part in getattr(content, "parts", None) or []:
-			call = getattr(part, "function_call", None)
-			if call is not None and getattr(call, "name", None):
+		parts = content.get("parts") if isinstance(content, dict) else getattr(content, "parts", None)
+		for part in parts or []:
+			if isinstance(part, dict):
+				call = part.get("function_call") or part.get("functionCall")
+			else:
+				call = getattr(part, "function_call", None)
+			if call is not None and _call_name(call):
 				found.append(call)
 	return found
 
@@ -327,37 +405,109 @@ def _function_payload(raw: str) -> dict:
 	return {"result": data}
 
 
-def answer_assistant(question: str, history: str = "") -> dict:
-	"""Conversa do dashboard. Consulta o Postgres quando o fato é da operação."""
+def _decode_chat_image(image: str | None) -> tuple[bytes, str] | None:
+	raw = (image or "").strip()
+	if not raw:
+		return None
+	mime = "image/png"
+	if raw.startswith("data:"):
+		header, _, payload = raw.partition(",")
+		mime = header[5:].split(";", 1)[0].strip().lower() or mime
+		raw = payload
+	if mime == "image/jpg":
+		mime = "image/jpeg"
+	if mime not in _IMAGE_MIMES or len(raw) > 6_000_000:
+		return None
+	try:
+		data = base64.b64decode(raw, validate=False)
+	except Exception:
+		return None
+	if not data or len(data) > _IMAGE_BYTES:
+		return None
+	return data, mime
+
+
+def _image_part(image: str | None):
+	decoded = _decode_chat_image(image)
+	if not decoded:
+		return None
+	data, mime = decoded
+	try:
+		from google.genai import types
+
+		return types.Part.from_bytes(data=data, mime_type=mime)
+	except Exception:
+		return {"inline_data": {"mime_type": mime, "data": base64.b64encode(data).decode("ascii")}}
+
+
+def answer_assistant(
+	question: str,
+	history: str = "",
+	image: str | None = None,
+	actor_id: int | None = None,
+) -> dict:
+	"""Conversa do dashboard. Consulta o Postgres e pode agendar ou gravar conhecimento."""
 	question = _trim(question, MAX_INPUT_CHARS)
 	history = _trim(history, MAX_HISTORY_CHARS)
+	if image and _decode_chat_image(image) is None:
+		raise CopilotError(
+			"Não consegui ler essa imagem. Envie PNG, JPEG ou WebP de até 4 MB.",
+			"validation",
+			400,
+		)
+	if not question and image:
+		question = "Analise o print de suporte enviado."
 	if not question:
 		raise CopilotError("Informe um texto para o assistente.", "validation", 400)
 	sources = hybrid_search(f"{question} {history[-3000:]}".strip())
 	material = _source_context(sources) if sources else "(nada relevante na base interna)"
 	prompt = f"PEDIDO:\n{question}\n\nCONVERSA:\n{history or '(início)'}\n\nMATERIAL INTERNO:\n{material}"
+	if image:
+		prompt += "\n\nO usuário anexou um print nesta mensagem. Leia o erro na imagem."
+	notes: list[str] = []
+	token = _assistant_actor.set(int(actor_id) if actor_id else None)
 	try:
-		draft = _converse_with_database(prompt)
-	except CopilotError as exc:
-		if exc.code != "gemini_error":
-			raise
-		data = _generate(prompt, _ASSISTANT_SYSTEM, _ASSISTANT_SCHEMA, temperature=0.6)
-		draft = str(data.get("draft") or "").strip()
+		try:
+			draft = _converse_with_database(prompt, notes, image=image)
+		except CopilotError as exc:
+			if exc.code != "gemini_error":
+				raise
+			draft = ""
 		if not draft:
-			raise
-		return {"draft": draft, "sources": _cited_sources(sources, data.get("cited"))}
-	if not draft:
-		raise CopilotError("O assistente não devolveu uma resposta.", "invalid_response")
-	return {"draft": draft, "sources": []}
+			draft = _plain_assistant_draft(prompt, notes)
+		if not draft:
+			raise CopilotError("O assistente não devolveu uma resposta.", "invalid_response")
+		return {"draft": draft, "sources": []}
+	finally:
+		_assistant_actor.reset(token)
 
 
-def _converse_with_database(prompt: str) -> str:
-	contents: list[Any] = [{"role": "user", "parts": [{"text": prompt}]}]
+def _plain_assistant_draft(prompt: str, notes: list[str]) -> str:
+	extra = ""
+	if notes:
+		extra = "\n\nCONSULTAS JÁ FEITAS:\n" + "\n\n".join(notes)[:_DB_RESULT_CHARS]
+	data = _generate(
+		prompt + extra,
+		_ASSISTANT_SYSTEM + " Responda no campo draft, em português, com a orientação para a equipe.",
+		_ASSISTANT_SCHEMA,
+		temperature=0.6,
+	)
+	return str(data.get("draft") or "").strip()
+
+
+def _converse_with_database(prompt: str, notes: list[str] | None = None, image: str | None = None) -> str:
+	parts: list[Any] = [{"text": prompt}]
+	picture = _image_part(image)
+	if picture is not None:
+		parts.append(picture)
+	contents: list[Any] = [{"role": "user", "parts": parts}]
 	client = get_client()
+	trace = notes if notes is not None else []
 	for round_index in range(_DB_TOOL_ROUNDS + 1):
 		config: dict[str, Any] = {
 			"system_instruction": _ASSISTANT_SYSTEM,
 			"temperature": 0.4,
+			"max_output_tokens": 2048,
 			"automatic_function_calling": {"disable": True},
 		}
 		if round_index < _DB_TOOL_ROUNDS:
@@ -373,14 +523,15 @@ def _converse_with_database(prompt: str) -> str:
 		except Exception as exc:
 			raise CopilotError(f"Falha ao consultar o Gemini: {exc}") from exc
 		calls = _function_calls(response)
-		text = _assistant_text(response)
+		text = _draft_from_text(_assistant_text(response))
 		if not calls or round_index >= _DB_TOOL_ROUNDS:
-			return _draft_from_text(text)
+			return text
 		contents.append(_model_content(response, text))
 		parts = []
 		for call in calls:
-			name = str(getattr(call, "name", "") or "")
+			name = _call_name(call)
 			raw = _dispatch_database_tool(name, _tool_args(call))
+			trace.append(f"{name}: {raw}")
 			parts.append({"function_response": {"name": name, "response": _function_payload(raw)}})
 		contents.append({"role": "user", "parts": parts})
 	return ""

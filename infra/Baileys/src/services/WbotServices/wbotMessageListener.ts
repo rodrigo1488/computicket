@@ -611,6 +611,33 @@ const mentionedJidsOf = (msg: proto.IWebMessageInfo): string[] => {
   return jids;
 };
 
+const quotedContextOf = (
+  msg: proto.IWebMessageInfo
+): { body: string; participant: string } | null => {
+  const content = extractMessageContent(msg.message) || msg.message;
+  const info =
+    content?.extendedTextMessage?.contextInfo ||
+    content?.imageMessage?.contextInfo ||
+    content?.videoMessage?.contextInfo ||
+    content?.documentMessage?.contextInfo ||
+    content?.audioMessage?.contextInfo ||
+    content?.ephemeralMessage?.message?.extendedTextMessage?.contextInfo ||
+    msg.message?.extendedTextMessage?.contextInfo;
+  const quoted = info?.quotedMessage;
+  if (!quoted && !info?.participant) return null;
+  const inner = quoted ? extractMessageContent(quoted) || quoted : null;
+  const body = (
+    inner?.conversation ||
+    inner?.extendedTextMessage?.text ||
+    inner?.imageMessage?.caption ||
+    inner?.videoMessage?.caption ||
+    inner?.documentMessage?.caption ||
+    ""
+  ).trim();
+  if (!body && !info?.participant) return null;
+  return { body: body.slice(0, 1500), participant: info?.participant || "" };
+};
+
 export const getBodyMessage = (msg: proto.IWebMessageInfo): string | null => {
   try {
     let type = getTypeMessage(msg);
@@ -3745,6 +3772,7 @@ const handleMessage = async (
       const me = getMeSocket(wbot);
       const sessionUser = (wbot as WASocket).user as { id?: string; lid?: string } | undefined;
       try {
+        const quoted = quotedContextOf(msg);
         await observeLinkedGroupMessage({
           wbot,
           companyId,
@@ -3756,7 +3784,9 @@ const handleMessage = async (
           profileName: me.name || "",
           phoneJids: [me.id, sessionUser?.lid, sessionUser?.id].filter((item): item is string => !!item),
           messageId: msg.key.id || "",
-          isReaction: !!msg.message?.reactionMessage
+          isReaction: !!msg.message?.reactionMessage,
+          quotedBody: quoted?.body,
+          quotedParticipant: quoted?.participant
         });
       } catch (err: any) {
         logger.warn(`Menção no grupo vinculado: ${err?.message || err}`);
