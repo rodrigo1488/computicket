@@ -226,7 +226,7 @@ export function CloseTicketDialog({
           {error ? <p className="text-sm text-open">{error}</p> : null}
           {canPrint && !printed ? (
             <PrimaryButton onClick={() => void printPs()} disabled={printing}>
-              {printing ? "Gerando PS…" : "Imprimir PS"}
+              {printing ? "Gerando PS…" : "Gerar PS"}
             </PrimaryButton>
           ) : (
             <PrimaryButton onClick={onClose}>Concluir</PrimaryButton>

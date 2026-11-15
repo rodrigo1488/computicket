@@ -88,7 +88,7 @@
 											</form>
 										{% endif %}
 									{% else %}
-										{# Mostrar botão Imprimir PS apenas se ticket fechado, tem cobrança e não tem flag "não cobra atendimento" #}
+										{# Mostrar botão Gerar PS apenas se ticket fechado, tem cobrança e não tem flag "não cobra atendimento" #}
 										{% if t.ps_printed %}
 											{% if t.resolved_ps_filename() %}
 											<a href="{{ url_for('tickets.serve_pdf', filename=t.resolved_ps_filename()) }}" target="_blank" rel="noopener"
@@ -105,7 +105,7 @@
 										{% else %}
 											<button class="btn btn-sm btn-secondary hidden" data-open-print="{{ t.id }}" data-ticket-id="{{ t.id }}">
 												<i class="fas fa-print"></i>
-												Imprimir PS
+												Gerar PS
 											</button>
 										{% endif %}
 									{% endif %}
@@ -192,7 +192,7 @@
 			<div class="modal-header">
 				<h3 class="modal-title">
 					<i class="fas fa-print mr-2"></i>
-					Imprimir PS do ticket #{{ t.id }}
+					Gerar PS do ticket #{{ t.id }}
 				</h3>
 				<button data-close-print="{{ t.id }}" class="btn btn-sm btn-secondary">
 					<i class="fas fa-times"></i>

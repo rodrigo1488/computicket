@@ -270,7 +270,7 @@ export default function TicketDetailPage() {
               className="inline-flex items-center gap-2 rounded-xl bg-inverse px-4 py-2.5 text-sm font-medium text-on-inverse"
             >
               <Printer className="h-4 w-4" />
-              {printing ? "Gerando PS…" : "Imprimir PS"}
+              {printing ? "Gerando PS…" : "Gerar PS"}
             </button>
           ) : null}
           <button
