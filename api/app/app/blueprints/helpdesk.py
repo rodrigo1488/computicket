@@ -526,6 +526,8 @@ def _insights_by_engine_ids(ids: list[int]) -> dict[int, dict]:
 
 def _enqueue_conversation_summary(engine_ticket_id: int, reason: str) -> None:
     """Não bloqueia a transferência nem o fechamento se a fila falhar."""
+    if not _auto_analysis_enabled():
+        return
     try:
         row = HelpDeskAiInsight.query.filter_by(engine_ticket_id=int(engine_ticket_id)).first()
         if row is None:
@@ -560,6 +562,8 @@ def _enqueue_conversation_summary(engine_ticket_id: int, reason: str) -> None:
 
 def _enqueue_conversation_triage(engine_ticket_id: int) -> None:
     """Classifica sem mudar fila, técnico ou status do chamado."""
+    if not _auto_analysis_enabled():
+        return
     try:
         from ..services.ai_queue import _client
 

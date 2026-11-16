@@ -110,6 +110,18 @@ class WhatsappAgentApiTest(unittest.TestCase):
 		self.assertEqual(body["reason"], "disabled")
 		enqueue.assert_not_called()
 
+	@patch("app.blueprints.helpdesk.enqueue_ai_job")
+	@patch("app.blueprints.helpdesk._auto_analysis_enabled", return_value=False)
+	def test_summary_and_triage_skip_when_disabled(self, _enabled, enqueue):
+		from app.blueprints.helpdesk import (
+			_enqueue_conversation_summary,
+			_enqueue_conversation_triage,
+		)
+
+		_enqueue_conversation_summary(12, "close")
+		_enqueue_conversation_triage(12)
+		enqueue.assert_not_called()
+
 	@patch("app.blueprints.helpdesk._enqueue_conversation_triage")
 	@patch("app.blueprints.helpdesk._auto_analysis_enabled", return_value=True)
 	def test_classify_runs_when_auto_analysis_enabled(self, _enabled, enqueue):

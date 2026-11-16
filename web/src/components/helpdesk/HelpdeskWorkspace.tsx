@@ -857,6 +857,7 @@ export function HelpdeskWorkspace() {
   const fileRef = useRef<HTMLInputElement>(null);
   const socketRef = useRef<Socket | null>(null);
   const triageWatchUntil = useRef(0);
+  const ticketInsightsOnRef = useRef(true);
   const activeIdRef = useRef<number | null>(null);
   const tabRef = useRef<HelpdeskTab>(tab);
   const pendingResolveChatId = useRef<number | null>(null);
@@ -1023,10 +1024,21 @@ export function HelpdeskWorkspace() {
     for (const row of list.data.tickets) rememberHelpdeskConversation(row.id);
   }, [list.data?.tickets]);
 
+  const businessHours = useQuery({
+    queryKey: ["hd-business-hours"],
+    queryFn: helpdesk.businessHours,
+    enabled: !!health.data?.ok,
+    staleTime: 30_000,
+  });
+  const ticketInsightsOn =
+    businessHours.isError ||
+    (businessHours.isSuccess && businessHours.data?.autoAnalysisEnabled !== false);
+  ticketInsightsOnRef.current = ticketInsightsOn;
+
   const aiSummary = useQuery({
     queryKey: ["hd-ai-summary", activeId],
     queryFn: () => helpdesk.aiSummary(activeId as number),
-    enabled: !!activeId && !!health.data?.ok,
+    enabled: !!activeId && !!health.data?.ok && ticketInsightsOn,
     refetchInterval: query => {
       const data = query.state.data;
       if (data?.status === "pending" || data?.triage?.status === "pending") return 4000;
@@ -1800,7 +1812,7 @@ export function HelpdeskWorkspace() {
       }
 
       refresh();
-      if (ticketId && fromClient && ticketStatus === "pending") {
+      if (ticketInsightsOnRef.current && ticketId && fromClient && ticketStatus === "pending") {
         triageWatchUntil.current = Date.now() + 25000;
         void qc.invalidateQueries({ queryKey: ["hd-ai-summary", ticketId] });
       }
@@ -2428,7 +2440,10 @@ export function HelpdeskWorkspace() {
                 </div>
               ) : null}
 
-              <ConversationSummaryCard summary={aiSummary.data} loading={aiSummary.isFetching && aiSummary.data?.status === "pending"} />
+              {ticketInsightsOn ? (
+                <ConversationSummaryCard summary={aiSummary.data} loading={aiSummary.isFetching && aiSummary.data?.status === "pending"} />
+              ) : null}
+              {ticketInsightsOn ? (
               <ConversationTriageCard
                 key={current.id}
                 triage={aiSummary.data?.triage}
@@ -2457,6 +2472,7 @@ export function HelpdeskWorkspace() {
                   await qc.invalidateQueries({ queryKey: ["hd-ai-summary", current.id] });
                 }}
               />
+              ) : null}
 
               <div
                 ref={threadRef}
@@ -2791,32 +2807,36 @@ export function HelpdeskWorkspace() {
                             void improveText();
                           }}
                         />
-                        <AiMenuItem
-                          label="Gerar resumo"
-                          pending={aiAction === "summary"}
-                          disabled={aiAction !== null}
-                          onClick={() => {
-                            setAiMenuAnchor(null);
-                            setAiAction("summary");
-                            void helpdesk.requestAiSummary(current.id)
-                              .then(() => qc.invalidateQueries({ queryKey: ["hd-ai-summary", current.id] }))
-                              .catch((e: Error) => setAiError(e.message))
-                              .finally(() => setAiAction(null));
-                          }}
-                        />
-                        <AiMenuItem
-                          label="Classificar"
-                          pending={aiAction === "triage"}
-                          disabled={aiAction !== null}
-                          onClick={() => {
-                            setAiMenuAnchor(null);
-                            setAiAction("triage");
-                            void helpdesk.requestAiTriage(current.id)
-                              .then(() => qc.invalidateQueries({ queryKey: ["hd-ai-summary", current.id] }))
-                              .catch((e: Error) => setAiError(e.message))
-                              .finally(() => setAiAction(null));
-                          }}
-                        />
+                        {ticketInsightsOn ? (
+                          <AiMenuItem
+                            label="Gerar resumo"
+                            pending={aiAction === "summary"}
+                            disabled={aiAction !== null}
+                            onClick={() => {
+                              setAiMenuAnchor(null);
+                              setAiAction("summary");
+                              void helpdesk.requestAiSummary(current.id)
+                                .then(() => qc.invalidateQueries({ queryKey: ["hd-ai-summary", current.id] }))
+                                .catch((e: Error) => setAiError(e.message))
+                                .finally(() => setAiAction(null));
+                            }}
+                          />
+                        ) : null}
+                        {ticketInsightsOn ? (
+                          <AiMenuItem
+                            label="Classificar"
+                            pending={aiAction === "triage"}
+                            disabled={aiAction !== null}
+                            onClick={() => {
+                              setAiMenuAnchor(null);
+                              setAiAction("triage");
+                              void helpdesk.requestAiTriage(current.id)
+                                .then(() => qc.invalidateQueries({ queryKey: ["hd-ai-summary", current.id] }))
+                                .catch((e: Error) => setAiError(e.message))
+                                .finally(() => setAiAction(null));
+                            }}
+                          />
+                        ) : null}
                         <AiMenuItem
                           label="Consultar conhecimento"
                           icon={<BookOpen className="h-3.5 w-3.5" />}
@@ -2934,6 +2954,7 @@ export function HelpdeskWorkspace() {
             onClose={() => setContactOpen(false)}
             onSave={(payload) => saveContact.mutate(payload)}
             history={current.history || []}
+            showInsights={ticketInsightsOn}
             onOpenHistory={(id) => setHistoryViewId(id)}
             onLinked={() => {
               qc.invalidateQueries({ queryKey: ["hd-contact-client-link", contactId] });
@@ -3964,9 +3985,11 @@ function ClientSummaryList({ clientId }: { clientId: number }) {
 
 function ConversationHistoryList({
   items,
+  showInsights = true,
   onOpen,
 }: {
   items: HelpdeskConversationHistoryItem[];
+  showInsights?: boolean;
   onOpen: (id: number) => void;
 }) {
   if (!items.length) return null;
@@ -3991,7 +4014,7 @@ function ConversationHistoryList({
               <span className="font-normal text-muted">{formatDay(item.updatedAt)}</span>
             </span>
             <span className="mt-0.5 block truncate text-[11px] text-muted">
-              {snippet(item.ai_summary?.problema) || snippet(item.lastMessage) || "Sem última mensagem"}
+              {(showInsights ? snippet(item.ai_summary?.problema) : "") || snippet(item.lastMessage) || "Sem última mensagem"}
             </span>
             {item.computicket_ticket_id || (item.rating?.answered && item.rating.score != null) ? (
               <span className="mt-0.5 flex items-center gap-2 text-[10px] text-muted">
@@ -4095,6 +4118,7 @@ function ContactDrawer({
   onSave,
   onLinked,
   history,
+  showInsights = true,
   onOpenHistory,
 }: {
   conversation: HelpdeskConversation;
@@ -4114,6 +4138,7 @@ function ContactDrawer({
   onSave: (payload: { name: string; email: string; notes: string }) => void;
   onLinked: () => void;
   history: HelpdeskConversationHistoryItem[];
+  showInsights?: boolean;
   onOpenHistory: (id: number) => void;
 }) {
   const [name, setName] = useState(detail?.name || conversation.contact?.name || "");
@@ -4266,7 +4291,7 @@ function ContactDrawer({
             <div className="space-y-2">
               <p className="text-sm text-ink">{clientLink.external_client_name}</p>
               <p className="text-xs text-muted">ID #{clientLink.external_client_id}</p>
-              <ClientSummaryList clientId={clientLink.external_client_id} />
+              {showInsights ? <ClientSummaryList clientId={clientLink.external_client_id} /> : null}
               <button
                 type="button"
                 disabled={linkBusy || !conversation.contact?.id}
@@ -4329,7 +4354,7 @@ function ContactDrawer({
           {linkError ? <p className="text-xs text-open">{linkError}</p> : null}
         </div>
 
-        <ConversationHistoryList items={history} onOpen={onOpenHistory} />
+        <ConversationHistoryList items={history} showInsights={showInsights} onOpen={onOpenHistory} />
 
         <button
           type="submit"

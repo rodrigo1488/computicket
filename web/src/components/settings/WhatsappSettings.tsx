@@ -572,10 +572,10 @@ function BusinessHoursPanel() {
                 onChange={(e) => setAutoAnalysisOn(e.target.checked)}
               />
               <span>
-                Análise automática do chamado
+                Análise e resumo do chamado
                 <span className="mt-0.5 block text-xs text-muted">
-                  Desligada, uma mensagem nova em chamado pendente não classifica categoria, fila nem técnico. A opção
-                  Classificar do copiloto continua manual.
+                  Desligada, a conversa não classifica nem resume o atendimento. Os campos somem da conversa, do
+                  contato e do copiloto.
                 </span>
               </span>
             </label>
