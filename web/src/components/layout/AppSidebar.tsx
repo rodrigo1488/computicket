@@ -2,8 +2,8 @@
 
 import { Link, usePathname } from "@/components/tabs/navigation";
 import { useQuery } from "@tanstack/react-query";
-import { LogOut, PanelLeftClose, PanelLeftOpen, UserRound } from "lucide-react";
-import { useState } from "react";
+import { LogOut, UserRound } from "lucide-react";
+import { useEffect, useState } from "react";
 import { flask } from "@/lib/api";
 import { NAV_ITEMS } from "@/lib/nav";
 import { cn } from "@/lib/cn";
@@ -11,7 +11,7 @@ import { useAuth } from "@/lib/auth-context";
 import { UserAvatar } from "@/components/ui/UserAvatar";
 import { ProfileDialog } from "@/components/profile/ProfileDialog";
 import { Logo } from "@/components/layout/Logo";
-import { ThemeQuickToggle, ThemeToggle } from "@/components/layout/ThemeToggle";
+import { ThemeToggle } from "@/components/layout/ThemeToggle";
 
 const SIDEBAR_KEY = "computicket.sidebar";
 const STALE_POLL_MS = 90_000;
@@ -46,12 +46,17 @@ function readCollapsed() {
   return window.localStorage.getItem(SIDEBAR_KEY) === "collapsed";
 }
 
-export function AppSidebar() {
+export function AppSidebar({ collapsed: controlledCollapsed }: { collapsed?: boolean } = {}) {
   const pathname = usePathname();
   const { user, logout } = useAuth();
-  const [collapsed, setCollapsed] = useState(readCollapsed);
+  const [internalCollapsed] = useState(readCollapsed);
+  const collapsed = controlledCollapsed ?? internalCollapsed;
   const [menuOpen, setMenuOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
+
+  useEffect(() => {
+    setMenuOpen(false);
+  }, [collapsed]);
   const role = (user?.role || "").toLowerCase();
   const isAdmin = ["admin", "administrador", "administrator"].includes(role);
   const isTech = isAdmin || role === "tecnico";
@@ -100,15 +105,6 @@ export function AppSidebar() {
   const helpdeskCount = helpdeskBadge.data?.count ?? 0;
   const chatCount = chatBadge.data?.count ?? 0;
 
-  function toggleCollapsed() {
-    setCollapsed((current) => {
-      const next = !current;
-      window.localStorage.setItem(SIDEBAR_KEY, next ? "collapsed" : "expanded");
-      return next;
-    });
-    setMenuOpen(false);
-  }
-
   return (
     <aside
       className={cn(
@@ -119,26 +115,12 @@ export function AppSidebar() {
       <div
         className={cn(
           "flex items-center border-b border-line pb-3 pt-3",
-          collapsed ? "flex-col gap-2 px-2" : "justify-between gap-2 px-4",
+          collapsed ? "justify-center px-2" : "px-4",
         )}
       >
-        {!collapsed && <Logo collapsed={collapsed} />}
-        <div className={cn("flex shrink-0 items-center", collapsed ? "flex-col gap-1" : "gap-1")}>
-          <ThemeQuickToggle />
-          <button
-            type="button"
-            onClick={toggleCollapsed}
-            title={collapsed ? "Expandir menu" : "Recolher menu"}
-            aria-label={collapsed ? "Expandir menu" : "Recolher menu"}
-            aria-expanded={!collapsed}
-            className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-muted transition-colors hover:bg-sidebar-hover hover:text-navy"
-          >
-            {collapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
-          </button>
-        </div>
-        {collapsed && <Logo collapsed={collapsed} />}
+        <Logo collapsed={collapsed} />
       </div>
-      <nav className={cn("no-scrollbar flex-1 space-y-1 overflow-y-auto py-3", collapsed ? "px-2" : "px-3")}>
+      <nav className={cn("min-h-0 flex-1 space-y-1 overflow-y-auto py-3", collapsed ? "px-2" : "px-3")}>
         {items.map((item) => {
           const active =
             pathname === item.href ||

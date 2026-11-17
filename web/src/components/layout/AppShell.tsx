@@ -1,6 +1,6 @@
 "use client";
 
-import { useContext, useEffect } from "react";
+import { useContext, useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { AppSidebar } from "@/components/layout/AppSidebar";
 import { NotificationCenter } from "@/components/notifications/NotificationCenter";
@@ -12,21 +12,37 @@ import { isChatLayoutPath } from "@/components/tabs/routes";
 import { useAuth } from "@/lib/auth-context";
 import { cn } from "@/lib/cn";
 
+const SIDEBAR_KEY = "computicket.sidebar";
+
+function readSidebarCollapsed() {
+  if (typeof window === "undefined") return false;
+  return window.localStorage.getItem(SIDEBAR_KEY) === "collapsed";
+}
+
 function ShellFrame({ children }: { children: React.ReactNode }) {
   const view = useContext(TabsViewContext);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(readSidebarCollapsed);
   const activePathname = view?.tabs.find((t) => t.id === view.activeId)?.pathname ?? "/";
   const isChatLayout = isChatLayoutPath(activePathname);
 
+  function toggleSidebar() {
+    setSidebarCollapsed((current) => {
+      const next = !current;
+      window.localStorage.setItem(SIDEBAR_KEY, next ? "collapsed" : "expanded");
+      return next;
+    });
+  }
+
   return (
     <div id="app-shell" className="flex h-full max-h-full min-h-0 overflow-hidden bg-canvas">
-      <AppSidebar />
+      <AppSidebar collapsed={sidebarCollapsed} />
       <main
         className={cn(
           "flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden",
           isChatLayout ? "p-3" : "p-5",
         )}
       >
-        <TabBar />
+        <TabBar sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar} />
         {/* Cada aba tem o seu próprio contêiner rolável dentro deste (ver TabHost). */}
         <div className="relative min-h-0 min-w-0 flex-1 overflow-hidden rounded-[28px] bg-surface shadow-sm">
           <TabHost>{children}</TabHost>

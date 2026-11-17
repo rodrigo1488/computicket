@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useContext, useEffect, useRef, useState, type DragEvent, type MouseEvent } from "react";
-import { X } from "lucide-react";
+import { PanelLeftClose, PanelLeftOpen, X } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { TabsActionsContext, TabsViewContext } from "./context";
 import { routeIcon, routeTitle } from "./routes";
@@ -193,7 +193,13 @@ function TabButton({
 }
 
 /** Barra de abas (estilo navegador/IDE) exibida acima do conteúdo. */
-export function TabBar() {
+export function TabBar({
+  sidebarCollapsed,
+  onToggleSidebar,
+}: {
+  sidebarCollapsed?: boolean;
+  onToggleSidebar?: () => void;
+} = {}) {
   const view = useContext(TabsViewContext);
   const actions = useContext(TabsActionsContext);
   const listRef = useRef<HTMLDivElement>(null);
@@ -214,6 +220,21 @@ export function TabBar() {
 
   return (
     <div className="mb-2 flex shrink-0 items-center gap-2">
+      {onToggleSidebar ? (
+        <>
+          <button
+            type="button"
+            onClick={onToggleSidebar}
+            title={sidebarCollapsed ? "Expandir menu" : "Recolher menu"}
+            aria-label={sidebarCollapsed ? "Expandir menu" : "Recolher menu"}
+            aria-expanded={!sidebarCollapsed}
+            className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-muted transition-colors hover:bg-sidebar-hover hover:text-navy"
+          >
+            {sidebarCollapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
+          </button>
+          <div role="separator" aria-orientation="vertical" className="h-5 w-px shrink-0 bg-black dark:bg-line" />
+        </>
+      ) : null}
       <div
         ref={listRef}
         role="tablist"
