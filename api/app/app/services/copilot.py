@@ -260,11 +260,32 @@ _DB_TOOLS = [
 					"required": ["problem", "solution"],
 				},
 			},
+			{
+				"name": "create_article_from_pdf",
+				"description": (
+					"Cria um artigo na base de conhecimento usando o arquivo .pdf transcrito enviado na mensagem. "
+					"O título do artigo segue automaticamente o nome do arquivo PDF e o conteúdo preserva o texto e imagens transcritas. "
+					"Chame esta ferramenta quando o usuário enviar um PDF pedindo para criar, salvar ou gerar um artigo, ou quando confirmar que deseja criar."
+				),
+				"parameters": {
+					"type": "OBJECT",
+					"properties": {
+						"category_name": {
+							"type": "STRING",
+							"description": "Nome da categoria desejada, se o usuário citou alguma. Opcional (padrão Suporte).",
+						},
+						"tags": {
+							"type": "STRING",
+							"description": "Tags separadas por vírgula relacionadas ao conteúdo do PDF. Opcional.",
+						},
+					},
+				},
+			},
 		]
 	}
 ]
 
-_STAFF_ACTIONS = {"create_appointment", "save_support_solution"}
+_STAFF_ACTIONS = {"create_appointment", "save_support_solution", "create_article_from_pdf"}
 _assistant_actor: contextvars.ContextVar[int | None] = contextvars.ContextVar("assistant_actor_id", default=None)
 _IMAGE_MIMES = {"image/png", "image/jpeg", "image/webp", "image/gif"}
 _IMAGE_BYTES = 4_000_000
@@ -287,7 +308,10 @@ _ASSISTANT_SYSTEM = (
 	"O print desta conversa é anexado sozinho: no problem, descreva o erro que aparece na imagem. "
 	"Se chegar só o print ou só o erro, descreva o que você leu e peça a resolução. Não salve ainda. "
 	"Quando a solução vier depois, use o problema já descrito na conversa e a solução nova. "
-	"Não invente a solução e não grave senha, token ou dado de cofre."
+	"Não invente a solução e não grave senha, token ou dado de cofre. "
+	"Se o usuário enviar um arquivo .pdf: se ele pedir para criar/salvar/transformar em artigo (ou confirmar), "
+	"chame create_article_from_pdf imediatamente. O título do artigo sempre seguirá o nome do arquivo PDF e manterá texto e imagens transcritas. "
+	"Se o usuário enviar o PDF apenas para consulta ou sem instrução clara, responda/resuma o conteúdo e pergunte se deseja criar um artigo com ele."
 )
 
 
@@ -308,11 +332,13 @@ def _database_module():
 
 
 def _dispatch_staff_action(name: str, args: dict) -> str:
-	from .assistant_actions import create_appointment, save_support_solution
+	from .assistant_actions import create_appointment, create_article_from_pdf, save_support_solution
 
 	actor = _assistant_actor.get()
 	if name == "create_appointment":
 		payload = create_appointment(args, actor)
+	elif name == "create_article_from_pdf":
+		payload = create_article_from_pdf(args, actor)
 	else:
 		payload = save_support_solution(args, actor)
 	return json.dumps(payload, ensure_ascii=False)
@@ -458,6 +484,7 @@ def answer_assistant(
 	history: str = "",
 	image: str | None = None,
 	actor_id: int | None = None,
+	pdf_data: dict | None = None,
 ) -> dict:
 	"""Conversa do dashboard. Consulta o Postgres e pode agendar ou gravar conhecimento."""
 	question = _trim(question, MAX_INPUT_CHARS)
@@ -470,6 +497,8 @@ def answer_assistant(
 		)
 	if not question and image:
 		question = "Analise o print de suporte enviado."
+	if not question and pdf_data:
+		question = f"Analise o PDF enviado ({pdf_data.get('filename') or 'documento.pdf'})."
 	if not question:
 		raise CopilotError("Informe um texto para o assistente.", "validation", 400)
 	sources = hybrid_search(f"{question} {history[-3000:]}".strip())
@@ -477,10 +506,23 @@ def answer_assistant(
 	prompt = f"PEDIDO:\n{question}\n\nCONVERSA:\n{history or '(início)'}\n\nMATERIAL INTERNO:\n{material}"
 	if image:
 		prompt += "\n\nO usuário anexou um print nesta mensagem. Leia o erro na imagem."
+	if pdf_data:
+		pdf_preview = str(pdf_data.get("markdown") or "")[:9000]
+		prompt += (
+			f"\n\nARQUIVO PDF ANEXADO: {pdf_data.get('filename')}\n"
+			f"Páginas: {pdf_data.get('pages_count') or 1} | Imagens extraídas: {pdf_data.get('images_count') or 0}\n"
+			f"CONTEÚDO TRANSCRITO DO PDF:\n{pdf_preview}"
+		)
 	notes: list[str] = []
-	from .assistant_actions import begin_saved_article, last_saved_article, remember_chat_image
+	from .assistant_actions import (
+		begin_saved_article,
+		last_saved_article,
+		remember_chat_image,
+		remember_chat_pdf,
+	)
 
 	remember_chat_image(_decode_chat_image(image) if image else None)
+	remember_chat_pdf(pdf_data)
 	begin_saved_article()
 	token = _assistant_actor.set(int(actor_id) if actor_id else None)
 	try:
@@ -501,6 +543,7 @@ def answer_assistant(
 		return result
 	finally:
 		remember_chat_image(None)
+		remember_chat_pdf(None)
 		_assistant_actor.reset(token)
 
 

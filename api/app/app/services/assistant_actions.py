@@ -5,10 +5,12 @@ from __future__ import annotations
 import contextvars
 import os
 import uuid
+from pathlib import Path
 from datetime import datetime, timedelta, timezone
 
 from flask import current_app
 from flask_login import current_user
+from werkzeug.utils import secure_filename
 
 from ..blueprints.agenda import (
 	_resolve_agenda_technician,
@@ -25,6 +27,9 @@ _IMAGE_EXT = {"image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "im
 _chat_image: contextvars.ContextVar[tuple[bytes, str] | None] = contextvars.ContextVar(
 	"assistant_chat_image", default=None
 )
+_chat_pdf: contextvars.ContextVar[dict | None] = contextvars.ContextVar(
+	"assistant_chat_pdf", default=None
+)
 _saved_article: contextvars.ContextVar[dict | None] = contextvars.ContextVar(
 	"assistant_saved_article", default=None
 )
@@ -33,6 +38,11 @@ _saved_article: contextvars.ContextVar[dict | None] = contextvars.ContextVar(
 def remember_chat_image(image: tuple[bytes, str] | None) -> None:
 	"""Print da mensagem atual. A gravação do conhecimento anexa este arquivo."""
 	_chat_image.set(image)
+
+
+def remember_chat_pdf(pdf_data: dict | None) -> None:
+	"""PDF transcrito na mensagem atual para criação de artigo."""
+	_chat_pdf.set(pdf_data)
 
 
 def begin_saved_article() -> None:
@@ -120,12 +130,20 @@ def create_appointment(args: dict, user_id: int | None = None) -> dict:
 	}
 
 
-def _support_category(user_id: int) -> KnowledgeCategory:
+def _resolve_category(user_id: int, category_name: str | None = None) -> KnowledgeCategory:
+	target_name = (category_name or "").strip() or _SUPPORT_CATEGORY
 	category = KnowledgeCategory.query.filter(
-		db.func.lower(KnowledgeCategory.name) == _SUPPORT_CATEGORY.lower()
+		db.func.lower(KnowledgeCategory.name) == target_name.lower()
 	).first()
 	if category:
 		return category
+	if target_name.lower() != _SUPPORT_CATEGORY.lower():
+		# Fallback para categoria Suporte caso a solicitada não exista
+		fallback = KnowledgeCategory.query.filter(
+			db.func.lower(KnowledgeCategory.name) == _SUPPORT_CATEGORY.lower()
+		).first()
+		if fallback:
+			return fallback
 	category = KnowledgeCategory(
 		name=_SUPPORT_CATEGORY,
 		description="Problemas e soluções registrados pelo assistente.",
@@ -134,6 +152,97 @@ def _support_category(user_id: int) -> KnowledgeCategory:
 	db.session.add(category)
 	db.session.flush()
 	return category
+
+
+def _support_category(user_id: int) -> KnowledgeCategory:
+	return _resolve_category(user_id, _SUPPORT_CATEGORY)
+
+
+def create_article_from_pdf(args: dict, user_id: int | None = None) -> dict:
+	"""Cria um artigo na base de conhecimento a partir do PDF transcrito enviado no chat."""
+	actor_id = _user_id(user_id)
+	if not actor_id:
+		return {"ok": False, "message": "É preciso estar logado para criar um artigo."}
+	pdf_data = _chat_pdf.get()
+	if not pdf_data or not (pdf_data.get("markdown") or "").strip():
+		return {
+			"ok": False,
+			"message": "Nenhum arquivo PDF foi enviado nesta mensagem para criar o artigo.",
+		}
+
+	raw_filename = str(pdf_data.get("filename") or "artigo.pdf").strip()
+	file_stem = Path(raw_filename).stem.strip() or "Artigo importado de PDF"
+	title = file_stem[:200]
+	markdown = str(pdf_data["markdown"]).strip()
+	summary = str(pdf_data.get("suggested_summary") or "").strip()[:100]
+	tags = str(args.get("tags") or "").strip() or "pdf, documentacao"
+	category_name = str(args.get("category_name") or "").strip() or None
+
+	category = _resolve_category(actor_id, category_name)
+	category_id = int(category.id)
+	article = KnowledgeArticle(
+		title=title,
+		content=markdown,
+		summary=summary or None,
+		tags=tags[:500],
+		category_id=category_id,
+		status="published",
+		created_by_id=actor_id,
+	)
+	db.session.add(article)
+	db.session.commit()
+	article_id = int(article.id)
+
+	attached = False
+	raw_bytes = pdf_data.get("raw_bytes")
+	if isinstance(raw_bytes, (bytes, bytearray)) and raw_bytes:
+		try:
+			folder = os.path.join(current_app.instance_path, "knowledge_uploads")
+			os.makedirs(folder, exist_ok=True)
+			safe_name = secure_filename(raw_filename) or "documento.pdf"
+			unique = f"{uuid.uuid4()}_{safe_name}"
+			dest = os.path.join(folder, unique)
+			with open(dest, "wb") as handle:
+				handle.write(raw_bytes)
+			db.session.add(
+				KnowledgeAttachment(
+					article_id=article_id,
+					filename=unique,
+					original_filename=safe_name,
+					file_path=unique,
+					file_size=len(raw_bytes),
+					file_type="application/pdf",
+					description="PDF original enviado no assistente",
+					created_by_id=actor_id,
+				)
+			)
+			db.session.commit()
+			attached = True
+		except Exception:
+			db.session.rollback()
+
+	try:
+		index_source("knowledge_article", article_id)
+	except Exception:
+		db.session.rollback()
+
+	_saved_article.set(
+		{"article_id": article_id, "title": title, "category_id": category_id}
+	)
+	return {
+		"ok": True,
+		"article_id": article_id,
+		"title": title,
+		"category_id": category_id,
+		"category": category.name,
+		"images_count": int(pdf_data.get("images_count") or 0),
+		"pages_count": int(pdf_data.get("pages_count") or 1),
+		"attachment": attached,
+		"message": (
+			f"Artigo '{title}' criado com sucesso na categoria {category.name} "
+			f"({pdf_data.get('pages_count') or 1} página(s) e {pdf_data.get('images_count') or 0} imagem(ns) transcritas)."
+		),
+	}
 
 
 def save_support_solution(args: dict, user_id: int | None = None) -> dict:

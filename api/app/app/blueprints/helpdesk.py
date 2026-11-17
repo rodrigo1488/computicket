@@ -1286,26 +1286,77 @@ def _format_ai_chat_history(raw) -> str:
 @helpdesk_bp.route("/api/ai/chat", methods=["POST"])
 @login_required
 def ai_query():
-    payload = request.get_json(silent=True) or {}
-    question = str(payload.get("question") or payload.get("message") or "").strip()
     is_chat = request.path.rstrip("/").endswith("/chat")
-    image = payload.get("image") if is_chat else None
-    image = image.strip() if isinstance(image, str) else ""
+    is_multipart = (request.content_type or "").lower().startswith("multipart/form-data")
+
+    if is_multipart:
+        payload = request.form
+        question = str(payload.get("question") or payload.get("message") or "").strip()
+        image = ""
+        raw_history = payload.get("history") or payload.get("messages") or ""
+        if isinstance(raw_history, str) and raw_history.strip():
+            try:
+                raw_history = json.loads(raw_history)
+            except ValueError:
+                raw_history = ""
+    else:
+        payload = request.get_json(silent=True) or {}
+        question = str(payload.get("question") or payload.get("message") or "").strip()
+        image = payload.get("image") if is_chat else None
+        image = image.strip() if isinstance(image, str) else ""
+        raw_history = payload.get("history") or payload.get("messages") or ""
+
+    pdf_file = (request.files.get("pdf") or request.files.get("file")) if (is_chat and is_multipart) else None
+    has_pdf = bool(pdf_file and getattr(pdf_file, "filename", None))
+
     if image and len(image) > 6_000_000:
         return jsonify({"error": "A imagem é grande demais. Envie até 4 MB."}), 400
-    if not question and not image:
+    if not question and not image and not has_pdf:
         return jsonify({"error": "question é obrigatório"}), 400
     if len(question) > 12000:
         return jsonify({"error": "question excede o limite de 12000 caracteres"}), 400
+
+    pdf_data = None
+    if has_pdf:
+        from werkzeug.utils import secure_filename
+        from ..services.pdf_transcriber import transcribe_pdf_to_markdown
+
+        original_name = str(pdf_file.filename or "documento.pdf").strip()
+        if not original_name.lower().endswith(".pdf"):
+            return jsonify({"error": "Apenas arquivos .pdf são suportados."}), 400
+        raw_pdf = pdf_file.read()
+        if not raw_pdf:
+            return jsonify({"error": "O arquivo PDF está vazio."}), 400
+        if len(raw_pdf) > 50 * 1024 * 1024:
+            return jsonify({"error": "O arquivo PDF pode ter no máximo 50 MB."}), 400
+        upload_folder = os.path.join(current_app.instance_path, "knowledge_uploads")
+        os.makedirs(upload_folder, exist_ok=True)
+        try:
+            transcribed = transcribe_pdf_to_markdown(raw_pdf, upload_folder, filename_hint=original_name)
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+        except Exception as exc:
+            current_app.logger.exception("Falha ao transcrever PDF no chat: %s", secure_filename(original_name))
+            return jsonify({"error": f"Não foi possível transcrever o PDF: {exc}"}), 500
+        pdf_data = {
+            **transcribed,
+            "filename": original_name,
+            "raw_bytes": raw_pdf,
+        }
+
     if not question:
-        question = "Analise o print de suporte enviado."
+        question = (
+            f"Analise o PDF enviado ({pdf_data['filename']})."
+            if pdf_data
+            else "Analise o print de suporte enviado."
+        )
     raw_conversation_id = payload.get("conversation_id")
     try:
         conversation_id = int(raw_conversation_id) if raw_conversation_id not in (None, "") else None
     except (TypeError, ValueError):
         return jsonify({"error": "conversation_id inválido"}), 400
 
-    session_history = _format_ai_chat_history(payload.get("history") or payload.get("messages") or "")
+    session_history = _format_ai_chat_history(raw_history)
 
     def run():
         if conversation_id:
@@ -1318,10 +1369,11 @@ def ai_query():
                 history,
                 image=image or None,
                 actor_id=getattr(current_user, "id", None),
+                pdf_data=pdf_data,
             )
         return answer_question(question, history)
 
-    operation = "chat" if request.path.rstrip("/").endswith("/chat") else "query"
+    operation = "chat" if is_chat else "query"
     return _execute_ai(operation, question, conversation_id, run)
 
 
