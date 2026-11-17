@@ -633,12 +633,21 @@ export const helpdesk = {
     question: string,
     history?: { role: "user" | "assistant"; content: string }[],
     image?: string,
-  ) =>
-    flask.post<HelpdeskAiDraftRes>("/helpdesk/api/ai/chat", {
+    pdf?: File,
+  ) => {
+    if (pdf) {
+      const fd = new FormData();
+      fd.append("question", question);
+      if (history?.length) fd.append("history", JSON.stringify(history));
+      fd.append("pdf", pdf);
+      return flask.post<HelpdeskAiDraftRes>("/helpdesk/api/ai/chat", fd);
+    }
+    return flask.post<HelpdeskAiDraftRes>("/helpdesk/api/ai/chat", {
       question,
       ...(history?.length ? { history } : {}),
       ...(image ? { image } : {}),
-    }),
+    });
+  },
   aiSuggestReply: (id: number) =>
     flask.post<HelpdeskAiDraftRes>(`/helpdesk/api/conversations/${id}/ai/suggest-reply`),
   aiImprove: (id: number, text: string) =>

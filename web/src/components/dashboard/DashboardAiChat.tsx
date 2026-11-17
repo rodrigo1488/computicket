@@ -1,9 +1,20 @@
 "use client";
 
-import { Bot, ImagePlus, LoaderCircle, MessageCircle, Send, Sparkles, X } from "lucide-react";
+import {
+  BookOpen,
+  Bot,
+  FileText,
+  FileUp,
+  ImagePlus,
+  LoaderCircle,
+  MessageCircle,
+  Send,
+  Sparkles,
+  X,
+} from "lucide-react";
 import { Link } from "@/components/tabs/navigation";
 import { useEffect, useRef, useState } from "react";
-import { helpdesk, type HelpdeskAiSource } from "@/lib/helpdesk";
+import { helpdesk, type HelpdeskAiDraftRes, type HelpdeskAiSource } from "@/lib/helpdesk";
 import { cn } from "@/lib/cn";
 
 type ChatRole = "user" | "assistant";
@@ -13,14 +24,15 @@ type ChatMessage = {
   role: ChatRole;
   content: string;
   imageUrl?: string;
+  pdfName?: string;
   sources?: HelpdeskAiSource[];
+  savedArticle?: HelpdeskAiDraftRes["saved_article"];
   error?: boolean;
 };
 
-type ChatAttachment = {
-  dataUrl: string;
-  name: string;
-};
+type ChatAttachment =
+  | { kind: "image"; dataUrl: string; name: string }
+  | { kind: "pdf"; file: File; name: string };
 
 const SUGGESTIONS = [
   "O que está travando os atendimentos de hoje?",
@@ -30,11 +42,16 @@ const SUGGESTIONS = [
 
 const IMAGE_TYPES = ["image/png", "image/jpeg", "image/webp", "image/gif"];
 const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
+const MAX_PDF_BYTES = 50 * 1024 * 1024;
+
+function isPdfFile(file: File): boolean {
+  return file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
+}
 
 function readImage(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     if (!IMAGE_TYPES.includes(file.type)) {
-      reject(new Error("Envie uma imagem PNG, JPEG ou WebP."));
+      reject(new Error("Envie uma imagem PNG, JPEG, WebP ou arquivo .pdf."));
       return;
     }
     if (file.size > MAX_IMAGE_BYTES) {
@@ -83,7 +100,7 @@ function sourceHref(source: HelpdeskAiSource) {
     source.article_id ||
     source.metadata?.article_id ||
     (source.source_type === "knowledge_article" ? source.source_id : undefined);
-  if (categoryId && articleId) return `/conhecimento/${categoryId}?artigo=${articleId}`;
+  if (categoryId && articleId) return `/conhecimento/${categoryId}/${articleId}`;
   if (categoryId) return `/conhecimento/${categoryId}`;
   if (source.source_type === "knowledge_article" && source.source_id) {
     return `/conhecimento`;
@@ -132,13 +149,15 @@ export function DashboardAiChat() {
   const [open, setOpen] = useState(false);
   const [input, setInput] = useState("");
   const [attachment, setAttachment] = useState<ChatAttachment | null>(null);
-  const [heldPrint, setHeldPrint] = useState<ChatAttachment | null>(null);
+  const [heldPrint, setHeldPrint] = useState<{ dataUrl: string; name: string } | null>(null);
+  const [heldPdf, setHeldPdf] = useState<{ file: File; name: string } | null>(null);
   const [attachError, setAttachError] = useState("");
   const [pending, setPending] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const listRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const pdfQuickRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -161,28 +180,50 @@ export function DashboardAiChat() {
     el.scrollTop = el.scrollHeight;
   }, [messages, pending, open]);
 
+  function validatePdf(file: File): string | null {
+    if (!isPdfFile(file)) return "Selecione um arquivo .pdf válido.";
+    if (file.size === 0) return "O arquivo PDF está vazio.";
+    if (file.size > MAX_PDF_BYTES) return "O arquivo PDF passa de 50 MB.";
+    return null;
+  }
+
   async function attachFile(file: File | undefined) {
     if (!file || pending) return;
+    if (isPdfFile(file)) {
+      const pdfErr = validatePdf(file);
+      if (pdfErr) {
+        setAttachError(pdfErr);
+        return;
+      }
+      setAttachment({ kind: "pdf", file, name: file.name || "documento.pdf" });
+      setAttachError("");
+      return;
+    }
     try {
       const dataUrl = await readImage(file);
-      setAttachment({ dataUrl, name: file.name || "print" });
+      setAttachment({ kind: "image", dataUrl, name: file.name || "print" });
       setAttachError("");
     } catch (err) {
-      setAttachError(err instanceof Error ? err.message : "Não consegui ler a imagem.");
+      setAttachError(err instanceof Error ? err.message : "Não consegui ler o arquivo.");
     }
   }
 
-  async function send(questionRaw?: string) {
+  async function send(questionRaw?: string, options?: { pdfOverride?: File; useHeldPdf?: boolean }) {
     const question = (questionRaw ?? input).trim();
-    const freshImage = questionRaw ? undefined : attachment?.dataUrl;
-    const image = freshImage || (questionRaw ? undefined : heldPrint?.dataUrl);
-    if ((!question && !image) || pending) return;
+    const freshImage = !questionRaw && attachment?.kind === "image" ? attachment.dataUrl : undefined;
+    const image = freshImage || (!questionRaw && heldPrint ? heldPrint.dataUrl : undefined);
+    const freshPdf =
+      options?.pdfOverride || (!questionRaw && attachment?.kind === "pdf" ? attachment.file : undefined);
+    const pdfFile = freshPdf || (options?.useHeldPdf || !questionRaw ? heldPdf?.file : undefined);
+
+    if ((!question && !image && !pdfFile) || pending) return;
 
     const userMsg: ChatMessage = {
       id: `u-${Date.now()}`,
       role: "user",
-      content: question || "Print enviado",
+      content: question || (freshPdf ? `PDF enviado: ${freshPdf.name}` : "Print enviado"),
       imageUrl: freshImage,
+      pdfName: freshPdf?.name,
     };
     const history = [...messages, userMsg]
       .filter((m) => !m.error)
@@ -190,9 +231,17 @@ export function DashboardAiChat() {
       .map((m) => ({ role: m.role, content: m.content }));
 
     setMessages((prev) => [...prev, userMsg]);
-    setInput("");
-    if (image) setHeldPrint({ dataUrl: image, name: attachment?.name || heldPrint?.name || "print" });
-    setAttachment(null);
+    if (!questionRaw) setInput("");
+    if (image) {
+      setHeldPrint({
+        dataUrl: image,
+        name: (attachment?.kind === "image" ? attachment.name : heldPrint?.name) || "print",
+      });
+    }
+    if (pdfFile) {
+      setHeldPdf({ file: pdfFile, name: pdfFile.name || heldPdf?.name || "documento.pdf" });
+    }
+    if (!questionRaw) setAttachment(null);
     setAttachError("");
     setPending(true);
 
@@ -201,8 +250,12 @@ export function DashboardAiChat() {
         question,
         history.slice(0, -1).length ? history.slice(0, -1) : undefined,
         image,
+        pdfFile,
       );
-      if (result.saved_article) setHeldPrint(null);
+      if (result.saved_article) {
+        setHeldPrint(null);
+        setHeldPdf(null);
+      }
       setMessages((prev) => [
         ...prev,
         {
@@ -210,6 +263,7 @@ export function DashboardAiChat() {
           role: "assistant",
           content: result.draft?.trim() || "Sem resposta disponível.",
           sources: result.sources || [],
+          savedArticle: result.saved_article,
         },
       ]);
     } catch (err) {
@@ -237,6 +291,7 @@ export function DashboardAiChat() {
     setInput("");
     setAttachment(null);
     setHeldPrint(null);
+    setHeldPdf(null);
     setAttachError("");
   }
 
@@ -270,7 +325,7 @@ export function DashboardAiChat() {
                   Assistente IA
                 </p>
                 <p className="mt-0.5 text-xs text-muted">
-                  Agenda visita, consulta a operação e guarda problema com solução no conhecimento.
+                  Agenda visita, consulta a operação, guarda problema com solução e cria artigo a partir de PDF.
                 </p>
               </div>
               <div className="flex items-center gap-1">
@@ -303,7 +358,7 @@ export function DashboardAiChat() {
                   </div>
                   <p className="text-sm font-semibold text-navy">Como posso ajudar?</p>
                   <p className="mt-1 max-w-xs text-xs text-muted">
-                    Pode pedir uma visita, colar um print do erro ou mandar o problema junto com a solução.
+                    Pode agendar visita, consultar a operação, enviar print com solução ou importar um PDF para criar um artigo.
                   </p>
                   <div className="mt-4 flex w-full flex-col gap-2">
                     {SUGGESTIONS.map((item) => (
@@ -316,6 +371,33 @@ export function DashboardAiChat() {
                         {item}
                       </button>
                     ))}
+                    <input
+                      ref={pdfQuickRef}
+                      type="file"
+                      accept="application/pdf,.pdf"
+                      className="hidden"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        e.target.value = "";
+                        if (!file) return;
+                        const pdfErr = validatePdf(file);
+                        if (pdfErr) {
+                          setAttachError(pdfErr);
+                          return;
+                        }
+                        void send(`Crie um artigo na base de conhecimento com o PDF "${file.name}".`, {
+                          pdfOverride: file,
+                        });
+                      }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => pdfQuickRef.current?.click()}
+                      className="flex items-center gap-2 rounded-xl border border-brand/30 bg-brand/5 px-3 py-2.5 text-left text-xs font-medium text-brand shadow-sm hover:bg-brand/10"
+                    >
+                      <FileUp className="h-4 w-4 shrink-0" />
+                      <span>Criar artigo a partir de um arquivo .pdf</span>
+                    </button>
                   </div>
                 </div>
               ) : (
@@ -342,7 +424,25 @@ export function DashboardAiChat() {
                             className="mb-2 max-h-40 rounded-lg border border-white/20"
                           />
                         ) : null}
+                        {msg.pdfName ? (
+                          <div className="mb-2 flex items-center gap-2 rounded-lg border border-white/20 bg-black/15 px-2.5 py-1.5 text-xs">
+                            <FileText className="h-4 w-4 shrink-0" />
+                            <span className="truncate font-medium">{msg.pdfName}</span>
+                          </div>
+                        ) : null}
                         <p className="whitespace-pre-wrap">{msg.content}</p>
+                        {msg.savedArticle ? (
+                          <div className="mt-2.5 border-t border-line/80 pt-2">
+                            <Link
+                              href={`/conhecimento/${msg.savedArticle.category_id || 1}/${msg.savedArticle.article_id}`}
+                              onClick={() => setOpen(false)}
+                              className="inline-flex items-center gap-1.5 rounded-lg bg-brand/10 px-2.5 py-1.5 text-xs font-medium text-brand hover:bg-brand/20"
+                            >
+                              <BookOpen className="h-3.5 w-3.5 shrink-0" />
+                              Abrir artigo: {msg.savedArticle.title}
+                            </Link>
+                          </div>
+                        ) : null}
                         {msg.role === "assistant" && msg.sources?.length ? (
                           <Sources sources={msg.sources} />
                         ) : null}
@@ -362,6 +462,35 @@ export function DashboardAiChat() {
             </div>
 
             <footer className="border-t border-line bg-surface p-3">
+              {heldPdf && !attachment ? (
+                <div className="mb-2 flex items-center gap-2 rounded-xl border border-line bg-canvas px-2.5 py-1.5">
+                  <FileText className="h-4 w-4 shrink-0 text-brand" />
+                  <p className="min-w-0 flex-1 truncate text-[11px] text-ink" title={heldPdf.name}>
+                    PDF: {heldPdf.name}
+                  </p>
+                  <button
+                    type="button"
+                    disabled={pending}
+                    onClick={() =>
+                      void send(`Crie um artigo na base de conhecimento com o PDF "${heldPdf.name}".`, {
+                        useHeldPdf: true,
+                      })
+                    }
+                    className="shrink-0 rounded-lg bg-brand/10 px-2 py-1 text-[11px] font-medium text-brand hover:bg-brand/20 disabled:opacity-40"
+                  >
+                    Criar artigo
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setHeldPdf(null)}
+                    className="rounded-md p-1 text-muted hover:bg-surface hover:text-ink"
+                    aria-label="Descartar PDF"
+                    disabled={pending}
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              ) : null}
               {heldPrint && !attachment ? (
                 <div className="mb-2 flex items-center gap-2 rounded-xl border border-line bg-canvas px-2 py-1.5">
                   <img src={heldPrint.dataUrl} alt="" className="h-8 w-8 rounded-md object-cover" />
@@ -381,13 +510,19 @@ export function DashboardAiChat() {
               ) : null}
               {attachment ? (
                 <div className="mb-2 flex items-center gap-2 rounded-xl border border-line bg-canvas p-2">
-                  <img src={attachment.dataUrl} alt="" className="h-12 w-12 rounded-lg object-cover" />
+                  {attachment.kind === "image" ? (
+                    <img src={attachment.dataUrl} alt="" className="h-12 w-12 rounded-lg object-cover" />
+                  ) : (
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-brand/10 text-brand">
+                      <FileText className="h-5 w-5" />
+                    </div>
+                  )}
                   <p className="min-w-0 flex-1 truncate text-xs text-ink">{attachment.name}</p>
                   <button
                     type="button"
                     onClick={() => setAttachment(null)}
                     className="rounded-md p-1 text-muted hover:bg-surface hover:text-ink"
-                    aria-label="Remover print"
+                    aria-label="Remover anexo"
                     disabled={pending}
                   >
                     <X className="h-3.5 w-3.5" />
@@ -404,7 +539,7 @@ export function DashboardAiChat() {
                 <input
                   ref={fileRef}
                   type="file"
-                  accept="image/png,image/jpeg,image/webp,image/gif"
+                  accept="image/png,image/jpeg,image/webp,image/gif,application/pdf,.pdf"
                   className="hidden"
                   onChange={(e) => {
                     const file = e.target.files?.[0];
@@ -417,7 +552,8 @@ export function DashboardAiChat() {
                   onClick={() => fileRef.current?.click()}
                   disabled={pending}
                   className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-line text-muted hover:text-ink disabled:opacity-40"
-                  aria-label="Anexar print"
+                  aria-label="Anexar print ou PDF"
+                  title="Anexar imagem ou arquivo .pdf"
                 >
                   <ImagePlus className="h-4 w-4" />
                 </button>
@@ -441,7 +577,7 @@ export function DashboardAiChat() {
                   }}
                   rows={2}
                   disabled={pending}
-                  placeholder="Mensagem, print ou erro com a solução…"
+                  placeholder="Mensagem, print, PDF ou erro com a solução…"
                   className="max-h-28 flex-1 resize-none rounded-xl border border-line bg-canvas px-3 py-2 text-sm outline-none focus:border-brand disabled:opacity-60"
                 />
                 <button
@@ -455,7 +591,7 @@ export function DashboardAiChat() {
               </form>
               {attachError ? <p className="mt-2 text-[10px] text-open">{attachError}</p> : null}
               <p className="mt-2 text-[10px] text-muted">
-                Cole um print do erro. A solução só entra no conhecimento quando você também contar como resolveu.
+                Anexe um print ou PDF. Para PDFs, o artigo usa o nome do arquivo como título e preserva texto e imagens.
               </p>
             </footer>
           </aside>
