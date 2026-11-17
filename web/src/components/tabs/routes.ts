@@ -187,6 +187,30 @@ export const ROUTES: RouteDef[] = [
     load: () => import("@/app/(app)/conhecimento/page"),
   },
   {
+    pattern: "/conhecimento/:categoryId/novo",
+    title: "Novo artigo",
+    icon: GraduationCap,
+    load: () => import("@/app/(app)/conhecimento/[categoryId]/novo/page"),
+  },
+  {
+    pattern: "/conhecimento/:categoryId/editar",
+    title: (p) => `Editar artigo #${p.categoryId ?? ""}`,
+    icon: GraduationCap,
+    load: () => import("@/app/(app)/conhecimento/[categoryId]/editar/page"),
+  },
+  {
+    pattern: "/conhecimento/:categoryId/:articleId/editar",
+    title: (p) => `Editar artigo #${p.articleId ?? ""}`,
+    icon: GraduationCap,
+    load: () => import("@/app/(app)/conhecimento/[categoryId]/[articleId]/editar/page"),
+  },
+  {
+    pattern: "/conhecimento/:categoryId/:articleId",
+    title: (p) => `Artigo #${p.articleId ?? ""}`,
+    icon: GraduationCap,
+    load: () => import("@/app/(app)/conhecimento/[categoryId]/[articleId]/page"),
+  },
+  {
     pattern: "/conhecimento/:categoryId",
     title: (p) => `Categoria #${p.categoryId ?? ""}`,
     icon: GraduationCap,

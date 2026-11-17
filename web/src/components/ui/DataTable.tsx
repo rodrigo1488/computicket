@@ -70,6 +70,7 @@ export type DataTableProps = {
   loading?: boolean;
   refreshing?: boolean;
   skeletonRows?: number;
+  onRowClick?: (rowIndex: number) => void;
 };
 
 const STORAGE_PREFIX = "datatable:";
@@ -260,6 +261,7 @@ export function DataTable({
   loading = false,
   refreshing = false,
   skeletonRows = 7,
+  onRowClick,
 }: DataTableProps) {
   const [draft, setDraft] = useState(searchValue || "");
   const [appliedQ, setAppliedQ] = useState(searchValue || "");
@@ -634,7 +636,21 @@ export function DataTable({
               </tr>
             ) : (
               processed.map(({ row, index }) => (
-                <tr key={index} className="border-t border-line hover:bg-wash">
+                <tr
+                  key={index}
+                  onClick={
+                    onRowClick
+                      ? (e) => {
+                          const target = e.target as HTMLElement | null;
+                          if (target?.closest("button, a, input, label, select, [role='menu'], [role='menuitem']")) {
+                            return;
+                          }
+                          onRowClick(index);
+                        }
+                      : undefined
+                  }
+                  className={cn("border-t border-line hover:bg-wash", onRowClick && "cursor-pointer")}
+                >
                   {selectable ? (
                     <td className="px-3 py-3">
                       <input
