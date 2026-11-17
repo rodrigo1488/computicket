@@ -1,15 +1,17 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Pencil, Plus, Trash2 } from "lucide-react";
-import { Link } from "@/components/tabs/navigation";
+import { LayoutGrid, Pencil, Plus, Table2, Trash2 } from "lucide-react";
+import { useRouter } from "@/components/tabs/navigation";
 import { useEffect, useState } from "react";
 import { PageTitle } from "@/components/layout/AppShell";
-import { Kpi } from "@/components/ui/DataTable";
+import { DataTable, Kpi } from "@/components/ui/DataTable";
 import { Modal } from "@/components/ui/Modal";
 import { Pagination } from "@/components/ui/Pagination";
+import { DeleteAction, EditAction, RowActions } from "@/components/ui/RowActions";
 import { PrimaryButton, UnderlineField } from "@/components/ui/UnderlineField";
 import { flask } from "@/lib/api";
+import { cn } from "@/lib/cn";
 import { KNOWLEDGE_ICON_OPTIONS, knowledgeIcon } from "@/lib/knowledge-icons";
 
 type Cat = {
@@ -33,9 +35,11 @@ const emptyCat = { name: "", description: "", color: "#3B82F6", icon: "fas fa-fo
 
 export default function ConhecimentoPage() {
   const qc = useQueryClient();
+  const router = useRouter();
   const [q, setQ] = useState("");
   const [draft, setDraft] = useState("");
   const [page, setPage] = useState(1);
+  const [viewMode, setViewMode] = useState<"cards" | "table">("cards");
   const [creating, setCreating] = useState(false);
   const [edit, setEdit] = useState<Cat | null>(null);
   const [form, setForm] = useState(emptyCat);
@@ -43,7 +47,7 @@ export default function ConhecimentoPage() {
 
   useEffect(() => setPage(1), [q]);
 
-  const { data, isLoading, error } = useQuery({
+  const { data, isLoading, isFetching, error } = useQuery({
     queryKey: ["knowledge-cats", q, page],
     queryFn: () =>
       flask.get<Res>(
@@ -87,6 +91,7 @@ export default function ConhecimentoPage() {
     }
   };
 
+  const categories = data?.categories || [];
   const PreviewIcon = knowledgeIcon(form.icon);
 
   return (
@@ -112,82 +117,163 @@ export default function ConhecimentoPage() {
         <Kpi label="Visualizações" value={data?.stats?.total_views ?? "—"} />
       </div>
 
-      <form
-        className="mb-6 flex flex-wrap items-center gap-2"
-        onSubmit={(e) => {
-          e.preventDefault();
-          setQ(draft.trim());
-        }}
-      >
-        <input
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          placeholder="Buscar categorias…"
-          className="h-10 min-w-[220px] max-w-md flex-1 rounded-lg border border-line px-3 text-sm"
-        />
-        <button type="submit" className="h-10 rounded-lg bg-brand px-4 text-sm font-medium text-white">
-          Buscar
-        </button>
-      </form>
+      <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
+        <form
+          className="flex min-w-0 flex-1 flex-wrap items-center gap-2"
+          onSubmit={(e) => {
+            e.preventDefault();
+            setQ(draft.trim());
+          }}
+        >
+          <input
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            placeholder="Buscar categorias…"
+            className="h-10 min-w-[220px] max-w-md flex-1 rounded-lg border border-line bg-surface px-3 text-sm"
+          />
+          <button type="submit" className="h-10 rounded-lg bg-brand px-4 text-sm font-medium text-white">
+            Buscar
+          </button>
+        </form>
 
-      {isLoading ? <p className="mb-4 text-sm text-muted">Carregando categorias…</p> : null}
+        <div
+          role="group"
+          aria-label="Modo de visualização"
+          className="inline-flex items-center rounded-xl border border-line bg-wash/70 p-1"
+        >
+          <button
+            type="button"
+            onClick={() => setViewMode("cards")}
+            aria-pressed={viewMode === "cards"}
+            className={cn(
+              "inline-flex h-8 items-center gap-1.5 rounded-lg px-3 text-xs font-medium transition-colors",
+              viewMode === "cards" ? "bg-surface text-brand shadow-xs" : "text-muted hover:text-ink",
+            )}
+          >
+            <LayoutGrid className="h-3.5 w-3.5" />
+            Cards
+          </button>
+          <button
+            type="button"
+            onClick={() => setViewMode("table")}
+            aria-pressed={viewMode === "table"}
+            className={cn(
+              "inline-flex h-8 items-center gap-1.5 rounded-lg px-3 text-xs font-medium transition-colors",
+              viewMode === "table" ? "bg-surface text-brand shadow-xs" : "text-muted hover:text-ink",
+            )}
+          >
+            <Table2 className="h-3.5 w-3.5" />
+            Tabela
+          </button>
+        </div>
+      </div>
+
+      {isLoading && viewMode === "cards" ? <p className="mb-4 text-sm text-muted">Carregando categorias…</p> : null}
       {error ? <p className="mb-4 text-sm text-open">{(error as Error).message}</p> : null}
 
-      {(data?.categories || []).length === 0 && !isLoading ? (
+      {viewMode === "table" ? (
+        <DataTable
+          id="conhecimento-categorias"
+          hideSearch
+          loading={isLoading}
+          refreshing={isFetching}
+          columnMeta={{ Ações: { sortable: false, filter: false } }}
+          columns={["Categoria", "Descrição", "Artigos", "Ações"]}
+          empty="Nenhuma categoria encontrada. Crie a primeira para organizar os artigos."
+          onRowClick={(index) => {
+            const cat = categories[index];
+            if (cat) router.push(`/conhecimento/${cat.id}`);
+          }}
+          rows={categories.map((c) => {
+            const Icon = knowledgeIcon(c.icon);
+            const color = c.color || "#3B82F6";
+            return [
+              <div key={`cat-${c.id}`} className="flex items-center gap-3">
+                <div
+                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg"
+                  style={{ backgroundColor: `${color}22`, color }}
+                >
+                  <Icon className="h-4 w-4" />
+                </div>
+                <span className="font-medium text-navy">{c.name}</span>
+              </div>,
+              c.description || "—",
+              `${c.articles_count ?? 0} artigo${(c.articles_count || 0) === 1 ? "" : "s"}`,
+              <RowActions key={`act-${c.id}`}>
+                <EditAction onClick={() => openForm(c)} />
+                <DeleteAction
+                  onClick={() => {
+                    if (window.confirm(`Excluir a categoria ${c.name}? Os artigos também serão removidos.`)) {
+                      remove.mutate(c.id);
+                    }
+                  }}
+                />
+              </RowActions>,
+            ];
+          })}
+        />
+      ) : categories.length === 0 && !isLoading ? (
         <div className="rounded-2xl border border-line px-6 py-12 text-center text-sm text-muted">
           Nenhuma categoria encontrada. Crie a primeira para organizar os artigos.
         </div>
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-          {(data?.categories || []).map((c) => {
+          {categories.map((c) => {
             const Icon = knowledgeIcon(c.icon);
             const color = c.color || "#3B82F6";
             return (
               <div
                 key={c.id}
-                className="group rounded-2xl border border-line p-5 transition hover:-translate-y-0.5 hover:shadow-md"
+                role="button"
+                tabIndex={0}
+                onClick={() => router.push(`/conhecimento/${c.id}`)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    router.push(`/conhecimento/${c.id}`);
+                  }
+                }}
+                className="group cursor-pointer rounded-2xl border border-line bg-surface p-5 transition hover:-translate-y-0.5 hover:border-brand/40 hover:shadow-md"
               >
-                <div className="mb-4 flex items-start gap-3">
-                  <div
-                    className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl"
-                    style={{ backgroundColor: `${color}22`, color }}
-                  >
-                    <Icon className="h-6 w-6" />
+                <div className="mb-3 flex items-start justify-between gap-3">
+                  <div className="flex min-w-0 flex-1 items-start gap-3">
+                    <div
+                      className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl"
+                      style={{ backgroundColor: `${color}22`, color }}
+                    >
+                      <Icon className="h-6 w-6" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <h3 className="truncate text-lg font-semibold text-navy group-hover:text-brand">{c.name}</h3>
+                      <p className="text-sm text-muted">
+                        {c.articles_count ?? 0} artigo{(c.articles_count || 0) === 1 ? "" : "s"}
+                      </p>
+                    </div>
                   </div>
-                  <div className="min-w-0 flex-1">
-                    <h3 className="truncate text-lg font-semibold text-navy">{c.name}</h3>
-                    <p className="text-sm text-muted">{c.articles_count ?? 0} artigo{(c.articles_count || 0) === 1 ? "" : "s"}</p>
+                  <div className="flex shrink-0 items-center gap-1" onClick={(e) => e.stopPropagation()}>
+                    <button
+                      type="button"
+                      onClick={() => openForm(c)}
+                      className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-wash text-muted hover:bg-line hover:text-ink"
+                      aria-label="Editar categoria"
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (window.confirm(`Excluir a categoria ${c.name}? Os artigos também serão removidos.`)) {
+                          remove.mutate(c.id);
+                        }
+                      }}
+                      className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-wash text-open hover:bg-open-bg"
+                      aria-label="Excluir categoria"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
                   </div>
                 </div>
-                {c.description ? <p className="mb-4 line-clamp-2 text-sm text-muted">{c.description}</p> : null}
-                <div className="flex items-center gap-2">
-                  <Link
-                    href={`/conhecimento/${c.id}`}
-                    className="inline-flex h-9 flex-1 items-center justify-center rounded-lg bg-inverse px-3 text-sm font-medium text-on-inverse"
-                  >
-                    Ver artigos
-                  </Link>
-                  <button
-                    type="button"
-                    onClick={() => openForm(c)}
-                    className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-wash text-muted"
-                    aria-label="Editar categoria"
-                  >
-                    <Pencil className="h-4 w-4" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (window.confirm(`Excluir a categoria ${c.name}? Os artigos também serão removidos.`)) {
-                        remove.mutate(c.id);
-                      }
-                    }}
-                    className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-wash text-open"
-                    aria-label="Excluir categoria"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </button>
-                </div>
+                {c.description ? <p className="line-clamp-2 text-sm text-muted">{c.description}</p> : null}
               </div>
             );
           })}

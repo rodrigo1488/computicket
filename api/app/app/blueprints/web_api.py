@@ -1106,7 +1106,7 @@ def _knowledge_category_json(c: KnowledgeCategory):
 
 _KB_ALLOWED_EXTENSIONS = {
 	"pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "txt", "zip", "rar",
-	"jpg", "jpeg", "png", "gif", "mp4", "avi", "mp3", "wav",
+	"jpg", "jpeg", "png", "gif", "webp", "mp4", "avi", "mp3", "wav",
 }
 _KB_MAX_FILE_SIZE = 50 * 1024 * 1024
 
@@ -1389,10 +1389,13 @@ def knowledge_article_create():
 	status = (data.get("status") or "published").strip()
 	if status not in ("draft", "published", "archived"):
 		status = "published"
+	summary = (data.get("summary") or "").strip()
+	if len(summary) > 100:
+		return jsonify({"error": "O resumo deve ter no máximo 100 caracteres."}), 400
 	a = KnowledgeArticle(
 		title=title,
 		content=content,
-		summary=(data.get("summary") or "").strip() or None,
+		summary=summary or None,
 		tags=(data.get("tags") or "").strip() or None,
 		category_id=category_id,
 		status=status,
@@ -2030,7 +2033,10 @@ def knowledge_article_item(article_id: int):
 			return jsonify({"error": "Título é obrigatório."}), 400
 		a.title = title
 	if "summary" in data:
-		a.summary = data.get("summary") or ""
+		summary = (data.get("summary") or "").strip()
+		if len(summary) > 100:
+			return jsonify({"error": "O resumo deve ter no máximo 100 caracteres."}), 400
+		a.summary = summary or None
 	if data.get("content") is not None:
 		content = (data.get("content") or "").strip()
 		if not content:
@@ -2097,6 +2103,71 @@ def knowledge_attachment_delete(attachment_id: int):
 	db.session.commit()
 	article = KnowledgeArticle.query.get_or_404(article_id)
 	return jsonify(_knowledge_article_json(article))
+
+
+@bp.route("/knowledge/transcribe-pdf", methods=["POST"])
+@login_required
+def knowledge_transcribe_pdf():
+	file = request.files.get("file") or request.files.get("pdf")
+	if not file or not getattr(file, "filename", None):
+		return jsonify({"error": "Selecione um arquivo PDF."}), 400
+	filename = secure_filename(file.filename)
+	if not filename.lower().endswith(".pdf"):
+		return jsonify({"error": "Apenas arquivos .pdf são suportados para transcrição."}), 400
+	raw = file.read()
+	if not raw:
+		return jsonify({"error": "O arquivo PDF está vazio."}), 400
+	if len(raw) > _KB_MAX_FILE_SIZE:
+		return jsonify({"error": "O arquivo PDF pode ter no máximo 50 MB."}), 400
+	try:
+		from ..services.pdf_transcriber import transcribe_pdf_to_markdown
+
+		result = transcribe_pdf_to_markdown(raw, _kb_upload_folder(), filename_hint=file.filename)
+		return jsonify(result)
+	except ValueError as exc:
+		return jsonify({"error": str(exc)}), 400
+	except Exception as exc:
+		current_app.logger.exception("Falha ao transcrever PDF %s", filename)
+		return jsonify({"error": f"Não foi possível transcrever o PDF: {exc}"}), 500
+
+
+@bp.route("/knowledge/media", methods=["POST"])
+@login_required
+def knowledge_media_upload():
+	file = request.files.get("file") or request.files.get("image")
+	if not file or not getattr(file, "filename", None):
+		return jsonify({"error": "Selecione uma imagem."}), 400
+	filename = secure_filename(file.filename) or f"imagem_{uuid.uuid4().hex[:8]}.png"
+	if "." not in filename:
+		filename = f"{filename}.png"
+	ext = filename.rsplit(".", 1)[-1].lower()
+	if ext not in {"png", "jpg", "jpeg", "gif", "webp"}:
+		return jsonify({"error": f"Formato de imagem não suportado: .{ext}"}), 400
+	file.seek(0, os.SEEK_END)
+	size = file.tell()
+	file.seek(0)
+	if size > 15 * 1024 * 1024:
+		return jsonify({"error": "Cada imagem pode ter no máximo 15 MB."}), 400
+	unique_name = f"kb_media_{uuid.uuid4().hex}_{filename}"
+	dest = os.path.join(_kb_upload_folder(), unique_name)
+	file.save(dest)
+	return jsonify({
+		"url": f"/flask/api/web/knowledge/media/{unique_name}",
+		"filename": filename,
+	}), 201
+
+
+@bp.route("/knowledge/media/<path:filename>")
+@login_required
+def knowledge_media_serve(filename: str):
+	safe = secure_filename(Path(filename).name)
+	if not safe:
+		return jsonify({"error": "Arquivo inválido."}), 400
+	for folder in _kb_search_dirs():
+		candidate = folder / safe
+		if candidate.is_file():
+			return send_file(str(candidate), as_attachment=False, max_age=86400)
+	return jsonify({"error": "Imagem não encontrada."}), 404
 
 
 @bp.route("/inventory/<int:item_id>", methods=["GET", "PATCH", "DELETE"])

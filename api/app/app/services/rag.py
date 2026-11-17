@@ -67,6 +67,8 @@ def sanitize_for_rag(value: str | None) -> str:
 	except Exception:
 		text = re.sub(r"<[^>]+>", " ", value or "")
 	text = html.unescape(text)
+	text = re.sub(r"!\[([^\]]*)\]\([^)]+\)", r"\1", text)
+	text = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", text)
 	text = _PRIVATE_KEY.sub("[SEGREDO REMOVIDO]", text)
 	text = _BEARER.sub("Bearer [SEGREDO REMOVIDO]", text)
 	text = _SECRET.sub(lambda m: f"{m.group(1)}=[SEGREDO REMOVIDO]", text)
@@ -413,7 +415,7 @@ def _source_link(row: KnowledgeChunk) -> dict:
 			return {
 				"category_id": article.category_id,
 				"article_id": article.id,
-				"href": f"/conhecimento/{article.category_id}?artigo={article.id}",
+				"href": f"/conhecimento/{article.category_id}/{article.id}",
 			}
 	if row.source_type == SOURCE_VAULT:
 		vault = db.session.get(PasswordVault, row.source_id)

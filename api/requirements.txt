@@ -16,3 +16,4 @@ google-genai>=1.0.0
 requests==2.32.3
 redis>=5.0.0
 pywebpush==2.5.0
+PyMuPDF>=1.24.0
