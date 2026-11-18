@@ -6,7 +6,7 @@ import { getLmStudioDefaultModel, isAiBackendConfigured } from "../../config/ope
 import { getGeminiDefaultModel } from "../../config/gemini";
 import { isGeminiConfiguredForCompany } from "../AiServices/GeminiApiKeyService";
 import syncPromptQueue from "./syncPromptQueue";
-import { asBool, clampIdleMinutes, normalizeGroupJid, optionalId } from "./promptAgentFields";
+import { asBool, clampDebounceSeconds, clampDelayRange, clampIdleMinutes, normalizeGroupJid, optionalId } from "./promptAgentFields";
 
 interface PromptData {
     name: string;
@@ -38,6 +38,9 @@ interface PromptData {
     idleAlertEnabled?: boolean;
     idleAlertMinutes?: number;
     idleAlertGroupJid?: string | null;
+    messageDebounceSeconds?: number;
+    responseDelayMinSeconds?: number;
+    responseDelayMaxSeconds?: number;
 }
 
 const CreatePromptService = async (promptData: PromptData): Promise<Prompt> => {
@@ -98,6 +101,11 @@ const CreatePromptService = async (promptData: PromptData): Promise<Prompt> => {
       promptData.model ||
       (provider === "gemini" ? getGeminiDefaultModel() : getLmStudioDefaultModel());
 
+    const delayRange = clampDelayRange(
+      promptData.responseDelayMinSeconds,
+      promptData.responseDelayMaxSeconds
+    );
+
     // Criar objeto de dados para salvar, sempre com apiKey como string vazia
     const promptToCreate: any = {
         name: promptData.name,
@@ -128,7 +136,10 @@ const CreatePromptService = async (promptData: PromptData): Promise<Prompt> => {
         fallbackUserId: optionalId(promptData.fallbackUserId),
         idleAlertEnabled: asBool(promptData.idleAlertEnabled),
         idleAlertMinutes: clampIdleMinutes(promptData.idleAlertMinutes),
-        idleAlertGroupJid: normalizeGroupJid(promptData.idleAlertGroupJid)
+        idleAlertGroupJid: normalizeGroupJid(promptData.idleAlertGroupJid),
+        messageDebounceSeconds: clampDebounceSeconds(promptData.messageDebounceSeconds),
+        responseDelayMinSeconds: delayRange.min,
+        responseDelayMaxSeconds: delayRange.max
     };
 
     try {

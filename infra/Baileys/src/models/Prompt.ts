@@ -102,6 +102,15 @@ class Prompt extends Model<Prompt> {
   @Column
   idleAlertGroupJid: string;
 
+  @Column({ defaultValue: 4 })
+  messageDebounceSeconds: number;
+
+  @Column({ defaultValue: 2 })
+  responseDelayMinSeconds: number;
+
+  @Column({ defaultValue: 12 })
+  responseDelayMaxSeconds: number;
+
   /** YYYY-MM-DD em Brasília do último relatório das 18:30 já enviado. */
   @AllowNull
   @Column

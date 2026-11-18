@@ -347,7 +347,7 @@ export function MediaViewer({
   const showCanvas = editingImage;
 
   return (
-    <div className="fixed inset-0 z-[80] flex flex-col bg-black/92 text-white">
+    <div className="fixed inset-0 z-80 flex flex-col bg-black/92 text-white">
       <header className="flex shrink-0 flex-wrap items-center gap-1 border-b border-white/10 px-2 py-1.5">
         <ToolBtn label="Fechar" onClick={onClose}>
           <X className="h-5 w-5" />
@@ -356,7 +356,7 @@ export function MediaViewer({
         <ToolBtn label="Diminuir zoom" onClick={() => setZoom((z) => clamp(z / 1.2, 0.25, 8))}>
           <ZoomOut className="h-4 w-4" />
         </ToolBtn>
-        <button type="button" className="min-w-[3.5rem] text-center text-xs text-white/70" onClick={() => { setZoom(1); setPan({ x: 0, y: 0 }); }}>
+        <button type="button" className="min-w-14 text-center text-xs text-white/70" onClick={() => { setZoom(1); setPan({ x: 0, y: 0 }); }}>
           {Math.round(zoom * 100)}%
         </button>
         <ToolBtn label="Aumentar zoom" onClick={() => setZoom((z) => clamp(z * 1.2, 0.25, 8))}>
@@ -502,7 +502,7 @@ export function MediaViewer({
           }}
           onBlur={commitText}
           placeholder="Texto"
-          className="fixed z-[81] rounded-md border border-white/30 bg-black/80 px-2 py-1 text-sm text-white outline-none"
+          className="fixed z-81 rounded-md border border-white/30 bg-black/80 px-2 py-1 text-sm text-white outline-none"
           style={{ left: textEdit.clientX, top: textEdit.clientY }}
         />
       ) : null}

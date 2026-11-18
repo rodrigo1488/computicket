@@ -36,12 +36,12 @@ export function FlowBlockNode({ id, data, type, selected }: NodeProps<Node<FlowN
   return (
     <div
       className={cn(
-        "w-[220px] overflow-visible rounded-xl border bg-surface shadow-sm",
+        "w-55 overflow-visible rounded-xl border bg-surface shadow-sm",
         selected ? "border-brand ring-2 ring-brand/30" : "border-line",
       )}
     >
       {kind !== "start" ? (
-        <Handle type="target" position={Position.Left} className="!h-2.5 !w-2.5 !border-line !bg-white" />
+        <Handle type="target" position={Position.Left} className="h-2.5! w-2.5! border-line! bg-white!" />
       ) : null}
       <div className={cn("flex items-center gap-2 rounded-t-xl bg-gradient-to-r px-3 py-2 to-transparent", meta.tone)}>
         <span className={cn("flex h-6 w-6 items-center justify-center rounded-md text-white", meta.bar)}>
@@ -63,7 +63,7 @@ export function FlowBlockNode({ id, data, type, selected }: NodeProps<Node<FlowN
                     type="source"
                     position={Position.Right}
                     id={`a${opt.number}`}
-                    className="!right-[-8px] !h-2.5 !w-2.5 !border-line !bg-white"
+                    className="-right-2! h-2.5! w-2.5! border-line! bg-white!"
                   />
                 </div>
               ))
@@ -77,12 +77,12 @@ export function FlowBlockNode({ id, data, type, selected }: NodeProps<Node<FlowN
               type="source"
               position={Position.Right}
               id="out"
-              className="!right-[-8px] !h-2.5 !w-2.5 !border-line !bg-white"
+              className="-right-2! h-2.5! w-2.5! border-line! bg-white"
             />
           </div>
         </>
       ) : (
-        <Handle type="source" position={Position.Right} id="out" className="!h-2.5 !w-2.5 !border-line !bg-white" />
+        <Handle type="source" position={Position.Right} id="out" className="h-2.5! w-2.5! border-line! bg-white!" />
       )}
     </div>
   );

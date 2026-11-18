@@ -6,7 +6,7 @@ import { getLmStudioDefaultModel, isAiBackendConfigured } from "../../config/ope
 import { getGeminiDefaultModel } from "../../config/gemini";
 import { isGeminiConfiguredForCompany } from "../AiServices/GeminiApiKeyService";
 import syncPromptQueue from "./syncPromptQueue";
-import { asBool, clampIdleMinutes, normalizeGroupJid, optionalId } from "./promptAgentFields";
+import { asBool, clampDebounceSeconds, clampDelayRange, clampIdleMinutes, normalizeGroupJid, optionalId } from "./promptAgentFields";
 
 interface PromptData {
     id?: number;
@@ -39,6 +39,9 @@ interface PromptData {
     idleAlertEnabled?: boolean;
     idleAlertMinutes?: number;
     idleAlertGroupJid?: string | null;
+    messageDebounceSeconds?: number;
+    responseDelayMinSeconds?: number;
+    responseDelayMaxSeconds?: number;
 }
 
 interface Request {
@@ -70,7 +73,7 @@ const UpdatePromptService = async ({
     });
 
     // Não exigir apiKey no prompt - será buscada das Settings
-    const { name, prompt, maxTokens, temperature, promptTokens, completionTokens, totalTokens, queueId, maxMessages, model, canSendInternalMessages, canTransferToAgent, canChangeTag, permitirCriarAgendamentos, tipoAgente, isTemplate, templateVariables, transferQueueId, businessHours, canTransferToUser, answerFromKnowledge, fallbackQueueId, fallbackUserId, idleAlertEnabled, idleAlertMinutes, idleAlertGroupJid } = promptData;
+    const { name, prompt, maxTokens, temperature, promptTokens, completionTokens, totalTokens, queueId, maxMessages, model, canSendInternalMessages, canTransferToAgent, canChangeTag, permitirCriarAgendamentos, tipoAgente, isTemplate, templateVariables, transferQueueId, businessHours, canTransferToUser, answerFromKnowledge, fallbackQueueId, fallbackUserId, idleAlertEnabled, idleAlertMinutes, idleAlertGroupJid, messageDebounceSeconds, responseDelayMinSeconds, responseDelayMaxSeconds } = promptData;
 
     try {
         await promptSchema.validate({ name, prompt, maxTokens, temperature, promptTokens, completionTokens, totalTokens, queueId, maxMessages, provider });
@@ -93,6 +96,11 @@ const UpdatePromptService = async ({
 
     const finalModel =
       model || (provider === "gemini" ? getGeminiDefaultModel() : getLmStudioDefaultModel());
+
+    const delayRange = clampDelayRange(
+        responseDelayMinSeconds !== undefined ? responseDelayMinSeconds : promptTable.responseDelayMinSeconds,
+        responseDelayMaxSeconds !== undefined ? responseDelayMaxSeconds : promptTable.responseDelayMaxSeconds
+    );
 
     const updateData: any = {
         name,
@@ -122,6 +130,9 @@ const UpdatePromptService = async ({
         idleAlertEnabled: idleAlertEnabled !== undefined ? asBool(idleAlertEnabled) : promptTable.idleAlertEnabled,
         idleAlertMinutes: idleAlertMinutes !== undefined ? clampIdleMinutes(idleAlertMinutes, promptTable.idleAlertMinutes || 30) : promptTable.idleAlertMinutes,
         idleAlertGroupJid: idleAlertGroupJid !== undefined ? normalizeGroupJid(idleAlertGroupJid) : promptTable.idleAlertGroupJid,
+        messageDebounceSeconds: messageDebounceSeconds !== undefined ? clampDebounceSeconds(messageDebounceSeconds, promptTable.messageDebounceSeconds ?? 4) : promptTable.messageDebounceSeconds,
+        responseDelayMinSeconds: delayRange.min,
+        responseDelayMaxSeconds: delayRange.max,
         // Sempre definir apiKey como string vazia - será buscada das Settings
         apiKey: ""
     };

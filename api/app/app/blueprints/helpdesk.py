@@ -2875,6 +2875,15 @@ def _connection_for_prompt(prompt_id, connections: list) -> dict | None:
 def _ai_agent_engine_body(payload: dict) -> dict:
     minutes = _ai_optional_int(payload.get("idleAlertMinutes")) or 30
     minutes = min(1440, max(5, minutes))
+    raw_debounce = payload.get("messageDebounceSeconds")
+    debounce = 4 if raw_debounce in (None, "") else (_ai_optional_int(raw_debounce) or 0)
+    debounce = min(30, max(0, debounce))
+    raw_min_delay = payload.get("responseDelayMinSeconds")
+    min_delay = 2 if raw_min_delay in (None, "") else (_ai_optional_int(raw_min_delay) or 0)
+    min_delay = min(60, max(0, min_delay))
+    raw_max_delay = payload.get("responseDelayMaxSeconds")
+    max_delay = 12 if raw_max_delay in (None, "") else (_ai_optional_int(raw_max_delay) or 0)
+    max_delay = min(60, max(min_delay, max_delay))
     return {
         "name": (payload.get("name") or "").strip(),
         "prompt": (payload.get("prompt") or "").strip(),
@@ -2892,6 +2901,9 @@ def _ai_agent_engine_body(payload: dict) -> dict:
         "idleAlertEnabled": _ai_flag(payload, "idleAlertEnabled"),
         "idleAlertMinutes": minutes,
         "idleAlertGroupJid": (payload.get("idleAlertGroupJid") or "").strip() or None,
+        "messageDebounceSeconds": debounce,
+        "responseDelayMinSeconds": min_delay,
+        "responseDelayMaxSeconds": max_delay,
         "tipoAgente": "atendimento",
     }
 
@@ -2911,6 +2923,9 @@ def _public_ai_agent(row: dict) -> dict:
         "idleAlertEnabled": bool(row.get("idleAlertEnabled")),
         "idleAlertMinutes": row.get("idleAlertMinutes") or 30,
         "idleAlertGroupJid": row.get("idleAlertGroupJid") or "",
+        "messageDebounceSeconds": row.get("messageDebounceSeconds") if row.get("messageDebounceSeconds") is not None else 4,
+        "responseDelayMinSeconds": row.get("responseDelayMinSeconds") if row.get("responseDelayMinSeconds") is not None else 2,
+        "responseDelayMaxSeconds": row.get("responseDelayMaxSeconds") if row.get("responseDelayMaxSeconds") is not None else 12,
         "provider": row.get("provider") or "gemini",
         "whatsappId": row.get("whatsappId"),
         "whatsappName": row.get("whatsappName") or "",

@@ -29,6 +29,9 @@ type Draft = {
   idleAlertEnabled: boolean;
   idleAlertMinutes: string;
   idleAlertGroupJid: string;
+  messageDebounceSeconds: string;
+  responseDelayMinSeconds: string;
+  responseDelayMaxSeconds: string;
 };
 
 const EMPTY: Draft = {
@@ -44,6 +47,9 @@ const EMPTY: Draft = {
   idleAlertEnabled: false,
   idleAlertMinutes: "30",
   idleAlertGroupJid: "",
+  messageDebounceSeconds: "4",
+  responseDelayMinSeconds: "2",
+  responseDelayMaxSeconds: "12",
 };
 
 function fromAgent(agent: AiWhatsappAgent): Draft {
@@ -60,11 +66,19 @@ function fromAgent(agent: AiWhatsappAgent): Draft {
     idleAlertEnabled: !!agent.idleAlertEnabled,
     idleAlertMinutes: String(agent.idleAlertMinutes || 30),
     idleAlertGroupJid: agent.idleAlertGroupJid || "",
+    messageDebounceSeconds: String(agent.messageDebounceSeconds ?? 4),
+    responseDelayMinSeconds: String(agent.responseDelayMinSeconds ?? 2),
+    responseDelayMaxSeconds: String(agent.responseDelayMaxSeconds ?? 12),
   };
 }
 
 function toPayload(draft: Draft): AiWhatsappAgentPayload {
   const minutes = Number(draft.idleAlertMinutes);
+  const debounce = Number(draft.messageDebounceSeconds);
+  const minDelay = Number(draft.responseDelayMinSeconds);
+  const maxDelay = Number(draft.responseDelayMaxSeconds);
+  const safeMin = Number.isFinite(minDelay) ? Math.min(60, Math.max(0, Math.round(minDelay))) : 2;
+  const safeMax = Number.isFinite(maxDelay) ? Math.min(60, Math.max(safeMin, Math.round(maxDelay))) : Math.max(safeMin, 12);
   return {
     name: draft.name.trim(),
     prompt: draft.prompt.trim(),
@@ -78,6 +92,9 @@ function toPayload(draft: Draft): AiWhatsappAgentPayload {
     idleAlertEnabled: draft.idleAlertEnabled,
     idleAlertMinutes: Number.isFinite(minutes) ? minutes : 30,
     idleAlertGroupJid: draft.idleAlertGroupJid || null,
+    messageDebounceSeconds: Number.isFinite(debounce) ? Math.min(30, Math.max(0, Math.round(debounce))) : 4,
+    responseDelayMinSeconds: safeMin,
+    responseDelayMaxSeconds: safeMax,
   };
 }
 
@@ -251,6 +268,36 @@ function AgentForm({
               </option>
             ))}
         </SelectField>
+      </div>
+      <div className="rounded-xl border border-line bg-wash/50 p-4 space-y-3">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.08em] text-navy">
+            Ritmo de resposta (Humanização)
+          </p>
+          <p className="mt-0.5 text-xs text-muted">
+            Agrupa mensagens seguidas do cliente e calcula o tempo de envio pelo tamanho de cada parágrafo (~40 caracteres/s + variação aleatória) dentro do range abaixo.
+          </p>
+        </div>
+        <div className="grid gap-4 sm:grid-cols-3">
+          <UnderlineField
+            label="Agrupar mensagens (seg)"
+            type="number"
+            value={draft.messageDebounceSeconds}
+            onChange={(messageDebounceSeconds) => patch({ messageDebounceSeconds })}
+          />
+          <UnderlineField
+            label="Delay mínimo (seg)"
+            type="number"
+            value={draft.responseDelayMinSeconds}
+            onChange={(responseDelayMinSeconds) => patch({ responseDelayMinSeconds })}
+          />
+          <UnderlineField
+            label="Delay máximo (seg)"
+            type="number"
+            value={draft.responseDelayMaxSeconds}
+            onChange={(responseDelayMaxSeconds) => patch({ responseDelayMaxSeconds })}
+          />
+        </div>
       </div>
       <Check
         label="Alertar grupo quando a conversa ficar sem resposta"

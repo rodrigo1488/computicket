@@ -31,8 +31,8 @@ function NavAlertBadge({
   return (
     <span
       className={cn(
-        "inline-flex min-w-[18px] items-center justify-center rounded-full bg-open px-1.5 text-[10px] font-bold leading-[18px] text-white",
-        collapsed && "absolute -right-1.5 -top-1.5 min-w-[16px] px-1 leading-[16px]",
+        "inline-flex min-w-4.5 items-center justify-center rounded-full bg-open px-1.5 text-[10px] font-bold leading-4.5 text-white",
+        collapsed && "absolute -right-1.5 -top-1.5 min-w-4 px-1 leading-4",
       )}
       aria-label={label}
     >
@@ -109,7 +109,7 @@ export function AppSidebar({ collapsed: controlledCollapsed }: { collapsed?: boo
     <aside
       className={cn(
         "flex h-full min-h-0 shrink-0 flex-col overflow-hidden border-r border-line bg-sidebar text-ink transition-[width] duration-200",
-        collapsed ? "w-[72px]" : "w-[260px]",
+        collapsed ? "w-18" : "w-65",
       )}
     >
       <div
@@ -179,7 +179,7 @@ export function AppSidebar({ collapsed: controlledCollapsed }: { collapsed?: boo
           <div
             className={cn(
               "absolute z-20 overflow-hidden rounded-xl border border-line bg-surface py-2 shadow-[0_1px_2px_rgba(15,23,42,0.04)]",
-              collapsed ? "fixed bottom-4 left-[80px] z-50 w-52" : "bottom-[76px] left-4 right-4",
+              collapsed ? "fixed bottom-4 left-20 z-50 w-52" : "bottom-19 left-4 right-4",
             )}
           >
             <p className="px-4 pb-1 text-[10px] tracking-[0.14em] text-muted">OPÇÕES</p>

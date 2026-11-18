@@ -23,7 +23,7 @@ export function Logo({ collapsed }: { collapsed: boolean }) {
           alt="Computicket — Ticket Management System"
           width={500}
           height={120}
-          className="h-auto w-full max-w-[174px] object-contain object-left dark:brightness-0 dark:invert"
+          className="h-auto w-full max-w-44 object-contain object-left dark:brightness-0 dark:invert"
           priority
         />
       )}

@@ -97,6 +97,9 @@ export type AiWhatsappAgent = {
   idleAlertEnabled: boolean;
   idleAlertMinutes: number;
   idleAlertGroupJid?: string;
+  messageDebounceSeconds?: number;
+  responseDelayMinSeconds?: number;
+  responseDelayMaxSeconds?: number;
   provider?: string;
   whatsappId?: number | null;
   whatsappName?: string;
@@ -115,6 +118,9 @@ export type AiWhatsappAgentPayload = {
   idleAlertEnabled: boolean;
   idleAlertMinutes: number;
   idleAlertGroupJid?: string | null;
+  messageDebounceSeconds?: number;
+  responseDelayMinSeconds?: number;
+  responseDelayMaxSeconds?: number;
   whatsappId?: number | null;
 };
 

@@ -124,9 +124,14 @@ import {
   conversationTurns,
   formatAgentContext,
   sanitizeCustomerReply,
-  signAgentMessage,
-  splitWhatsAppText
+  signAgentMessage
 } from "../AiServices/aiAgentActions";
+import {
+  calculateHumanDelayMs,
+  randomRangeMs,
+  sleepMs,
+  splitHumanWhatsAppMessages
+} from "../../helpers/humanReply";
 import { loadAgentContext } from "../../helpers/computicketAgentApi";
 import GetTicketWbot from "../../helpers/GetTicketWbot";
 import { getChatJid as getChatJidFromHelper } from "../../helpers/chatJid";
@@ -1601,7 +1606,8 @@ const handleOpenAi = async (
 
         logger.info(`✅ [OpenAI] ${commandResult.action === "create_appointment" ? "Agendamento" : "Tarefa"} criado com sucesso - Enviando mensagem automática`);
         
-        // Enviar mensagem automática e retornar SEM chamar IA
+        // Delay curto humanizado (1s-2s) para comandos rápidos e retornar SEM chamar IA
+        await sleepMs(randomRangeMs(1000, 2000));
         const chatJid = getChatJid(ticket);
         const sentMessage = await wbot.sendMessage(chatJid, {
           text: responseText
@@ -1799,9 +1805,16 @@ ${TRANSFER_RULES}`;
         }
       }
 
-      for (const part of splitWhatsAppText(cleanedResponse)) {
+      for (const part of splitHumanWhatsAppMessages(cleanedResponse)) {
         const signed = signAgentMessage(part, prompt.name);
         if (!signed) continue;
+        await sleepMs(
+          calculateHumanDelayMs(
+            part,
+            prompt.responseDelayMinSeconds ?? 2,
+            prompt.responseDelayMaxSeconds ?? 12
+          )
+        );
         const sentMessage = await wbot.sendMessage(msg.key.remoteJid!, {
           text: signed
         });
@@ -1899,9 +1912,16 @@ ${TRANSFER_RULES}`;
           return;
         }
       }
-      for (const part of splitWhatsAppText(cleanedAudioResponse)) {
+      for (const part of splitHumanWhatsAppMessages(cleanedAudioResponse)) {
         const signed = signAgentMessage(part, prompt.name);
         if (!signed) continue;
+        await sleepMs(
+          calculateHumanDelayMs(
+            part,
+            prompt.responseDelayMinSeconds ?? 2,
+            prompt.responseDelayMaxSeconds ?? 12
+          )
+        );
         const sentMessage = await wbot.sendMessage(msg.key.remoteJid!, {
           text: signed
         });
@@ -1922,6 +1942,13 @@ ${TRANSFER_RULES}`;
       prompt.name
     );
     if (signed) {
+      await sleepMs(
+        calculateHumanDelayMs(
+          signed,
+          prompt.responseDelayMinSeconds ?? 2,
+          prompt.responseDelayMaxSeconds ?? 12
+        )
+      );
       const sentMessage = await wbot.sendMessage(msg.key.remoteJid, { text: signed });
       await verifyMessage(sentMessage!, ticket, contact);
     }
@@ -4441,7 +4468,8 @@ const handleMessage = async (
           logger.debug(`Debounce: cancelando processamento anterior para ticket ${ticket.id}`);
         }
 
-        // Agendar processamento com debounce de 500ms
+        // Agendar processamento com debounce configurável por agente (padrão 4s)
+        const debounceMs = Math.max(0, Number(prompt.messageDebounceSeconds ?? 4)) * 1000;
         const processAI = async () => {
           try {
             await handleOpenAi(msg, wbot, ticket, contact, mediaSent);
@@ -4450,7 +4478,7 @@ const handleMessage = async (
           }
         };
 
-        const debounceTimeout = setTimeout(processAI, 500);
+        const debounceTimeout = setTimeout(processAI, debounceMs);
         aiProcessingDebounces.set(debounceKey, debounceTimeout);
       } catch (err: any) {
         logger.error(`Erro ao buscar/iniciar prompt: ${err.message}`, {
