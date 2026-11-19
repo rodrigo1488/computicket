@@ -2210,6 +2210,46 @@ class UniplusJob(db.Model):
 		}
 
 
+class UniplusClient(db.Model):
+	"""Espelho local de `entidade` do Uniplus. `id` é da base Computicket; `idclienteuniplus` é entidade.id."""
+
+	__tablename__ = "uniplus_client"
+
+	id = db.Column(db.Integer, primary_key=True)
+	idclienteuniplus = db.Column(db.Integer, nullable=False, unique=True, index=True)
+	name = db.Column(db.String(200), nullable=False)
+	document = db.Column(db.String(40), nullable=True)
+	phone = db.Column(db.String(40), nullable=True)
+	email = db.Column(db.String(200), nullable=True)
+	address = db.Column(db.String(255), nullable=True)
+	address_number = db.Column(db.String(30), nullable=True)
+	contract_type = db.Column(db.String(120), nullable=True)
+	no_charge = db.Column(db.Boolean, nullable=False, default=False)
+	notes = db.Column(db.Text, nullable=True)
+	inactive = db.Column(db.Boolean, nullable=False, default=False, index=True)
+	sync_token = db.Column(db.String(40), nullable=True, index=True)
+	synced_at = db.Column(db.DateTime, nullable=False, default=get_brasilia_now)
+
+	def to_public_dict(self) -> Dict[str, Any]:
+		"""Mesmo formato da listagem ao vivo. `id` continua sendo o id do Uniplus."""
+		return {
+			"id": self.idclienteuniplus,
+			"idclienteuniplus": self.idclienteuniplus,
+			"name": self.name,
+			"document": self.document or "",
+			"phone": self.phone or "",
+			"email": self.email or "",
+			"address": self.address or "",
+			"address_number": self.address_number or "",
+			"contract_type": self.contract_type or None,
+			"no_charge": bool(self.no_charge),
+			"notes": self.notes or "",
+		}
+
+	def __repr__(self) -> str:
+		return f"<UniplusClient uniplus={self.idclienteuniplus} {self.name}>"
+
+
 def _remote_monitor_now():
 	from datetime import datetime, timezone
 	return datetime.now(timezone.utc).replace(tzinfo=None)

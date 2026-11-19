@@ -21,6 +21,33 @@ _helpdesk_poll_initialized = False
 _CONTRACT_EXPIRY_DAYS = 30
 
 
+def sincronizar_clientes_uniplus():
+    """Copia entidades do Uniplus em lotes para o espelho local."""
+    app = create_app()
+    with app.app_context():
+        try:
+            from app.services.uniplus_client_sync import sync_uniplus_clients
+            from app.uniplus_jobs import get_unico_pg_config
+
+            if not (get_unico_pg_config().get("host") or "").strip():
+                return
+            result = sync_uniplus_clients()
+            if result.get("status") == "running":
+                return
+            app.logger.info(
+                "Clientes Uniplus sincronizados: %s lidos em %s lote(s), %s inativados.",
+                result.get("synced"),
+                result.get("batches"),
+                result.get("inactive_marked"),
+            )
+        except Exception as e:
+            app.logger.warning("Falha ao sincronizar clientes Uniplus: %s", e)
+            try:
+                db.session.rollback()
+            except Exception:
+                pass
+
+
 def verificar_contratos_vencendo():
     """Cria notificações in-app (sem push) para contratos a vencer em até 30 dias."""
     app = create_app()
@@ -640,11 +667,13 @@ def run_scheduler():
     schedule.every(15).seconds.do(verificar_novas_mensagens_helpdesk)
     schedule.every().hour.do(verificar_contratos_vencendo)
     schedule.every(15).minutes.do(verificar_prazos_implantacao)
+    schedule.every(30).minutes.do(sincronizar_clientes_uniplus)
     verificar_novas_mensagens_helpdesk()
     verificar_contratos_vencendo()
     verificar_prazos_implantacao()
+    sincronizar_clientes_uniplus()
     
-    print("⏰ Scheduler: agendamentos (1min), helpdesk (15s), contratos a vencer (1h), implantação (15min)")
+    print("⏰ Scheduler: agendamentos (1min), helpdesk (15s), contratos a vencer (1h), implantação (15min), clientes Uniplus (30min)")
     
     # Loop infinito para manter o scheduler rodando
     while True:

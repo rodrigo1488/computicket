@@ -257,17 +257,32 @@ def tickets_stale_count():
 	return jsonify({"count": int(count)})
 
 
+def _remember_client(client: dict | None) -> None:
+	if not client or not client.get("id"):
+		return
+	try:
+		from ..services.uniplus_client_sync import upsert_public_client
+		upsert_public_client(client)
+	except Exception:
+		db.session.rollback()
+
+
+def _with_uniplus_id(client: dict) -> dict:
+	uniplus_id = client.get("idclienteuniplus") or client.get("id")
+	if uniplus_id:
+		client = {**client, "idclienteuniplus": uniplus_id}
+	return client
+
+
 @bp.route("/clients")
 @login_required
 def clients():
-	from ..external_pg import ExternalPgError, fetch_external_clients_search
+	from ..external_pg import ExternalPgError
+	from ..services.uniplus_client_sync import load_clients, sync_status
 
 	q = (request.args.get("q") or "").strip()
 	try:
-		if q:
-			items = fetch_external_clients_search(q)
-		else:
-			items = fetch_external_clients()
+		items, source = load_clients(q)
 	except ExternalPgError as e:
 		return jsonify({"error": str(e), "items": [], "total": 0, "page": 1, "per_page": 25}), 503
 	except Exception as e:
@@ -279,6 +294,9 @@ def clients():
 			"per_page": 25,
 		}), 503
 	payload = _slice_page(items, default=25)
+	payload["source"] = source
+	if source == "mirror":
+		payload["synced_at"] = sync_status().get("synced_at")
 	return jsonify(payload)
 
 
@@ -1668,31 +1686,34 @@ def clients_create():
 		return jsonify({"error": str(e)}), 400
 	except Exception as e:
 		return jsonify({"error": str(e)}), 500
-	return jsonify(client), 201
+	_remember_client(client)
+	return jsonify(_with_uniplus_id(client)), 201
 
 
 @bp.route("/clients/<int:client_id>")
 @login_required
 def client_item_get(client_id: int):
+	from ..services.uniplus_client_sync import load_client
+
 	try:
-		items = fetch_external_clients()
+		client = load_client(client_id)
 	except Exception as e:
 		return jsonify({"error": str(e)}), 503
-	client = next((c for c in items if c.get("id") == client_id), None)
 	if not client:
 		return jsonify({"error": "Cliente não encontrado."}), 404
-	return jsonify(client)
+	return jsonify(_with_uniplus_id(client))
 
 
 @bp.route("/clients/<int:client_id>", methods=["PATCH"])
 @login_required
 def client_item_patch(client_id: int):
+	from ..services.uniplus_client_sync import load_client
+
 	data = _json()
 	try:
-		items = fetch_external_clients()
+		client = load_client(client_id)
 	except Exception as e:
 		return jsonify({"error": str(e)}), 503
-	client = next((c for c in items if c.get("id") == client_id), None)
 	if not client:
 		return jsonify({"error": "Cliente não encontrado."}), 404
 	name = (data.get("name") if data.get("name") is not None else client.get("name")) or ""
@@ -1715,8 +1736,10 @@ def client_item_patch(client_id: int):
 		)
 	except Exception as e:
 		return jsonify({"error": str(e)}), 500
-	return jsonify({
+	updated = {
 		**client,
+		"id": client_id,
+		"idclienteuniplus": client.get("idclienteuniplus") or client_id,
 		"name": name,
 		"document": document,
 		"phone": phone,
@@ -1724,7 +1747,9 @@ def client_item_patch(client_id: int):
 		"address": address,
 		"address_number": address_number,
 		"notes": notes,
-	})
+	}
+	_remember_client(updated)
+	return jsonify(updated)
 
 
 @bp.route("/contracts/<path:contract_name>", methods=["GET", "PATCH"])

@@ -8,6 +8,19 @@ import { PrimaryButton, UnderlineField } from "@/components/ui/UnderlineField";
 import { flask } from "@/lib/api";
 import { cn } from "@/lib/cn";
 
+type ClientSync = {
+  status: string;
+  synced_at?: string | null;
+  error?: string | null;
+  last_synced?: number;
+  active?: number;
+  count?: number;
+  running?: boolean;
+  synced?: number;
+  batches?: number;
+  inactive_marked?: number;
+};
+
 type UniplusConfig = {
   enabled: boolean;
   device_id: string;
@@ -31,6 +44,13 @@ type UniplusConfig = {
   };
 };
 
+function formatSync(iso?: string | null) {
+  if (!iso) return "";
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return iso;
+  return date.toLocaleString("pt-BR");
+}
+
 function sourceLabel(src?: string) {
   if (src === "system_config") return "Configurações";
   if (src === "env") return ".env";
@@ -43,6 +63,11 @@ export function UniplusSettings() {
   const { data, error, isFetching, refetch } = useQuery({
     queryKey: ["uniplus-config"],
     queryFn: () => flask.get<UniplusConfig>("/api/uniplus/config"),
+    refetchInterval: isActiveTab ? 10_000 : false,
+  });
+  const clientSync = useQuery({
+    queryKey: ["uniplus-clients-sync"],
+    queryFn: () => flask.get<ClientSync>("/api/uniplus/clients/sync"),
     refetchInterval: isActiveTab ? 10_000 : false,
   });
 
@@ -69,6 +94,22 @@ export function UniplusSettings() {
     setPgPassword("");
     setPgTimeout(String(data.pg?.connect_timeout ?? 5));
   }, [data]);
+
+  const syncClients = useMutation({
+    mutationFn: () => flask.post<ClientSync>("/api/uniplus/clients/sync", {}),
+    onSuccess: (res) => {
+      if (res.status === "running") {
+        setMsg("Sincronização de clientes já está em andamento.");
+      } else {
+        setMsg(
+          `Clientes sincronizados: ${res.synced ?? 0} em ${res.batches ?? 0} lote(s). Ativos no espelho: ${res.active ?? 0}.`,
+        );
+      }
+      qc.invalidateQueries({ queryKey: ["uniplus-clients-sync"] });
+      qc.invalidateQueries({ queryKey: ["clients-page"] });
+    },
+    onError: (e: Error) => setMsg(e.message),
+  });
 
   const save = useMutation({
     mutationFn: () =>
@@ -109,8 +150,9 @@ export function UniplusSettings() {
       <div>
         <p className="text-sm text-muted">
           Escritas no ERP Unico passam pelo agente local no servidor Uniplus (Socket.IO). Leituras
-          (lista de clientes, faturamento, OS) e o fallback legado usam o Postgres configurado abaixo —
-          a máquina da API precisa alcançar esse host.
+          (faturamento, OS) e o fallback legado usam o Postgres configurado abaixo — a máquina da API
+          precisa alcançar esse host. A lista de clientes passa a usar o espelho local depois da
+          sincronização.
         </p>
       </div>
 
@@ -146,6 +188,37 @@ export function UniplusSettings() {
           status só fica &quot;autenticado&quot; após o evento ready (token aceito).
         </p>
       ) : null}
+
+      <div className="space-y-3 rounded-xl border border-line px-4 py-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <p className="text-sm font-semibold text-ink">Espelho de clientes</p>
+            <p className="mt-0.5 text-xs text-muted">
+              Copia as entidades do Uniplus em lotes para a base do Computicket, com o campo{" "}
+              <span className="font-medium text-ink">idclienteuniplus</span>.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              setMsg(null);
+              syncClients.mutate();
+            }}
+            disabled={syncClients.isPending || clientSync.data?.running}
+            className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-line px-3 text-xs font-semibold text-ink hover:bg-wash focus:outline-none focus:ring-2 focus:ring-brand/40 disabled:opacity-60"
+          >
+            <RefreshCw className={cn("h-3.5 w-3.5", (syncClients.isPending || clientSync.data?.running) && "animate-spin")} />
+            {syncClients.isPending || clientSync.data?.running ? "Sincronizando…" : "Sincronizar clientes"}
+          </button>
+        </div>
+        <p className="text-xs text-muted">
+          {clientSync.data?.active ?? 0} ativo(s) no espelho
+          {clientSync.data?.synced_at ? ` · última sync ${formatSync(clientSync.data.synced_at)}` : " · ainda não sincronizado"}
+          {clientSync.data?.status === "error" && clientSync.data.error
+            ? ` · erro: ${clientSync.data.error}`
+            : ""}
+        </p>
+      </div>
 
       {error ? <p className="text-sm text-open">{(error as Error).message}</p> : null}
 

@@ -6,11 +6,10 @@ from .. import db
 from ..models import Client
 from ..external_pg import (
 	create_external_client,
-	fetch_external_clients,
-	fetch_external_clients_search,
 	update_external_client,
 	fetch_contract_types,
 )
+from ..services.uniplus_client_sync import load_client, load_clients, upsert_public_client
 
 bp = Blueprint("clients", __name__)
 
@@ -21,10 +20,7 @@ def list_clients():
 	# Busca server-side com ILIKE e ordem alfabética
 	q = (request.args.get("q") or "").strip()
 	contract_type = (request.args.get("contract_type") or "").strip()
-	if q:
-		external_clients = fetch_external_clients_search(q)
-	else:
-		external_clients = fetch_external_clients()
+	external_clients, _source = load_clients(q)
 	if contract_type:
 		external_clients = [c for c in external_clients if (c.get("contract_type") or "") == contract_type]
 	# Paginação
@@ -74,10 +70,8 @@ def list_clients():
 def search_clients():
 	q = (request.args.get("q") or "").strip()
 	limit = int(request.args.get("limit", 18))
-	if not q:
-		results = fetch_external_clients()[:limit]
-	else:
-		results = fetch_external_clients_search(q)[:limit]
+	results, _source = load_clients(q)
+	results = results[:limit]
 	print(f"DEBUG: Clientes retornados para a pesquisa: {results}")
 	return jsonify(results)
 
@@ -85,8 +79,7 @@ def search_clients():
 @bp.route("/<int:client_id>/editar", methods=["GET", "POST"])
 @login_required
 def edit_client(client_id: int):
-	clients = fetch_external_clients()
-	client = next((c for c in clients if c.get("id") == client_id), None)
+	client = load_client(client_id)
 	if not client:
 		flash("Cliente não encontrado.")
 		return redirect(url_for("clients.list_clients"))
@@ -99,6 +92,21 @@ def edit_client(client_id: int):
 		address_number = request.form.get("address_number")
 		notes = request.form.get("notes")
 		update_external_client(client_id, name, document, phone, email, address, address_number, notes=notes)
+		try:
+			upsert_public_client({
+				"id": client_id,
+				"name": name,
+				"document": document,
+				"phone": phone,
+				"email": email,
+				"address": address,
+				"address_number": address_number,
+				"notes": notes,
+				"contract_type": client.get("contract_type"),
+				"no_charge": client.get("no_charge"),
+			})
+		except Exception:
+			db.session.rollback()
 		flash("Cliente atualizado.")
 		return redirect(url_for("clients.list_clients"))
 	return render_template("clients/edit.html", client=client)
@@ -113,7 +121,7 @@ def create_client():
 			flash("Nome é obrigatório.")
 			return render_template("clients/new.html")
 		try:
-			create_external_client(
+			created = create_external_client(
 				name,
 				document=(request.form.get("document") or "").strip(),
 				phone=(request.form.get("phone") or "").strip(),
@@ -122,6 +130,10 @@ def create_client():
 				address_number=(request.form.get("address_number") or "").strip(),
 				notes=(request.form.get("notes") or "").strip() or None,
 			)
+			try:
+				upsert_public_client(created)
+			except Exception:
+				db.session.rollback()
 			flash("Cliente cadastrado no Unico.")
 		except Exception as e:
 			flash(f"Erro ao cadastrar: {e}")

@@ -1,7 +1,7 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Plus } from "lucide-react";
+import { Plus, RefreshCw } from "lucide-react";
 import { useEffect, useState } from "react";
 import { PageTitle } from "@/components/layout/AppShell";
 import { DataTable } from "@/components/ui/DataTable";
@@ -14,6 +14,7 @@ import { useColFilters } from "@/lib/use-col-filters";
 
 type Client = {
   id: number;
+  idclienteuniplus?: number;
   name: string;
   phone?: string;
   document?: string;
@@ -23,6 +24,18 @@ type Client = {
   address_number?: string;
   notes?: string;
 };
+
+type ClientsPageRes = PageRes<Client> & {
+  source?: "mirror" | "uniplus";
+  synced_at?: string | null;
+};
+
+function formatSync(iso?: string | null) {
+  if (!iso) return "";
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return iso;
+  return date.toLocaleString("pt-BR");
+}
 
 const emptyForm = {
   name: "",
@@ -50,8 +63,16 @@ export default function ClientesPage() {
   const { data, isLoading, isFetching, error } = useQuery({
     queryKey: ["clients-page", q, page, colQuery],
     queryFn: () =>
-      flask.get<PageRes<Client>>(`/api/web/clients?q=${encodeURIComponent(q)}&page=${page}&per_page=25${colQuery}`),
+      flask.get<ClientsPageRes>(`/api/web/clients?q=${encodeURIComponent(q)}&page=${page}&per_page=25${colQuery}`),
     placeholderData: (previousData) => previousData,
+  });
+
+  const syncClients = useMutation({
+    mutationFn: () => flask.post<{ status?: string; synced?: number; active?: number }>("/api/uniplus/clients/sync", {}),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["clients-page"] });
+      qc.invalidateQueries({ queryKey: ["uniplus-clients-sync"] });
+    },
   });
 
   const save = useMutation({
@@ -95,20 +116,46 @@ export default function ClientesPage() {
     <div>
       <div className="mb-8 flex flex-wrap items-center justify-between gap-4">
         <PageTitle className="mb-0">Clientes</PageTitle>
-        <button
-          type="button"
-          onClick={openCreate}
-          className="inline-flex h-10 items-center gap-2 rounded-xl bg-inverse px-4 text-sm font-medium text-on-inverse"
-        >
-          <Plus className="h-4 w-4" />
-          Novo cliente
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => syncClients.mutate()}
+            disabled={syncClients.isPending}
+            className="inline-flex h-10 items-center gap-2 rounded-xl border border-line px-4 text-sm font-medium text-ink hover:bg-wash focus:outline-none focus:ring-2 focus:ring-brand/40 disabled:opacity-60"
+          >
+            <RefreshCw className={`h-4 w-4 ${syncClients.isPending ? "animate-spin" : ""}`} />
+            {syncClients.isPending ? "Sincronizando…" : "Sincronizar Uniplus"}
+          </button>
+          <button
+            type="button"
+            onClick={openCreate}
+            className="inline-flex h-10 items-center gap-2 rounded-xl bg-inverse px-4 text-sm font-medium text-on-inverse hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-brand/40"
+          >
+            <Plus className="h-4 w-4" />
+            Novo cliente
+          </button>
+        </div>
       </div>
       {error ? <p className="mb-4 text-sm text-open">{(error as Error).message}</p> : null}
+      {syncClients.error ? (
+        <p className="mb-4 text-sm text-open">{(syncClients.error as Error).message}</p>
+      ) : null}
+      {data?.source === "mirror" ? (
+        <p className="mb-4 text-sm text-muted">
+          Espelho local do Uniplus
+          {data.synced_at ? ` · atualizado em ${formatSync(data.synced_at)}` : ""}. O id exibido no detalhe é o{" "}
+          <span className="font-medium text-ink">idclienteuniplus</span>.
+        </p>
+      ) : data && !isLoading ? (
+        <p className="mb-4 text-sm text-muted">
+          Listagem ao vivo do Uniplus. Sincronize para gravar o espelho local.
+        </p>
+      ) : null}
       {!isLoading && !error && (data?.total || 0) === 0 ? (
         <p className="mb-4 text-sm text-muted">
-          Nenhum cliente retornado. Se esperava dados do Unico, confira o Postgres em
-          Configurações → Uniplus — a listagem não usa o agente.
+          {data?.source === "mirror"
+            ? "Nenhum cliente no espelho para este filtro."
+            : "Nenhum cliente retornado. Sincronize o Uniplus ou confira o Postgres em Configurações → Uniplus."}
         </p>
       ) : null}
       <DataTable
@@ -136,6 +183,11 @@ export default function ClientesPage() {
       <Modal open={!!view} onClose={() => setView(null)} title="Detalhes do cliente" wide>
         {view ? (
           <div className="grid gap-3 text-sm md:grid-cols-2">
+            <p>
+              <span className="text-muted">ID Uniplus</span>
+              <br />
+              {view.idclienteuniplus || view.id}
+            </p>
             <p>
               <span className="text-muted">Nome</span>
               <br />

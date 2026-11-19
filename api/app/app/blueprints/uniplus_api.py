@@ -2,7 +2,9 @@
 from flask import Blueprint, jsonify, request
 from flask_login import login_required, current_user
 
+from ..external_pg import ExternalPgError
 from ..models import UniplusJob
+from ..services.uniplus_client_sync import sync_status, sync_uniplus_clients
 from ..uniplus_jobs import (
 	agent_enabled,
 	connected_count,
@@ -90,6 +92,27 @@ def put_config():
 	except Exception as e:
 		return jsonify({"error": str(e)}), 500
 	return jsonify(settings)
+
+
+@bp.get("/clients/sync")
+@login_required
+def clients_sync_status():
+	return jsonify(sync_status())
+
+
+@bp.post("/clients/sync")
+@login_required
+def clients_sync():
+	"""Copia entidades do Uniplus em lotes para o espelho local (`idclienteuniplus`)."""
+	data = request.get_json(silent=True) or {}
+	batch_size = data.get("batch_size")
+	try:
+		result = sync_uniplus_clients(batch_size=batch_size)
+	except ExternalPgError as exc:
+		return jsonify({"error": str(exc), **sync_status()}), 503
+	except Exception as exc:
+		return jsonify({"error": str(exc), **sync_status()}), 500
+	return jsonify(result)
 
 
 @bp.get("/jobs/<int:job_id>")
