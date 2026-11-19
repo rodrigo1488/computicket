@@ -10,6 +10,7 @@ const messageRoutes = Router();
 
 const upload = multer(uploadConfig);
 
+messageRoutes.post("/messages/send-to-group", isAuth, MessageController.sendToAgentGroup);
 messageRoutes.get("/messages/:ticketId", isAuth, MessageController.index);
 messageRoutes.get("/messages/:ticketId/search", isAuth, MessageController.search);
 messageRoutes.post("/messages/:ticketId", isAuth, upload.array("medias"), MessageController.store);

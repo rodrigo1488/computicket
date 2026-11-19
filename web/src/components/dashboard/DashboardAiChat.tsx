@@ -35,8 +35,9 @@ type ChatAttachment =
   | { kind: "pdf"; file: File; name: string };
 
 const SUGGESTIONS = [
-  "O que está travando os atendimentos de hoje?",
-  "Como explico ao cliente que a nota não saiu, sem prometer prazo?",
+  "Gere o relatório dos chamados de hoje e envie no grupo dos agentes",
+  "Quem mais atendeu neste mês? Envie o ranking no grupo",
+  "Avise no grupo que o valor mínimo do atendimento passa a ser R$ 80",
   "Agende uma visita para o cliente amanhã às 14h",
 ];
 
@@ -325,7 +326,7 @@ export function DashboardAiChat() {
                   Assistente IA
                 </p>
                 <p className="mt-0.5 text-xs text-muted">
-                  Agenda visita, consulta a operação, guarda problema com solução e cria artigo a partir de PDF.
+                  Consulta a operação, envia relatório e aviso no grupo dos agentes, agenda visita e cria artigo a partir de PDF.
                 </p>
               </div>
               <div className="flex items-center gap-1">
@@ -358,7 +359,7 @@ export function DashboardAiChat() {
                   </div>
                   <p className="text-sm font-semibold text-navy">Como posso ajudar?</p>
                   <p className="mt-1 max-w-xs text-xs text-muted">
-                    Pode agendar visita, consultar a operação, enviar print com solução ou importar um PDF para criar um artigo.
+                    Pode mandar relatório ou aviso no grupo dos agentes, agendar visita ou importar um PDF para criar um artigo.
                   </p>
                   <div className="mt-4 flex w-full flex-col gap-2">
                     {SUGGESTIONS.map((item) => (

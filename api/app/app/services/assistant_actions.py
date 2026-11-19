@@ -1,9 +1,10 @@
-"""Ações do assistente do dashboard: agenda e conhecimento. Exigem usuário logado."""
+"""Ações do assistente do dashboard: agenda, conhecimento e aviso no grupo dos agentes."""
 
 from __future__ import annotations
 
 import contextvars
 import os
+import re
 import uuid
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
@@ -33,6 +34,39 @@ _chat_pdf: contextvars.ContextVar[dict | None] = contextvars.ContextVar(
 _saved_article: contextvars.ContextVar[dict | None] = contextvars.ContextVar(
 	"assistant_saved_article", default=None
 )
+_sent_group_keys: contextvars.ContextVar[set[str] | None] = contextvars.ContextVar(
+	"assistant_sent_group_keys", default=None
+)
+_GROUP_STOPWORDS = {
+	"grupo",
+	"grupos",
+	"whatsapp",
+	"zap",
+	"do",
+	"da",
+	"de",
+	"dos",
+	"das",
+	"no",
+	"na",
+	"nos",
+	"nas",
+	"o",
+	"a",
+	"os",
+	"as",
+	"um",
+	"uma",
+	"para",
+	"pro",
+	"pra",
+}
+_SEND_ALL = {"todos", "todos os grupos", "em todos", "em todos os grupos", "all"}
+_MESSAGE_LIMIT = 6000
+_SECRET_LINE = re.compile(
+	r"(?i)\b(api[_-]?key|token|secret|senha|password|passwd|authorization)\b\s*[:=]\s*\S+"
+)
+_BEARER_LINE = re.compile(r"(?i)\bbearer\s+[A-Za-z0-9._~+/=-]{8,}")
 
 
 def remember_chat_image(image: tuple[bytes, str] | None) -> None:
@@ -47,6 +81,11 @@ def remember_chat_pdf(pdf_data: dict | None) -> None:
 
 def begin_saved_article() -> None:
 	_saved_article.set(None)
+
+
+def begin_group_send() -> None:
+	"""Zera o controle de envio desta conversa, para não disparar a mesma mensagem duas vezes."""
+	_sent_group_keys.set(set())
 
 
 def last_saved_article() -> dict | None:
@@ -335,3 +374,458 @@ def _attach_chat_image(article_id: int, user_id: int) -> bool:
 	)
 	db.session.commit()
 	return True
+
+
+def group_jid(raw: str | None) -> str:
+	"""Normaliza um JID de grupo. Vazio quando o valor não parece um grupo."""
+	base = re.sub(r"@g\.us$", "", str(raw or "").strip(), flags=re.I)
+	digits = re.sub(r"\D", "", base)
+	if len(digits) < 8:
+		return ""
+	return f"{digits}@g.us"
+
+
+def _as_int(value) -> int | None:
+	try:
+		number = int(value)
+	except (TypeError, ValueError):
+		return None
+	return number if number > 0 else None
+
+
+def _clean_group_message(raw: str) -> str:
+	text = str(raw or "").replace("\x00", "")
+	text = _BEARER_LINE.sub("Bearer [removido]", text)
+	text = _SECRET_LINE.sub(lambda match: f"{match.group(1)}=[removido]", text)
+	text = re.sub(r"\n{3,}", "\n\n", text).strip()
+	return text
+
+
+def _fold(value: str) -> str:
+	return re.sub(r"\s+", " ", (value or "").casefold()).strip()
+
+
+def _query_tokens(query: str) -> list[str]:
+	folded = _fold(query)
+	if not folded or folded in _SEND_ALL:
+		return []
+	return [token for token in folded.split(" ") if token and token not in _GROUP_STOPWORDS]
+
+
+def collect_agent_groups(prompts, connections, contacts) -> list[dict]:
+	"""Agrupa os grupos de alerta dos agentes, um item por JID."""
+	by_prompt: dict[int, list[dict]] = {}
+	for item in connections or []:
+		if not isinstance(item, dict):
+			continue
+		prompt_id = _as_int(item.get("promptId"))
+		whatsapp_id = _as_int(item.get("id"))
+		if not prompt_id or not whatsapp_id:
+			continue
+		by_prompt.setdefault(prompt_id, []).append(
+			{
+				"id": whatsapp_id,
+				"name": str(item.get("name") or "").strip(),
+				"connected": str(item.get("status") or "").upper() == "CONNECTED",
+			}
+		)
+	names: dict[str, str] = {}
+	for item in contacts or []:
+		if not isinstance(item, dict):
+			continue
+		jid = group_jid(item.get("number") or item.get("id"))
+		name = str(item.get("name") or "").strip()
+		if jid and name:
+			names[jid] = name
+
+	grouped: dict[str, dict] = {}
+	for row in prompts or []:
+		if not isinstance(row, dict):
+			continue
+		jid = group_jid(row.get("idleAlertGroupJid"))
+		agent = str(row.get("name") or "").strip()
+		prompt_id = _as_int(row.get("id"))
+		if not jid or not agent:
+			continue
+		bucket = grouped.setdefault(
+			jid,
+			{
+				"jid": jid,
+				"group_name": names.get(jid) or "",
+				"agents": [],
+				"whatsapp_id": None,
+				"whatsapp_name": "",
+				"connected": False,
+			},
+		)
+		if agent not in bucket["agents"]:
+			bucket["agents"].append(agent)
+		if not bucket["group_name"]:
+			bucket["group_name"] = names.get(jid) or f"Grupo de {agent}"
+		for connection in by_prompt.get(prompt_id or -1, []):
+			if bucket["connected"] and not connection["connected"]:
+				continue
+			if connection["connected"] or not bucket["whatsapp_id"]:
+				bucket["whatsapp_id"] = connection["id"]
+				bucket["whatsapp_name"] = connection["name"]
+				bucket["connected"] = connection["connected"]
+	return list(grouped.values())
+
+
+def _group_haystack(group: dict) -> str:
+	agents = " ".join(group.get("agents") or [])
+	return _fold(f"{group.get('group_name') or ''} {agents} {group.get('whatsapp_name') or ''}")
+
+
+def _matches_group(group: dict, query: str, tokens: list[str]) -> bool:
+	folded = _fold(query)
+	names = [_fold(group.get("group_name") or "")]
+	names.extend(_fold(agent) for agent in group.get("agents") or [])
+	names.append(_fold(group.get("whatsapp_name") or ""))
+	if folded and folded in names:
+		return True
+	if group_jid(query) and group_jid(query) == group.get("jid"):
+		return True
+	haystack = _group_haystack(group)
+	if folded and folded in haystack:
+		return True
+	return bool(tokens) and all(token in haystack for token in tokens)
+
+
+def resolve_agent_groups(groups: list[dict], query: str) -> dict:
+	"""Escolhe um grupo, todos, ou devolve a lista para a pessoa decidir."""
+	available = [group for group in groups if group.get("jid")]
+	if not available:
+		return {
+			"action": "none",
+			"groups": [],
+			"message": (
+				"Nenhum agente tem grupo de WhatsApp configurado. "
+				"Em Configurações, abra o agente e escolha o grupo que recebe os alertas."
+			),
+		}
+	folded = _fold(query)
+	if folded in _SEND_ALL:
+		return {"action": "send", "groups": available, "message": ""}
+	tokens = _query_tokens(query)
+	if not folded or not tokens:
+		if len(available) == 1:
+			return {"action": "send", "groups": available, "message": ""}
+		return {
+			"action": "choose",
+			"groups": available,
+			"message": "Há mais de um grupo de agentes. Pergunte em qual deve enviar.",
+		}
+	matched = [group for group in available if _matches_group(group, query, tokens)]
+	if len(matched) == 1:
+		return {"action": "send", "groups": matched, "message": ""}
+	if not matched:
+		return {
+			"action": "choose",
+			"groups": available,
+			"message": "Não encontrei esse grupo. Pergunte qual dos grupos abaixo deve receber a mensagem.",
+		}
+	return {
+		"action": "choose",
+		"groups": matched,
+		"message": "Esse nome combina com mais de um grupo. Pergunte qual deve receber a mensagem.",
+	}
+
+
+def _public_groups(groups: list[dict]) -> list[dict]:
+	public = []
+	for group in groups:
+		public.append(
+			{
+				"group": group.get("group_name") or "Grupo",
+				"agents": group.get("agents") or [],
+				"whatsapp": group.get("whatsapp_name") or "",
+				"connected": bool(group.get("connected")),
+			}
+		)
+	return public
+
+
+def _sign_group_message(body: str, author: str) -> str:
+	text = body.strip()
+	name = re.sub(r"\s+", " ", (author or "").strip())
+	if not name:
+		return text
+	signature = f"*{name.upper()}*"
+	if text.upper().startswith(signature):
+		return text
+	return f"{signature}\n{text}"
+
+
+def _utc_naive(moment: datetime) -> datetime:
+	return moment.astimezone(timezone.utc).replace(tzinfo=None)
+
+
+def brasilia_period(now: datetime | None = None) -> dict:
+	"""Início e fim do dia e do mês em Brasília, convertidos para o UTC gravado no banco."""
+	clock = now or datetime.now(_BRASILIA)
+	if clock.tzinfo is None:
+		clock = clock.replace(tzinfo=_BRASILIA)
+	else:
+		clock = clock.astimezone(_BRASILIA)
+	start = clock.replace(hour=0, minute=0, second=0, microsecond=0)
+	month = start.replace(day=1)
+	if month.month == 12:
+		next_month = month.replace(year=month.year + 1, month=1)
+	else:
+		next_month = month.replace(month=month.month + 1)
+	return {
+		"label": start.strftime("%d/%m/%Y"),
+		"month_label": start.strftime("%m/%Y"),
+		"day_start": _utc_naive(start),
+		"day_end": _utc_naive(start + timedelta(days=1)),
+		"month_start": _utc_naive(month),
+		"month_end": _utc_naive(next_month),
+	}
+
+
+def _active_tickets():
+	from ..models import Ticket
+
+	return Ticket.query.filter(Ticket.status != "cancelado", Ticket.cancelled_at.is_(None))
+
+
+def _ticket_line(ticket) -> dict:
+	attendant = ""
+	if ticket.assigned_to_id and ticket.assigned_to_user:
+		attendant = ticket.assigned_to_user.name or ""
+	return {
+		"id": ticket.id,
+		"title": ticket.title or "",
+		"client": ticket.external_client_name or "",
+		"status": ticket.status or "",
+		"attendant": attendant or "sem atendente",
+	}
+
+
+def operation_report(args: dict, user_id: int | None = None) -> dict:
+	"""Números reais dos chamados para o assistente montar o texto do grupo."""
+	if not _user_id(user_id):
+		return {"ok": False, "message": "É preciso estar logado para consultar os chamados."}
+	kind = str(args.get("kind") or args.get("tipo") or "hoje").strip().lower()
+	aliases = {
+		"hoje": "hoje",
+		"dia": "hoje",
+		"tickets_do_dia": "hoje",
+		"chamados_do_dia": "hoje",
+		"criados_hoje": "criados_hoje",
+		"criados": "criados_hoje",
+		"tickets_criados": "criados_hoje",
+		"top_mes": "top_mes",
+		"top": "top_mes",
+		"top_atendentes": "top_mes",
+		"atendentes": "top_mes",
+	}
+	kind = aliases.get(kind, "")
+	if not kind:
+		return {
+			"ok": False,
+			"message": "Tipo de relatório inválido. Use hoje, criados_hoje ou top_mes.",
+		}
+	from ..models import Ticket, User
+
+	period = brasilia_period()
+	if kind == "top_mes":
+		rows = (
+			db.session.query(User.name, db.func.count(Ticket.id))
+			.join(Ticket, Ticket.assigned_to_id == User.id)
+			.filter(
+				Ticket.status != "cancelado",
+				Ticket.cancelled_at.is_(None),
+				Ticket.closed_at.isnot(None),
+				Ticket.closed_at >= period["month_start"],
+				Ticket.closed_at < period["month_end"],
+			)
+			.group_by(User.id, User.name)
+			.order_by(db.func.count(Ticket.id).desc(), User.name.asc())
+			.limit(10)
+			.all()
+		)
+		ranking = [{"name": name or "Sem nome", "closed": int(count)} for name, count in rows]
+		return {
+			"ok": True,
+			"kind": kind,
+			"month": period["month_label"],
+			"ranking": ranking,
+			"message": "Use só este ranking no texto. Não invente outro nome ou quantidade.",
+		}
+
+	created = (
+		_active_tickets()
+		.filter(Ticket.created_at >= period["day_start"], Ticket.created_at < period["day_end"])
+		.order_by(Ticket.id.desc())
+		.all()
+	)
+	closed_count = (
+		_active_tickets()
+		.filter(Ticket.closed_at >= period["day_start"], Ticket.closed_at < period["day_end"])
+		.count()
+	)
+	open_count = _active_tickets().filter(Ticket.status.in_(("aberto", "em_andamento"))).count()
+	if kind == "criados_hoje":
+		listed = created[:12]
+		return {
+			"ok": True,
+			"kind": kind,
+			"date": period["label"],
+			"created": len(created),
+			"tickets": [_ticket_line(ticket) for ticket in listed],
+			"hidden": max(0, len(created) - len(listed)),
+			"message": "Use só estes chamados criados hoje. Não invente outro.",
+		}
+	return {
+		"ok": True,
+		"kind": "hoje",
+		"date": period["label"],
+		"created": len(created),
+		"closed": int(closed_count),
+		"open": int(open_count),
+		"tickets": [_ticket_line(ticket) for ticket in created[:12]],
+		"hidden": max(0, len(created) - min(len(created), 12)),
+		"message": "Use só estes números no relatório do dia. Não invente outro.",
+	}
+
+
+def _author_name(user_id: int | None) -> str:
+	from ..models import User
+
+	actor_id = _user_id(user_id)
+	if not actor_id:
+		return ""
+	user = db.session.get(User, actor_id)
+	return (user.name or "").strip() if user else ""
+
+
+def _load_agent_groups() -> list[dict]:
+	from ..engine_client import EngineError, admin_request
+
+	prompts: list[dict] = []
+	page = 1
+	while page <= 10:
+		data = admin_request("GET", "/prompt", params={"pageNumber": str(page)}) or {}
+		chunk = data.get("prompts") if isinstance(data, dict) else []
+		prompts.extend(item for item in (chunk or []) if isinstance(item, dict))
+		if not (isinstance(data, dict) and data.get("hasMore")):
+			break
+		page += 1
+	connections = admin_request("GET", "/whatsapp") or []
+	if isinstance(connections, dict):
+		connections = connections.get("whatsapps") or connections.get("rows") or []
+	try:
+		contacts = admin_request("GET", "/contacts/groups") or []
+	except EngineError:
+		contacts = []
+	if isinstance(contacts, dict):
+		contacts = contacts.get("contacts") or contacts.get("groups") or []
+	return collect_agent_groups(prompts, connections, contacts)
+
+
+def _remember_sent(key: str) -> bool:
+	"""True quando esta conversa já enviou a mesma mensagem para o mesmo grupo."""
+	sent = _sent_group_keys.get()
+	if sent is None:
+		sent = set()
+		_sent_group_keys.set(sent)
+	if key in sent:
+		return True
+	return False
+
+
+def _mark_sent(key: str) -> None:
+	sent = _sent_group_keys.get()
+	if sent is None:
+		sent = set()
+		_sent_group_keys.set(sent)
+	sent.add(key)
+
+
+def send_agent_group_message(args: dict, user_id: int | None = None) -> dict:
+	"""Envia um texto pronto ao grupo de WhatsApp vinculado aos agentes de IA."""
+	from ..engine_client import EngineError, admin_request
+
+	if not _user_id(user_id):
+		return {"ok": False, "message": "É preciso estar logado para enviar no grupo."}
+	message = _clean_group_message(str(args.get("message") or args.get("texto") or ""))
+	if len(message) < 8:
+		return {
+			"ok": False,
+			"message": "Falta o texto da mensagem. Monte o relatório ou o comunicado e envie de novo.",
+		}
+	if len(message) > _MESSAGE_LIMIT:
+		return {
+			"ok": False,
+			"message": "A mensagem passa de 6000 caracteres. Resuma e envie de novo.",
+		}
+	target = str(args.get("group") or args.get("grupo") or args.get("agente") or "").strip()
+	try:
+		groups = _load_agent_groups()
+	except EngineError as exc:
+		return {"ok": False, "message": f"Não consegui consultar os grupos dos agentes: {exc}"}
+	except Exception as exc:  # noqa: BLE001
+		return {"ok": False, "message": f"Não consegui consultar os grupos dos agentes: {exc}"}
+
+	decision = resolve_agent_groups(groups, target)
+	if decision["action"] != "send":
+		return {
+			"ok": False,
+			"needs_choice": decision["action"] == "choose",
+			"message": decision["message"],
+			"groups": _public_groups(decision["groups"]),
+		}
+
+	author = _author_name(user_id)
+	signed = _sign_group_message(message, author)
+	sent_names: list[str] = []
+	failures: list[dict] = []
+	for group in decision["groups"]:
+		label = group.get("group_name") or "Grupo"
+		key = f"{group['jid']}:{signed}"
+		if _remember_sent(key):
+			sent_names.append(label)
+			continue
+		if not group.get("whatsapp_id"):
+			failures.append({"group": label, "message": "O agente não está ligado a um WhatsApp."})
+			continue
+		if not group.get("connected"):
+			failures.append({"group": label, "message": "O WhatsApp do agente está desconectado."})
+			continue
+		try:
+			admin_request(
+				"POST",
+				"/messages/send-to-group",
+				json={
+					"groupJid": group["jid"],
+					"body": signed,
+					"whatsappId": group["whatsapp_id"],
+				},
+			)
+		except EngineError as exc:
+			failures.append({"group": label, "message": str(exc)})
+			continue
+		_mark_sent(key)
+		sent_names.append(label)
+
+	if sent_names and not failures:
+		names = ", ".join(sent_names)
+		return {
+			"ok": True,
+			"groups": sent_names,
+			"message": f"Mensagem enviada no grupo {names}.",
+		}
+	if sent_names:
+		return {
+			"ok": False,
+			"groups": sent_names,
+			"failed": failures,
+			"message": (
+				f"Enviei em {', '.join(sent_names)}. "
+				f"Não consegui enviar em {', '.join(item['group'] for item in failures)}."
+			),
+		}
+	detail = failures[0]["message"] if len(failures) == 1 else "Não consegui enviar em nenhum grupo."
+	return {"ok": False, "failed": failures, "message": detail}

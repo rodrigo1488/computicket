@@ -165,7 +165,7 @@ def _cited_sources(sources: list[dict], cited: Any) -> list[dict]:
 	return _filter_cited_sources(sources, cited)
 
 
-_DB_TOOL_ROUNDS = 3
+_DB_TOOL_ROUNDS = 6
 _DB_RESULT_CHARS = 12000
 
 _DB_TOOLS = [
@@ -261,6 +261,50 @@ _DB_TOOLS = [
 				},
 			},
 			{
+				"name": "operation_report",
+				"description": (
+					"Busca números reais dos chamados do Computicket. "
+					"kind hoje: criados hoje, fechados hoje e quantos seguem abertos. "
+					"kind criados_hoje: só os chamados abertos hoje. "
+					"kind top_mes: ranking de quem fechou mais chamados no mês. "
+					"Use estes números no relatório. Não troque por uma conta feita de cabeça."
+				),
+				"parameters": {
+					"type": "OBJECT",
+					"properties": {
+						"kind": {
+							"type": "STRING",
+							"description": "hoje, criados_hoje ou top_mes",
+						},
+					},
+					"required": ["kind"],
+				},
+			},
+			{
+				"name": "send_agent_group_message",
+				"description": (
+					"Envia um texto pronto no grupo de WhatsApp dos agentes de IA. "
+					"Use quando pedirem para avisar, comunicar ou mandar um relatório nesse grupo. "
+					"message é o texto final, em português, pronto para o celular. "
+					"group fica vazio quando existe um grupo só; se houver vários, use o nome do grupo ou do agente. "
+					"Use 'todos' para mandar em todos os grupos dos agentes."
+				),
+				"parameters": {
+					"type": "OBJECT",
+					"properties": {
+						"message": {
+							"type": "STRING",
+							"description": "Texto que o grupo vai receber. Sem HTML e sem tabela.",
+						},
+						"group": {
+							"type": "STRING",
+							"description": "Nome do grupo ou do agente. Vazio envia no único grupo configurado.",
+						},
+					},
+					"required": ["message"],
+				},
+			},
+			{
 				"name": "create_article_from_pdf",
 				"description": (
 					"Cria um artigo na base de conhecimento usando o arquivo .pdf transcrito enviado na mensagem. "
@@ -285,7 +329,13 @@ _DB_TOOLS = [
 	}
 ]
 
-_STAFF_ACTIONS = {"create_appointment", "save_support_solution", "create_article_from_pdf"}
+_STAFF_ACTIONS = {
+	"create_appointment",
+	"save_support_solution",
+	"create_article_from_pdf",
+	"operation_report",
+	"send_agent_group_message",
+}
 _assistant_actor: contextvars.ContextVar[int | None] = contextvars.ContextVar("assistant_actor_id", default=None)
 _IMAGE_MIMES = {"image/png", "image/jpeg", "image/webp", "image/gif"}
 _IMAGE_BYTES = 4_000_000
@@ -311,7 +361,27 @@ _ASSISTANT_SYSTEM = (
 	"Não invente a solução e não grave senha, token ou dado de cofre. "
 	"Se o usuário enviar um arquivo .pdf: se ele pedir para criar/salvar/transformar em artigo (ou confirmar), "
 	"chame create_article_from_pdf imediatamente. O título do artigo sempre seguirá o nome do arquivo PDF e manterá texto e imagens transcritas. "
-	"Se o usuário enviar o PDF apenas para consulta ou sem instrução clara, responda/resuma o conteúdo e pergunte se deseja criar um artigo com ele."
+	"Se o usuário enviar o PDF apenas para consulta ou sem instrução clara, responda/resuma o conteúdo e pergunte se deseja criar um artigo com ele. "
+	"Quando pedirem para enviar, avisar ou comunicar no grupo de WhatsApp dos agentes, "
+	"escreva o texto final e chame send_agent_group_message uma vez. "
+	"Se pedirem só a análise no chat, responda aqui e pergunte se deve mandar ao grupo. "
+	"Para relatório de chamados de hoje, criados hoje ou top atendentes do mês, "
+	"chame operation_report e use só os números que ela devolver. "
+	"Para outro recorte, consulte o banco. No message vai só o texto pronto para o celular: "
+	"português, parágrafos curtos, sem tabela e sem HTML. "
+	"Chamados do Computicket estão na tabela ticket. status: aberto, em_andamento, fechado, cancelado. "
+	"Ignore status cancelado e linhas com cancelled_at. "
+	"created_at e closed_at estão em UTC. O dia em Brasília é "
+	"(coluna AT TIME ZONE 'UTC' AT TIME ZONE 'America/Sao_Paulo')::date "
+	"comparado com (now() AT TIME ZONE 'America/Sao_Paulo')::date. "
+	"O atendente é \"user\".name, ligado por assigned_to_id. "
+	"Top do mês: chamados com closed_at nesse mês, agrupados pelo atendente. "
+	"Se a pergunta for sobre conversas do WhatsApp, e não sobre chamados, use o banco whatsapp e a tabela \"Tickets\". "
+	"A ferramenta assina com quem está logado. Não repita a assinatura no texto. "
+	"Não diga que enviou se a ferramenta não devolver ok. "
+	"Se ela listar vários grupos, pergunte qual. Com um grupo só, envie direto. "
+	"Para todos os grupos, use group todos. "
+	"Não mande senha, token, dado de cofre nem documento de cliente."
 )
 
 
@@ -332,13 +402,23 @@ def _database_module():
 
 
 def _dispatch_staff_action(name: str, args: dict) -> str:
-	from .assistant_actions import create_appointment, create_article_from_pdf, save_support_solution
+	from .assistant_actions import (
+		create_appointment,
+		create_article_from_pdf,
+		operation_report,
+		save_support_solution,
+		send_agent_group_message,
+	)
 
 	actor = _assistant_actor.get()
 	if name == "create_appointment":
 		payload = create_appointment(args, actor)
 	elif name == "create_article_from_pdf":
 		payload = create_article_from_pdf(args, actor)
+	elif name == "operation_report":
+		payload = operation_report(args, actor)
+	elif name == "send_agent_group_message":
+		payload = send_agent_group_message(args, actor)
 	else:
 		payload = save_support_solution(args, actor)
 	return json.dumps(payload, ensure_ascii=False)
@@ -486,7 +566,7 @@ def answer_assistant(
 	actor_id: int | None = None,
 	pdf_data: dict | None = None,
 ) -> dict:
-	"""Conversa do dashboard. Consulta o Postgres e pode agendar ou gravar conhecimento."""
+	"""Conversa do dashboard. Consulta o Postgres, agenda, grava conhecimento e avisa o grupo dos agentes."""
 	question = _trim(question, MAX_INPUT_CHARS)
 	history = _trim(history, MAX_HISTORY_CHARS)
 	if image and _decode_chat_image(image) is None:
@@ -515,6 +595,7 @@ def answer_assistant(
 		)
 	notes: list[str] = []
 	from .assistant_actions import (
+		begin_group_send,
 		begin_saved_article,
 		last_saved_article,
 		remember_chat_image,
@@ -524,6 +605,7 @@ def answer_assistant(
 	remember_chat_image(_decode_chat_image(image) if image else None)
 	remember_chat_pdf(pdf_data)
 	begin_saved_article()
+	begin_group_send()
 	token = _assistant_actor.set(int(actor_id) if actor_id else None)
 	try:
 		try:

@@ -27,6 +27,7 @@ import CheckContactNumber from "../services/WbotServices/CheckNumber";
 import CheckIsValidContact from "../services/WbotServices/CheckIsValidContact";
 import GetProfilePicUrl from "../services/WbotServices/GetProfilePicUrl";
 import CreateOrUpdateContactService from "../services/ContactServices/CreateOrUpdateContactService";
+import SendAgentGroupMessageService from "../services/WbotServices/SendAgentGroupMessageService";
 import { logger } from "../utils/logger";
 import canUserAccessTicket, {
   canUserSendOnTicket
@@ -331,6 +332,31 @@ export const forward = async (req: Request, res: Response): Promise<Response> =>
   });
 
   return res.send();
+};
+
+export const sendToAgentGroup = async (req: Request, res: Response): Promise<Response> => {
+  const { companyId } = req.user;
+  const groupJid = typeof req.body?.groupJid === "string" ? req.body.groupJid : "";
+  const body = typeof req.body?.body === "string" ? req.body.body : "";
+  const rawWhatsapp = req.body?.whatsappId;
+  const whatsappId =
+    rawWhatsapp === undefined || rawWhatsapp === null || rawWhatsapp === ""
+      ? undefined
+      : Number(rawWhatsapp);
+  try {
+    const result = await SendAgentGroupMessageService({
+      companyId,
+      groupJid,
+      body,
+      whatsappId: Number.isFinite(whatsappId) ? whatsappId : undefined
+    });
+    return res.status(200).json(result);
+  } catch (err) {
+    if (err instanceof AppError) {
+      return res.status(err.statusCode).json({ error: err.message });
+    }
+    throw err;
+  }
 };
 
 export const sendMessageByPhone = async (req: Request, res: Response): Promise<Response> => {
