@@ -1,7 +1,21 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Ban, CalendarX2, Hand, Play, Plus, RotateCcw, Share2, Square } from "lucide-react";
+import {
+  Ban,
+  CalendarX2,
+  Clock,
+  Hand,
+  LayoutGrid,
+  Play,
+  Plus,
+  RotateCcw,
+  Search,
+  Share2,
+  Square,
+  Table2,
+  UserRound,
+} from "lucide-react";
 import { Link, useSearchParams } from "@/components/tabs/navigation";
 import { Suspense, useEffect, useState } from "react";
 import { PageTitle } from "@/components/layout/AppShell";
@@ -20,6 +34,16 @@ import { formatBRL, type TicketCard as TicketRow, type TicketStatus } from "@/li
 import { useColFilters } from "@/lib/use-col-filters";
 
 type UserOpt = { id: number; name: string };
+type TicketViewMode = "table" | "cards";
+
+const VIEW_MODE_KEY = "computicket.tickets.viewMode";
+
+function readInitialViewMode(): TicketViewMode {
+  if (typeof window === "undefined") return "table";
+  const saved = window.localStorage.getItem(VIEW_MODE_KEY);
+  if (saved === "table" || saved === "cards") return saved;
+  return window.innerWidth < 768 ? "cards" : "table";
+}
 
 const STATUS_PILLS: { value: string; label: string }[] = [
   { value: "aberto", label: "Aberto" },
@@ -59,6 +83,8 @@ function TicketsPageInner() {
   const [status, setStatus] = useState(() => paramStatus(params.get("status"), params.get("ps_pending")));
   const [assigned, setAssigned] = useState("");
   const [q, setQ] = useState("");
+  const [searchDraft, setSearchDraft] = useState("");
+  const [viewMode, setViewMode] = useState<TicketViewMode>("table");
   const [dateFrom, setDateFrom] = useState(() => (params.get("date_from") || "").trim());
   const [dateTo, setDateTo] = useState(() => (params.get("date_to") || "").trim());
   const [dateBy, setDateBy] = useState(() => ((params.get("date_by") || "").trim() === "closed_at" ? "closed_at" : ""));
@@ -73,6 +99,21 @@ function TicketsPageInner() {
   const [reopenReason, setReopenReason] = useState("");
   const [shareTarget, setShareTarget] = useState<ShareToChatTarget | null>(null);
   const { colQuery, colFilters, onFiltersChange } = useColFilters();
+
+  useEffect(() => {
+    setViewMode(readInitialViewMode());
+  }, []);
+
+  useEffect(() => {
+    setSearchDraft(q);
+  }, [q]);
+
+  const changeViewMode = (next: TicketViewMode) => {
+    setViewMode(next);
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(VIEW_MODE_KEY, next);
+    }
+  };
 
   useEffect(() => setPage(1), [status, assigned, q, dateFrom, dateTo, dateBy, colFilters]);
 
@@ -167,24 +208,173 @@ function TicketsPageInner() {
     cancelStaleTicket.isPending ||
     reopenTicket.isPending;
 
+  const renderTicketActions = (t: TicketRow) => {
+    const mine = t.assigned_to_id === uid;
+    const closed = t.status === "fechado" || t.status === "cancelado";
+    return (
+      <RowActions key={`a-${t.id}`}>
+        <ViewAction href={`/tickets/${t.id}`} />
+        <IconAction
+          label="Encaminhar no chat"
+          icon={Share2}
+          onClick={() =>
+            setShareTarget({
+              payload: {
+                kind: "ticket",
+                id: t.id,
+                title: `#${t.id} ${t.title}`,
+                subtitle: t.client_name || undefined,
+                status: t.status,
+                url: `/tickets/${t.id}`,
+              },
+            })
+          }
+        />
+        {!closed && mine && t.status === "aberto" ? (
+          <IconAction
+            label="Iniciar"
+            icon={Play}
+            disabled={busy}
+            onClick={() => start.mutate(t.id)}
+          />
+        ) : null}
+        {!closed && mine && t.status === "em_andamento" ? (
+          <IconAction
+            label="Encerrar sessão"
+            icon={Square}
+            disabled={busy}
+            onClick={() => stop.mutate(t.id)}
+          />
+        ) : null}
+        {!closed && !mine ? (
+          <IconAction
+            label="Assumir"
+            icon={Hand}
+            disabled={busy}
+            onClick={() => assume.mutate(t.id)}
+          />
+        ) : null}
+        {isAdmin && t.status === "fechado" ? (
+          <IconAction
+            label="Reabrir"
+            icon={RotateCcw}
+            disabled={busy}
+            onClick={() => {
+              setReopenReason("");
+              setReopenTarget(t);
+            }}
+          />
+        ) : null}
+        {isAdmin && t.status !== "cancelado" ? (
+          <IconAction
+            label="Cancelar ticket antigo"
+            icon={CalendarX2}
+            danger
+            disabled={busy || !t.stale_cancel_eligible}
+            title={
+              t.stale_cancel_eligible
+                ? "Cancelar ticket com mais de 7 dias"
+                : "Disponível apenas para tickets criados há mais de 7 dias"
+            }
+            onClick={() => {
+              setStaleCancelReason("");
+              setStaleCancelTarget(t);
+            }}
+          />
+        ) : null}
+        {(isAdmin && t.status === "fechado") ||
+        (!closed && (isAdmin || mine || t.opened_by_id === uid)) ? (
+          <IconAction
+            label="Cancelar"
+            icon={Ban}
+            danger
+            disabled={busy}
+            onClick={() => {
+              setCancelReason("");
+              setCancelTarget(t);
+            }}
+          />
+        ) : null}
+      </RowActions>
+    );
+  };
+
+  const viewModeToggle = (
+    <div
+      className="inline-flex h-10 shrink-0 items-center rounded-xl border border-line bg-wash p-1"
+      role="group"
+      aria-label="Modo de visualização"
+    >
+      <button
+        type="button"
+        onClick={() => changeViewMode("table")}
+        className={cn(
+          "inline-flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-xs font-medium transition-colors sm:text-sm",
+          viewMode === "table" ? "bg-surface text-navy shadow-sm" : "text-muted hover:text-ink",
+        )}
+        title="Visualizar em tabela"
+        aria-pressed={viewMode === "table"}
+      >
+        <Table2 className="h-4 w-4" />
+        <span>Tabela</span>
+      </button>
+      <button
+        type="button"
+        onClick={() => changeViewMode("cards")}
+        className={cn(
+          "inline-flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-xs font-medium transition-colors sm:text-sm",
+          viewMode === "cards" ? "bg-surface text-navy shadow-sm" : "text-muted hover:text-ink",
+        )}
+        title="Visualizar em cards"
+        aria-pressed={viewMode === "cards"}
+      >
+        <LayoutGrid className="h-4 w-4" />
+        <span>Cards</span>
+      </button>
+    </div>
+  );
+
   return (
     <div>
-      <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
+      <div className="mb-5 flex flex-wrap items-start justify-between gap-3 md:mb-6 md:gap-4">
         <div>
           <PageTitle className="mb-0">Tickets</PageTitle>
           <p className="mt-1 text-sm text-muted">Gerencie os chamados de suporte técnico</p>
         </div>
-        <button
-          type="button"
-          onClick={() => setCreateOpen(true)}
-          className="inline-flex h-10 items-center gap-2 rounded-xl bg-inverse px-4 text-sm font-medium text-on-inverse"
-        >
-          <Plus className="h-4 w-4" />
-          Abrir ticket
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          {viewModeToggle}
+          <button
+            type="button"
+            onClick={() => setCreateOpen(true)}
+            className="inline-flex h-10 items-center gap-2 rounded-xl bg-inverse px-3.5 text-sm font-medium text-on-inverse sm:px-4"
+          >
+            <Plus className="h-4 w-4" />
+            Abrir ticket
+          </button>
+        </div>
       </div>
 
-      <div className="mb-4 flex flex-wrap gap-2">
+      {/* Status em select no mobile (< 768px) */}
+      <div className="mb-4 md:hidden">
+        <label className="block text-sm">
+          <span className="mb-1 block text-[11px] uppercase tracking-wide text-muted">Status do ticket</span>
+          <select
+            value={status}
+            onChange={(e) => setStatus(e.target.value)}
+            aria-label="Status do ticket"
+            className="w-full rounded-xl border border-line bg-surface px-3 py-2.5 text-sm font-medium text-ink"
+          >
+            {STATUS_PILLS.map((p) => (
+              <option key={p.value} value={p.value}>
+                {p.label}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+
+      {/* Status em pills em telas maiores (>= 768px) */}
+      <div className="mb-4 hidden flex-wrap gap-2 md:flex">
         {STATUS_PILLS.map((p) => (
           <button
             key={p.value}
@@ -200,7 +390,7 @@ function TicketsPageInner() {
         ))}
       </div>
 
-      <div className="mb-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="mb-5 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <label className="block text-sm">
           <span className="mb-1 block text-[11px] uppercase tracking-wide text-muted">Técnico</span>
           <select
@@ -242,7 +432,7 @@ function TicketsPageInner() {
               setDateTo("");
               setDateBy("");
             }}
-            className="rounded-xl border border-line px-3 py-2 text-sm text-muted hover:bg-wash"
+            className="w-full rounded-xl border border-line px-3 py-2 text-sm text-muted hover:bg-wash sm:w-auto"
           >
             Limpar datas
           </button>
@@ -252,39 +442,37 @@ function TicketsPageInner() {
       {error ? <p className="mb-4 text-sm text-open">{(error as Error).message}</p> : null}
       {err ? <p className="mb-4 text-sm text-open">{err}</p> : null}
 
-      <DataTable
-        id="tickets"
-        loading={isLoading}
-        refreshing={isFetching}
-        searchPlaceholder="Buscar por título ou cliente…"
-        searchValue={q}
-        onSearch={setQ}
-        onFiltersChange={onFiltersChange}
-        columnMeta={{
-          Status: { filter: "select" },
-          Técnico: { field: "technician_name" },
-          Solicitante: { field: "solicitante" },
-          Criado: { field: "created_at" },
-          Ações: { sortable: false, filter: false },
-        }}
-        columns={[
-          "#",
-          "Título",
-          "Cliente",
-          "Solicitante",
-          "Serviço",
-          "Técnico",
-          "Status",
-          "Horas",
-          "Valor",
-          "Criado",
-          "Ações",
-        ]}
-        empty="Nenhum ticket neste filtro"
-        rows={(data?.items || []).map((t) => {
-          const mine = t.assigned_to_id === uid;
-          const closed = t.status === "fechado" || t.status === "cancelado";
-          return [
+      {viewMode === "table" ? (
+        <DataTable
+          id="tickets"
+          loading={isLoading}
+          refreshing={isFetching}
+          searchPlaceholder="Buscar por título ou cliente…"
+          searchValue={q}
+          onSearch={setQ}
+          onFiltersChange={onFiltersChange}
+          columnMeta={{
+            Status: { filter: "select" },
+            Técnico: { field: "technician_name" },
+            Solicitante: { field: "solicitante" },
+            Criado: { field: "created_at" },
+            Ações: { sortable: false, filter: false },
+          }}
+          columns={[
+            "#",
+            "Título",
+            "Cliente",
+            "Solicitante",
+            "Serviço",
+            "Técnico",
+            "Status",
+            "Horas",
+            "Valor",
+            "Criado",
+            "Ações",
+          ]}
+          empty="Nenhum ticket neste filtro"
+          rows={(data?.items || []).map((t) => [
             `#${t.id}`,
             <div key={`t-${t.id}`}>
               <Link href={`/tickets/${t.id}`} className="font-medium text-navy hover:underline">
@@ -309,93 +497,122 @@ function TicketsPageInner() {
             t.hours_label || "0min",
             t.status === "fechado" ? formatBRL(t.total_cost) : "—",
             t.created_at || "—",
-            <RowActions key={`a-${t.id}`}>
-              <ViewAction href={`/tickets/${t.id}`} />
-              <IconAction
-                label="Encaminhar no chat"
-                icon={Share2}
-                onClick={() =>
-                  setShareTarget({
-                    payload: {
-                      kind: "ticket",
-                      id: t.id,
-                      title: `#${t.id} ${t.title}`,
-                      subtitle: t.client_name || undefined,
-                      status: t.status,
-                      url: `/tickets/${t.id}`,
-                    },
-                  })
-                }
-              />
-              {!closed && mine && t.status === "aberto" ? (
-                <IconAction
-                  label="Iniciar"
-                  icon={Play}
-                  disabled={busy}
-                  onClick={() => start.mutate(t.id)}
+            renderTicketActions(t),
+          ])}
+        />
+      ) : (
+        <div>
+          <form
+            className="mb-4 flex w-full items-center gap-2"
+            onSubmit={(e) => {
+              e.preventDefault();
+              setQ(searchDraft.trim());
+            }}
+          >
+            <input
+              value={searchDraft}
+              onChange={(e) => setSearchDraft(e.target.value)}
+              placeholder="Buscar por título ou cliente…"
+              disabled={isLoading || isFetching}
+              className="h-10 min-w-0 max-w-md flex-1 rounded-lg border border-line bg-surface px-3 text-sm text-ink placeholder:text-muted"
+            />
+            <button
+              type="submit"
+              disabled={isLoading || isFetching}
+              className="inline-flex h-10 shrink-0 items-center gap-2 rounded-lg bg-brand px-3.5 text-sm font-medium text-white hover:bg-brand/90 disabled:cursor-wait disabled:opacity-60 sm:px-4"
+            >
+              <Search className="h-4 w-4" />
+              <span>Buscar</span>
+            </button>
+          </form>
+
+          {isLoading && !(data?.items || []).length ? (
+            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+              {Array.from({ length: 6 }).map((_, idx) => (
+                <div
+                  key={idx}
+                  className="h-48 animate-pulse rounded-2xl border border-line bg-wash/60 p-4"
                 />
-              ) : null}
-              {!closed && mine && t.status === "em_andamento" ? (
-                <IconAction
-                  label="Encerrar sessão"
-                  icon={Square}
-                  disabled={busy}
-                  onClick={() => stop.mutate(t.id)}
-                />
-              ) : null}
-              {!closed && !mine ? (
-                <IconAction
-                  label="Assumir"
-                  icon={Hand}
-                  disabled={busy}
-                  onClick={() => assume.mutate(t.id)}
-                />
-              ) : null}
-              {isAdmin && t.status === "fechado" ? (
-                <IconAction
-                  label="Reabrir"
-                  icon={RotateCcw}
-                  disabled={busy}
-                  onClick={() => {
-                    setReopenReason("");
-                    setReopenTarget(t);
-                  }}
-                />
-              ) : null}
-              {isAdmin && t.status !== "cancelado" ? (
-                <IconAction
-                  label="Cancelar ticket antigo"
-                  icon={CalendarX2}
-                  danger
-                  disabled={busy || !t.stale_cancel_eligible}
-                  title={
-                    t.stale_cancel_eligible
-                      ? "Cancelar ticket com mais de 7 dias"
-                      : "Disponível apenas para tickets criados há mais de 7 dias"
-                  }
-                  onClick={() => {
-                    setStaleCancelReason("");
-                    setStaleCancelTarget(t);
-                  }}
-                />
-              ) : null}
-              {(isAdmin && t.status === "fechado") ||
-              (!closed && (isAdmin || mine || t.opened_by_id === uid)) ? (
-                <IconAction
-                  label="Cancelar"
-                  icon={Ban}
-                  danger
-                  disabled={busy}
-                  onClick={() => {
-                    setCancelReason("");
-                    setCancelTarget(t);
-                  }}
-                />
-              ) : null}
-            </RowActions>,
-          ];
-        })}
-      />
+              ))}
+            </div>
+          ) : (data?.items || []).length === 0 ? (
+            <div className="rounded-2xl border border-line bg-surface px-4 py-10 text-center text-sm text-muted">
+              Nenhum ticket neste filtro
+            </div>
+          ) : (
+            <div className="grid gap-3.5 sm:grid-cols-2 xl:grid-cols-3">
+              {(data?.items || []).map((t) => (
+                <article
+                  key={t.id}
+                  className="flex flex-col justify-between rounded-2xl border border-line bg-surface p-4 shadow-[0_1px_2px_rgba(16,24,40,0.04)] transition hover:border-brand/30 hover:shadow-md"
+                >
+                  <div>
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-xs font-semibold text-muted">#{t.id}</span>
+                        <StatusBadge status={t.status as TicketStatus} />
+                        {t.status === "fechado" && Number(t.total_cost || 0) > 0 && !t.ps_printed ? (
+                          <span className="rounded bg-warn-bg px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-warn-fg">
+                            PS não impressa
+                          </span>
+                        ) : t.ps_printed ? (
+                          <span className="rounded bg-wash px-1.5 py-0.5 text-[10px] text-muted">
+                            PS {t.ps_number || "impressa"}
+                          </span>
+                        ) : null}
+                      </div>
+                      {renderTicketActions(t)}
+                    </div>
+
+                    <Link
+                      href={`/tickets/${t.id}`}
+                      className="mt-2.5 block text-base font-semibold leading-snug text-navy hover:text-brand hover:underline"
+                    >
+                      {t.title}
+                    </Link>
+                    {t.description ? (
+                      <p className="mt-1 line-clamp-2 text-xs text-muted">{t.description}</p>
+                    ) : null}
+
+                    <dl className="mt-3 grid grid-cols-2 gap-x-3 gap-y-2 rounded-xl bg-wash/60 p-2.5 text-xs">
+                      <div className="min-w-0">
+                        <dt className="text-[10px] uppercase tracking-wide text-muted">Cliente</dt>
+                        <dd className="truncate font-medium text-ink">{t.client_name || "—"}</dd>
+                      </div>
+                      <div className="min-w-0">
+                        <dt className="text-[10px] uppercase tracking-wide text-muted">Solicitante</dt>
+                        <dd className="truncate text-ink">{t.solicitante || "—"}</dd>
+                      </div>
+                      <div className="min-w-0">
+                        <dt className="text-[10px] uppercase tracking-wide text-muted">Serviço</dt>
+                        <dd className="truncate text-ink">{t.category || "—"}</dd>
+                      </div>
+                      <div className="min-w-0">
+                        <dt className="text-[10px] uppercase tracking-wide text-muted">Técnico</dt>
+                        <dd className="flex items-center gap-1 truncate text-ink">
+                          <UserRound className="h-3 w-3 shrink-0 text-muted" />
+                          <span className="truncate">{t.assigned_to_name || "Sem técnico"}</span>
+                        </dd>
+                      </div>
+                    </dl>
+                  </div>
+
+                  <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-line pt-2.5 text-xs text-muted">
+                    <span className="inline-flex items-center gap-1">
+                      <Clock className="h-3.5 w-3.5" />
+                      {t.hours_label || "0min"}
+                    </span>
+                    <span>{t.created_at || "—"}</span>
+                    <span className="font-semibold text-ink">
+                      {t.status === "fechado" ? formatBRL(t.total_cost) : "—"}
+                    </span>
+                  </div>
+                </article>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
       <Pagination
         page={data?.page || page}
         perPage={data?.per_page || 20}

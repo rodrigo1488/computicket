@@ -5,6 +5,8 @@ import { io, type Socket } from "socket.io-client";
 import {
   LoaderCircle,
   MessageCircle,
+  PanelLeftClose,
+  PanelLeftOpen,
   Paperclip,
   Pencil,
   Plus,
@@ -169,6 +171,7 @@ export function InternalChatWorkspace() {
   const [attachOpen, setAttachOpen] = useState(false);
   const [nudgeNotices, setNudgeNotices] = useState<NudgeNotice[]>([]);
   const [nudgeLockedUntil, setNudgeLockedUntil] = useState(0);
+  const [mobileListOpen, setMobileListOpen] = useState(false);
 
   const threadRef = useRef<HTMLDivElement | null>(null);
   const fileRef = useRef<HTMLInputElement | null>(null);
@@ -279,6 +282,7 @@ export function InternalChatWorkspace() {
       setActiveId(chat.id);
       setTab(chat.isGroup ? "group" : "dm");
       setError(null);
+      setMobileListOpen(false);
       const next = new URLSearchParams(searchParams.toString());
       next.set("c", String(chat.id));
       router.replace(`/chat?${next.toString()}`, { scroll: false });
@@ -597,6 +601,7 @@ export function InternalChatWorkspace() {
   }
 
   const unreadInTab = filtered.reduce((sum, chat) => sum + (chat.unreads || 0), 0);
+  const totalUnreads = chats.reduce((sum, chat) => sum + (chat.unreads || 0), 0);
   const isOwner = !!current && current.ownerId === engineUserId;
   const nudgeLocked = nudge.isPending || nudgeLockedUntil > Date.now();
   const threadNudges = nudgeNotices.filter((item) => item.chatId === activeId);
@@ -611,8 +616,23 @@ export function InternalChatWorkspace() {
         if (Array.from(e.dataTransfer?.types || []).includes("Files")) e.preventDefault();
       }}
     >
-      <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
-        <aside className="relative flex w-[320px] min-h-0 min-w-[260px] shrink-0 flex-col overflow-hidden border-r border-line">
+      <div className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
+        {current && mobileListOpen ? (
+          <div
+            className="absolute inset-0 z-20 bg-black/45 md:hidden"
+            onClick={() => setMobileListOpen(false)}
+          />
+        ) : null}
+        <aside
+          className={cn(
+            "relative min-h-0 shrink-0 flex-col overflow-hidden border-r border-line bg-surface md:flex md:w-[320px] md:min-w-[260px]",
+            !current
+              ? "flex w-full"
+              : mobileListOpen
+                ? "absolute inset-y-0 left-0 z-30 flex w-[min(100%,320px)] shadow-2xl md:static md:z-auto md:shadow-none"
+                : "hidden",
+          )}
+        >
           <div className="flex items-center justify-between gap-2 border-b border-line px-3 py-2">
             <span
               className={cn(
@@ -623,6 +643,18 @@ export function InternalChatWorkspace() {
               <span className={cn("h-1.5 w-1.5 rounded-full", connected && !engineDown ? "bg-done" : "bg-open")} />
               {engineDown ? "Offline" : connected ? "Ao vivo" : "Conectando"}
             </span>
+            {current ? (
+              <button
+                type="button"
+                onClick={() => setMobileListOpen(false)}
+                className="inline-flex items-center gap-1 rounded-md bg-wash px-2 py-1 text-xs font-medium text-navy hover:bg-line md:hidden"
+                title="Recolher lista de conversas"
+                aria-label="Recolher lista de conversas"
+              >
+                <PanelLeftClose className="h-3.5 w-3.5" />
+                Recolher
+              </button>
+            ) : null}
           </div>
           <div className="flex border-b border-line">
             {(
@@ -752,7 +784,12 @@ export function InternalChatWorkspace() {
           </div>
         </aside>
 
-        <section className="flex min-h-0 min-w-0 flex-1 basis-0 flex-col overflow-hidden bg-chat">
+        <section
+          className={cn(
+            "min-h-0 min-w-0 flex-1 basis-0 flex-col overflow-hidden bg-chat",
+            current ? "flex" : "hidden md:flex",
+          )}
+        >
           {current ? (
             <ComposerAttachZone
               enabled={!editingMessage && !recorder.recording}
@@ -762,7 +799,23 @@ export function InternalChatWorkspace() {
               }}
               className="flex min-h-0 flex-1 basis-0 flex-col overflow-hidden"
             >
-              <header className="flex shrink-0 items-center gap-3 border-b border-chat-border bg-surface px-4 py-2.5">
+              <header className="flex shrink-0 items-center gap-2.5 border-b border-chat-border bg-surface px-3 py-2 md:gap-3 md:px-4 md:py-2.5">
+                <button
+                  type="button"
+                  onClick={() => setMobileListOpen((v) => !v)}
+                  className="relative inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg border border-line bg-wash px-2.5 text-xs font-semibold text-navy hover:bg-line md:hidden"
+                  title="Abrir menu de conversas (Individuais e Grupos)"
+                  aria-label="Abrir menu de conversas"
+                  aria-expanded={mobileListOpen}
+                >
+                  <PanelLeftOpen className="h-4 w-4 text-brand" />
+                  <span className="hidden xs:inline">Conversas</span>
+                  {totalUnreads > 0 ? (
+                    <span className="inline-flex min-w-[18px] items-center justify-center rounded-full bg-open px-1.5 text-[10px] font-bold text-white">
+                      {totalUnreads > 99 ? "99+" : totalUnreads}
+                    </span>
+                  ) : null}
+                </button>
                 <UserAvatar
                   name={chatDisplayName(current)}
                   src={publicInternalMediaUrl(current.isGroup ? null : current.peer?.avatar)}

@@ -34,17 +34,17 @@ function ShellFrame({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <div id="app-shell" className="flex h-full max-h-full min-h-0 overflow-hidden bg-canvas">
+    <div id="app-shell" className="flex h-full max-h-full min-h-0 flex-col overflow-hidden bg-canvas md:flex-row">
       <AppSidebar collapsed={sidebarCollapsed} />
       <main
         className={cn(
-          "flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden",
-          isChatLayout ? "p-3" : "p-5",
+          "flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden pb-16 md:pb-0",
+          isChatLayout ? "p-1.5 md:p-3" : "p-2.5 md:p-5",
         )}
       >
         <TabBar sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar} />
         {/* Cada aba tem o seu próprio contêiner rolável dentro deste (ver TabHost). */}
-        <div className="relative min-h-0 min-w-0 flex-1 overflow-hidden rounded-[28px] bg-surface shadow-sm">
+        <div className="relative min-h-0 min-w-0 flex-1 overflow-hidden rounded-2xl bg-surface shadow-sm md:rounded-[28px]">
           <TabHost>{children}</TabHost>
         </div>
       </main>
@@ -76,5 +76,5 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 }
 
 export function PageTitle({ children, className }: { children: React.ReactNode; className?: string }) {
-  return <h1 className={cn("mb-8 text-[28px] font-semibold text-navy", className)}>{children}</h1>;
+  return <h1 className={cn("mb-4 text-xl font-semibold text-navy md:mb-8 md:text-[28px]", className)}>{children}</h1>;
 }

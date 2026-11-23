@@ -16,6 +16,8 @@ import {
   Lock,
   MessageSquarePlus,
   MoreVertical,
+  PanelLeftClose,
+  PanelLeftOpen,
   Paperclip,
   Plus,
   RotateCcw,
@@ -851,6 +853,7 @@ export function HelpdeskWorkspace() {
   const [shareTarget, setShareTarget] = useState<ShareToChatTarget | null>(null);
   const [expandedPhoneKeys, setExpandedPhoneKeys] = useState<Set<string>>(() => new Set());
   const [listWidth, setListWidth] = useState(LIST_WIDTH_DEFAULT);
+  const [mobileListOpen, setMobileListOpen] = useState(false);
   const listPaneRef = useRef<HTMLElement>(null);
   const listDragRef = useRef<{ startX: number; startW: number } | null>(null);
   const threadRef = useRef<HTMLDivElement>(null);
@@ -1171,6 +1174,7 @@ export function HelpdeskWorkspace() {
     setActiveId(c.id);
     setError(null);
     setContactOpen(false);
+    setMobileListOpen(false);
     if ((c.unreadMessages || 0) > 0) {
       patchConversationInLists(qc, c.id, (row) => ({ ...row, unreadMessages: 0 }));
     }
@@ -1990,21 +1994,37 @@ export function HelpdeskWorkspace() {
         if (Array.from(e.dataTransfer?.types || []).includes("Files")) e.preventDefault();
       }}
     >
-      <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
+      <div className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
+        {current && mobileListOpen ? (
+          <div
+            className="absolute inset-0 z-20 bg-black/45 md:hidden"
+            onClick={() => setMobileListOpen(false)}
+          />
+        ) : null}
         <aside
           ref={listPaneRef}
-          style={{ width: listWidth }}
-          className="relative flex min-h-0 min-w-0 shrink-0 flex-col overflow-hidden border-r border-line"
+          style={{ "--hd-list-w": `${listWidth}px` } as React.CSSProperties}
+          className={cn(
+            "relative min-h-0 min-w-0 shrink-0 flex-col overflow-hidden border-r border-line bg-surface md:flex md:w-[var(--hd-list-w)]",
+            !current
+              ? "flex w-full"
+              : mobileListOpen
+                ? "absolute inset-y-0 left-0 z-30 flex w-[min(100%,340px)] shadow-2xl md:static md:z-auto md:shadow-none"
+                : "hidden",
+          )}
         >
           <div className="flex items-center justify-between gap-2 border-b border-line px-3 py-2">
-            <span
-              className={cn(
-                "inline-flex h-2.5 w-2.5 rounded-full",
-                connected ? "bg-done" : "bg-open",
-              )}
-              title={connectionLabel}
-              aria-label={connectionLabel}
-            />
+            <div className="flex items-center gap-2">
+              <span
+                className={cn(
+                  "inline-flex h-2.5 w-2.5 rounded-full",
+                  connected ? "bg-done" : "bg-open",
+                )}
+                title={connectionLabel}
+                aria-label={connectionLabel}
+              />
+              <span className="text-xs font-semibold text-navy md:hidden">Atendimentos</span>
+            </div>
             <div className="flex items-center gap-0.5">
               <button
                 type="button"
@@ -2025,6 +2045,18 @@ export function HelpdeskWorkspace() {
                   <Settings className="h-4 w-4" />
                 </Link>
               ) : null}
+              {current ? (
+                <button
+                  type="button"
+                  onClick={() => setMobileListOpen(false)}
+                  className="ml-1 inline-flex items-center gap-1 rounded-md bg-wash px-2 py-1 text-xs font-medium text-navy hover:bg-line md:hidden"
+                  title="Recolher lista de conversas"
+                  aria-label="Recolher lista de conversas"
+                >
+                  <PanelLeftClose className="h-3.5 w-3.5" />
+                  Recolher
+                </button>
+              ) : null}
             </div>
           </div>
           <div className="flex border-b border-line">
@@ -2037,7 +2069,6 @@ export function HelpdeskWorkspace() {
                   type="button"
                   onClick={() => {
                     setTab(t.key);
-                    setActiveId(null);
                     setError(null);
                   }}
                   className={cn(
@@ -2227,7 +2258,7 @@ export function HelpdeskWorkspace() {
             aria-orientation="vertical"
             aria-label="Redimensionar lista de conversas"
             title="Arraste para ajustar a largura"
-            className="absolute inset-y-0 right-0 z-10 w-1.5 cursor-col-resize touch-none hover:bg-brand/40 active:bg-brand/50"
+            className="absolute inset-y-0 right-0 z-10 hidden w-1.5 cursor-col-resize touch-none hover:bg-brand/40 active:bg-brand/50 md:block"
             onPointerDown={(e) => {
               e.preventDefault();
               listDragRef.current = { startX: e.clientX, startW: listWidth };
@@ -2237,7 +2268,12 @@ export function HelpdeskWorkspace() {
           />
         </aside>
 
-        <section className="flex min-h-0 min-w-0 flex-1 basis-0 flex-col overflow-hidden bg-chat">
+        <section
+          className={cn(
+            "min-h-0 min-w-0 flex-1 basis-0 flex-col overflow-hidden bg-chat",
+            current ? "flex" : "hidden md:flex",
+          )}
+        >
           {current ? (
             <ComposerAttachZone
               enabled={canReply && !editingMessage && !recorder.recording}
@@ -2251,11 +2287,27 @@ export function HelpdeskWorkspace() {
               key={current.id}
               className="flex min-h-0 flex-1 basis-0 flex-col overflow-hidden"
             >
-              <header className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-2 border-b border-chat-border bg-surface px-4 py-2.5">
-                <div className="flex min-w-0 flex-1 basis-44 flex-col gap-1 overflow-hidden">
+              <header className="flex shrink-0 flex-wrap items-center gap-x-2.5 gap-y-2 border-b border-chat-border bg-surface px-3 py-2 md:gap-x-3 md:px-4 md:py-2.5">
+                <button
+                  type="button"
+                  onClick={() => setMobileListOpen((v) => !v)}
+                  className="relative inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg border border-line bg-wash px-2.5 text-xs font-semibold text-navy hover:bg-line md:hidden"
+                  title="Abrir menu de conversas (Aguardando, Abertas, Finalizadas)"
+                  aria-label="Abrir menu de conversas"
+                  aria-expanded={mobileListOpen}
+                >
+                  <PanelLeftOpen className="h-4 w-4 text-brand" />
+                  <span className="hidden xs:inline">Conversas</span>
+                  {counts.pending + unread > 0 ? (
+                    <span className="inline-flex min-w-[18px] items-center justify-center rounded-full bg-open px-1.5 text-[10px] font-bold text-white">
+                      {counts.pending + unread > 99 ? "99+" : counts.pending + unread}
+                    </span>
+                  ) : null}
+                </button>
+                <div className="flex min-w-0 flex-1 basis-36 flex-col gap-1 overflow-hidden">
                   <button
                     type="button"
-                    className="flex min-w-0 items-center gap-3 text-left"
+                    className="flex min-w-0 items-center gap-2.5 text-left md:gap-3"
                     onClick={() => setContactOpen(true)}
                     title="Ver contato"
                   >
@@ -2281,7 +2333,7 @@ export function HelpdeskWorkspace() {
                     </Link>
                   ) : null}
                 </div>
-                <div className="relative ml-auto flex max-w-full flex-wrap items-center justify-end gap-2">
+                <div className="no-scrollbar relative ml-auto flex max-w-full items-center gap-1.5 overflow-x-auto md:flex-wrap md:justify-end md:gap-2">
                   {current.status === "pending" ? (
                     <button
                       type="button"
@@ -2742,12 +2794,12 @@ export function HelpdeskWorkspace() {
                       onSend={() => void sendRecording()}
                     />
                   ) : (
-                  <div className="flex items-center gap-2">
-                    <Smile className="h-5 w-5 text-muted" />
+                  <div className="flex items-center gap-1.5 sm:gap-2">
+                    <Smile className="hidden h-5 w-5 shrink-0 text-muted sm:block" />
                     <button
                       type="button"
                       onClick={() => setQuickOpen((v) => !v)}
-                      className={cn("text-muted hover:text-ink", quickOpen && "text-brand")}
+                      className={cn("shrink-0 text-muted hover:text-ink", quickOpen && "text-brand")}
                       aria-label="Mensagens rápidas"
                       title="Mensagens rápidas"
                     >
@@ -2756,7 +2808,7 @@ export function HelpdeskWorkspace() {
                     <button
                       type="button"
                       onClick={() => fileRef.current?.click()}
-                      className="text-muted hover:text-ink disabled:opacity-40"
+                      className="shrink-0 text-muted hover:text-ink disabled:opacity-40"
                       aria-label="Anexar"
                       disabled={!!editingMessage}
                     >
@@ -2766,7 +2818,7 @@ export function HelpdeskWorkspace() {
                       type="button"
                       onClick={(e) => setAiMenuAnchor((cur) => (cur ? null : e.currentTarget))}
                       className={cn(
-                        "text-muted hover:text-ink",
+                        "shrink-0 text-muted hover:text-ink",
                         (aiMenuAnchor || aiAction) && "text-brand",
                       )}
                       aria-label="Copiloto"
@@ -2876,7 +2928,7 @@ export function HelpdeskWorkspace() {
                         setText(e.target.value);
                         if (!e.target.value.startsWith("/")) setQuickOpen(false);
                       }}
-                      className="flex-1 rounded-lg border-0 bg-surface px-3 py-2 text-sm shadow-sm"
+                      className="min-w-0 flex-1 rounded-lg border-0 bg-surface px-3 py-2 text-sm shadow-sm"
                       placeholder={isInternal ? "Nota interna (não vai para o WhatsApp)" : "Digite uma mensagem ou /atalho"}
                       autoComplete="off"
                       title="Cole uma imagem (Ctrl+V) ou arraste um arquivo"
@@ -4217,7 +4269,7 @@ function ContactDrawer({
   }
 
   return (
-    <aside className="flex min-h-0 w-[320px] shrink-0 flex-col overflow-hidden border-l border-line bg-surface">
+    <aside className="absolute inset-0 z-30 flex min-h-0 w-full shrink-0 flex-col overflow-hidden border-l border-line bg-surface md:static md:z-auto md:w-[320px]">
       <div className="flex shrink-0 items-center justify-between border-b border-line px-4 py-3">
         <p className="flex items-center gap-2 text-sm font-semibold text-navy">
           <UserRound className="h-4 w-4" />

@@ -228,11 +228,11 @@ export function TabBar({
             title={sidebarCollapsed ? "Expandir menu" : "Recolher menu"}
             aria-label={sidebarCollapsed ? "Expandir menu" : "Recolher menu"}
             aria-expanded={!sidebarCollapsed}
-            className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-muted transition-colors hover:bg-sidebar-hover hover:text-navy"
+            className="hidden h-9 w-9 shrink-0 items-center justify-center rounded-xl text-muted transition-colors hover:bg-sidebar-hover hover:text-navy md:inline-flex"
           >
             {sidebarCollapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
           </button>
-          <div role="separator" aria-orientation="vertical" className="h-5 w-px shrink-0 bg-black dark:bg-line" />
+          <div role="separator" aria-orientation="vertical" className="hidden h-5 w-px shrink-0 bg-black md:block dark:bg-line" />
         </>
       ) : null}
       <div

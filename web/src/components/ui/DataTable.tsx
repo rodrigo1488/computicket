@@ -71,6 +71,7 @@ export type DataTableProps = {
   refreshing?: boolean;
   skeletonRows?: number;
   onRowClick?: (rowIndex: number) => void;
+  toolbarExtra?: ReactNode;
 };
 
 const STORAGE_PREFIX = "datatable:";
@@ -262,6 +263,7 @@ export function DataTable({
   refreshing = false,
   skeletonRows = 7,
   onRowClick,
+  toolbarExtra,
 }: DataTableProps) {
   const [draft, setDraft] = useState(searchValue || "");
   const [appliedQ, setAppliedQ] = useState(searchValue || "");
@@ -398,13 +400,13 @@ export function DataTable({
 
   return (
     <div>
-      {hideSearch && hideColumnPicker ? null : (
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+      {hideSearch && hideColumnPicker && !toolbarExtra ? null : (
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2 sm:gap-3">
           {hideSearch ? (
             <div />
           ) : (
             <form
-              className="flex min-w-0 flex-1 items-center gap-2"
+              className="flex w-full min-w-0 flex-1 items-center gap-2 sm:w-auto"
               onSubmit={(e) => {
                 e.preventDefault();
                 runSearch();
@@ -415,34 +417,37 @@ export function DataTable({
                 onChange={(e) => setDraft(e.target.value)}
                 placeholder={searchPlaceholder}
                 disabled={loading || refreshing}
-                className="h-10 min-w-[220px] max-w-md flex-1 rounded-lg border border-line bg-surface px-3 text-sm text-ink placeholder:text-muted"
+                className="h-10 min-w-0 max-w-md flex-1 rounded-lg border border-line bg-surface px-3 text-sm text-ink placeholder:text-muted"
               />
               <button
                 type="submit"
                 disabled={loading || refreshing}
-                className="inline-flex h-10 shrink-0 items-center gap-2 rounded-lg bg-brand px-4 text-sm font-medium text-white hover:bg-brand/90 disabled:cursor-wait disabled:opacity-60"
+                className="inline-flex h-10 shrink-0 items-center gap-2 rounded-lg bg-brand px-3 text-sm font-medium text-white hover:bg-brand/90 disabled:cursor-wait disabled:opacity-60 sm:px-4"
               >
                 <Search className="h-4 w-4" />
-                Buscar
+                <span>Buscar</span>
               </button>
             </form>
           )}
-          {hideColumnPicker ? null : (
-            <button
-              type="button"
-              disabled={loading || refreshing}
-              onClick={(e) =>
-                setOpen((cur) =>
-                  cur?.kind === "cols" ? null : { kind: "cols", el: e.currentTarget },
-                )
-              }
-              className="inline-flex h-10 items-center gap-2 rounded-lg border border-line bg-surface px-3 text-sm text-ink hover:bg-wash disabled:cursor-wait disabled:opacity-60"
-            >
-              <Columns3 className="h-4 w-4 text-muted" />
-              Personalizar Colunas
-              <ChevronDown className="h-4 w-4 text-muted" />
-            </button>
-          )}
+          <div className="flex flex-wrap items-center gap-2">
+            {toolbarExtra}
+            {hideColumnPicker ? null : (
+              <button
+                type="button"
+                disabled={loading || refreshing}
+                onClick={(e) =>
+                  setOpen((cur) =>
+                    cur?.kind === "cols" ? null : { kind: "cols", el: e.currentTarget },
+                  )
+                }
+                className="inline-flex h-10 items-center gap-1.5 rounded-lg border border-line bg-surface px-2.5 text-xs text-ink hover:bg-wash disabled:cursor-wait disabled:opacity-60 sm:gap-2 sm:px-3 sm:text-sm"
+              >
+                <Columns3 className="h-4 w-4 shrink-0 text-muted" />
+                <span className="truncate">Colunas</span>
+                <ChevronDown className="h-4 w-4 shrink-0 text-muted" />
+              </button>
+            )}
+          </div>
         </div>
       )}
 
@@ -526,12 +531,12 @@ export function DataTable({
         />
       ) : null}
 
-      <div className="relative overflow-x-auto rounded-2xl border border-line">
-        <table className="w-full text-left text-sm" aria-busy={loading || refreshing}>
+      <div className="relative overflow-x-auto overscroll-x-contain rounded-2xl border border-line">
+        <table className="w-full min-w-[640px] text-left text-sm" aria-busy={loading || refreshing}>
           <thead>
             <tr className="border-b border-line bg-wash text-ink">
               {selectable ? (
-                <th className="w-10 px-3 py-2.5">
+                <th className="w-10 px-2.5 py-2.5 md:px-3">
                   <input
                     type="checkbox"
                     className="accent-brand"
@@ -562,7 +567,7 @@ export function DataTable({
                   <th
                     key={`${name}-${i}`}
                     className={cn(
-                      "px-3 py-2.5 font-medium",
+                      "whitespace-nowrap px-2.5 py-2.5 font-medium md:px-3",
                       actions && "text-right",
                     )}
                   >
@@ -652,7 +657,7 @@ export function DataTable({
                   className={cn("border-t border-line hover:bg-wash", onRowClick && "cursor-pointer")}
                 >
                   {selectable ? (
-                    <td className="px-3 py-3">
+                    <td className="px-2.5 py-2.5 md:px-3 md:py-3">
                       <input
                         type="checkbox"
                         className="accent-brand"
@@ -673,8 +678,8 @@ export function DataTable({
                     <td
                       key={i}
                       className={cn(
-                        "px-3 py-3 text-ink",
-                        isActionsColumn(columns[i]) && "text-right",
+                        "px-2.5 py-2.5 text-ink md:px-3 md:py-3",
+                        isActionsColumn(columns[i]) && "whitespace-nowrap text-right",
                       )}
                     >
                       {renderCell(row[i])}

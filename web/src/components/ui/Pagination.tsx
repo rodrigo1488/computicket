@@ -45,16 +45,16 @@ export function Pagination({
           {from}–{to} de {total}
         </span>
       </p>
-      <div className="flex items-center gap-1">
+      <div className="flex flex-wrap items-center gap-1">
         <button
           type="button"
           disabled={current <= 1}
           onClick={() => onPage(current - 1)}
-          className="inline-flex h-8 items-center gap-1 rounded-lg border border-line px-2.5 text-sm text-ink disabled:opacity-40"
+          className="inline-flex h-8 items-center gap-1 rounded-lg border border-line px-2 text-sm text-ink disabled:opacity-40 sm:px-2.5"
           aria-label="Página anterior"
         >
           <ChevronLeft className="h-4 w-4" />
-          Anterior
+          <span className="hidden sm:inline">Anterior</span>
         </button>
         {start > 1 ? (
           <>
@@ -75,10 +75,10 @@ export function Pagination({
           type="button"
           disabled={current >= pages}
           onClick={() => onPage(current + 1)}
-          className="inline-flex h-8 items-center gap-1 rounded-lg border border-line px-2.5 text-sm text-ink disabled:opacity-40"
+          className="inline-flex h-8 items-center gap-1 rounded-lg border border-line px-2 text-sm text-ink disabled:opacity-40 sm:px-2.5"
           aria-label="Próxima página"
         >
-          Próxima
+          <span className="hidden sm:inline">Próxima</span>
           <ChevronRight className="h-4 w-4" />
         </button>
       </div>

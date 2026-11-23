@@ -80,7 +80,7 @@ const TabPane = memo(function TabPane({ tab, active, mounted, userKey, nativeChi
       style={active ? undefined : HIDDEN_STYLE}
       className={cn(
         "absolute inset-0",
-        chat ? "flex flex-col overflow-hidden" : "overflow-y-auto p-8",
+        chat ? "flex flex-col overflow-hidden" : "overflow-y-auto p-4 sm:p-6 md:p-8",
       )}
     >
       <TabRouteContext.Provider value={route}>
