@@ -506,7 +506,13 @@ export default function OSPage() {
                     className="text-sm text-navy underline"
                     onClick={() => void flask.open(`/ordens-servico/pdf/${encodeURIComponent(view.ps_file!)}`)}
                   >
-                    {view.no_charge && Number(view.products_value || 0) > 0 ? "Abrir pedido de faturamento" : "Abrir PS"}
+                    {view.no_charge && Number(view.products_value || 0) > 0
+                      ? view.delivery_file === view.ps_file
+                        ? "Abrir pedido de faturamento e recibo"
+                        : "Abrir pedido de faturamento"
+                      : view.delivery_file === view.ps_file
+                        ? "Abrir PS e recibo"
+                        : "Abrir PS"}
                   </button>
                 ) : null}
                 {view.delivery_file && view.delivery_file !== view.ps_file ? (

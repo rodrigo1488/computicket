@@ -372,7 +372,7 @@ class ServiceOrderFinalizePersistTest(unittest.TestCase):
 		self.assertTrue(response.get_json().get("already_in_computicket"))
 		self.assertEqual(ServiceOrder.query.filter_by(codigo="8801").count(), 1)
 
-	def test_mensalista_with_products_registers_receivable_and_generates_separate_pdfs(self):
+	def test_mensalista_with_products_registers_receivable_and_generates_combined_pdf(self):
 		os_row = (
 			9501,
 			25,
@@ -420,9 +420,9 @@ class ServiceOrderFinalizePersistTest(unittest.TestCase):
 				return_value=(True, ("PS/OS-9501", "9501")),
 			) as insert_fin_mock,
 			patch(
-				"app.blueprints.service_orders.generateBillingOrderPDF",
-				return_value=(True, "pedido-faturamento-os-9501.pdf"),
-			) as billing_pdf_mock,
+				"app.blueprints.service_orders.generateCombinedBillingOrderAndDeliveryReceipt",
+				return_value=(True, "pedido-recibo-9501.pdf"),
+			) as combined_pdf_mock,
 			patch(
 				"app.blueprints.service_orders.generateDeliveryReceipt",
 				return_value=(True, "recibo-entrega-9501.pdf"),
@@ -443,17 +443,17 @@ class ServiceOrderFinalizePersistTest(unittest.TestCase):
 		self.assertTrue(payload["ps_generated"])
 		self.assertTrue(payload["billing_order_generated"])
 		self.assertEqual(payload["ps_number"], "PS/OS-9501")
-		self.assertEqual(payload["ps_file"], "pedido-faturamento-os-9501.pdf")
+		self.assertEqual(payload["ps_file"], "pedido-recibo-9501.pdf")
 		self.assertTrue(payload["delivery_generated"])
-		self.assertEqual(payload["delivery_file"], "recibo-entrega-9501.pdf")
+		self.assertEqual(payload["delivery_file"], "pedido-recibo-9501.pdf")
 
 		create_dav_mock.assert_called_once()
 		insert_fin_mock.assert_called_once()
 		self.assertEqual(insert_fin_mock.call_args.args[0], 25)
 		self.assertEqual(insert_fin_mock.call_args.args[2], 500.0)
 		self.assertIn("Pedido de Faturamento #3001", insert_fin_mock.call_args.args[5])
-		billing_pdf_mock.assert_called_once()
-		receipt_pdf_mock.assert_called_once()
+		combined_pdf_mock.assert_called_once()
+		receipt_pdf_mock.assert_not_called()
 
 		# Confere geroufinanceiro=1 no UPDATE ordemservico
 		update_params = [
@@ -472,8 +472,8 @@ class ServiceOrderFinalizePersistTest(unittest.TestCase):
 		self.assertEqual(saved.dav_id, 501)
 		self.assertEqual(saved.dav_codigo, 3001)
 		self.assertEqual(saved.ps_number, "PS/OS-9501")
-		self.assertEqual(saved.ps_file, "pedido-faturamento-os-9501.pdf")
-		self.assertEqual(saved.delivery_file, "recibo-entrega-9501.pdf")
+		self.assertEqual(saved.ps_file, "pedido-recibo-9501.pdf")
+		self.assertEqual(saved.delivery_file, "pedido-recibo-9501.pdf")
 
 	def test_mensalista_without_products_generates_only_delivery_receipt(self):
 		os_row = (

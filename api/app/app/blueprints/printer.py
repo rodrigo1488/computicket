@@ -1237,6 +1237,211 @@ def generateCombinedPSAndDeliveryReceipt(
         logging.exception("Erro ao gerar PS e recibo combinados")
         return False, str(e)
 
+def generateCombinedBillingOrderAndDeliveryReceipt(
+    ps_number,
+    os_number,
+    client_name,
+    client_social,
+    client_social_revenue,
+    address_street,
+    address_number,
+    phone,
+    responsible_name,
+    equipment,
+    service_executed,
+    delivery_date,
+    products,
+    dav_codigo=None,
+    contract_name="",
+    solicitado_por=None,
+):
+    """Gera Pedido de Faturamento de produtos + Recibo de Entrega na mesma folha A4 (dividida ao meio)."""
+    try:
+        safe_os = re.sub(r"[^0-9A-Za-z_-]", "", str(os_number or "0"))[:40] or "0"
+        output_dir = _ps_output_dir()
+        output_path = os.path.join(output_dir, f"pedido-recibo-{safe_os}.pdf")
+        c = canvas.Canvas(output_path, pagesize=A4)
+        width, height = A4
+        ps_height = height / 2  # 50% superior: Pedido de Faturamento | 50% inferior: Recibo de Entrega
+
+        def draw_line(y_pos, line_width=None):
+            if line_width is None:
+                line_width = width - 40 * mm
+            c.line(20 * mm, y_pos, 20 * mm + line_width, y_pos)
+
+        def draw_text(text, x, y, size=10, bold=False, align="left"):
+            font_name = "Helvetica-Bold" if bold else "Helvetica"
+            c.setFont(font_name, size)
+            if align == "center":
+                c.drawCentredString(x, y, str(text))
+            elif align == "right":
+                c.drawRightString(x, y, str(text))
+            else:
+                c.drawString(x, y, str(text))
+
+        # ===== PEDIDO DE FATURAMENTO (PARTE SUPERIOR) =====
+        y_top = height - 16 * mm
+
+        draw_text("Compumais Informática", width / 2, y_top, size=13, bold=True, align="center")
+        y_top -= 12
+        draw_text("Av. Coronel José Afonso de Almeida, 143 - B · Centro - Sacramento, MG", width / 2, y_top, size=7.5, align="center")
+        y_top -= 10
+        draw_text("Tel: (34) 3351-1861 | WhatsApp: (34) 98863-1861", width / 2, y_top, size=7.5, align="center")
+        y_top -= 10
+        draw_line(y_top)
+        y_top -= 11
+
+        draw_text("PEDIDO DE FATURAMENTO", width / 2, y_top, size=11.5, bold=True, align="center")
+        y_top -= 11
+        draw_line(y_top)
+        y_top -= 10
+
+        # Identificadores na mesma linha
+        os_and_dav = f"OS: {os_number}" + (f"  |  Pedido: #{dav_codigo}" if dav_codigo else "")
+        draw_text(os_and_dav, 20 * mm, y_top, size=8.5, bold=True)
+        draw_text(f"Doc.: {ps_number}", width / 2 + 12 * mm, y_top, size=8.5, align="center")
+        draw_text(f"Data: {delivery_date}", width - 20 * mm, y_top, size=8.5, align="right")
+        y_top -= 11
+
+        # Dados compactos do cliente em 2 colunas onde couber
+        draw_text(f"Cliente: {client_name}", 20 * mm, y_top, size=8.5, bold=True)
+        draw_text(f"CPF/CNPJ: {client_social_revenue or '—'}", width - 20 * mm, y_top, size=8.5, align="right")
+        y_top -= 10
+
+        addr_parts = [p.strip() for p in (address_street or "", str(address_number or "")) if p and str(p).strip()]
+        addr_str = ", ".join(addr_parts) if addr_parts else "—"
+        draw_text(f"Endereço: {addr_str[:58]}", 20 * mm, y_top, size=8)
+        draw_text(f"Tel: {phone or '—'}", width - 20 * mm, y_top, size=8, align="right")
+        y_top -= 10
+
+        contract_label = f"Mensalista ({contract_name})" if contract_name else "Mensalista (mão de obra isenta)"
+        draw_text(f"Contemplação: {contract_label[:52]}", 20 * mm, y_top, size=8)
+        draw_text(f"Resp.: {responsible_name}", width - 20 * mm, y_top, size=8, align="right")
+        y_top -= 10
+
+        draw_text(f"Solicitado por: {solicitado_por or client_name}", 20 * mm, y_top, size=8)
+        y_top -= 9
+        draw_line(y_top)
+        y_top -= 10
+
+        # Tabela de produtos faturados
+        total_products = 0.0
+        draw_text("Produtos Faturados (Contas a Receber):", 20 * mm, y_top, size=8.5, bold=True)
+        y_top -= 11
+        draw_text("Descrição", 20 * mm, y_top, size=8, bold=True)
+        draw_text("Qtd", width - 52 * mm, y_top, size=8, bold=True, align="right")
+        draw_text("Valor Un.", width - 35 * mm, y_top, size=8, bold=True, align="right")
+        draw_text("Total", width - 20 * mm, y_top, size=8, bold=True, align="right")
+        y_top -= 8
+        draw_line(y_top)
+        y_top -= 9
+
+        for p in (products or []):
+            qtd = float(p.get("quantidade") or 0)
+            preco = float(p.get("preco") or 0)
+            subtotal = round(preco * qtd, 2)
+            total_products += subtotal
+
+        for p in (products or []):
+            if y_top < ps_height + 24 * mm:
+                draw_text("(... demais itens constantes no pedido)", 20 * mm, y_top, size=7.5)
+                y_top -= 9
+                break
+            nome = str(p.get("nome") or "Produto")
+            qtd = float(p.get("quantidade") or 0)
+            preco = float(p.get("preco") or 0)
+            subtotal = round(preco * qtd, 2)
+            if len(nome) > 44:
+                nome = nome[:41] + "..."
+            qtd_fmt = f"{int(qtd)}" if qtd == int(qtd) else f"{qtd:.2f}"
+            draw_text(nome, 20 * mm, y_top, size=8)
+            draw_text(qtd_fmt, width - 52 * mm, y_top, size=8, align="right")
+            draw_text(f"R$ {preco:.2f}", width - 35 * mm, y_top, size=8, align="right")
+            draw_text(f"R$ {subtotal:.2f}", width - 20 * mm, y_top, size=8, align="right")
+            y_top -= 9.5
+
+        total_products = round(total_products, 2)
+        y_top -= 2
+        draw_line(y_top)
+        y_top -= 10
+
+        draw_text("Valor Serviço: R$ 0,00 (Isento - Mensalista)", 20 * mm, y_top, size=8)
+        draw_text(f"Total Produtos: R$ {total_products:.2f}", width - 20 * mm, y_top, size=9.5, bold=True, align="right")
+        y_top -= 16
+        draw_text("Assinatura do Cliente: ________________________________", width / 2, max(y_top, ps_height + 3 * mm), size=8.5, align="center")
+
+        # ===== RECIBO DE ENTREGA (PARTE INFERIOR) =====
+        y_receipt = ps_height - 8 * mm
+
+        # Linha divisória central entre Pedido de Faturamento e Recibo de Entrega
+        draw_line(y_receipt, width - 40 * mm)
+        y_receipt -= 13
+
+        draw_text("RECIBO DE ENTREGA DE EQUIPAMENTO", width / 2, y_receipt, size=11.5, bold=True, align="center")
+        y_receipt -= 12
+        draw_line(y_receipt, width - 40 * mm)
+        y_receipt -= 10
+
+        draw_text(f"Ordem de Serviço: {os_number}", 20 * mm, y_receipt, size=8.5, bold=True)
+        draw_text(f"Data de Entrega: {delivery_date}", width - 20 * mm, y_receipt, size=8.5, align="right")
+        y_receipt -= 11
+        draw_text(f"Cliente: {client_name}", 20 * mm, y_receipt, size=8.5)
+        y_receipt -= 11
+        draw_text(f"Equipamento: {equipment}", 20 * mm, y_receipt, size=8.5)
+        y_receipt -= 11
+        draw_text(f"Responsável pela Entrega: {responsible_name}", 20 * mm, y_receipt, size=8.5)
+        y_receipt -= 10
+        draw_line(y_receipt, width - 40 * mm)
+        y_receipt -= 10
+
+        draw_text("Serviço Executado:", 20 * mm, y_receipt, size=8.5, bold=True)
+        y_receipt -= 10
+        for paragraph in str(service_executed or "").split("\n"):
+            if paragraph.strip():
+                for line in wrap(paragraph.strip(), width=85):
+                    if y_receipt < 52 * mm:
+                        break
+                    draw_text(line, 20 * mm, y_receipt, size=8)
+                    y_receipt -= 9.5
+        y_receipt -= 4
+        draw_line(y_receipt, width - 40 * mm)
+        y_receipt -= 10
+
+        if products:
+            draw_text("Produtos Utilizados:", 20 * mm, y_receipt, size=8.5, bold=True)
+            y_receipt -= 10
+            for p in products:
+                if y_receipt < 34 * mm:
+                    break
+                nome = str(p.get("nome") or "Produto")
+                qtd = float(p.get("quantidade") or 0)
+                qtd_fmt = f"{int(qtd)}" if qtd == int(qtd) else f"{qtd:.2f}"
+                txt = f"• {qtd_fmt} x {nome}"
+                if len(txt) > 85:
+                    txt = txt[:82] + "..."
+                draw_text(txt, 20 * mm, y_receipt, size=8)
+                y_receipt -= 9.5
+            y_receipt -= 3
+            draw_line(y_receipt, width - 40 * mm)
+            y_receipt -= 10
+
+        draw_text("Declaro que recebi o equipamento acima descrito em perfeitas condições", 20 * mm, y_receipt, size=8.5, bold=True)
+        y_receipt -= 10
+        draw_text("e que o serviço foi executado conforme solicitado.", 20 * mm, y_receipt, size=8.5, bold=True)
+        y_receipt -= 14
+
+        draw_text("Assinatura do Cliente: ________________________________", width / 2, y_receipt, size=8.5, align="center")
+        y_receipt -= 11
+        draw_text(f"Data: {delivery_date}", width / 2, y_receipt, size=8.5, align="center")
+
+        c.showPage()
+        c.save()
+        return True, os.path.basename(output_path)
+    except Exception as e:
+        logging.exception("Erro ao gerar Pedido de Faturamento e Recibo combinados")
+        return False, str(e)
+
+
 def generateBillingOrderPDF(
     ps_number,
     reference_number,

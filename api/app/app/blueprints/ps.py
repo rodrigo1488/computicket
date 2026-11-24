@@ -407,6 +407,7 @@ def _order_ps_item(order, pdf_index: dict | None = None):
         "path": _relative_ps_file(
             order.ps_file,
             order.ps_number,
+            f"pedido-recibo-{order.codigo}.pdf",
             f"pedido-faturamento-os-{order.codigo}.pdf",
             pdf_index=pdf_index,
         ),
