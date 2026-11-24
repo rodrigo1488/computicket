@@ -47,6 +47,7 @@ import { ContactShareCard } from "@/components/helpdesk/ContactShareCard";
 import { MediaViewer, type MediaViewerItem } from "@/components/media/MediaViewer";
 import { ComposerAttachZone, ComposerFilePreview } from "@/components/ui/ComposerAttachZone";
 import { audioRecorderErrorMessage, ComposerMicButton, ComposerRecordingBar, useAudioRecorder } from "@/components/ui/ComposerAudioRecorder";
+import { ComposerTextarea } from "@/components/ui/ComposerTextarea";
 import { FloatingMenu } from "@/components/ui/FloatingMenu";
 import { Modal } from "@/components/ui/Modal";
 import { UserAvatar } from "@/components/ui/UserAvatar";
@@ -2794,12 +2795,14 @@ export function HelpdeskWorkspace() {
                       onSend={() => void sendRecording()}
                     />
                   ) : (
-                  <div className="flex items-center gap-1.5 sm:gap-2">
-                    <Smile className="hidden h-5 w-5 shrink-0 text-muted sm:block" />
+                  <div className="flex items-end gap-1.5 sm:gap-2">
+                    <span className="hidden h-9 shrink-0 items-center justify-center text-muted sm:inline-flex">
+                      <Smile className="h-5 w-5" />
+                    </span>
                     <button
                       type="button"
                       onClick={() => setQuickOpen((v) => !v)}
-                      className={cn("shrink-0 text-muted hover:text-ink", quickOpen && "text-brand")}
+                      className={cn("inline-flex h-9 shrink-0 items-center justify-center text-muted hover:text-ink", quickOpen && "text-brand")}
                       aria-label="Mensagens rápidas"
                       title="Mensagens rápidas"
                     >
@@ -2808,7 +2811,7 @@ export function HelpdeskWorkspace() {
                     <button
                       type="button"
                       onClick={() => fileRef.current?.click()}
-                      className="shrink-0 text-muted hover:text-ink disabled:opacity-40"
+                      className="inline-flex h-9 shrink-0 items-center justify-center text-muted hover:text-ink disabled:opacity-40"
                       aria-label="Anexar"
                       disabled={!!editingMessage}
                     >
@@ -2818,7 +2821,7 @@ export function HelpdeskWorkspace() {
                       type="button"
                       onClick={(e) => setAiMenuAnchor((cur) => (cur ? null : e.currentTarget))}
                       className={cn(
-                        "shrink-0 text-muted hover:text-ink",
+                        "inline-flex h-9 shrink-0 items-center justify-center text-muted hover:text-ink",
                         (aiMenuAnchor || aiAction) && "text-brand",
                       )}
                       aria-label="Copiloto"
@@ -2922,21 +2925,21 @@ export function HelpdeskWorkspace() {
                         e.target.value = "";
                       }}
                     />
-                    <input
+                    <ComposerTextarea
                       value={text}
                       onChange={(e) => {
                         setText(e.target.value);
                         if (!e.target.value.startsWith("/")) setQuickOpen(false);
                       }}
-                      className="min-w-0 flex-1 rounded-lg border-0 bg-surface px-3 py-2 text-sm shadow-sm"
+                      className="bg-surface"
                       placeholder={isInternal ? "Nota interna (não vai para o WhatsApp)" : "Digite uma mensagem ou /atalho"}
                       autoComplete="off"
-                      title="Cole uma imagem (Ctrl+V) ou arraste um arquivo"
+                      title="Cole uma imagem (Ctrl+V) ou arraste um arquivo · Shift+Enter para quebrar linha"
                     />
                     <button
                       type="button"
                       onClick={() => setIsInternal((v) => !v)}
-                      className={cn("rounded-md p-1.5", isInternal ? "bg-note text-note-fg" : "text-muted hover:text-ink")}
+                      className={cn("inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md", isInternal ? "bg-note text-note-fg" : "text-muted hover:text-ink")}
                       title="Mensagem interna"
                     >
                       <Lock className="h-4 w-4" />
@@ -2950,7 +2953,7 @@ export function HelpdeskWorkspace() {
                           editMessage.isPending ||
                           (!text.trim() && !pendingFile)
                         }
-                        className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-brand text-white disabled:opacity-40"
+                        className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-brand text-white disabled:opacity-40"
                         aria-label="Enviar"
                       >
                         <Send className="h-4 w-4" />

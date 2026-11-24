@@ -26,6 +26,7 @@ import { ShareToChatDialog, type ShareToChatTarget } from "@/components/chat/Sha
 import { AttachEntityToChatDialog } from "@/components/chat/AttachEntityToChatDialog";
 import { ComposerAttachZone, ComposerFilePreview } from "@/components/ui/ComposerAttachZone";
 import { audioRecorderErrorMessage, ComposerMicButton, ComposerRecordingBar, useAudioRecorder } from "@/components/ui/ComposerAudioRecorder";
+import { ComposerTextarea } from "@/components/ui/ComposerTextarea";
 import { MediaViewer, type MediaViewerItem } from "@/components/media/MediaViewer";
 import { Modal } from "@/components/ui/Modal";
 import { UserAvatar } from "@/components/ui/UserAvatar";
@@ -1082,11 +1083,11 @@ export function InternalChatWorkspace() {
                     onSend={() => void sendRecording()}
                   />
                 ) : (
-                <div className="flex items-center gap-2">
+                <div className="flex items-end gap-2">
                   <button
                     type="button"
                     onClick={() => fileRef.current?.click()}
-                    className="text-muted hover:text-ink disabled:opacity-40"
+                    className="inline-flex h-9 shrink-0 items-center justify-center text-muted hover:text-ink disabled:opacity-40"
                     aria-label="Anexar"
                     disabled={!!editingMessage}
                   >
@@ -1095,7 +1096,7 @@ export function InternalChatWorkspace() {
                   <button
                     type="button"
                     onClick={() => setAttachOpen(true)}
-                    className="text-muted hover:text-ink disabled:opacity-40"
+                    className="inline-flex h-9 shrink-0 items-center justify-center text-muted hover:text-ink disabled:opacity-40"
                     aria-label="Encaminhar ticket, conhecimento, cofre ou help desk"
                     title="Encaminhar ticket, conhecimento, cofre ou help desk"
                     disabled={!!editingMessage}
@@ -1112,26 +1113,27 @@ export function InternalChatWorkspace() {
                       e.target.value = "";
                     }}
                   />
-                  <textarea
+                  <ComposerTextarea
                     value={text}
                     onChange={(e) => setText(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" && !e.shiftKey) {
-                        e.preventDefault();
-                        if (text.trim() || file) send.mutate();
+                    onSubmitShortcut={() => {
+                      if (editingMessage) {
+                        if (!text.trim()) return;
+                        send.mutate();
+                        return;
                       }
+                      if (text.trim() || file) send.mutate();
                     }}
-                    rows={1}
-                    className="max-h-28 min-h-9 flex-1 resize-none rounded-lg border-0 bg-wash px-3 py-2 text-sm shadow-sm outline-none"
+                    className="bg-wash dark:!bg-wash"
                     placeholder="Digite uma mensagem"
                     autoComplete="off"
-                    title="Cole uma imagem (Ctrl+V) ou arraste um arquivo"
+                    title="Cole uma imagem (Ctrl+V) ou arraste um arquivo · Shift+Enter para quebrar linha"
                   />
                   {text.trim() || file || editingMessage ? (
                     <button
                       type="submit"
                       disabled={send.isPending || (!text.trim() && !file)}
-                      className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-brand text-white disabled:opacity-40"
+                      className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-brand text-white disabled:opacity-40"
                       aria-label="Enviar"
                     >
                       {send.isPending ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
