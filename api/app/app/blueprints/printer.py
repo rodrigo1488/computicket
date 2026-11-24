@@ -651,7 +651,10 @@ def print_ps():
         ticket.ps_registration_updated_at = now
         db.session.commit()
 
-        total_amount = float(ticket.total_cost or 0)
+        service_amount = float(ticket.total_cost or 0)
+        products_amount = round(float(ticket.products_total() or 0), 2)
+        is_billing_order_only = service_amount <= 0 and products_amount > 0
+        total_amount = products_amount if is_billing_order_only else service_amount
         if total_amount <= 0:
             ticket.ps_registration_status = "registration_failed"
             ticket.ps_registration_updated_at = datetime.now()
@@ -716,6 +719,28 @@ def print_ps():
         technician_name = "TÉCNICO"
         if ticket.assigned_to_user:
             technician_name = ticket.assigned_to_user.name
+
+        product_details = [
+            {
+                "id": p.product_id,
+                "codigo": p.codigo,
+                "unidademedida": p.unidademedida,
+                "nome": p.nome,
+                "quantidade": p.quantidade,
+                "preco": p.preco,
+            }
+            for p in ticket.products
+        ]
+
+        finance_description = full_description
+        if is_billing_order_only:
+            from ..services.faturamento_products import products_summary
+            dav_ref = f" #{ticket.dav_codigo}" if ticket.dav_codigo else ""
+            summary_txt = products_summary(product_details)
+            finance_description = (
+                f"Pedido de Faturamento{dav_ref} (Ticket #{ticket.id})"
+                + (f" - {summary_txt}" if summary_txt else "")
+            )
         
         # Inserir nos bancos com controle de transação
         document = None
@@ -733,12 +758,12 @@ def print_ps():
                     "address_number": client_data.get("address_number", ""),
                     "phone": client_data.get("phone", ""),
                     "responsible_name": technician_name,
-                    "description_service": full_description
+                    "description_service": finance_description
                 }, 
                 total_amount,
                 ticket_id,
                 f"Ticket #{int(ticket_id)}",
-                full_description,
+                finance_description,
                 document=ticket.ps_number,
                 operation_key=ticket.ps_operation_key,
                 existing_job_id=ticket.ps_job_id,
@@ -764,7 +789,7 @@ def print_ps():
                     total_amount,
                     ticket_id,
                     f"Ticket #{ticket_id}",
-                    full_description,
+                    finance_description,
                     document=ticket.ps_number,
                     operation_key=ticket.ps_operation_key,
                     on_job_enqueued=lambda job: _link_ps_job(ticket.id, job.id),
@@ -831,17 +856,28 @@ def print_ps():
             for i, sig in enumerate(signatures_list):
                 print(f"DEBUG: Assinatura {i+1}: {sig['created_at']} - {sig['description']}")
         
-        product_details = [
-            {
-                "id": p.product_id,
-                "nome": p.nome,
-                "quantidade": p.quantidade,
-                "preco": p.preco,
-            }
-            for p in ticket.products
-        ]
-
-        if product_details:
+        if is_billing_order_only:
+            success, result = generateBillingOrderPDF(
+                ps_number=ps_number,
+                reference_type="Ticket",
+                reference_number=final_os if final_os else str(ticket_id),
+                dav_codigo=ticket.dav_codigo,
+                client_name=client_name,
+                client_social=client_name,
+                client_social_revenue=client_data.get("document", ""),
+                address_street=client_data.get("address", ""),
+                address_number=client_data.get("address_number", ""),
+                phone=client_data.get("phone", ""),
+                contract_name=client_data.get("contract_type") or "",
+                responsible_name=technician_name,
+                equipment=ticket.title or f"Ticket #{ticket_id}",
+                service_executed=full_description,
+                products=product_details,
+                issue_date=datetime.now().strftime("%d/%m/%Y"),
+                solicitado_por=ticket.solicitante,
+                signature_data=signature_file_path,
+            )
+        elif product_details:
             success, result = generateCombinedPSAndDeliveryReceipt(
                 ps_number=ps_number,
                 os_number=final_os if final_os else str(ticket_id),
@@ -887,11 +923,14 @@ def print_ps():
             ticket.ps_registration_updated_at = datetime.now()
             db.session.commit()
 
+            doc_label = "Pedido de faturamento gerado com sucesso" if is_billing_order_only else "PS gerada com sucesso"
             return jsonify({
-                "message": "PS gerada com sucesso",
+                "message": doc_label,
                 "file": result,
                 "pdf_file": pdf_filename,
                 "ps_number": ps_number,
+                "billing_order": is_billing_order_only,
+                "total_amount": total_amount,
             })
         else:
             ticket.ps_registration_status = "pdf_failed"
@@ -1197,6 +1236,253 @@ def generateCombinedPSAndDeliveryReceipt(
         import logging
         logging.exception("Erro ao gerar PS e recibo combinados")
         return False, str(e)
+
+def generateBillingOrderPDF(
+    ps_number,
+    reference_number,
+    client_name,
+    products,
+    *,
+    reference_type="OS",
+    dav_codigo=None,
+    client_social="",
+    client_social_revenue="",
+    address_street="",
+    address_number="",
+    phone="",
+    contract_name="",
+    responsible_name="",
+    equipment="",
+    service_executed="",
+    issue_date=None,
+    solicitado_por=None,
+    signature_data=None,
+):
+    """Gera o Pedido de Faturamento em página A4 própria (separado do recibo de entrega)."""
+    try:
+        kind_slug = "ticket" if str(reference_type or "").strip().lower() == "ticket" else "os"
+        safe_ref = re.sub(r"[^0-9A-Za-z_-]", "", str(reference_number or "0"))[:40] or "0"
+        output_dir = _ps_output_dir()
+        output_path = os.path.join(output_dir, f"pedido-faturamento-{kind_slug}-{safe_ref}.pdf")
+        c = canvas.Canvas(output_path, pagesize=A4)
+        width, height = A4
+        margin = 20 * mm
+        y = height - 22 * mm
+        issued = issue_date or datetime.now().strftime("%d/%m/%Y")
+        ref_label = "Ticket" if kind_slug == "ticket" else "OS"
+
+        def draw_line():
+            nonlocal y
+            c.line(margin, y, width - margin, y)
+            y -= 5 * mm
+
+        def ensure_space(min_y=25 * mm, repeat_table_header=False):
+            nonlocal y
+            if y < min_y:
+                c.showPage()
+                y = height - 22 * mm
+                c.setFont("Helvetica-Bold", 10)
+                c.drawString(margin, y, f"PEDIDO DE FATURAMENTO - {ref_label} #{reference_number} (continuação)")
+                c.drawRightString(width - margin, y, f"Doc.: {ps_number}")
+                y -= 5 * mm
+                draw_line()
+                if repeat_table_header:
+                    draw_products_header()
+
+        def draw_text(text, size=9.5, bold=False, align="left", step=None):
+            nonlocal y
+            ensure_space(20 * mm)
+            font_name = "Helvetica-Bold" if bold else "Helvetica"
+            c.setFont(font_name, size)
+            if align == "center":
+                c.drawCentredString(width / 2, y, str(text))
+            elif align == "right":
+                c.drawRightString(width - margin, y, str(text))
+            else:
+                c.drawString(margin, y, str(text))
+            y -= step if step is not None else (size + 3)
+
+        def draw_products_header():
+            nonlocal y
+            c.setFont("Helvetica-Bold", 8.5)
+            c.drawString(margin, y, "Código")
+            c.drawString(margin + 24 * mm, y, "Descrição do Produto")
+            c.drawCentredString(width - 72 * mm, y, "UM")
+            c.drawRightString(width - 52 * mm, y, "Qtd")
+            c.drawRightString(width - 28 * mm, y, "Valor Un.")
+            c.drawRightString(width - margin, y, "Subtotal")
+            y -= 3.5 * mm
+            c.line(margin, y, width - margin, y)
+            y -= 4.5 * mm
+
+        # Cabeçalho da empresa
+        draw_text("Compumais Informática", size=15, bold=True, align="center", step=16)
+        draw_text("Av. Coronel José Afonso de Almeida, 143 - B", size=8.5, align="center", step=11)
+        draw_text("Centro - Sacramento, MG", size=8.5, align="center", step=11)
+        draw_text("Tel: (34) 3351-1861 | WhatsApp: (34) 98863-1861", size=8.5, align="center", step=13)
+        draw_line()
+
+        # Título do documento
+        draw_text("PEDIDO DE FATURAMENTO", size=13, bold=True, align="center", step=15)
+        draw_line()
+
+        # Linha de identificação
+        c.setFont("Helvetica-Bold", 9.5)
+        if dav_codigo:
+            c.drawString(margin, y, f"Pedido (DAV): #{dav_codigo}")
+            c.drawCentredString(width / 2, y, f"Documento: {ps_number}")
+            c.drawRightString(width - margin, y, f"Emissão: {issued}")
+            y -= 13
+            c.setFont("Helvetica", 9)
+            c.drawString(margin, y, f"Origem: {ref_label} #{reference_number}")
+            y -= 14
+        else:
+            c.drawString(margin, y, f"Origem: {ref_label} #{reference_number}")
+            c.drawCentredString(width / 2, y, f"Documento: {ps_number}")
+            c.drawRightString(width - margin, y, f"Emissão: {issued}")
+            y -= 14
+        draw_line()
+
+        # Dados do cliente
+        address_parts = [p.strip() for p in (address_street or "", str(address_number or "")) if p and p.strip()]
+        full_address = ", ".join(address_parts) if address_parts else "Não informado"
+        contract_label = f"Mensalista ({contract_name})" if contract_name else "Mensalista (mão de obra isenta)"
+
+        draw_text(f"Cliente: {client_name or 'Não informado'}", size=9.5, bold=True)
+        if client_social and client_social.strip() and client_social.strip() != (client_name or "").strip():
+            draw_text(f"Razão Social: {client_social}", size=9)
+        c.setFont("Helvetica", 9)
+        c.drawString(margin, y, f"CPF/CNPJ: {client_social_revenue or 'Não informado'}")
+        c.drawRightString(width - margin, y, f"Telefone: {phone or 'Não informado'}")
+        y -= 12
+        draw_text(f"Endereço: {full_address}", size=9)
+        draw_text(f"Contemplação: {contract_label}", size=9)
+        c.setFont("Helvetica", 9)
+        c.drawString(margin, y, f"Responsável: {responsible_name or '—'}")
+        c.drawRightString(width - margin, y, f"Solicitado por: {solicitado_por or client_name or '—'}")
+        y -= 13
+        if equipment:
+            draw_text(f"Referência / Equipamento: {equipment}", size=9)
+        draw_line()
+
+        # Resumo do atendimento vinculado (informativo, mão de obra R$ 0,00)
+        if service_executed and str(service_executed).strip():
+            draw_text("Atendimento vinculado (mão de obra contemplada pelo contrato):", size=9, bold=True)
+            for paragraph in str(service_executed).split("\n"):
+                if paragraph.strip():
+                    for line in wrap(paragraph.strip(), width=92):
+                        draw_text(line, size=8.5, step=11)
+            y -= 2 * mm
+            draw_line()
+
+        # Tabela de produtos faturados
+        draw_text("PRODUTOS INCLUÍDOS NO PEDIDO DE FATURAMENTO", size=10, bold=True, step=14)
+        draw_products_header()
+
+        total_products = 0.0
+        for p in (products or []):
+            codigo_prod = str(p.get("codigo") or p.get("id") or "—")[:12]
+            nome_prod = str(p.get("nome") or "Produto").strip() or "Produto"
+            um_prod = str(p.get("unidademedida") or "UN").strip()[:6] or "UN"
+            qtd = float(p.get("quantidade") or 0)
+            preco = float(p.get("preco") or 0)
+            subtotal = round(preco * qtd, 2)
+            total_products += subtotal
+
+            wrapped_name = wrap(nome_prod, width=42) or [nome_prod]
+            row_height = max(1, len(wrapped_name)) * 11 + 3
+            ensure_space(25 * mm + row_height, repeat_table_header=True)
+
+            c.setFont("Helvetica", 8.5)
+            c.drawString(margin, y, codigo_prod)
+            c.drawString(margin + 24 * mm, y, wrapped_name[0])
+            c.drawCentredString(width - 72 * mm, y, um_prod)
+            qtd_fmt = f"{int(qtd)}" if qtd == int(qtd) else f"{qtd:.2f}"
+            c.drawRightString(width - 52 * mm, y, qtd_fmt)
+            c.drawRightString(width - 28 * mm, y, f"R$ {preco:.2f}")
+            c.drawRightString(width - margin, y, f"R$ {subtotal:.2f}")
+            y -= 11
+
+            for extra_line in wrapped_name[1:]:
+                ensure_space(20 * mm, repeat_table_header=True)
+                c.setFont("Helvetica", 8.5)
+                c.drawString(margin + 24 * mm, y, extra_line)
+                y -= 11
+
+            y -= 2
+
+        total_products = round(total_products, 2)
+        y -= 2 * mm
+        draw_line()
+
+        # Totais
+        ensure_space(60 * mm)
+        draw_text("Valor Mão de Obra / Atendimento: R$ 0,00 (Isento - Mensalista)", size=9, align="right", step=13)
+        draw_text(f"Subtotal Produtos: R$ {total_products:.2f}", size=9.5, align="right", step=15)
+        draw_text(f"TOTAL A RECEBER (CONTAS A RECEBER): R$ {total_products:.2f}", size=11.5, bold=True, align="right", step=18)
+        draw_line()
+
+        draw_text(
+            "Declaro o recebimento/autorização de faturamento dos produtos acima descritos para cobrança no Contas a Receber.",
+            size=8.5,
+            bold=True,
+            step=14,
+        )
+        y -= 6 * mm
+
+        # Assinatura digital (quando houver) ou manual
+        drew_digital_sig = False
+        if signature_data and str(signature_data).strip():
+            try:
+                sig_raw = str(signature_data).strip()
+                if sig_raw.startswith("signatures/"):
+                    sig_path = os.path.join(os.getcwd(), sig_raw)
+                    if os.path.exists(sig_path):
+                        sig_w, sig_h = 90 * mm, 24 * mm
+                        sig_x = (width - sig_w) / 2
+                        sig_y = y - sig_h
+                        c.drawImage(sig_path, sig_x, sig_y, width=sig_w, height=sig_h, preserveAspectRatio=True)
+                        y = sig_y - 4 * mm
+                        c.setFillColorRGB(0, 0, 0)
+                        draw_text("ASSINADO DIGITALMENTE", size=7.5, align="center", step=10)
+                        drew_digital_sig = True
+                else:
+                    import base64
+                    import tempfile
+                    from io import BytesIO
+                    from PIL import Image
+
+                    payload_b64 = sig_raw.split(",", 1)[1] if sig_raw.startswith("data:image") and "," in sig_raw else sig_raw
+                    sig_bytes = base64.b64decode(payload_b64)
+                    with Image.open(BytesIO(sig_bytes)) as sig_img:
+                        with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
+                            tmp_path = tmp.name
+                        sig_img.save(tmp_path)
+                    try:
+                        sig_w, sig_h = 90 * mm, 24 * mm
+                        sig_x = (width - sig_w) / 2
+                        sig_y = y - sig_h
+                        c.drawImage(tmp_path, sig_x, sig_y, width=sig_w, height=sig_h, preserveAspectRatio=True)
+                        y = sig_y - 4 * mm
+                        drew_digital_sig = True
+                    finally:
+                        if os.path.exists(tmp_path):
+                            os.remove(tmp_path)
+            except Exception as sig_err:
+                logging.warning("Falha ao renderizar assinatura no pedido de faturamento: %s", sig_err)
+
+        if not drew_digital_sig:
+            y -= 10 * mm
+        draw_text("Assinatura do Cliente: ________________________________________", size=9.5, align="center", step=14)
+        draw_text(f"Data: {issued}", size=9, align="center", step=12)
+
+        c.showPage()
+        c.save()
+        return True, os.path.basename(output_path)
+    except Exception as e:
+        logging.exception("Erro ao gerar PDF de Pedido de Faturamento")
+        return False, str(e)
+
 
 def generateDeliveryReceipt(
     os_number,

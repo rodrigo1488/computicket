@@ -11,6 +11,7 @@ from .utils import connect_postgres
 from .printer import (
 	generateDeliveryReceipt,
 	generateCombinedPSAndDeliveryReceipt,
+	generateBillingOrderPDF,
 	generateOpenServiceOrderPDF,
 	insert_ps_with_transaction_control,
 	PS_DOCUMENT_CONFLICT,
@@ -833,6 +834,11 @@ def process_finalization():
 			conn.close()
 			return jsonify({"error": product_error}), 400
 		product_details = product_details or []
+		products_total = round(
+			sum(float(p.get("preco", 0)) * float(p.get("quantidade", 0)) for p in product_details),
+			2,
+		)
+		gerou_financeiro = 1 if (valor > 0 or products_total > 0) else 0
 		
 		# Salvar estado do autocommit antes de começar as operações
 		# Rollback para garantir que não há transação aberta das consultas anteriores
@@ -856,6 +862,7 @@ def process_finalization():
 					"servico_executado": servico_executado,
 					"valor": valor,
 					"status": final_status,
+					"geroufinanceiro": gerou_financeiro,
 					"idusuarioentrega": current_user.id if hasattr(current_user, "id") else 1,
 					"nomeresponsavelretirada": current_user.name,
 					"client_id": client_id,
@@ -884,7 +891,7 @@ def process_finalization():
 					valor, 
 					final_status,  # status: 3 (sem cobrança) ou 5 (com cobrança)
 					datetime.now(),  # fimservico
-					1 if valor > 0 else 0,  # geroufinanceiro
+					gerou_financeiro,  # geroufinanceiro (serviço ou pedido de faturamento de produtos)
 					datetime.now(),  # datahoraimpressao
 					current_user.id if hasattr(current_user, 'id') else 1,  # idusuarioentrega
 					current_user.name,  # nomeresponsavelretirada
@@ -958,12 +965,12 @@ def process_finalization():
 		# Verificar se cliente tem contrato
 		has_contract = bool(client_data.get("extra9")) if client_data.get("extra9") else False
 		
-		# Gerar PS apenas se:
-		# 1. Houver valor > 0
-		# 2. NÃO tiver flag "não cobra atendimento"
+		# Gerar PS (quando houver mão de obra cobrável) ou Pedido de Faturamento
+		# (quando cliente mensalista / isento de serviço possuir produtos com valor > 0)
 		ps_generated = False
 		ps_file = None
 		ps_number = None
+		billing_order_generated = False
 		delivery_success = False
 		delivery_result = None
 		ps_warning = None
@@ -1056,8 +1063,102 @@ def process_finalization():
 				import traceback
 				traceback.print_exc()
 				ps_warning = ps_warning or f"Erro ao gerar PS: {e}"
+		elif products_total > 0:
+			# Cliente mensalista (ou serviço R$ 0,00) com produtos:
+			# 1. Lança apenas o valor dos produtos no Contas a Receber (financeiro cód. 192, PS/OS-{codigo})
+			# 2. Gera folha A4 própria de Pedido de Faturamento (ps_file)
+			# 3. Gera separadamente o Recibo de Entrega de Equipamento (delivery_file)
+			try:
+				dav_ref = f" #{dav_codigo}" if dav_codigo else ""
+				summary_txt = products_summary(product_details)
+				billing_description = (
+					f"Pedido de Faturamento{dav_ref} (OS #{codigo})"
+					+ (f" - {summary_txt}" if summary_txt else "")
+				)
+				print(f"📦 Lançando Pedido de Faturamento no Contas a Receber - OS {codigo}, Valor Produtos: {products_total}")
+				success, result_data = insert_ps_with_transaction_control(
+					client_id,
+					{
+						"client_name": client_name,
+						"address_street": client_data.get("endereco", ""),
+						"address_number": client_data.get("numeroendereco", ""),
+						"phone": client_data.get("celular", ""),
+						"responsible_name": current_user.name,
+						"description_service": billing_description,
+					},
+					products_total,
+					codigo,
+					f"OS #{codigo}",
+					billing_description,
+				)
+
+				document = None
+				final_os = codigo
+				if success:
+					document, final_os = result_data
+				elif str(result_data or "").startswith(PS_DOCUMENT_CONFLICT):
+					document = str(result_data)[len(PS_DOCUMENT_CONFLICT):].strip() or None
+					final_os = codigo
+					ps_warning = f"Título já existia no Unico; reutilizando {document}"
+					print(f"⚠️ {ps_warning}")
+				else:
+					ps_warning = str(result_data or "Falha ao registrar pedido de faturamento no Contas a Receber")
+					print(f"❌ {ps_warning}")
+
+				if document:
+					ps_number = document
+					ok_billing, res_billing = generateBillingOrderPDF(
+						ps_number=ps_number,
+						reference_type="OS",
+						reference_number=final_os,
+						dav_codigo=dav_codigo,
+						client_name=client_name,
+						client_social=client_name,
+						client_social_revenue=client_data.get("cnpjcpf") or "",
+						address_street=client_data.get("endereco", ""),
+						address_number=client_data.get("numeroendereco", ""),
+						phone=client_data.get("celular", ""),
+						contract_name=client_data.get("extra9") or "",
+						responsible_name=current_user.name,
+						equipment=equipamento or "Equipamento",
+						service_executed=servico_executado,
+						products=product_details,
+						issue_date=datetime.now().strftime('%d/%m/%Y'),
+						solicitado_por=client_name,
+					)
+					if ok_billing:
+						ps_generated = True
+						ps_file = res_billing
+						billing_order_generated = True
+						print(f"✅ Pedido de faturamento A4 gerado com sucesso: {res_billing}")
+					else:
+						ps_generated = True
+						print(f"❌ Falha na geração do PDF do pedido de faturamento: {res_billing}")
+						if not ps_warning:
+							ps_warning = f"Pedido registrado no Contas a Receber, mas PDF não gerado: {res_billing}"
+			except Exception as e:
+				print(f"❌ Erro ao gerar pedido de faturamento: {e}")
+				import traceback
+				traceback.print_exc()
+				ps_warning = ps_warning or f"Erro ao gerar pedido de faturamento: {e}"
+
+			try:
+				delivery_success, delivery_result = generateDeliveryReceipt(
+					os_number=codigo,
+					client_name=client_name,
+					equipment=equipamento or "Equipamento",
+					delivery_date=datetime.now().strftime('%d/%m/%Y'),
+					responsible_name=current_user.name,
+					service_executed=servico_executado,
+					products=product_details
+				)
+				print(f"📄 Resultado recibo de entrega separado - Success: {delivery_success}, File: {delivery_result}")
+			except Exception as e:
+				print(f"❌ Erro ao gerar recibo de entrega: {e}")
+				import traceback
+				traceback.print_exc()
 		else:
-			# Se não gerar PS, gerar apenas o recibo de entrega
+			# Sem cobrança de serviço e sem produtos: gerar apenas o recibo de entrega
 			print(f"📄 Gerando apenas recibo de entrega - OS: {codigo} (Valor: {valor}, No Charge: {no_charge})")
 			try:
 				delivery_success, delivery_result = generateDeliveryReceipt(
@@ -1095,6 +1196,9 @@ def process_finalization():
 			if existing_order:
 				existing_order.service_executed = servico_executado
 				existing_order.value = valor
+				existing_order.products_value = products_total
+				existing_order.dav_id = dav_id
+				existing_order.dav_codigo = dav_codigo
 				existing_order.status = final_status
 				existing_order.ps_generated = bool(ps_number) or ps_generated
 				existing_order.delivery_receipt_generated = delivery_success
@@ -1125,6 +1229,9 @@ def process_finalization():
 					service_executed=servico_executado,
 					observations=observacao or "",
 					value=valor,
+					products_value=products_total,
+					dav_id=dav_id,
+					dav_codigo=dav_codigo,
 					ps_number=ps_number,
 					ps_generated=bool(ps_number) or ps_generated,
 					delivery_receipt_generated=delivery_success,
@@ -1161,20 +1268,22 @@ def process_finalization():
 		
 		# Adicionar informação sobre o status
 		if no_charge:
-			message += f" - Status: {final_status} (finalizada sem cobrança)"
+			message += f" - Status: {final_status} (mão de obra sem cobrança)"
 		else:
 			message += f" - Status: {final_status} (finalizada com cobrança)"
 		
-		if ps_generated and ps_file:
+		if billing_order_generated and ps_file:
+			message += f" - Pedido de faturamento lançado no Contas a Receber ({ps_number}) e recibo de entrega gerado"
+		elif ps_generated and ps_file:
 			message += f" - PS e recibo de entrega gerados juntos: {ps_number}"
 		elif ps_number:
-			message += f" - PS registrada: {ps_number}"
+			message += f" - Título registrado no Contas a Receber: {ps_number}"
 		elif delivery_success:
 			message += " - Recibo de entrega gerado"
 		
 		if valor > 0 and no_charge:
-			message += " - PS não gerada (cliente com contrato 'não cobra atendimento')"
-		elif valor == 0:
+			message += " - PS de serviço não gerada (cliente com contrato 'não cobra atendimento')"
+		elif valor == 0 and products_total <= 0:
 			message += " - PS não gerada (valor zero)"
 		
 		if ps_warning:
@@ -1183,6 +1292,7 @@ def process_finalization():
 		return jsonify({
 			"message": message,
 			"ps_generated": bool(ps_number) or ps_generated,
+			"billing_order_generated": billing_order_generated,
 			"ps_file": ps_file,
 			"ps_number": ps_number,
 			"delivery_generated": delivery_success,
@@ -1192,6 +1302,7 @@ def process_finalization():
 			"final_status": final_status,
 			"dav_id": dav_id,
 			"dav_codigo": dav_codigo,
+			"products_value": products_total,
 			"ps_warning": ps_warning,
 		})
 		
@@ -1265,7 +1376,7 @@ def api_cancel_service_order(order_id: int):
 			}), 502
 
 	previous_status = order.status
-	previous_value = float(order.value or 0)
+	previous_value = float(order.value or getattr(order, "products_value", 0) or 0)
 	unico_deleted = None
 	try:
 		order.cancelled_at = _os_utc_now_naive()
@@ -1276,6 +1387,7 @@ def api_cancel_service_order(order_id: int):
 		order.cancelled_value = previous_value
 		order.status = ServiceOrder.OS_STATUS_CANCELADA
 		order.value = 0.0
+		order.products_value = 0.0
 		order.ps_generated = False
 		order.ps_number = None
 		db.session.flush()

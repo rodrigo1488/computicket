@@ -255,7 +255,10 @@ def _build_tickets_query(
 		query = query.filter(
 			Ticket.status == "fechado",
 			or_(Ticket.ps_printed.is_(False), Ticket.ps_printed.is_(None)),
-			Ticket.total_cost > 0,
+			or_(
+				Ticket.total_cost > 0,
+				Ticket.products.any((TicketProduct.preco * TicketProduct.quantidade) > 0),
+			),
 		)
 	elif status:
 		query = query.filter(Ticket.status == status)
@@ -1336,6 +1339,7 @@ def process_ticket_close(ticket_id: int):
 		"no_charge": no_charge,
 		"contract_reason": contract_reason,
 		"total_cost": ticket.total_cost,
+		"products_total": round(float(ticket.products_total() or 0), 2),
 		"total_hours": format_hours(total_hours),
 		"products": [p.to_dict() for p in ticket.products],
 	})
@@ -2150,12 +2154,13 @@ def cancel_ps(ticket_id):
 	if not ticket.ps_number:
 		return jsonify({"error": "Número da PS não encontrado"}), 400
 	
-	if ticket.total_cost <= 0:
+	products_val = round(float(ticket.products_total() or 0), 2)
+	if float(ticket.total_cost or 0) <= 0 and products_val <= 0:
 		return jsonify({"error": "Ticket não possui valor para cancelar"}), 400
 	
 	# Salvar dados antes de limpar
 	ps_number = ticket.ps_number
-	previous_value = ticket.total_cost
+	previous_value = float(ticket.total_cost or products_val or 0)
 	
 	# Log da operação
 	print(f"🚨 INICIANDO CANCELAMENTO DE PS - Ticket: {ticket_id}, PS: {ps_number}, Valor: {previous_value}")
@@ -2616,6 +2621,9 @@ def _serialize_ticket_card(ticket: Ticket) -> dict:
 		"hourly_rate": hourly,
 		"value": value,
 		"total_cost": float(ticket.total_cost or 0),
+		"products_total": round(float(ticket.products_total() or 0), 2),
+		"dav_id": ticket.dav_id,
+		"dav_codigo": ticket.dav_codigo,
 		"ps_printed": bool(ticket.ps_printed),
 		"ps_number": ticket.ps_number,
 		"closed_at": _fmt_ticket_dt(ticket.closed_at),
@@ -2677,6 +2685,10 @@ def _serialize_ticket_detail(ticket: Ticket) -> dict:
 		"service_id": ticket.service_id,
 		"addons": addons,
 		"addons_total": addons_total,
+		"products": [p.to_dict() for p in (ticket.products or [])],
+		"products_total": round(float(ticket.products_total() or 0), 2),
+		"dav_id": ticket.dav_id,
+		"dav_codigo": ticket.dav_codigo,
 		"total": base + addons_total,
 		"technician": {
 			"id": tech.id,
@@ -3337,6 +3349,7 @@ def api_close_preview(ticket_id: int):
 		"has_external_client": bool(ticket.external_client_id),
 		"time_entries_count": len(ticket.time_entries or []),
 		"status": ticket.status,
+		"products": [p.to_dict() for p in (ticket.products or [])],
 	})
 
 

@@ -372,6 +372,159 @@ class ServiceOrderFinalizePersistTest(unittest.TestCase):
 		self.assertTrue(response.get_json().get("already_in_computicket"))
 		self.assertEqual(ServiceOrder.query.filter_by(codigo="8801").count(), 1)
 
+	def test_mensalista_with_products_registers_receivable_and_generates_separate_pdfs(self):
+		os_row = (
+			9501,
+			25,
+			datetime(2026, 9, 10, 9, 0),
+			"Servidor Dell",
+			"Troca de SSD",
+			"",
+			2,
+			0.0,
+			"",
+		)
+		# extra9="MENSAL OURO", extra10=1 (mensalista / não cobra atendimento)
+		client_row = (25, "Empresa Mensalista", "12.345.678/0001-99", "34999990000", None, "Av. Brasil", "100", "MENSAL OURO", 1)
+		conn, cursor = self._pg_conn(os_row, client_row)
+		products_validated = [
+			{
+				"id": 77,
+				"codigo": "SSD480",
+				"nome": "SSD Kingston 480GB",
+				"unidademedida": "UN",
+				"preco": 250.0,
+				"quantidade": 2.0,
+				"estoque": 10.0,
+			}
+		]
+
+		with (
+			self.app.test_request_context(
+				"/ordens-servico/processar-finalizacao",
+				method="POST",
+				json={
+					"codigo": 9501,
+					"servico_executado": "Instalação de 2 SSDs em RAID",
+					"valor": 0,
+					"produtos": [{"id": 77, "quantidade": 2}],
+				},
+			),
+			patch("app.blueprints.service_orders.connect_postgres", return_value=conn),
+			patch("app.uniplus_jobs.agent_enabled", return_value=False),
+			patch("app.blueprints.service_orders.validate_products", return_value=(products_validated, None)),
+			patch("app.blueprints.service_orders.create_dav", return_value=(501, 3001)) as create_dav_mock,
+			patch("app.models.SystemConfig.get", return_value="false"),
+			patch(
+				"app.blueprints.service_orders.insert_ps_with_transaction_control",
+				return_value=(True, ("PS/OS-9501", "9501")),
+			) as insert_fin_mock,
+			patch(
+				"app.blueprints.service_orders.generateBillingOrderPDF",
+				return_value=(True, "pedido-faturamento-os-9501.pdf"),
+			) as billing_pdf_mock,
+			patch(
+				"app.blueprints.service_orders.generateDeliveryReceipt",
+				return_value=(True, "recibo-entrega-9501.pdf"),
+			) as receipt_pdf_mock,
+			patch("flask_login.utils._get_user", return_value=self.user),
+		):
+			from app.blueprints.service_orders import process_finalization
+
+			response = process_finalization()
+
+		self.assertEqual(response.status_code, 200)
+		payload = response.get_json()
+		self.assertTrue(payload["no_charge"])
+		self.assertEqual(payload["final_status"], 3)
+		self.assertEqual(payload["dav_id"], 501)
+		self.assertEqual(payload["dav_codigo"], 3001)
+		self.assertEqual(payload["products_value"], 500.0)
+		self.assertTrue(payload["ps_generated"])
+		self.assertTrue(payload["billing_order_generated"])
+		self.assertEqual(payload["ps_number"], "PS/OS-9501")
+		self.assertEqual(payload["ps_file"], "pedido-faturamento-os-9501.pdf")
+		self.assertTrue(payload["delivery_generated"])
+		self.assertEqual(payload["delivery_file"], "recibo-entrega-9501.pdf")
+
+		create_dav_mock.assert_called_once()
+		insert_fin_mock.assert_called_once()
+		self.assertEqual(insert_fin_mock.call_args.args[0], 25)
+		self.assertEqual(insert_fin_mock.call_args.args[2], 500.0)
+		self.assertIn("Pedido de Faturamento #3001", insert_fin_mock.call_args.args[5])
+		billing_pdf_mock.assert_called_once()
+		receipt_pdf_mock.assert_called_once()
+
+		# Confere geroufinanceiro=1 no UPDATE ordemservico
+		update_params = [
+			c.args[1]
+			for c in cursor.execute.call_args_list
+			if len(c.args) >= 2 and "UPDATE ordemservico" in str(c.args[0])
+		]
+		self.assertEqual(len(update_params), 1)
+		self.assertEqual(update_params[0][2], 3)  # status 3 (mensalista)
+		self.assertEqual(update_params[0][4], 1)  # geroufinanceiro = 1
+
+		saved = ServiceOrder.query.filter_by(codigo="9501").first()
+		self.assertIsNotNone(saved)
+		self.assertEqual(saved.value, 0.0)
+		self.assertEqual(saved.products_value, 500.0)
+		self.assertEqual(saved.dav_id, 501)
+		self.assertEqual(saved.dav_codigo, 3001)
+		self.assertEqual(saved.ps_number, "PS/OS-9501")
+		self.assertEqual(saved.ps_file, "pedido-faturamento-os-9501.pdf")
+		self.assertEqual(saved.delivery_file, "recibo-entrega-9501.pdf")
+
+	def test_mensalista_without_products_generates_only_delivery_receipt(self):
+		os_row = (
+			9502,
+			25,
+			datetime(2026, 9, 10, 10, 0),
+			"PC Recepção",
+			"Formatação",
+			"",
+			2,
+			0.0,
+			"",
+		)
+		client_row = (25, "Empresa Mensalista", "12.345.678/0001-99", None, None, None, None, "MENSAL OURO", 1)
+		conn, _cursor = self._pg_conn(os_row, client_row)
+
+		with (
+			self.app.test_request_context(
+				"/ordens-servico/processar-finalizacao",
+				method="POST",
+				json={
+					"codigo": 9502,
+					"servico_executado": "Formatação padrão",
+					"valor": 0,
+					"produtos": [],
+				},
+			),
+			patch("app.blueprints.service_orders.connect_postgres", return_value=conn),
+			patch("app.uniplus_jobs.agent_enabled", return_value=False),
+			patch("app.blueprints.service_orders.validate_products", return_value=([], None)),
+			patch("app.models.SystemConfig.get", return_value="false"),
+			patch("app.blueprints.service_orders.insert_ps_with_transaction_control") as insert_fin_mock,
+			patch(
+				"app.blueprints.service_orders.generateDeliveryReceipt",
+				return_value=(True, "recibo-entrega-9502.pdf"),
+			) as receipt_pdf_mock,
+			patch("flask_login.utils._get_user", return_value=self.user),
+		):
+			from app.blueprints.service_orders import process_finalization
+
+			response = process_finalization()
+
+		self.assertEqual(response.status_code, 200)
+		payload = response.get_json()
+		insert_fin_mock.assert_not_called()
+		receipt_pdf_mock.assert_called_once()
+		self.assertFalse(payload["ps_generated"])
+		self.assertFalse(payload["billing_order_generated"])
+		self.assertIsNone(payload["ps_file"])
+		self.assertEqual(payload["delivery_file"], "recibo-entrega-9502.pdf")
+
 
 if __name__ == "__main__":
 	unittest.main()

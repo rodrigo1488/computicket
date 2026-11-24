@@ -367,6 +367,7 @@ class Ticket(db.Model):
 		ps_dir = ps_root / "ps-do-dia"
 		candidates: list[str] = []
 		if self.products:
+			candidates.append(f"pedido-faturamento-ticket-{self.id}.pdf")
 			candidates.append(f"ps-recibo-{self.id}.pdf")
 		if self.ps_number:
 			candidates.append(f"{self.ps_number.replace('/', '_')}.pdf")
@@ -808,6 +809,9 @@ class ServiceOrder(db.Model):
 	
 	# Dados financeiros
 	value = db.Column(db.Float, default=0.0)  # Valor do serviço
+	products_value = db.Column(db.Float, default=0.0)  # Valor faturado de produtos
+	dav_id = db.Column(db.Integer, nullable=True)  # ID do pedido de faturamento (DAV) no Unico
+	dav_codigo = db.Column(db.Integer, nullable=True)  # Código do pedido de faturamento (DAV) no Unico
 	ps_number = db.Column(db.String(50), nullable=True)  # Número da PS gerada
 	ps_generated = db.Column(db.Boolean, default=False)  # Se PS foi gerada
 	delivery_receipt_generated = db.Column(db.Boolean, default=False)  # Se recibo foi gerado

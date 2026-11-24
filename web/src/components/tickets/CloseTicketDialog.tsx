@@ -19,17 +19,24 @@ type Preview = {
   forced_total: number;
   has_external_client: boolean;
   time_entries_count: number;
+  products?: Array<{ id: number; nome: string; quantidade: number; preco?: number }>;
 };
 
 type CloseRes = {
   message?: string;
   total_cost?: number;
+  products_total?: number;
   no_charge?: boolean;
   contract_reason?: string;
-  dav_codigo?: string | null;
+  dav_codigo?: string | number | null;
 };
 
-type PrintRes = { message?: string; pdf_file?: string | null; ps_number?: string | null };
+type PrintRes = {
+  message?: string;
+  pdf_file?: string | null;
+  ps_number?: string | null;
+  billing_order?: boolean;
+};
 
 export function CloseTicketDialog({
   open,
@@ -62,11 +69,27 @@ export function CloseTicketDialog({
     setPrinted(null);
     flask
       .get<Preview>(`/tickets/api/${ticket.id}/close-preview`)
-      .then(setPreview)
+      .then((res) => {
+        setPreview(res);
+        if (res.products?.length) {
+          setPicked(
+            res.products.map((p) => ({
+              id: p.id,
+              nome: p.nome,
+              quantidade: p.quantidade,
+              preco: p.preco,
+            })),
+          );
+        }
+      })
       .catch((e) => setError(e instanceof Error ? e.message : "Erro ao carregar fechamento"));
   }, [open, ticket.id]);
 
   const noCharge = Boolean(preview?.no_charge) && !forceCharge;
+  const pickedTotal = useMemo(
+    () => picked.reduce((acc, p) => acc + Number(p.preco || 0) * Number(p.quantidade || 0), 0),
+    [picked],
+  );
   const computed = useMemo(() => {
     if (!preview) return 0;
     if (noCharge) return 0;
@@ -74,34 +97,12 @@ export function CloseTicketDialog({
     return forceCharge ? preview.forced_total : preview.computed_total;
   }, [preview, noCharge, manual, forceCharge]);
 
-  const confirm = async () => {
-    if (!preview) return;
-    if (!preview.time_entries_count) {
-      setError("Adicione ao menos um apontamento antes de fechar o ticket.");
-      return;
-    }
-    setError("");
-    setSaving(true);
-    try {
-      const res = await flask.post<CloseRes>(`/tickets/${ticket.id}/processar-fechamento`, {
-        force_charge: forceCharge,
-        manual_total_cost: manual.trim() ? parseMoney(manual) : null,
-        produtos: picked.map((p) => ({ id: p.id, quantidade: p.quantidade })),
-      });
-      setClosed(res);
-      onClosed();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Erro ao fechar ticket");
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const printPs = async () => {
+  const runPrintPs = async (closedData?: CloseRes | null) => {
+    const target = closedData ?? closed;
     setError("");
     setPrinting(true);
     try {
-      const amount = Number(closed?.total_cost || computed || 0);
+      const amount = Number(target?.total_cost || target?.products_total || computed || pickedTotal || 0);
       const res = await flask.post<PrintRes>("/printers", {
         reprint: false,
         body: {
@@ -119,13 +120,42 @@ export function CloseTicketDialog({
       }
       onClosed();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Erro ao imprimir PS");
+      setError(e instanceof Error ? e.message : "Erro ao gerar documento financeiro");
     } finally {
       setPrinting(false);
     }
   };
 
-  const canPrint = Boolean(closed) && Number(closed?.total_cost || 0) > 0 && !closed?.no_charge;
+  const confirm = async () => {
+    if (!preview) return;
+    if (!preview.time_entries_count) {
+      setError("Adicione ao menos um apontamento antes de fechar o ticket.");
+      return;
+    }
+    setError("");
+    setSaving(true);
+    try {
+      const res = await flask.post<CloseRes>(`/tickets/${ticket.id}/processar-fechamento`, {
+        force_charge: forceCharge,
+        manual_total_cost: manual.trim() ? parseMoney(manual) : null,
+        produtos: picked.map((p) => ({ id: p.id, quantidade: p.quantidade })),
+      });
+      setClosed(res);
+      onClosed();
+      if (res.no_charge && Number(res.products_total || 0) > 0) {
+        await runPrintPs(res);
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Erro ao fechar ticket");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const isBillingOrderOnly = Boolean(closed?.no_charge) && Number(closed?.products_total || 0) > 0;
+  const canPrint =
+    Boolean(closed) &&
+    ((Number(closed?.total_cost || 0) > 0 && !closed?.no_charge) || Number(closed?.products_total || 0) > 0);
 
   return (
     <Modal open={open} onClose={onClose} title={closed ? "Ticket fechado" : "Fechar ticket"} wide>
@@ -157,9 +187,12 @@ export function CloseTicketDialog({
 
           {preview.no_charge ? (
             <div className="rounded-xl bg-warn-bg p-3 text-sm">
-              <p className="font-medium text-ink">Sem cobrança</p>
+              <p className="font-medium text-ink">Sem cobrança de mão de obra</p>
               <p className="mt-1 text-muted">
-                {preview.charge_reason || "Cliente com isenção de contrato."} O total será {formatBRL(0)}.
+                {preview.charge_reason || "Cliente com isenção de contrato."} A mão de obra será {formatBRL(0)}
+                {picked.length > 0
+                  ? ` · Produtos (${formatBRL(pickedTotal)}) serão lançados no Contas a Receber e impressos como Pedido de Faturamento.`
+                  : " (caso inclua produtos, será gerado Pedido de Faturamento no Contas a Receber)."}
               </p>
               <button
                 type="button"
@@ -214,19 +247,32 @@ export function CloseTicketDialog({
           <p className="text-done">{closed.message || "Ticket fechado com sucesso."}</p>
           {closed.contract_reason ? <p className="text-muted">{closed.contract_reason}</p> : null}
           <p>
-            Total: <strong>{formatBRL(closed.total_cost)}</strong>
+            Serviço: <strong>{formatBRL(closed.total_cost)}</strong>
+            {Number(closed.products_total || 0) > 0 ? (
+              <>
+                {" · "}Produtos: <strong>{formatBRL(closed.products_total)}</strong>
+              </>
+            ) : null}
             {closed.dav_codigo ? ` · Pedido #${closed.dav_codigo}` : ""}
           </p>
           {printed ? (
             <p className="text-done">
-              PS {printed.ps_number || ""} gerada.
+              {printed.billing_order || isBillingOrderOnly
+                ? `Pedido de faturamento (${printed.ps_number || ""}) lançado no Contas a Receber.`
+                : `PS ${printed.ps_number || ""} gerada.`}
               {printed.pdf_file ? " O PDF foi aberto em outra aba." : ""}
             </p>
           ) : null}
           {error ? <p className="text-sm text-open">{error}</p> : null}
           {canPrint && !printed ? (
-            <PrimaryButton onClick={() => void printPs()} disabled={printing}>
-              {printing ? "Gerando PS…" : "Gerar PS"}
+            <PrimaryButton onClick={() => void runPrintPs()} disabled={printing}>
+              {printing
+                ? isBillingOrderOnly
+                  ? "Gerando pedido de faturamento…"
+                  : "Gerando PS…"
+                : isBillingOrderOnly
+                  ? "Gerar pedido de faturamento"
+                  : "Gerar PS"}
             </PrimaryButton>
           ) : (
             <PrimaryButton onClick={onClose}>Concluir</PrimaryButton>

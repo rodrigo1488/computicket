@@ -353,6 +353,97 @@ class PsPostgresFlowTest(unittest.TestCase):
 		self.assertEqual(_safe_float(None, 3), 3.0)
 		self.assertEqual(_safe_float(0), 0.0)
 
+	def test_print_ps_for_mensalista_ticket_with_products_generates_billing_order_a4(self):
+		import os
+		import tempfile
+		from pathlib import Path
+		from app import db
+		from app.blueprints.printer import service_provision_routes
+		from app.models import Ticket, TicketProduct, User
+
+		app = Flask(__name__)
+		app.config.update(
+			SQLALCHEMY_DATABASE_URI="sqlite://",
+			SQLALCHEMY_TRACK_MODIFICATIONS=False,
+			SECRET_KEY="test-secret",
+			TESTING=True,
+		)
+		db.init_app(app)
+		app.register_blueprint(service_provision_routes)
+
+		with tempfile.TemporaryDirectory() as tmp, patch.dict(os.environ, {"PS_ROOT": tmp}):
+			with app.app_context():
+				db.create_all()
+				user = User(name="Técnico", email="mensal@example.invalid", password_hash="x")
+				db.session.add(user)
+				db.session.flush()
+				ticket = Ticket(
+					id=4010,
+					title="Troca de teclado cliente mensalista",
+					status="fechado",
+					opened_by_id=user.id,
+					assigned_to_id=user.id,
+					external_client_id=55,
+					external_client_name="Cliente Mensalista Ltda",
+					total_cost=0.0,
+					dav_id=88,
+					dav_codigo=7001,
+				)
+				db.session.add(ticket)
+				db.session.flush()
+				db.session.add(TicketProduct(
+					ticket_id=ticket.id,
+					product_id=12,
+					codigo="TEC01",
+					nome="Teclado USB ABNT2",
+					unidademedida="UN",
+					preco=89.9,
+					quantidade=2.0,
+					dav_id=88,
+					dav_codigo=7001,
+				))
+				db.session.commit()
+
+				registered_calls = []
+
+				def fake_register(entity_id, data_dict, total, t_num, title, desc, **kwargs):
+					registered_calls.append((entity_id, total, t_num, title, desc, kwargs))
+					return True, (kwargs.get("document") or "PS/TICKET-4010", str(t_num))
+
+				with (
+					patch("app.blueprints.printer.connect_postgres", return_value=None),
+					patch("app.blueprints.printer.insert_ps_with_transaction_control", side_effect=fake_register),
+				):
+					response = app.test_client().post("/printers", json={
+						"body": {
+							"ticket_number": 4010,
+						},
+					})
+
+				self.assertEqual(response.status_code, 200)
+				payload = response.get_json()
+				self.assertTrue(payload["billing_order"])
+				self.assertEqual(payload["ps_number"], "PS/TICKET-4010")
+				self.assertEqual(payload["pdf_file"], "pedido-faturamento-ticket-4010.pdf")
+				self.assertAlmostEqual(payload["total_amount"], 179.8)
+
+				self.assertEqual(len(registered_calls), 1)
+				self.assertEqual(registered_calls[0][0], 55)
+				self.assertAlmostEqual(registered_calls[0][1], 179.8)
+				self.assertIn("Pedido de Faturamento #7001", registered_calls[0][4])
+
+				pdf_on_disk = Path(tmp) / "ps-do-dia" / "pedido-faturamento-ticket-4010.pdf"
+				self.assertTrue(pdf_on_disk.is_file())
+				self.assertGreater(pdf_on_disk.stat().st_size, 500)
+
+				saved = db.session.get(Ticket, 4010)
+				self.assertTrue(saved.ps_printed)
+				self.assertEqual(saved.ps_file, "pedido-faturamento-ticket-4010.pdf")
+				self.assertEqual(saved.ps_number, "PS/TICKET-4010")
+
+				db.session.remove()
+				db.drop_all()
+
 
 if __name__ == "__main__":
 	unittest.main()

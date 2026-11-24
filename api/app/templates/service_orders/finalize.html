@@ -473,8 +473,8 @@
 					}
 					if (data.delivery_generated) {
 						message += ` Recibo de entrega gerado.`;
-						// Abrir PDF de recibo automaticamente se foi gerado
-						if (data.delivery_file) {
+						// Abrir PDF de recibo automaticamente se foi gerado e for distinto do ps_file
+						if (data.delivery_file && data.delivery_file !== data.ps_file) {
 							const pdfUrl = `/ordens-servico/pdf/${data.delivery_file}`;
 							setTimeout(() => {
 								const pdfWindow = window.open(pdfUrl, '_blank');

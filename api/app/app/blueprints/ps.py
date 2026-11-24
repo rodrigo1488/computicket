@@ -361,6 +361,12 @@ def _ticket_ps_item(ticket, pdf_index: dict | None = None):
         client_name = ticket.display_client_name()
     except Exception:
         client_name = getattr(ticket, "client_name", None) or ""
+    ticket_val = _safe_float(ticket.total_cost)
+    if ticket_val <= 0:
+        try:
+            ticket_val = _safe_float(ticket.products_total())
+        except Exception:
+            ticket_val = 0.0
     return {
         "ps_number": ticket.ps_number,
         "name": ticket.ps_number or filename or f"Ticket #{ticket.id}",
@@ -369,13 +375,14 @@ def _ticket_ps_item(ticket, pdf_index: dict | None = None):
         "source_id": ticket.id,
         "client_name": client_name or "",
         "technician_name": tech or "",
-        "value": _safe_float(ticket.total_cost),
+        "value": ticket_val,
         "issued_at": _iso_date(ticket.closed_at or ticket.created_at),
         "description": ticket.title or "",
         "path": _relative_ps_file(
             filename,
             ticket.ps_number,
             ticket.ps_file,
+            f"pedido-faturamento-ticket-{ticket.id}.pdf",
             f"ps-recibo-{ticket.id}.pdf",
             pdf_index=pdf_index,
         ),
@@ -383,6 +390,9 @@ def _ticket_ps_item(ticket, pdf_index: dict | None = None):
 
 
 def _order_ps_item(order, pdf_index: dict | None = None):
+    order_val = _safe_float(order.value)
+    if order_val <= 0:
+        order_val = _safe_float(getattr(order, "products_value", 0))
     return {
         "ps_number": order.ps_number,
         "name": order.ps_number or order.ps_file or f"OS #{order.codigo}",
@@ -391,10 +401,15 @@ def _order_ps_item(order, pdf_index: dict | None = None):
         "source_id": order.id,
         "client_name": order.client_name or "",
         "technician_name": order.technician_name or "",
-        "value": _safe_float(order.value),
+        "value": order_val,
         "issued_at": _iso_date(order.completion_date),
         "description": order.service_executed or "",
-        "path": _relative_ps_file(order.ps_file, order.ps_number, pdf_index=pdf_index),
+        "path": _relative_ps_file(
+            order.ps_file,
+            order.ps_number,
+            f"pedido-faturamento-os-{order.codigo}.pdf",
+            pdf_index=pdf_index,
+        ),
     }
 
 

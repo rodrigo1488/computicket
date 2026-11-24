@@ -6,7 +6,7 @@ import { flask } from "@/lib/api";
 import { formatBRL } from "@/lib/format";
 
 export type ProductHit = { id: number; codigo?: string; nome: string; preco?: number };
-export type PickedProduct = { id: number; nome: string; quantidade: number };
+export type PickedProduct = { id: number; nome: string; quantidade: number; preco?: number };
 
 export function ProductPicker({
   searchPath,
@@ -50,7 +50,11 @@ export function ProductPicker({
                 type="button"
                 className="text-sm text-ink hover:underline"
                 onClick={() => {
-                  onChange(picked.some((x) => x.id === p.id) ? picked : [...picked, { id: p.id, nome: p.nome, quantidade: 1 }]);
+                  onChange(
+                    picked.some((x) => x.id === p.id)
+                      ? picked
+                      : [...picked, { id: p.id, nome: p.nome, quantidade: 1, preco: p.preco }],
+                  );
                 }}
               >
                 + {p.nome} {p.preco != null ? `(${formatBRL(p.preco)})` : ""}
@@ -63,7 +67,14 @@ export function ProductPicker({
         <ul className="mt-3 space-y-2">
           {picked.map((p) => (
             <li key={p.id} className="flex items-center justify-between gap-3 text-sm">
-              <span>{p.nome}</span>
+              <span>
+                {p.nome}
+                {p.preco != null ? (
+                  <span className="ml-1.5 text-xs text-muted">
+                    ({formatBRL(p.preco * (p.quantidade || 1))})
+                  </span>
+                ) : null}
+              </span>
               <div className="flex items-center gap-2">
                 <input
                   type="number"

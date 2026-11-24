@@ -747,7 +747,7 @@ def create_app() -> Flask:
 				"CREATE UNIQUE INDEX IF NOT EXISTS ix_ticket_public_token ON ticket (public_token)"
 			))
 			db.session.commit()
-			# Cancelamento de OS (auditoria + estorno financeiro)
+			# Cancelamento de OS (auditoria + estorno financeiro) e vínculo DAV/produtos
 			ensure_column("service_order", "cancelled_at", "TIMESTAMP")
 			ensure_column("service_order", "cancelled_by_id", "INTEGER")
 			ensure_column("service_order", "cancellation_reason", "TEXT")
@@ -755,6 +755,9 @@ def create_app() -> Flask:
 			ensure_column("service_order", "cancelled_ps_number", "VARCHAR(50)")
 			ensure_column("service_order", "cancelled_value", "FLOAT")
 			ensure_column("service_order", "cancelled_unico_deleted", "INTEGER")
+			ensure_column("service_order", "dav_id", "INTEGER")
+			ensure_column("service_order", "dav_codigo", "INTEGER")
+			ensure_column("service_order", "products_value", "FLOAT DEFAULT 0.0")
 			ensure_column("budget_item", "option_key", "VARCHAR(40)")
 			ensure_column("budget_item", "option_label", "VARCHAR(200)")
 			ensure_column("budget", "selected_option_key", "VARCHAR(40)")

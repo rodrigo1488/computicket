@@ -592,9 +592,9 @@
 		{% endif %}
 
 		{# Botão Cancelar PS - apenas para admins e tickets com PS impressa #}
-		{% if current_user.has_role('admin') and ticket.ps_printed and ticket.ps_number and ticket.total_cost > 0 %}
+		{% if current_user.has_role('admin') and ticket.ps_printed and ticket.ps_number and (ticket.total_cost > 0 or ticket.products_total() > 0) %}
 		<button class="cancel-ps-btn" data-ticket-id="{{ ticket.id }}" data-ps-number="{{ ticket.ps_number }}"
-			data-total-cost="{{ ticket.total_cost }}" title="Cancelar PS">
+			data-total-cost="{{ ticket.total_cost if ticket.total_cost > 0 else ticket.products_total() }}" title="Cancelar PS">
 			<i class="fas fa-times"></i>
 			Cancelar PS
 		</button>

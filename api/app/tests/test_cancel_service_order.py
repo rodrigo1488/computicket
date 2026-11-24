@@ -96,6 +96,31 @@ class CancelServiceOrderTest(unittest.TestCase):
 		self.assertEqual(order.cancelled_value, 150.0)
 		self.assertEqual(order.cancelled_unico_deleted, 1)
 
+	def test_cancels_mensalista_billing_order_and_audits_products_value(self):
+		self.make_os(
+			order_id=2,
+			codigo="1002",
+			status=3,
+			value=0.0,
+			products_value=320.0,
+			dav_id=90,
+			dav_codigo=4100,
+			ps_number="PS/OS-1002",
+			no_charge=True,
+			has_contract=True,
+		)
+		response = self.invoke(order_id=2)
+		self.assertEqual(response.status_code, 200)
+		self.check.assert_called_once_with("PS/OS-1002")
+		self.delete.assert_called_once_with("PS/OS-1002")
+		order = self.reload(2)
+		self.assertTrue(order.is_cancelled())
+		self.assertEqual(order.cancelled_prev_status, 3)
+		self.assertEqual(order.cancelled_ps_number, "PS/OS-1002")
+		self.assertEqual(order.cancelled_value, 320.0)
+		self.assertEqual(order.products_value, 0.0)
+		self.assertIsNone(order.ps_number)
+
 	def test_unico_called_after_local_flush_and_before_commit(self):
 		"""A exclusão no Unico ocorre com o cancelamento local já aplicado (sessão) mas não commitado."""
 		self.make_os()

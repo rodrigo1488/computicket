@@ -68,6 +68,9 @@ export type TicketCard = {
   hourly_rate?: number;
   value?: number;
   total_cost?: number;
+  products_total?: number;
+  dav_id?: number | null;
+  dav_codigo?: number | null;
   ps_printed?: boolean;
   ps_number?: string | null;
   closed_at?: string | null;
@@ -79,6 +82,17 @@ export type TicketAddon = {
   id: number;
   description: string;
   value: number;
+};
+
+export type TicketProductItem = {
+  id: number;
+  codigo?: string | null;
+  nome: string;
+  unidademedida?: string | null;
+  preco: number;
+  quantidade: number;
+  dav_id?: number | null;
+  dav_codigo?: number | null;
 };
 
 export type TicketImage = {
@@ -114,6 +128,10 @@ export type TicketDetail = TicketCard & {
   service_id?: number | null;
   addons: TicketAddon[];
   addons_total: number;
+  products?: TicketProductItem[];
+  products_total?: number;
+  dav_id?: number | null;
+  dav_codigo?: number | null;
   total: number;
   technician: { id: number; name: string; email: string; avatar_url?: string | null } | null;
   time_entries?: TimeEntry[];

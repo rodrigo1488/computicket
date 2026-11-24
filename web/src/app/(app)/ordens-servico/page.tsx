@@ -23,6 +23,9 @@ type OsRow = {
   client_name: string;
   technician_name: string;
   value: number;
+  products_value?: number;
+  dav_id?: number | null;
+  dav_codigo?: number | null;
   status?: number;
   status_text: string;
   completion_date: string;
@@ -332,7 +335,9 @@ export default function OSPage() {
       setSuccessMsg(res.message || "Ordem de serviço finalizada com sucesso");
       try {
         if (res.ps_file) await flask.open(`/ordens-servico/pdf/${encodeURIComponent(res.ps_file)}`);
-        if (res.delivery_file) await flask.open(`/ordens-servico/pdf/${encodeURIComponent(res.delivery_file)}`);
+        if (res.delivery_file && res.delivery_file !== res.ps_file) {
+          await flask.open(`/ordens-servico/pdf/${encodeURIComponent(res.delivery_file)}`);
+        }
       } catch (e) {
         setFormError(e instanceof Error ? e.message : "OS gravada, mas não foi possível abrir o PDF");
       }
@@ -433,10 +438,17 @@ export default function OSPage() {
               {view.technician_name}
             </p>
             <p>
-              <span className="text-muted">Valor</span>
+              <span className="text-muted">Valor serviço</span>
               <br />
               {formatBRL(view.value)}
             </p>
+            {Number(view.products_value || 0) > 0 ? (
+              <p>
+                <span className="text-muted">Valor produtos (Pedido{view.dav_codigo ? ` #${view.dav_codigo}` : ""})</span>
+                <br />
+                <strong>{formatBRL(view.products_value)}</strong>
+              </p>
+            ) : null}
             <p>
               <span className="text-muted">Status</span>
               <br />
@@ -494,10 +506,10 @@ export default function OSPage() {
                     className="text-sm text-navy underline"
                     onClick={() => void flask.open(`/ordens-servico/pdf/${encodeURIComponent(view.ps_file!)}`)}
                   >
-                    Abrir PS
+                    {view.no_charge && Number(view.products_value || 0) > 0 ? "Abrir pedido de faturamento" : "Abrir PS"}
                   </button>
                 ) : null}
-                {view.delivery_file ? (
+                {view.delivery_file && view.delivery_file !== view.ps_file ? (
                   <button
                     type="button"
                     className="text-sm text-navy underline"
@@ -648,7 +660,12 @@ export default function OSPage() {
             />
             {selected.no_charge && !selected.orphan ? (
               <div className="rounded-xl bg-warn-bg p-3 text-sm">
-                <p className="text-ink">Cliente com contrato “não cobra atendimento”. O valor será R$ 0,00.</p>
+                <p className="text-ink">
+                  Cliente com contrato “não cobra atendimento”. A mão de obra será R$ 0,00
+                  {picked.length > 0
+                    ? " — os produtos selecionados gerarão Pedido de Faturamento e lançamento no Contas a Receber."
+                    : " (se incluir produtos, será gerado Pedido de Faturamento no Contas a Receber)."}
+                </p>
                 <button
                   type="button"
                   className="mt-2 text-xs font-medium text-navy underline"

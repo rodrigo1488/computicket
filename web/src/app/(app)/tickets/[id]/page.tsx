@@ -161,8 +161,12 @@ export default function TicketDetailPage() {
   const canReopen = isAdmin && data.status === "fechado";
   const entries = data.time_entries || [];
   const canClose = openTicket && entries.length > 0;
+  const productsTotal = Number(data.products_total || 0);
+  const isBillingOrderOnly = Boolean(data.no_charge) && Number(data.total_cost || 0) <= 0 && productsTotal > 0;
   const canPrint =
-    data.status === "fechado" && Number(data.total_cost || 0) > 0 && !data.ps_printed && !data.no_charge;
+    data.status === "fechado" &&
+    !data.ps_printed &&
+    ((Number(data.total_cost || 0) > 0 && !data.no_charge) || productsTotal > 0);
 
   return (
     <div>
@@ -270,7 +274,23 @@ export default function TicketDetailPage() {
               className="inline-flex items-center gap-2 rounded-xl bg-inverse px-4 py-2.5 text-sm font-medium text-on-inverse"
             >
               <Printer className="h-4 w-4" />
-              {printing ? "Gerando PS…" : "Gerar PS"}
+              {printing
+                ? isBillingOrderOnly
+                  ? "Gerando pedido…"
+                  : "Gerando PS…"
+                : isBillingOrderOnly
+                  ? "Gerar pedido de faturamento"
+                  : "Gerar PS"}
+            </button>
+          ) : null}
+          {data.ps_printed && data.ps_file ? (
+            <button
+              type="button"
+              onClick={() => void flask.open(`/tickets/pdf/${encodeURIComponent(data.ps_file!)}`)}
+              className="inline-flex items-center gap-2 rounded-xl border border-line bg-surface px-4 py-2.5 text-sm font-medium text-ink"
+            >
+              <Printer className="h-4 w-4" />
+              {isBillingOrderOnly ? "Abrir pedido de faturamento" : "Abrir PS"}
             </button>
           ) : null}
           <button
@@ -499,16 +519,30 @@ export default function TicketDetailPage() {
                   <span className="text-muted">Adicionais</span>
                   <span>{formatBRL(data.addons_total)}</span>
                 </div>
+                {productsTotal > 0 ? (
+                  <div className="flex justify-between">
+                    <span className="text-muted">Produtos{data.dav_codigo ? ` (#${data.dav_codigo})` : ""}</span>
+                    <span>{formatBRL(productsTotal)}</span>
+                  </div>
+                ) : null}
                 <div className="flex justify-between border-t border-line pt-3 text-base font-semibold">
                   <span>{data.status === "fechado" ? "Total fechado" : "Estimativa"}</span>
                   <span>{formatBRL(data.status === "fechado" ? data.total_cost : data.hours && data.hourly_rate ? data.hours * data.hourly_rate : data.total)}</span>
                 </div>
               </>
             ) : (
-              <div className="flex justify-between border-t border-line pt-3 text-base font-semibold">
-                <span>Total</span>
-                <span>{formatBRL(0)}</span>
-              </div>
+              <>
+                <div className="flex justify-between border-t border-line pt-3 text-base font-semibold">
+                  <span>Mão de obra</span>
+                  <span>{formatBRL(0)}</span>
+                </div>
+                {productsTotal > 0 ? (
+                  <div className="flex justify-between text-base font-semibold">
+                    <span>Produtos{data.dav_codigo ? ` (#${data.dav_codigo})` : ""}</span>
+                    <span>{formatBRL(productsTotal)}</span>
+                  </div>
+                ) : null}
+              </>
             )}
             {data.ps_number ? (
               <p className="text-xs text-muted">PS {data.ps_number}</p>

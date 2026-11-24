@@ -2,7 +2,7 @@ import unittest
 from datetime import datetime
 from unittest.mock import MagicMock, patch
 
-from unico_handler import UniplusPermanentError, _open_ordemservico
+from unico_handler import UniplusPermanentError, _finalize_ordemservico, _open_ordemservico
 
 
 class OpenOrdemservicoTest(unittest.TestCase):
@@ -65,6 +65,35 @@ class OpenOrdemservicoTest(unittest.TestCase):
 				"descricaoitem": "PC",
 				"problemadescrito": "Travando",
 			})
+
+	def test_finalize_mensalista_with_products_sets_geroufinanceiro_and_creates_dav(self):
+		cursor = MagicMock()
+		conn = MagicMock()
+		conn.cursor.return_value.__enter__.return_value = cursor
+
+		with (
+			patch("unico_handler._connect", return_value=conn),
+			patch("unico_handler._create_dav", return_value={"dav_id": 501, "dav_codigo": 3001}) as create_dav_mock,
+		):
+			result = _finalize_ordemservico({
+				"codigo": "9501",
+				"servico_executado": "Instalação de SSD",
+				"valor": 0,
+				"status": 3,
+				"client_id": 25,
+				"create_dav": True,
+				"product_details": [{"id": 77, "nome": "SSD 480GB", "preco": 250.0, "quantidade": 2.0}],
+				"nomeresponsavelretirada": "Técnico Teste",
+			})
+
+		self.assertTrue(result["ok"])
+		self.assertEqual(result["dav_id"], 501)
+		self.assertEqual(result["dav_codigo"], 3001)
+		create_dav_mock.assert_called_once()
+		update_params = cursor.execute.call_args.args[1]
+		self.assertEqual(update_params[1], 0.0)  # valor mão de obra = 0
+		self.assertEqual(update_params[2], 3)    # status 3 (mensalista)
+		self.assertEqual(update_params[4], 1)    # geroufinanceiro = 1 pelos produtos
 
 
 if __name__ == "__main__":
