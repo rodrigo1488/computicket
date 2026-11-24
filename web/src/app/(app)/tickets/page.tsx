@@ -122,7 +122,7 @@ function TicketsPageInner() {
     queryFn: () => flask.get<PageRes<UserOpt>>("/api/web/users?status=1&per_page=100"),
   });
 
-  const { data, isLoading, isFetching, error } = useQuery({
+  const { data, isLoading, isFetching, error } = useQuery<PageRes<TicketRow>>({
     queryKey: ["tickets", status, assigned, q, dateFrom, dateTo, dateBy, page, colQuery],
     queryFn: () =>
       flask.get<PageRes<TicketRow>>(
@@ -138,8 +138,9 @@ function TicketsPageInner() {
           per_page: 20,
         })}${colQuery}`,
       ),
-    placeholderData: (previousData) => previousData,
+    placeholderData: (previousData: PageRes<TicketRow> | undefined) => previousData,
   });
+  const ticketItems: TicketRow[] = data?.items ?? [];
 
   const invalidate = () => {
     qc.invalidateQueries({ queryKey: ["tickets"] });
@@ -472,7 +473,7 @@ function TicketsPageInner() {
             "Ações",
           ]}
           empty="Nenhum ticket neste filtro"
-          rows={(data?.items || []).map((t) => [
+          rows={ticketItems.map((t) => [
             `#${t.id}`,
             <div key={`t-${t.id}`}>
               <Link href={`/tickets/${t.id}`} className="font-medium text-navy hover:underline">
@@ -526,7 +527,7 @@ function TicketsPageInner() {
             </button>
           </form>
 
-          {isLoading && !(data?.items || []).length ? (
+          {isLoading && ticketItems.length === 0 ? (
             <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
               {Array.from({ length: 6 }).map((_, idx) => (
                 <div
@@ -535,13 +536,13 @@ function TicketsPageInner() {
                 />
               ))}
             </div>
-          ) : (data?.items || []).length === 0 ? (
+          ) : ticketItems.length === 0 ? (
             <div className="rounded-2xl border border-line bg-surface px-4 py-10 text-center text-sm text-muted">
               Nenhum ticket neste filtro
             </div>
           ) : (
             <div className="grid gap-3.5 sm:grid-cols-2 xl:grid-cols-3">
-              {(data?.items || []).map((t) => (
+              {ticketItems.map((t) => (
                 <article
                   key={t.id}
                   className="flex flex-col justify-between rounded-2xl border border-line bg-surface p-4 shadow-[0_1px_2px_rgba(16,24,40,0.04)] transition hover:border-brand/30 hover:shadow-md"

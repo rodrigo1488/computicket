@@ -1721,7 +1721,7 @@ ${TRANSFER_RULES}`;
     ? `O cliente enviou uma imagem com a legenda: ${imageCaption}. Descreva só o que estiver visível e continue o atendimento.`
     : "O cliente enviou uma imagem. Descreva só o que estiver visível e continue o atendimento.";
   const imageRules = canReadImage
-    ? "\n- Nesta mensagem há uma imagem do cliente. Use apenas o que estiver visível. Se mostrar um problema técnico, descreva o que aparece. Se ainda faltar o relato, pergunte e espere a próxima mensagem. Se o problema já estiver claro, encaminhe. Não tente resolver."
+    ? "\n- Nesta mensagem há uma imagem do cliente. Use apenas o que estiver visível. Se mostrar um problema técnico, descreva o que aparece. Se ainda faltar o relato, pergunte e espere a próxima mensagem."
     : "";
 
   if (
