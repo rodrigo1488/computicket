@@ -38,8 +38,8 @@ function ShellFrame({ children }: { children: React.ReactNode }) {
       <AppSidebar collapsed={sidebarCollapsed} />
       <main
         className={cn(
-          "flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden pb-16 md:pb-0",
-          isChatLayout ? "p-1.5 md:p-3" : "p-2.5 md:p-5",
+          "flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden",
+          isChatLayout ? "p-1.5 pb-[4.25rem] md:p-3" : "p-2.5 pb-[4.5rem] md:p-5",
         )}
       >
         <TabBar sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar} />
