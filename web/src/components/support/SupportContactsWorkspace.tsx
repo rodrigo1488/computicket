@@ -5,6 +5,7 @@ import { LifeBuoy, LoaderCircle, Pencil, Plus, Send, Sparkles, Trash2, X } from 
 import { Link } from "@/components/tabs/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { WhatsAppFormattedText } from "@/components/helpdesk/WhatsAppFormattedText";
+import { ComposerTextarea } from "@/components/ui/ComposerTextarea";
 import { Modal } from "@/components/ui/Modal";
 import { PrimaryButton, UnderlineField } from "@/components/ui/UnderlineField";
 import { flask } from "@/lib/api";
@@ -645,17 +646,21 @@ export function SupportContactsWorkspace() {
                   send.mutate(activeTicketId);
                 }}
               >
-                <div className="flex items-center gap-2">
-                  <input
+                <div className="flex items-end gap-2">
+                  <ComposerTextarea
                     value={draft}
                     onChange={(event) => {
                       const value = event.target.value;
                       if (activeTicketId == null) return;
                       setDrafts((prev) => ({ ...prev, [activeTicketId]: value }));
                     }}
+                    onSubmitShortcut={() => {
+                      if (!activeTicketId || !draft.trim() || send.isPending) return;
+                      send.mutate(activeTicketId);
+                    }}
                     placeholder="Digite a mensagem"
                     autoComplete="off"
-                    className="min-h-9 min-w-0 flex-1 rounded-lg border-0 bg-surface px-3 py-2 text-sm text-ink shadow-sm outline-none placeholder:text-muted"
+                    className="bg-surface text-ink placeholder:text-muted"
                   />
                   <button
                     type="submit"

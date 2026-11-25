@@ -372,7 +372,7 @@ class ServiceOrderFinalizePersistTest(unittest.TestCase):
 		self.assertTrue(response.get_json().get("already_in_computicket"))
 		self.assertEqual(ServiceOrder.query.filter_by(codigo="8801").count(), 1)
 
-	def test_mensalista_with_products_registers_receivable_and_generates_combined_pdf(self):
+	def test_mensalista_with_products_creates_only_dav_and_combined_pdf_without_receivable(self):
 		os_row = (
 			9501,
 			25,
@@ -415,10 +415,7 @@ class ServiceOrderFinalizePersistTest(unittest.TestCase):
 			patch("app.blueprints.service_orders.validate_products", return_value=(products_validated, None)),
 			patch("app.blueprints.service_orders.create_dav", return_value=(501, 3001)) as create_dav_mock,
 			patch("app.models.SystemConfig.get", return_value="false"),
-			patch(
-				"app.blueprints.service_orders.insert_ps_with_transaction_control",
-				return_value=(True, ("PS/OS-9501", "9501")),
-			) as insert_fin_mock,
+			patch("app.blueprints.service_orders.insert_ps_with_transaction_control") as insert_fin_mock,
 			patch(
 				"app.blueprints.service_orders.generateCombinedBillingOrderAndDeliveryReceipt",
 				return_value=(True, "pedido-recibo-9501.pdf"),
@@ -440,22 +437,19 @@ class ServiceOrderFinalizePersistTest(unittest.TestCase):
 		self.assertEqual(payload["dav_id"], 501)
 		self.assertEqual(payload["dav_codigo"], 3001)
 		self.assertEqual(payload["products_value"], 500.0)
-		self.assertTrue(payload["ps_generated"])
+		self.assertFalse(payload["ps_generated"])
 		self.assertTrue(payload["billing_order_generated"])
-		self.assertEqual(payload["ps_number"], "PS/OS-9501")
-		self.assertEqual(payload["ps_file"], "pedido-recibo-9501.pdf")
+		self.assertIsNone(payload["ps_number"])
+		self.assertIsNone(payload["ps_file"])
 		self.assertTrue(payload["delivery_generated"])
 		self.assertEqual(payload["delivery_file"], "pedido-recibo-9501.pdf")
 
 		create_dav_mock.assert_called_once()
-		insert_fin_mock.assert_called_once()
-		self.assertEqual(insert_fin_mock.call_args.args[0], 25)
-		self.assertEqual(insert_fin_mock.call_args.args[2], 500.0)
-		self.assertIn("Pedido de Faturamento #3001", insert_fin_mock.call_args.args[5])
+		insert_fin_mock.assert_not_called()
 		combined_pdf_mock.assert_called_once()
 		receipt_pdf_mock.assert_not_called()
 
-		# Confere geroufinanceiro=1 no UPDATE ordemservico
+		# Confere geroufinanceiro=0 no UPDATE ordemservico (vai apenas para DAV)
 		update_params = [
 			c.args[1]
 			for c in cursor.execute.call_args_list
@@ -463,7 +457,7 @@ class ServiceOrderFinalizePersistTest(unittest.TestCase):
 		]
 		self.assertEqual(len(update_params), 1)
 		self.assertEqual(update_params[0][2], 3)  # status 3 (mensalista)
-		self.assertEqual(update_params[0][4], 1)  # geroufinanceiro = 1
+		self.assertEqual(update_params[0][4], 0)  # geroufinanceiro = 0
 
 		saved = ServiceOrder.query.filter_by(codigo="9501").first()
 		self.assertIsNotNone(saved)
@@ -471,9 +465,73 @@ class ServiceOrderFinalizePersistTest(unittest.TestCase):
 		self.assertEqual(saved.products_value, 500.0)
 		self.assertEqual(saved.dav_id, 501)
 		self.assertEqual(saved.dav_codigo, 3001)
-		self.assertEqual(saved.ps_number, "PS/OS-9501")
-		self.assertEqual(saved.ps_file, "pedido-recibo-9501.pdf")
+		self.assertIsNone(saved.ps_number)
+		self.assertIsNone(saved.ps_file)
 		self.assertEqual(saved.delivery_file, "pedido-recibo-9501.pdf")
+
+	def test_regular_client_with_products_and_service_skips_contas_a_receber(self):
+		os_row = (
+			9503,
+			30,
+			datetime(2026, 9, 10, 11, 0),
+			"Notebook HP",
+			"Troca de bateria",
+			"",
+			2,
+			120.0,
+			"",
+		)
+		client_row = (30, "Cliente Avulso", "111.222.333-44", "34988887777", None, "Rua B", "50", None, 0)
+		conn, cursor = self._pg_conn(os_row, client_row)
+		products_validated = [
+			{
+				"id": 88,
+				"codigo": "BAT01",
+				"nome": "Bateria HP Original",
+				"unidademedida": "UN",
+				"preco": 300.0,
+				"quantidade": 1.0,
+				"estoque": 5.0,
+			}
+		]
+
+		with (
+			self.app.test_request_context(
+				"/ordens-servico/processar-finalizacao",
+				method="POST",
+				json={
+					"codigo": 9503,
+					"servico_executado": "Substituição da bateria",
+					"valor": 120,
+					"produtos": [{"id": 88, "quantidade": 1}],
+				},
+			),
+			patch("app.blueprints.service_orders.connect_postgres", return_value=conn),
+			patch("app.uniplus_jobs.agent_enabled", return_value=False),
+			patch("app.blueprints.service_orders.validate_products", return_value=(products_validated, None)),
+			patch("app.blueprints.service_orders.create_dav", return_value=(502, 3002)) as create_dav_mock,
+			patch("app.models.SystemConfig.get", return_value="false"),
+			patch("app.blueprints.service_orders.insert_ps_with_transaction_control") as insert_fin_mock,
+			patch(
+				"app.blueprints.service_orders.generateCombinedBillingOrderAndDeliveryReceipt",
+				return_value=(True, "pedido-recibo-9503.pdf"),
+			) as combined_pdf_mock,
+			patch("flask_login.utils._get_user", return_value=self.user),
+		):
+			from app.blueprints.service_orders import process_finalization
+
+			response = process_finalization()
+
+		self.assertEqual(response.status_code, 200)
+		payload = response.get_json()
+		create_dav_mock.assert_called_once()
+		insert_fin_mock.assert_not_called()
+		combined_pdf_mock.assert_called_once()
+		self.assertEqual(combined_pdf_mock.call_args.kwargs["service_value"], 120.0)
+		self.assertFalse(combined_pdf_mock.call_args.kwargs["no_charge"])
+		self.assertFalse(payload["ps_generated"])
+		self.assertIsNone(payload["ps_number"])
+		self.assertEqual(payload["delivery_file"], "pedido-recibo-9503.pdf")
 
 	def test_mensalista_without_products_generates_only_delivery_receipt(self):
 		os_row = (

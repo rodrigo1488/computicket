@@ -1906,6 +1906,44 @@ export function HelpdeskWorkspace() {
     setQuickOpen(false);
   }
 
+  function submitComposer() {
+    if (recorder.recording) return;
+    if (send.isPending || sendFile.isPending || editMessage.isPending || !activeId) return;
+    const rawText = text;
+    if (editingMessage && !isTempMessageId(editingMessage.id)) {
+      const body = rawText.trim();
+      if (!body) return;
+      editMessage.mutate({
+        ticketId: activeId,
+        messageId: editingMessage.id,
+        body,
+        rawText,
+      });
+      return;
+    }
+    const quotingInternal = !!(replyTo?.isInternal || replyTo?.isPrivate);
+    const sendingInternal = isInternal || quotingInternal;
+    if (pendingFile) {
+      sendFile.mutate({
+        ticketId: activeId,
+        file: pendingFile,
+        body: withAgentSignature(rawText, user?.name, sendingInternal),
+        rawText,
+        quotedMsg: replyTo,
+      });
+      return;
+    }
+    const body = withAgentSignature(rawText, user?.name, sendingInternal);
+    if (!body.trim()) return;
+    send.mutate({
+      ticketId: activeId,
+      body,
+      isInternal: sendingInternal,
+      rawText,
+      quotedMsg: replyTo,
+    });
+  }
+
   async function suggestReply() {
     if (!current) return;
     setAiAction("reply");
@@ -2673,41 +2711,7 @@ export function HelpdeskWorkspace() {
                   className="relative shrink-0 border-t border-chat-border bg-chat-composer px-3 py-2"
                   onSubmit={(e) => {
                     e.preventDefault();
-                    if (recorder.recording) return;
-                    if (send.isPending || sendFile.isPending || editMessage.isPending || !activeId) return;
-                    const rawText = text;
-                    if (editingMessage && !isTempMessageId(editingMessage.id)) {
-                      const body = rawText.trim();
-                      if (!body) return;
-                      editMessage.mutate({
-                        ticketId: activeId,
-                        messageId: editingMessage.id,
-                        body,
-                        rawText,
-                      });
-                      return;
-                    }
-                    const quotingInternal = !!(replyTo?.isInternal || replyTo?.isPrivate);
-                    const sendingInternal = isInternal || quotingInternal;
-                    if (pendingFile) {
-                      sendFile.mutate({
-                        ticketId: activeId,
-                        file: pendingFile,
-                        body: withAgentSignature(rawText, user?.name, sendingInternal),
-                        rawText,
-                        quotedMsg: replyTo,
-                      });
-                      return;
-                    }
-                    const body = withAgentSignature(rawText, user?.name, sendingInternal);
-                    if (!body.trim()) return;
-                    send.mutate({
-                      ticketId: activeId,
-                      body,
-                      isInternal: sendingInternal,
-                      rawText,
-                      quotedMsg: replyTo,
-                    });
+                    submitComposer();
                   }}
                 >
                   {pendingFile ? (
@@ -2931,6 +2935,7 @@ export function HelpdeskWorkspace() {
                         setText(e.target.value);
                         if (!e.target.value.startsWith("/")) setQuickOpen(false);
                       }}
+                      onSubmitShortcut={submitComposer}
                       className="bg-surface"
                       placeholder={isInternal ? "Nota interna (não vai para o WhatsApp)" : "Digite uma mensagem ou /atalho"}
                       autoComplete="off"

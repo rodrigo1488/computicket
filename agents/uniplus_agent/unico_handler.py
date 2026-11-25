@@ -581,14 +581,11 @@ def _cancel_finance_avulso(p: dict) -> dict:
 def _finalize_ordemservico(p: dict) -> dict:
 	codigo = p.get("codigo")
 	valor_float = float(p.get("valor") or 0)
-	has_paid_products = any(
-		float(prod.get("preco") or 0) * float(prod.get("quantidade") or 0) > 0
-		for prod in (p.get("product_details") or [])
-	)
+	has_products = bool(p.get("product_details"))
 	if p.get("geroufinanceiro") is not None:
 		gerou_financeiro = int(bool(p.get("geroufinanceiro")))
 	else:
-		gerou_financeiro = 1 if (valor_float > 0 or has_paid_products) else 0
+		gerou_financeiro = 1 if (valor_float > 0 and not has_products) else 0
 	conn = _connect()
 	try:
 		with conn.cursor() as cur:

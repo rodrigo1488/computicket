@@ -521,7 +521,9 @@ export default function OSPage() {
                     className="text-sm text-navy underline"
                     onClick={() => void flask.open(`/ordens-servico/pdf/${encodeURIComponent(view.delivery_file!)}`)}
                   >
-                    Abrir recibo
+                    {Number(view.products_value || 0) > 0 || view.dav_codigo || view.delivery_file.startsWith("pedido-recibo-")
+                      ? "Abrir pedido de faturamento e recibo"
+                      : "Abrir recibo"}
                   </button>
                 ) : null}
               </div>
@@ -669,8 +671,8 @@ export default function OSPage() {
                 <p className="text-ink">
                   Cliente com contrato “não cobra atendimento”. A mão de obra será R$ 0,00
                   {picked.length > 0
-                    ? " — os produtos selecionados gerarão Pedido de Faturamento e lançamento no Contas a Receber."
-                    : " (se incluir produtos, será gerado Pedido de Faturamento no Contas a Receber)."}
+                    ? " — os produtos selecionados gerarão apenas o Pedido de Faturamento (impresso junto ao recibo de entrega)."
+                    : " (se incluir produtos, será gerado e impresso o Pedido de Faturamento junto ao recibo de entrega)."}
                 </p>
                 <button
                   type="button"

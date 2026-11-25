@@ -76,13 +76,21 @@ export const ComposerTextarea = forwardRef<HTMLTextAreaElement, ComposerTextarea
         onKeyDown={(e) => {
           onKeyDown?.(e);
           if (e.defaultPrevented) return;
-          if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
-            e.preventDefault();
-            if (onSubmitShortcut) {
-              onSubmitShortcut();
-            } else {
-              e.currentTarget.form?.requestSubmit();
-            }
+          const isEnter = e.key === "Enter" || e.code === "Enter" || e.code === "NumpadEnter";
+          if (!isEnter) return;
+          const isShift = Boolean(
+            e.shiftKey || e.nativeEvent.shiftKey || e.getModifierState?.("Shift"),
+          );
+          if (isShift) {
+            e.stopPropagation();
+            return;
+          }
+          if (e.nativeEvent.isComposing || e.keyCode === 229) return;
+          e.preventDefault();
+          if (onSubmitShortcut) {
+            onSubmitShortcut();
+          } else {
+            e.currentTarget.form?.requestSubmit();
           }
         }}
         style={{ ...style, resize: "none" }}

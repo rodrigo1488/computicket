@@ -992,8 +992,8 @@
                                 </div>
                                 
                                 <div class="chat-input">
-                                    <div class="input-group">
-                                        <input type="text" class="form-control" id="message-input" placeholder="Digite sua mensagem..." autocomplete="off">
+                                    <div class="input-group" style="align-items: flex-end;">
+                                        <textarea rows="1" class="form-control" id="message-input" placeholder="Digite sua mensagem..." autocomplete="off" style="resize: none; max-height: 144px; overflow-y: hidden;"></textarea>
                                         <button class="btn btn-primary" type="button" id="send-button" title="Enviar mensagem">
                                             <i class="fas fa-paper-plane"></i>
                                         </button>
@@ -1691,13 +1691,25 @@ function showStatusIndicator(message) {
 document.addEventListener('DOMContentLoaded', function() {
     initSocket();
     
-    // Configurar eventos de envio
+    // Configurar eventos de envio e auto-ajuste de altura estilo WhatsApp
     document.getElementById('send-button').onclick = sendMessage;
-    document.getElementById('message-input').onkeypress = function(e) {
-        if (e.key === 'Enter') {
-            sendMessage();
-        }
-    };
+    const msgTextarea = document.getElementById('message-input');
+    if (msgTextarea) {
+        const syncMsgHeight = function() {
+            msgTextarea.style.height = 'auto';
+            const nextH = Math.min(msgTextarea.scrollHeight, 144);
+            msgTextarea.style.height = Math.max(38, nextH) + 'px';
+            msgTextarea.style.overflowY = msgTextarea.scrollHeight > 144 ? 'auto' : 'hidden';
+        };
+        msgTextarea.addEventListener('input', syncMsgHeight);
+        msgTextarea.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
+                e.preventDefault();
+                sendMessage();
+                requestAnimationFrame(syncMsgHeight);
+            }
+        });
+    }
     
     // Inicializar contadores
     document.getElementById('waiting-count').textContent = {{ waiting_sessions|length }};

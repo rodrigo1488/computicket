@@ -1254,6 +1254,8 @@ def generateCombinedBillingOrderAndDeliveryReceipt(
     dav_codigo=None,
     contract_name="",
     solicitado_por=None,
+    service_value=0.0,
+    no_charge=True,
 ):
     """Gera Pedido de Faturamento de produtos + Recibo de Entrega na mesma folha A4 (dividida ao meio)."""
     try:
@@ -1297,9 +1299,14 @@ def generateCombinedBillingOrderAndDeliveryReceipt(
         y_top -= 10
 
         # Identificadores na mesma linha
-        os_and_dav = f"OS: {os_number}" + (f"  |  Pedido: #{dav_codigo}" if dav_codigo else "")
-        draw_text(os_and_dav, 20 * mm, y_top, size=8.5, bold=True)
-        draw_text(f"Doc.: {ps_number}", width / 2 + 12 * mm, y_top, size=8.5, align="center")
+        draw_text(f"OS: {os_number}", 20 * mm, y_top, size=8.5, bold=True)
+        mid_label = (
+            f"Pedido: #{dav_codigo}"
+            if dav_codigo
+            else (f"Doc.: {ps_number}" if ps_number else "")
+        )
+        if mid_label:
+            draw_text(mid_label, width / 2, y_top, size=8.5, bold=True, align="center")
         draw_text(f"Data: {delivery_date}", width - 20 * mm, y_top, size=8.5, align="right")
         y_top -= 11
 
@@ -1314,19 +1321,25 @@ def generateCombinedBillingOrderAndDeliveryReceipt(
         draw_text(f"Tel: {phone or '—'}", width - 20 * mm, y_top, size=8, align="right")
         y_top -= 10
 
-        contract_label = f"Mensalista ({contract_name})" if contract_name else "Mensalista (mão de obra isenta)"
-        draw_text(f"Contemplação: {contract_label[:52]}", 20 * mm, y_top, size=8)
+        if no_charge:
+            contract_label = f"Mensalista ({contract_name})" if contract_name else "Mensalista (mão de obra isenta)"
+            draw_text(f"Contemplação: {contract_label[:52]}", 20 * mm, y_top, size=8)
+        elif contract_name:
+            draw_text(f"Contrato: {str(contract_name)[:56]}", 20 * mm, y_top, size=8)
+        else:
+            draw_text(f"Solicitado por: {solicitado_por or client_name}", 20 * mm, y_top, size=8)
         draw_text(f"Resp.: {responsible_name}", width - 20 * mm, y_top, size=8, align="right")
         y_top -= 10
 
-        draw_text(f"Solicitado por: {solicitado_por or client_name}", 20 * mm, y_top, size=8)
-        y_top -= 9
+        if no_charge or contract_name:
+            draw_text(f"Solicitado por: {solicitado_por or client_name}", 20 * mm, y_top, size=8)
+            y_top -= 9
         draw_line(y_top)
         y_top -= 10
 
-        # Tabela de produtos faturados
+        # Tabela de produtos do pedido de faturamento
         total_products = 0.0
-        draw_text("Produtos Faturados (Contas a Receber):", 20 * mm, y_top, size=8.5, bold=True)
+        draw_text("Produtos do Pedido de Faturamento:", 20 * mm, y_top, size=8.5, bold=True)
         y_top -= 11
         draw_text("Descrição", 20 * mm, y_top, size=8, bold=True)
         draw_text("Qtd", width - 52 * mm, y_top, size=8, bold=True, align="right")
@@ -1361,12 +1374,27 @@ def generateCombinedBillingOrderAndDeliveryReceipt(
             y_top -= 9.5
 
         total_products = round(total_products, 2)
+        try:
+            srv_val = float(service_value or 0)
+        except (TypeError, ValueError):
+            srv_val = 0.0
+        if no_charge:
+            srv_val = 0.0
+        total_geral = round(srv_val + total_products, 2)
+
         y_top -= 2
         draw_line(y_top)
         y_top -= 10
 
-        draw_text("Valor Serviço: R$ 0,00 (Isento - Mensalista)", 20 * mm, y_top, size=8)
-        draw_text(f"Total Produtos: R$ {total_products:.2f}", width - 20 * mm, y_top, size=9.5, bold=True, align="right")
+        if no_charge:
+            draw_text("Valor Serviço: R$ 0,00 (Isento - Mensalista)", 20 * mm, y_top, size=8)
+            draw_text(f"Total Pedido: R$ {total_products:.2f}", width - 20 * mm, y_top, size=9.5, bold=True, align="right")
+        elif srv_val > 0:
+            draw_text(f"Serviço: R$ {srv_val:.2f}  |  Produtos: R$ {total_products:.2f}", 20 * mm, y_top, size=8)
+            draw_text(f"Total: R$ {total_geral:.2f}", width - 20 * mm, y_top, size=9.5, bold=True, align="right")
+        else:
+            draw_text("Valor Serviço: R$ 0,00", 20 * mm, y_top, size=8)
+            draw_text(f"Total Pedido: R$ {total_products:.2f}", width - 20 * mm, y_top, size=9.5, bold=True, align="right")
         y_top -= 16
         draw_text("Assinatura do Cliente: ________________________________", width / 2, max(y_top, ps_height + 3 * mm), size=8.5, align="center")
 
