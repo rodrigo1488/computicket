@@ -1,4 +1,26 @@
-import { publicMediaUrl, type HelpdeskMessage } from "@/lib/helpdesk";
+import type { HelpdeskMessage } from "./helpdesk.ts";
+
+/** Reescreve URL interna do engine (whatsapp-engine:4000/public/...) para o proxy Flask. */
+export function publicMediaUrl(url?: string | null): string | null {
+  if (!url) return null;
+  const raw = url.trim();
+  if (!raw || /nopicture/i.test(raw)) return null;
+  if (raw.includes("/helpdesk/api/media/")) {
+    const idx = raw.indexOf("/helpdesk/api/media/");
+    return `/flask${raw.slice(idx)}`;
+  }
+  const publicIdx = raw.indexOf("/public/");
+  if (publicIdx >= 0) {
+    const path = raw.slice(publicIdx + "/public/".length).split(/[?#]/)[0];
+    if (!path || path.split("/").includes("..")) return null;
+    return `/flask/helpdesk/api/media/${path}`;
+  }
+  if (raw.startsWith("public/")) {
+    return `/flask/helpdesk/api/media/${raw.slice("public/".length).split(/[?#]/)[0]}`;
+  }
+  if (/^https?:\/\//i.test(raw)) return raw;
+  return raw;
+}
 
 export function isTempMessageId(id?: string | null) {
   return !!id && String(id).startsWith("temp-");
@@ -60,15 +82,22 @@ function messageLooksSettled(real: HelpdeskMessage, pending: HelpdeskMessage) {
 }
 
 /**
- * GET da página 1 traz só as N mais recentes. Se o cache ainda tiver mensagens que
- * saíram dessa janela, concatená-las no fim inverte o histórico (e o React
- * reaproveita grupos de dia com a mesma key).
- * Mantém só placeholders temp- e itens da janela atual (ainda não persistidos).
+ * GET da página 1 traz só as N mais recentes.
+ * - Quando `preserveOlder` é falso (apenas página 1 carregada), mantém só
+ *   placeholders `temp-` e itens da janela atual (ainda não persistidos).
+ * - Quando `preserveOlder` é verdadeiro (o usuário já paginou páginas 2+),
+ *   preserva também mensagens reais mais antigas já carregadas, sem perdê-las
+ *   no refetch periódico.
  */
-export function retainOptimisticMessages(fetched: HelpdeskMessage[], previous?: HelpdeskMessage[]) {
+export function retainOptimisticMessages(
+  fetched: HelpdeskMessage[],
+  previous?: HelpdeskMessage[],
+  opts?: { preserveOlder?: boolean },
+) {
   const orderedFetched = sortMessagesChronologically(fetched);
   if (!previous?.length) return orderedFetched;
 
+  const preserveOlder = !!opts?.preserveOlder;
   const fetchedIds = new Set(orderedFetched.map((m) => String(m.id)));
   const oldestFetchedMs = orderedFetched.reduce((min, m) => {
     const t = Date.parse(m.createdAt || "");
@@ -84,10 +113,37 @@ export function retainOptimisticMessages(fetched: HelpdeskMessage[], previous?: 
       if (!orderedFetched.some((m) => messageLooksSettled(m, pending))) extras.push(pending);
       continue;
     }
+    if (preserveOlder) {
+      extras.push(pending);
+      continue;
+    }
     const t = Date.parse(pending.createdAt || "");
     if (!Number.isFinite(t) || t >= oldestFetchedMs) extras.push(pending);
   }
   return extras.length ? sortMessagesChronologically([...orderedFetched, ...extras]) : orderedFetched;
+}
+
+/**
+ * Mescla uma página mais antiga (pageNumber >= 2) com o thread atual,
+ * deduplicando por id (evita duplicatas por deslocamento de offset quando
+ * novas mensagens chegam durante a paginação) e mantendo ordem cronológica.
+ */
+export function mergeOlderMessagesPage(
+  previous: HelpdeskMessage[] | undefined,
+  olderPage: HelpdeskMessage[],
+): HelpdeskMessage[] {
+  const current = previous || [];
+  if (!olderPage.length) return sortMessagesChronologically(current);
+  const existingIds = new Set(current.map((m) => String(m.id)));
+  const additions: HelpdeskMessage[] = [];
+  for (const msg of olderPage) {
+    const id = msg.id != null ? String(msg.id) : "";
+    if (!id || existingIds.has(id)) continue;
+    existingIds.add(id);
+    additions.push(msg);
+  }
+  if (!additions.length) return sortMessagesChronologically(current);
+  return sortMessagesChronologically([...additions, ...current]);
 }
 
 function replaceMessageAt(current: HelpdeskMessage[], idx: number, nextMsg: HelpdeskMessage) {

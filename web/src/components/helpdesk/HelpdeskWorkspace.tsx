@@ -1,6 +1,6 @@
 "use client";
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeftRight,
   Ban,
@@ -89,6 +89,7 @@ import {
   isMediaMessage,
   isTempMessageId,
   mergeMessageIntoThread,
+  mergeOlderMessagesPage,
   normalizeMessageCreatedAt,
   retainOptimisticMessages,
   sortMessagesChronologically,
@@ -850,6 +851,17 @@ export function HelpdeskWorkspace() {
   const [aiError, setAiError] = useState<string | null>(null);
   const [ticketDefaults, setTicketDefaults] = useState<HelpdeskAiTicketDraft | null>(null);
   const [historyViewId, setHistoryViewId] = useState<number | null>(null);
+  const [historyListOpen, setHistoryListOpen] = useState(false);
+  const [loadedMsgPage, setLoadedMsgPage] = useState(1);
+  const [hasMoreMessages, setHasMoreMessages] = useState(false);
+  const [loadingOlderMessages, setLoadingOlderMessages] = useState(false);
+  const [olderMessagesError, setOlderMessagesError] = useState<string | null>(null);
+  const loadedMsgPageRef = useRef(1);
+  const loadingOlderRef = useRef(false);
+  const isNearBottomRef = useRef(true);
+  const pendingScrollRestoreRef = useRef<{ scrollHeight: number; scrollTop: number } | null>(null);
+  const prevActiveIdRef = useRef<number | null>(null);
+  const prevTailIdRef = useRef<string | null>(null);
   const [mediaViewer, setMediaViewer] = useState<MediaViewerItem | null>(null);
   const [shareTarget, setShareTarget] = useState<ShareToChatTarget | null>(null);
   const [expandedPhoneKeys, setExpandedPhoneKeys] = useState<Set<string>>(() => new Set());
@@ -1009,7 +1021,7 @@ export function HelpdeskWorkspace() {
   const countSource = useQuery({
     queryKey: ["hd-list-counts", tab, debouncedSearch],
     queryFn: () => helpdesk.inbox(tab, debouncedSearch),
-    enabled: !!health.data?.ok,
+    enabled: !!health.data?.ok && tab !== "closed",
     refetchInterval: 15000,
   });
 
@@ -1017,8 +1029,24 @@ export function HelpdeskWorkspace() {
     queryKey: ["hd-list", tab, selectedQueues, includeUnassigned, debouncedSearch],
     queryFn: () =>
       helpdesk.inbox(tab, debouncedSearch, selectedQueues.length ? selectedQueues : undefined),
-    enabled: !!health.data?.ok,
+    enabled: !!health.data?.ok && tab !== "closed",
     refetchInterval: 12000,
+  });
+
+  const closedList = useInfiniteQuery({
+    queryKey: ["hd-list-closed", selectedQueues, includeUnassigned, debouncedSearch],
+    queryFn: ({ pageParam }) =>
+      helpdesk.conversations(
+        "closed",
+        String(pageParam),
+        debouncedSearch,
+        selectedQueues.length ? selectedQueues : undefined,
+      ),
+    initialPageParam: 1,
+    getNextPageParam: (lastPage, allPages) =>
+      lastPage.hasMore && (lastPage.tickets || []).length > 0 ? allPages.length + 1 : undefined,
+    enabled: !!health.data?.ok && tab === "closed",
+    refetchOnWindowFocus: false,
   });
 
   const seededExistingConversations = useRef(false);
@@ -1082,12 +1110,16 @@ export function HelpdeskWorkspace() {
     queryKey: ["hd-messages", activeId],
     queryFn: async () => {
       const ticketId = activeId as number;
-      const res = await helpdesk.messages(ticketId);
+      const res = await helpdesk.messages(ticketId, "1");
       const fetched = unwrapMessages(res);
       const prev = qc.getQueryData<MessagesCache>(["hd-messages", ticketId]);
+      const preserveOlder = activeIdRef.current === ticketId && loadedMsgPageRef.current > 1;
       return {
         ...res,
-        messages: retainOptimisticMessages(fetched, prev?.messages),
+        hasMore: preserveOlder
+          ? ((prev?.hasMore as boolean | undefined) ?? res.hasMore)
+          : res.hasMore,
+        messages: retainOptimisticMessages(fetched, prev?.messages, { preserveOlder }),
       };
     },
     enabled: !!activeId,
@@ -1095,6 +1127,49 @@ export function HelpdeskWorkspace() {
     staleTime: 4_000,
     refetchInterval: activeId ? 5_000 : false,
   });
+
+  useEffect(() => {
+    if (loadedMsgPage === 1 && messages.data) {
+      setHasMoreMessages(Boolean(messages.data.hasMore));
+    }
+  }, [loadedMsgPage, messages.data, activeId]);
+
+  const loadOlderMessages = async () => {
+    const ticketId = activeIdRef.current;
+    if (!ticketId || loadingOlderRef.current || !hasMoreMessages) return;
+    const nextPage = loadedMsgPageRef.current + 1;
+    loadingOlderRef.current = true;
+    setLoadingOlderMessages(true);
+    setOlderMessagesError(null);
+    const el = threadRef.current;
+    if (el) {
+      pendingScrollRestoreRef.current = {
+        scrollHeight: el.scrollHeight,
+        scrollTop: el.scrollTop,
+      };
+    }
+    try {
+      const res = await helpdesk.messages(ticketId, String(nextPage));
+      if (activeIdRef.current !== ticketId) return;
+      const older = unwrapMessages(res);
+      const nextHasMore = Boolean(res.hasMore) && older.length > 0;
+      loadedMsgPageRef.current = nextPage;
+      setLoadedMsgPage(nextPage);
+      setHasMoreMessages(nextHasMore);
+      qc.setQueryData<MessagesCache>(["hd-messages", ticketId], (prev) => ({
+        ...prev,
+        count: res.count ?? (prev?.count as number | undefined),
+        hasMore: nextHasMore,
+        messages: mergeOlderMessagesPage(prev?.messages, older),
+      }));
+    } catch (e) {
+      pendingScrollRestoreRef.current = null;
+      setOlderMessagesError((e as Error).message || "Não foi possível carregar mensagens anteriores.");
+    } finally {
+      loadingOlderRef.current = false;
+      setLoadingOlderMessages(false);
+    }
+  };
 
   const scheduledMessages = useQuery({
     queryKey: ["hd-schedules", activeId],
@@ -1121,12 +1196,28 @@ export function HelpdeskWorkspace() {
 
   const engineUserId = session.data?.engineUserId ?? null;
 
+  const rawListTickets = useMemo(() => {
+    if (tab !== "closed") return list.data?.tickets || [];
+    const seen = new Set<number>();
+    const rows: HelpdeskConversation[] = [];
+    for (const page of closedList.data?.pages || []) {
+      for (const t of page.tickets || []) {
+        if (seen.has(t.id)) continue;
+        seen.add(t.id);
+        rows.push(t);
+      }
+    }
+    return rows;
+  }, [tab, list.data?.tickets, closedList.data?.pages]);
+
+  const closedTotalCount = closedList.data?.pages?.[0]?.count ?? rawListTickets.length;
+
   const visibleTickets = useMemo(
     () =>
       sortInboxConversations(
-        applyQueueVisibility(list.data?.tickets || [], selectedQueues, includeUnassigned, unassignedOnly),
+        applyQueueVisibility(rawListTickets, selectedQueues, includeUnassigned, unassignedOnly),
       ),
-    [list.data?.tickets, selectedQueues, includeUnassigned, unassignedOnly],
+    [rawListTickets, selectedQueues, includeUnassigned, unassignedOnly],
   );
 
   const mineTickets = useMemo(() => {
@@ -1136,16 +1227,18 @@ export function HelpdeskWorkspace() {
 
   const tickets = useMemo(() => (mineOnly ? mineTickets : visibleTickets), [mineOnly, mineTickets, visibleTickets]);
 
+  const countBaseTickets = tab === "closed" ? rawListTickets : countSource.data?.tickets || [];
+
   const scopeAllCount = useMemo(() => {
-    const rows = applyQueueVisibility(countSource.data?.tickets || [], selectedQueues, includeUnassigned, unassignedOnly);
+    const rows = applyQueueVisibility(countBaseTickets, selectedQueues, includeUnassigned, unassignedOnly);
     return rows.length;
-  }, [countSource.data?.tickets, selectedQueues, includeUnassigned, unassignedOnly]);
+  }, [countBaseTickets, selectedQueues, includeUnassigned, unassignedOnly]);
 
   const scopeMineCount = useMemo(() => {
-    const rows = applyQueueVisibility(countSource.data?.tickets || [], selectedQueues, includeUnassigned, unassignedOnly);
+    const rows = applyQueueVisibility(countBaseTickets, selectedQueues, includeUnassigned, unassignedOnly);
     if (tab === "pending") return rows.length;
     return rows.filter((t) => isAssignedToEngineUser(t, engineUserId)).length;
-  }, [countSource.data?.tickets, selectedQueues, includeUnassigned, unassignedOnly, tab, engineUserId]);
+  }, [countBaseTickets, selectedQueues, includeUnassigned, unassignedOnly, tab, engineUserId]);
 
   const closedGroups = useMemo(
     () => (tab === "closed" ? groupClosedByPhone(tickets) : []),
@@ -1169,6 +1262,15 @@ export function HelpdeskWorkspace() {
     setEditingMessage(null);
     setPendingFile(null);
     setScheduleOpen(false);
+    setHistoryListOpen(false);
+    setLoadedMsgPage(1);
+    loadedMsgPageRef.current = 1;
+    setHasMoreMessages(false);
+    setLoadingOlderMessages(false);
+    loadingOlderRef.current = false;
+    setOlderMessagesError(null);
+    isNearBottomRef.current = true;
+    pendingScrollRestoreRef.current = null;
   }, [activeId]);
 
   const selectConversation = (c: HelpdeskConversation) => {
@@ -1227,17 +1329,17 @@ export function HelpdeskWorkspace() {
     });
   };
 
-  const listIsError = list.isError;
-  const listErrorMessage = (list.error as Error | null)?.message;
+  const listIsError = tab === "closed" ? closedList.isError : list.isError;
+  const listErrorMessage = ((tab === "closed" ? closedList.error : list.error) as Error | null)?.message;
 
   const queueCounts = useMemo(() => {
     const map = new Map<number | "none", number>();
-    for (const t of countSource.data?.tickets || []) {
+    for (const t of countBaseTickets) {
       const key = t.queueId ?? "none";
       map.set(key, (map.get(key) || 0) + 1);
     }
     return map;
-  }, [countSource.data?.tickets]);
+  }, [countBaseTickets]);
 
   const counts = {
     open: overview.data?.summary?.active ?? list.data?.count ?? 0,
@@ -1246,7 +1348,7 @@ export function HelpdeskWorkspace() {
   };
   if (tab === "open") counts.open = list.data?.count ?? counts.open;
   if (tab === "pending") counts.pending = list.data?.count ?? counts.pending;
-  if (tab === "closed") counts.closed = list.data?.count ?? 0;
+  if (tab === "closed") counts.closed = closedTotalCount;
 
   const unread = overview.data?.summary?.newMessages || 0;
   const waitingReply = tickets.filter((t) => (t.unreadMessages || 0) > 0).length;
@@ -1261,7 +1363,7 @@ export function HelpdeskWorkspace() {
     ? (queueCounts.get("none") ?? 0)
     : selectedQueues.length >= 1
       ? (queueCounts.get(selectedQueues[0]) ?? 0)
-      : (countSource.data?.tickets?.length ?? 0);
+      : countBaseTickets.length;
   const connected = (connections.data || []).some((c) => (c.status || "").toLowerCase() === "connected");
   const connectionLabel = connections.isError
     ? "Status da conexão indisponível"
@@ -1273,6 +1375,7 @@ export function HelpdeskWorkspace() {
 
   const invalidateInbox = (id?: number) => {
     qc.invalidateQueries({ queryKey: ["hd-list"] });
+    qc.invalidateQueries({ queryKey: ["hd-list-closed"] });
     qc.invalidateQueries({ queryKey: ["hd-list-counts"] });
     qc.invalidateQueries({ queryKey: ["hd-overview"] });
     qc.invalidateQueries({ queryKey: ["dashboard-helpdesk-ratings"] });
@@ -1719,15 +1822,47 @@ export function HelpdeskWorkspace() {
   );
   const threadTailId = thread.length ? thread[thread.length - 1]?.id : null;
 
+  const handleThreadScroll = () => {
+    const el = threadRef.current;
+    if (!el) return;
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    isNearBottomRef.current = distanceFromBottom < 120;
+    if (el.scrollTop <= 60 && hasMoreMessages && !loadingOlderRef.current) {
+      void loadOlderMessages();
+    }
+  };
+
   useEffect(() => {
     const el = threadRef.current;
     if (!el) return;
+    const pendingRestore = pendingScrollRestoreRef.current;
+    if (pendingRestore) {
+      pendingScrollRestoreRef.current = null;
+      const restore = () => {
+        const delta = el.scrollHeight - pendingRestore.scrollHeight;
+        el.scrollTop = pendingRestore.scrollTop + Math.max(0, delta);
+      };
+      restore();
+      requestAnimationFrame(restore);
+      prevActiveIdRef.current = activeId;
+      prevTailIdRef.current = threadTailId;
+      return;
+    }
+    const conversationChanged = prevActiveIdRef.current !== activeId;
+    const tailChanged = prevTailIdRef.current !== threadTailId;
+    const lastMsg = thread.length ? thread[thread.length - 1] : null;
+    const shouldPin =
+      conversationChanged ||
+      (tailChanged && (isNearBottomRef.current || !!lastMsg?.fromMe));
+    prevActiveIdRef.current = activeId;
+    prevTailIdRef.current = threadTailId;
+    if (!shouldPin) return;
     const pin = () => {
       el.scrollTop = el.scrollHeight;
     };
     pin();
     requestAnimationFrame(pin);
-  }, [messages.data?.messages?.length, threadTailId, activeId]);
+  }, [thread, threadTailId, activeId]);
 
   useEffect(() => {
     const engine: EngineSession | undefined = session.data;
@@ -1740,6 +1875,7 @@ export function HelpdeskWorkspace() {
     socketRef.current = socket;
     const refresh = () => {
       qc.invalidateQueries({ queryKey: ["hd-list"] });
+      qc.invalidateQueries({ queryKey: ["hd-list-closed"] });
       qc.invalidateQueries({ queryKey: ["hd-list-counts"] });
       qc.invalidateQueries({ queryKey: ["hd-overview"] });
       qc.invalidateQueries({ queryKey: ["hd-conversation"] });
@@ -2291,6 +2427,28 @@ export function HelpdeskWorkspace() {
                 />
               ))
             )}
+            {tab === "closed" && closedList.hasNextPage ? (
+              <div className="border-t border-line/60 p-3 text-center">
+                <button
+                  type="button"
+                  disabled={closedList.isFetchingNextPage}
+                  onClick={() => void closedList.fetchNextPage()}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-line bg-surface px-3 py-1.5 text-xs font-medium text-ink hover:bg-wash disabled:opacity-50"
+                >
+                  {closedList.isFetchingNextPage ? (
+                    <>
+                      <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
+                      Carregando…
+                    </>
+                  ) : (
+                    <>
+                      Carregar mais conversas ({rawListTickets.length}
+                      {closedTotalCount > rawListTickets.length ? `/${closedTotalCount}` : ""})
+                    </>
+                  )}
+                </button>
+              </div>
+            ) : null}
           </div>
           <div
             role="separator"
@@ -2458,6 +2616,17 @@ export function HelpdeskWorkspace() {
                       {ticketFlowLoading ? "Carregando…" : "Resolver"}
                     </button>
                   ) : null}
+                  {(current.history?.length || 0) > 0 ? (
+                    <button
+                      type="button"
+                      onClick={() => setHistoryListOpen(true)}
+                      className="inline-flex items-center gap-1 rounded-lg border border-line px-2.5 py-1.5 text-xs font-medium text-ink hover:bg-wash"
+                      title="Ver conversas anteriores deste contato"
+                    >
+                      <History className="h-3.5 w-3.5 shrink-0" />
+                      <span>Histórico ({current.history!.length})</span>
+                    </button>
+                  ) : null}
                   <button
                     type="button"
                     onClick={() => setContactOpen(true)}
@@ -2567,8 +2736,50 @@ export function HelpdeskWorkspace() {
 
               <div
                 ref={threadRef}
+                onScroll={handleThreadScroll}
                 className="min-h-0 flex-1 basis-0 space-y-3 overflow-y-auto overscroll-contain px-4 py-4 [overflow-anchor:none]"
               >
+                {hasMoreMessages ? (
+                  <div className="flex flex-col items-center gap-1.5 pb-1">
+                    <button
+                      type="button"
+                      disabled={loadingOlderMessages}
+                      onClick={() => void loadOlderMessages()}
+                      className="inline-flex items-center gap-1.5 rounded-full border border-line bg-surface/90 px-3.5 py-1.5 text-xs font-medium text-ink shadow-sm hover:bg-wash disabled:opacity-60"
+                    >
+                      {loadingOlderMessages ? (
+                        <>
+                          <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
+                          Carregando mensagens anteriores…
+                        </>
+                      ) : (
+                        <>
+                          <History className="h-3.5 w-3.5 text-muted" />
+                          Carregar mensagens anteriores
+                          {typeof messages.data?.count === "number" && messages.data.count > thread.length
+                            ? ` (${messages.data.count - thread.length} restante${messages.data.count - thread.length === 1 ? "" : "s"})`
+                            : ""}
+                        </>
+                      )}
+                    </button>
+                    {olderMessagesError ? (
+                      <p className="text-center text-[11px] text-open">{olderMessagesError}</p>
+                    ) : null}
+                  </div>
+                ) : messages.isSuccess && (current.history?.length || 0) > 0 ? (
+                  <div className="flex justify-center pb-1">
+                    <button
+                      type="button"
+                      onClick={() => setHistoryListOpen(true)}
+                      className="inline-flex items-center gap-1.5 rounded-full border border-line bg-surface/90 px-3.5 py-1 text-[11px] font-medium text-muted shadow-sm hover:border-brand/40 hover:text-ink"
+                    >
+                      <History className="h-3.5 w-3.5 text-brand" />
+                      Início desta conversa · Ver {current.history!.length} conversa
+                      {current.history!.length === 1 ? "" : "s"} anterior
+                      {current.history!.length === 1 ? "" : "es"}
+                    </button>
+                  </div>
+                ) : null}
                 {messages.isError ? (
                   <p className="rounded-lg bg-open-bg px-3 py-2 text-center text-xs text-open">
                     Não foi possível carregar as mensagens. {(messages.error as Error).message}
@@ -2666,7 +2877,7 @@ export function HelpdeskWorkspace() {
                                     onOpen={setMediaViewer}
                                     onReady={() => {
                                       const el = threadRef.current;
-                                      if (el) el.scrollTop = el.scrollHeight;
+                                      if (el && isNearBottomRef.current) el.scrollTop = el.scrollHeight;
                                     }}
                                   />
                                 ) : null}
@@ -3148,6 +3359,28 @@ export function HelpdeskWorkspace() {
           </div>
         </form>
       </Modal>
+
+      {historyListOpen && current ? (
+        <Modal
+          open
+          onClose={() => setHistoryListOpen(false)}
+          title={`Conversas anteriores · ${contactName(current)}`}
+        >
+          {(current.history?.length || 0) > 0 ? (
+            <ConversationHistoryList
+              items={current.history || []}
+              showInsights={ticketInsightsOn}
+              embedded={false}
+              onOpen={(id) => {
+                setHistoryListOpen(false);
+                setHistoryViewId(id);
+              }}
+            />
+          ) : (
+            <p className="text-sm text-muted">Nenhuma conversa anterior para este contato.</p>
+          )}
+        </Modal>
+      ) : null}
 
       {historyViewId ? (
         <HistoryMessagesModal
@@ -4046,21 +4279,25 @@ function ClientSummaryList({ clientId }: { clientId: number }) {
 function ConversationHistoryList({
   items,
   showInsights = true,
+  embedded = true,
   onOpen,
 }: {
   items: HelpdeskConversationHistoryItem[];
   showInsights?: boolean;
+  embedded?: boolean;
   onOpen: (id: number) => void;
 }) {
   if (!items.length) return null;
   return (
-    <div className="space-y-2 border-t border-line pt-4">
-      <span className="inline-flex items-center gap-1 text-[11px] font-medium uppercase tracking-[0.08em] text-muted">
-        <History className="h-3 w-3" />
-        Conversas anteriores
-        <span className="font-normal normal-case tracking-normal">({items.length})</span>
-      </span>
-      <div className="max-h-72 space-y-1 overflow-y-auto">
+    <div className={cn("space-y-2", embedded && "border-t border-line pt-4")}>
+      {embedded ? (
+        <span className="inline-flex items-center gap-1 text-[11px] font-medium uppercase tracking-[0.08em] text-muted">
+          <History className="h-3 w-3" />
+          Conversas anteriores
+          <span className="font-normal normal-case tracking-normal">({items.length})</span>
+        </span>
+      ) : null}
+      <div className={cn("space-y-1.5 overflow-y-auto", embedded ? "max-h-72" : "max-h-[60vh] pr-1")}>
         {items.map((item) => (
           <button
             key={item.id}
@@ -4103,15 +4340,120 @@ function HistoryMessagesModal({
   onClose: () => void;
   onOpenMedia?: (item: MediaViewerItem) => void;
 }) {
+  const qc = useQueryClient();
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const pendingRestoreRef = useRef<{ scrollHeight: number; scrollTop: number } | null>(null);
+  const didInitialScrollRef = useRef(false);
+  const [loadedPage, setLoadedPage] = useState(1);
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingOlder, setLoadingOlder] = useState(false);
+  const [olderError, setOlderError] = useState<string | null>(null);
+
   const query = useQuery({
     queryKey: ["hd-messages", "history", conversationId],
-    queryFn: () => helpdesk.messages(conversationId),
+    queryFn: () => helpdesk.messages(conversationId, "1"),
   });
-  const items = sortMessagesChronologically(unwrapMessages(query.data));
+  const items = useMemo(
+    () => sortMessagesChronologically(unwrapMessages(query.data)),
+    [query.data],
+  );
+
+  useEffect(() => {
+    setLoadedPage(1);
+    setHasMore(false);
+    setLoadingOlder(false);
+    setOlderError(null);
+    didInitialScrollRef.current = false;
+    pendingRestoreRef.current = null;
+  }, [conversationId]);
+
+  useEffect(() => {
+    if (loadedPage === 1 && query.data) {
+      setHasMore(Boolean(query.data.hasMore));
+    }
+  }, [loadedPage, query.data]);
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el || !items.length) return;
+    const pending = pendingRestoreRef.current;
+    if (pending) {
+      pendingRestoreRef.current = null;
+      const restore = () => {
+        const delta = el.scrollHeight - pending.scrollHeight;
+        el.scrollTop = pending.scrollTop + Math.max(0, delta);
+      };
+      restore();
+      requestAnimationFrame(restore);
+      return;
+    }
+    if (!didInitialScrollRef.current) {
+      didInitialScrollRef.current = true;
+      el.scrollTop = el.scrollHeight;
+    }
+  }, [items.length]);
+
+  const loadOlder = async () => {
+    if (loadingOlder || !hasMore) return;
+    const nextPage = loadedPage + 1;
+    setLoadingOlder(true);
+    setOlderError(null);
+    const el = scrollRef.current;
+    if (el) {
+      pendingRestoreRef.current = { scrollHeight: el.scrollHeight, scrollTop: el.scrollTop };
+    }
+    try {
+      const res = await helpdesk.messages(conversationId, String(nextPage));
+      const older = unwrapMessages(res);
+      const nextHasMore = Boolean(res.hasMore) && older.length > 0;
+      setLoadedPage(nextPage);
+      setHasMore(nextHasMore);
+      qc.setQueryData<MessagesCache>(["hd-messages", "history", conversationId], (prev) => ({
+        ...prev,
+        count: res.count ?? (prev?.count as number | undefined),
+        hasMore: nextHasMore,
+        messages: mergeOlderMessagesPage(prev?.messages, older),
+      }));
+    } catch (e) {
+      pendingRestoreRef.current = null;
+      setOlderError((e as Error).message || "Não foi possível carregar mensagens anteriores.");
+    } finally {
+      setLoadingOlder(false);
+    }
+  };
 
   return (
     <Modal open onClose={onClose} title={`Histórico · conversa #${conversationId}`}>
-      <div className="max-h-[60vh] space-y-2 overflow-y-auto pr-1">
+      <div
+        ref={scrollRef}
+        className="max-h-[60vh] space-y-2 overflow-y-auto pr-1 [overflow-anchor:none]"
+      >
+        {hasMore ? (
+          <div className="flex flex-col items-center gap-1 pb-1">
+            <button
+              type="button"
+              disabled={loadingOlder}
+              onClick={() => void loadOlder()}
+              className="inline-flex items-center gap-1.5 rounded-full border border-line bg-surface px-3 py-1 text-xs font-medium text-ink hover:bg-wash disabled:opacity-60"
+            >
+              {loadingOlder ? (
+                <>
+                  <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
+                  Carregando…
+                </>
+              ) : (
+                <>
+                  <History className="h-3.5 w-3.5 text-muted" />
+                  Carregar mensagens anteriores
+                  {typeof query.data?.count === "number" && query.data.count > items.length
+                    ? ` (${query.data.count - items.length} restante${query.data.count - items.length === 1 ? "" : "s"})`
+                    : ""}
+                </>
+              )}
+            </button>
+            {olderError ? <p className="text-[11px] text-open">{olderError}</p> : null}
+          </div>
+        ) : null}
         {query.isLoading ? <p className="text-sm text-muted">Carregando mensagens…</p> : null}
         {query.isError ? (
           <p className="text-sm text-open">Não foi possível carregar este ciclo.</p>

@@ -497,27 +497,7 @@ export function unwrapMessages(
   return [];
 }
 
-/** Reescreve URL interna do engine (whatsapp-engine:4000/public/...) para o proxy Flask. */
-export function publicMediaUrl(url?: string | null): string | null {
-  if (!url) return null;
-  const raw = url.trim();
-  if (!raw || /nopicture/i.test(raw)) return null;
-  if (raw.includes("/helpdesk/api/media/")) {
-    const idx = raw.indexOf("/helpdesk/api/media/");
-    return `/flask${raw.slice(idx)}`;
-  }
-  const publicIdx = raw.indexOf("/public/");
-  if (publicIdx >= 0) {
-    const path = raw.slice(publicIdx + "/public/".length).split(/[?#]/)[0];
-    if (!path || path.split("/").includes("..")) return null;
-    return `/flask/helpdesk/api/media/${path}`;
-  }
-  if (raw.startsWith("public/")) {
-    return `/flask/helpdesk/api/media/${raw.slice("public/".length).split(/[?#]/)[0]}`;
-  }
-  if (/^https?:\/\//i.test(raw)) return raw;
-  return raw;
-}
+export { publicMediaUrl } from "@/lib/helpdeskMessages";
 
 /** WhatsApp recusa documentos acima disso; vídeos “na conversa” só até ~16 MB. */
 export const HELPDESK_MAX_MEDIA_BYTES = 100 * 1024 * 1024;
@@ -539,19 +519,19 @@ export const helpdesk = {
     return flask.get<ConversationListRes>(`/helpdesk/api/conversations?${q}`);
   },
   /** A lista do motor vem em páginas de 40. A caixa precisa das seguintes para não esconder atendimentos. */
-  inbox: async (status: HelpdeskTab, search = "", queueIds?: number[]) => {
+  inbox: async (status: HelpdeskTab, search = "", queueIds?: number[], maxPages = 15) => {
     const tickets: HelpdeskConversation[] = [];
     let count = 0;
     let page = 1;
     let hasMore = true;
-    while (hasMore && page <= 15) {
+    while (hasMore && page <= maxPages) {
       const data = await helpdesk.conversations(status, String(page), search, queueIds);
       count = data.count ?? count;
       tickets.push(...(data.tickets || []));
       hasMore = !!data.hasMore && (data.tickets || []).length > 0;
       page += 1;
     }
-    return { tickets, count, hasMore: false };
+    return { tickets, count, hasMore };
   },
   conversation: (id: number) => flask.get<HelpdeskConversation>(`/helpdesk/api/conversations/${id}`),
   conversationHistory: (id: number) =>
