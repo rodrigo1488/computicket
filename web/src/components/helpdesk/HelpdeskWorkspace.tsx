@@ -42,6 +42,7 @@ import { TicketCreateDialog } from "@/components/tickets/TicketCreateDialog";
 import { TimeEntryDialog } from "@/components/tickets/TimeEntryDialog";
 import { ComposerContextBanner, MessageActions } from "@/components/chat/MessageActions";
 import { ShareToChatDialog, type ShareToChatTarget } from "@/components/chat/ShareToChatDialog";
+import { AudioTranscript, ThreadMedia } from "@/components/helpdesk/ThreadMedia";
 import { WhatsAppFormattedText } from "@/components/helpdesk/WhatsAppFormattedText";
 import { ContactShareCard } from "@/components/helpdesk/ContactShareCard";
 import { MediaViewer, type MediaViewerItem } from "@/components/media/MediaViewer";
@@ -85,6 +86,7 @@ import {
   type QuickMessage,
   type TransferPayload,
 } from "@/lib/helpdesk";
+import { isInlinePlayableMedia, isPlaceholderAudioBody, mediaKind } from "@/lib/helpdeskMedia";
 import {
   isMediaMessage,
   isTempMessageId,
@@ -237,176 +239,7 @@ function asTab(raw: string | null): HelpdeskTab {
   return "pending";
 }
 
-const IMAGE_EXT = new Set(["jpg", "jpeg", "png", "gif", "webp", "bmp", "svg", "heic", "heif"]);
-const AUDIO_EXT = new Set(["mp3", "ogg", "oga", "opus", "wav", "m4a", "aac", "weba", "caf", "flac", "amr"]);
-const VIDEO_EXT = new Set(["mp4", "webm", "mov", "m4v", "3gp", "3gpp", "mkv", "avi"]);
-
-function mediaExt(url?: string | null) {
-  const path = (url || "").split(/[?#]/)[0];
-  const base = path.split("/").pop() || "";
-  const dot = base.lastIndexOf(".");
-  return dot >= 0 ? base.slice(dot + 1).toLowerCase() : "";
-}
-
-function mediaKind(mediaType?: string | null, mediaUrl?: string | null): "image" | "audio" | "video" | "file" {
-  const raw = (mediaType || "").toLowerCase().split(";")[0].trim();
-  const type = raw.replace(/message$/, "");
-  const ext = mediaExt(mediaUrl);
-  if (type === "ptt" || type.startsWith("ptt/") || type.startsWith("audio") || AUDIO_EXT.has(ext)) return "audio";
-  if (type.startsWith("video") || VIDEO_EXT.has(ext)) return "video";
-  if (type === "sticker" || type.startsWith("image") || IMAGE_EXT.has(ext)) return "image";
-  return "file";
-}
-
-function isInlinePlayableMedia(mediaType?: string | null, mediaUrl?: string | null) {
-  return mediaKind(mediaType, mediaUrl) !== "file";
-}
-
-function ThreadMedia({
-  mediaUrl,
-  mediaType,
-  onReady,
-  onOpen,
-}: {
-  mediaUrl: string;
-  mediaType?: string | null;
-  onReady?: () => void;
-  onOpen?: (item: MediaViewerItem) => void;
-}) {
-  const src = publicMediaUrl(mediaUrl) || mediaUrl;
-  const kind = mediaKind(mediaType, src);
-  if (kind === "image") {
-    return (
-      // eslint-disable-next-line @next/next/no-img-element
-      <img
-        src={src}
-        alt=""
-        className="mb-1 block max-h-56 max-w-full cursor-zoom-in rounded-md object-contain"
-        onLoad={onReady}
-        onClick={() => onOpen?.({ src, kind: "image" })}
-      />
-    );
-  }
-  if (kind === "audio") {
-    return (
-      <audio
-        controls
-        preload="metadata"
-        src={src}
-        aria-label="Áudio"
-        className="mb-1 block h-11 w-full"
-        onLoadedMetadata={onReady}
-      />
-    );
-  }
-  if (kind === "video") {
-    return (
-      <div className="relative mb-1 inline-block max-w-[280px]">
-        <video
-          controls
-          playsInline
-          preload="metadata"
-          src={src}
-          aria-label="Vídeo"
-          className="block max-h-64 w-full rounded-md bg-black"
-          onLoadedMetadata={onReady}
-        />
-        <button
-          type="button"
-          onClick={() => onOpen?.({ src, kind: "video" })}
-          className="absolute right-1 top-1 rounded bg-black/60 px-1.5 py-0.5 text-[10px] font-medium text-white hover:bg-black/80"
-        >
-          Ampliar
-        </button>
-      </div>
-    );
-  }
-  return (
-    <a href={src} target="_blank" rel="noreferrer" className="mb-1 block text-xs text-brand underline">
-      Abrir anexo
-    </a>
-  );
-}
-
 type MessagesCache = { messages?: HelpdeskMessage[]; [key: string]: unknown };
-
-function isPlaceholderAudioBody(body?: string | null) {
-  const t = (body || "").trim().toLowerCase();
-  return !t || t === "-" || t === "áudio" || t === "audio";
-}
-
-function AudioTranscript({
-  message,
-  conversationId,
-}: {
-  message: HelpdeskMessage;
-  conversationId: number;
-}) {
-  const qc = useQueryClient();
-  const patchCaches = (patch: Partial<HelpdeskMessage>) => {
-    const apply = (prev: MessagesCache | undefined): MessagesCache => ({
-      ...prev,
-      messages: (prev?.messages || []).map((row) =>
-        String(row.id) === String(message.id) ? { ...row, ...patch } : row,
-      ),
-    });
-    qc.setQueryData<MessagesCache>(["hd-messages", conversationId], apply);
-    qc.setQueryData<MessagesCache>(["hd-messages", "history", conversationId], apply);
-  };
-  const transcribe = useMutation({
-    mutationFn: () => helpdesk.transcribeMessage(conversationId, String(message.id), true),
-    onMutate: () => {
-      patchCaches({ transcriptionStatus: "pending", transcriptionError: null });
-    },
-    onSuccess: (res) => {
-      patchCaches({
-        transcription: res.transcription || message.transcription,
-        transcriptionStatus: res.transcription ? "completed" : message.transcriptionStatus,
-      });
-    },
-    onError: (err: Error) => {
-      patchCaches({ transcriptionStatus: "failed", transcriptionError: err.message });
-    },
-  });
-
-  const text = (message.transcription || "").trim();
-  const status = transcribe.isPending ? "pending" : message.transcriptionStatus;
-
-  if (text) {
-    return (
-      <p className="mt-1 text-xs leading-relaxed text-ink/90">
-        <span className="font-medium text-muted">Transcrição: </span>
-        {text}
-      </p>
-    );
-  }
-  if (status === "pending") {
-    return <p className="mt-1 text-[11px] text-muted">Transcrevendo áudio…</p>;
-  }
-  if (status === "failed") {
-    return (
-      <div className="mt-1 flex flex-wrap items-center gap-2">
-        <p className="text-[11px] text-open">Não foi possível transcrever</p>
-        <button
-          type="button"
-          onClick={() => transcribe.mutate()}
-          className="text-[11px] font-semibold text-brand hover:underline"
-        >
-          Tentar de novo
-        </button>
-      </div>
-    );
-  }
-  return (
-    <button
-      type="button"
-      onClick={() => transcribe.mutate()}
-      className="mt-1 text-[11px] font-semibold text-brand hover:underline"
-    >
-      Transcrever
-    </button>
-  );
-}
 
 type AppMessagePayload = {
   action?: string;

@@ -4,13 +4,16 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { LifeBuoy, LoaderCircle, Pencil, Plus, Send, Sparkles, Trash2, X } from "lucide-react";
 import { Link } from "@/components/tabs/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { AudioTranscript, ThreadMedia } from "@/components/helpdesk/ThreadMedia";
 import { WhatsAppFormattedText } from "@/components/helpdesk/WhatsAppFormattedText";
+import { MediaViewer, type MediaViewerItem } from "@/components/media/MediaViewer";
 import { ComposerTextarea } from "@/components/ui/ComposerTextarea";
 import { Modal } from "@/components/ui/Modal";
 import { PrimaryButton, UnderlineField } from "@/components/ui/UnderlineField";
 import { flask } from "@/lib/api";
 import { cn } from "@/lib/cn";
-import { helpdesk, unwrapConnections } from "@/lib/helpdesk";
+import { helpdesk, unwrapConnections, type HelpdeskMessage } from "@/lib/helpdesk";
+import { isPlaceholderAudioBody, mediaKind } from "@/lib/helpdeskMedia";
 import { sortMessagesChronologically } from "@/lib/helpdeskMessages";
 
 type Folder = { id: number; name: string; contactsCount?: number };
@@ -24,13 +27,6 @@ type SupportContact = {
   folder?: { id: number; name: string } | null;
   connection?: ConnectionChoice;
   conversation?: { id: number; lastMessage?: string; unreadMessages?: number } | null;
-};
-type ChatMessage = {
-  id: string;
-  body?: string;
-  fromMe?: boolean;
-  createdAt?: string;
-  mediaType?: string;
 };
 type KnowledgeDraft = {
   title: string;
@@ -72,6 +68,7 @@ export function SupportContactsWorkspace() {
   const [error, setError] = useState("");
   const [knowledge, setKnowledge] = useState<KnowledgeDraft | null>(null);
   const [savedUrl, setSavedUrl] = useState("");
+  const [mediaViewer, setMediaViewer] = useState<MediaViewerItem | null>(null);
 
   const folders = useQuery({
     queryKey: ["support-folders"],
@@ -121,7 +118,7 @@ export function SupportContactsWorkspace() {
     enabled: activeTicketId != null,
     refetchInterval: activeTicketId ? 4000 : false,
     queryFn: () =>
-      flask.get<{ messages: ChatMessage[] }>(
+      flask.get<{ messages: HelpdeskMessage[] }>(
         `/helpdesk/api/support/conversations/${activeTicketId}/messages?pageNumber=1`,
       ),
   });
@@ -615,28 +612,62 @@ export function SupportContactsWorkspace() {
                 {messages.isSuccess && thread.length === 0 ? (
                   <p className="py-10 text-center text-sm text-muted">Nenhuma mensagem nesta conversa</p>
                 ) : null}
-                {thread.map((message) => (
-                  <div
-                    key={message.id}
-                    className={cn("mb-2 flex", message.fromMe ? "justify-end" : "justify-start")}
-                  >
+                {thread.map((message) => {
+                  const audio = !!(message.mediaUrl && mediaKind(message.mediaType, message.mediaUrl) === "audio");
+                  return (
                     <div
-                      className={cn(
-                        "max-w-[75%] rounded-lg px-3 py-1.5 text-sm shadow-sm",
-                        message.fromMe
-                          ? "rounded-tr-none bg-bubble-out text-ink"
-                          : "rounded-tl-none bg-bubble-in text-ink",
-                      )}
+                      key={message.id}
+                      className={cn("mb-2 flex", message.fromMe ? "justify-end" : "justify-start")}
                     >
-                      <p className="whitespace-pre-wrap break-words">
-                        <WhatsAppFormattedText text={message.body || message.mediaType || ""} />
-                      </p>
-                      {message.createdAt ? (
-                        <p className="mt-0.5 text-right text-[10px] text-muted">{formatClock(message.createdAt)}</p>
-                      ) : null}
+                      <div
+                        className={cn(
+                          "max-w-[75%] rounded-lg px-3 py-1.5 text-sm shadow-sm",
+                          audio && "w-[min(18rem,75%)]",
+                          message.fromMe
+                            ? "rounded-tr-none bg-bubble-out text-ink"
+                            : "rounded-tl-none bg-bubble-in text-ink",
+                        )}
+                      >
+                        {message.isDeleted ? (
+                          <p className="italic text-muted">Esta mensagem foi apagada</p>
+                        ) : (
+                          <>
+                            {message.mediaUrl ? (
+                              <ThreadMedia
+                                mediaUrl={message.mediaUrl}
+                                mediaType={message.mediaType}
+                                onOpen={setMediaViewer}
+                                onReady={() => {
+                                  const el = threadRef.current;
+                                  if (el && stickToBottomRef.current) el.scrollTop = el.scrollHeight;
+                                }}
+                              />
+                            ) : null}
+                            {audio && activeTicketId ? (
+                              <AudioTranscript
+                                message={message}
+                                conversationId={activeTicketId}
+                                queryKeys={[["support-messages", activeTicketId]]}
+                              />
+                            ) : null}
+                            {message.body && !(audio && isPlaceholderAudioBody(message.body)) ? (
+                              <p className="whitespace-pre-wrap break-words">
+                                <WhatsAppFormattedText text={message.body} />
+                              </p>
+                            ) : !message.mediaUrl && message.mediaType ? (
+                              <p className="whitespace-pre-wrap break-words">
+                                <WhatsAppFormattedText text={message.mediaType} />
+                              </p>
+                            ) : null}
+                          </>
+                        )}
+                        {message.createdAt ? (
+                          <p className="mt-0.5 text-right text-[10px] text-muted">{formatClock(message.createdAt)}</p>
+                        ) : null}
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
               <form
                 className="relative shrink-0 border-t border-chat-border bg-chat-composer px-3 py-2"
@@ -790,6 +821,7 @@ export function SupportContactsWorkspace() {
           </form>
         ) : null}
       </Modal>
+      <MediaViewer item={mediaViewer} onClose={() => setMediaViewer(null)} />
     </div>
   );
 }
